@@ -139,6 +139,28 @@ async def _exercise_extension_identity_validation() -> None:
     assert status["extension"]["identity_verified"] is True
     assert status["extension"]["instance_enrolled"] is True
 
+    unauthenticated_cli = FakeWebSocket(
+        {"role": "cli", "account": "alpha", "method": "navigate"}
+    )
+    await server.handle(unauthenticated_cli)
+    auth_error = json.loads(await unauthenticated_cli.outgoing.get())
+    assert "CLI 账号连接 ID 不匹配" in auth_error["error"]
+
+    authenticated_cli = FakeWebSocket(
+        {
+            "role": "cli",
+            "account": "alpha",
+            "account_id": "slot-alpha",
+            "bridge_token": "secret-alpha",
+            "method": "authenticated-work",
+        }
+    )
+    responder = asyncio.create_task(_respond_once(extension, "alpha"))
+    await server.handle(authenticated_cli)
+    await responder
+    authenticated_result = json.loads(await authenticated_cli.outgoing.get())
+    assert authenticated_result["result"]["method"] == "authenticated-work"
+
     wrong_shutdown = FakeWebSocket(
         {
             "role": "cli",

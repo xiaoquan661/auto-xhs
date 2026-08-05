@@ -35,6 +35,101 @@ from .urls import EXPLORE_URL
 
 logger = logging.getLogger(__name__)
 
+_EMPTY_IDENTITY = {
+    "logged_in": True,
+    "user_id": "",
+    "nickname": "",
+    "profile_url": "",
+}
+
+
+def _profile_user_id(url: str) -> str:
+    """Extract the UID from an XHS profile URL without trusting other page links."""
+    match = re.search(r"/user/profile/([^/?#]+)", url)
+    return match.group(1) if match else ""
+
+
+def _is_current_user_profile(page: Page, current_url: str) -> bool:
+    """Return whether the open profile page exposes the owner-only edit action."""
+    if not _profile_user_id(current_url):
+        return False
+    return page.evaluate(
+        """
+        (() => Array.from(document.querySelectorAll(
+            'button, a, [role="button"], [aria-label], [title]'
+        )).some((element) => {
+            const text = (element.innerText || element.textContent || '').trim();
+            const aria = (element.getAttribute('aria-label') || '').trim();
+            const title = (element.getAttribute('title') || '').trim();
+            return text === '编辑资料' || aria === '编辑资料' || title === '编辑资料';
+        }))()
+        """
+    ) is True
+
+
+def _find_profile_nav_href(page: Page) -> str:
+    """Find the signed-in user's sidebar profile link with a guarded fallback."""
+    profile_href = page.evaluate(
+        "document.querySelector("
+        f"{json.dumps(USER_PROFILE_NAV_LINK)}"
+        ")?.getAttribute('href') || ''"
+    )
+    if profile_href and _profile_user_id(str(profile_href)):
+        return str(profile_href)
+
+    # The exact sidebar selector changes occasionally. Only accept a profile link
+    # whose own text/accessibility label explicitly identifies the "我" entry;
+    # never fall back to an arbitrary author profile link.
+    fallback_href = page.evaluate(
+        """
+        (() => {
+            const links = Array.from(
+                document.querySelectorAll('a[href*="/user/profile/"]')
+            );
+            const profileLink = links.find((link) => {
+                const text = (link.innerText || link.textContent || '').trim();
+                const aria = (link.getAttribute('aria-label') || '').trim();
+                const title = (link.getAttribute('title') || '').trim();
+                const labelledChild = link.querySelector(
+                    '[aria-label="我"], [title="我"]'
+                );
+                return text === '我' || aria === '我' || title === '我' || labelledChild;
+            });
+            return profileLink?.getAttribute('href') || '';
+        })()
+        """
+    )
+    return str(fallback_href or "")
+
+
+def _identity_from_profile(page: Page, profile_href: str) -> dict:
+    """Navigate to a verified self-profile link and read its stable identity fields."""
+    navigation_url = (
+        profile_href
+        if profile_href.startswith("http")
+        else f"https://www.xiaohongshu.com{profile_href}"
+    )
+    user_id = _profile_user_id(navigation_url)
+    if not user_id:
+        return dict(_EMPTY_IDENTITY)
+
+    profile_url = f"https://www.xiaohongshu.com/user/profile/{user_id}"
+    current_url = str(page.evaluate("location.href") or "")
+    if current_url != navigation_url:
+        page.navigate(navigation_url)
+        page.wait_for_load()
+        page.wait_dom_stable()
+
+    nickname = page.evaluate(
+        f"document.querySelector({json.dumps(USER_NICKNAME)})?.innerText?.trim() || ''"
+    )
+    return {
+        "logged_in": True,
+        "user_id": user_id,
+        "nickname": nickname or "",
+        "profile_url": profile_url,
+    }
+
 
 def _wait_for_countdown(page: Page, timeout: float = 5.0) -> None:
     """等待"获取验证码"按钮出现倒计时数字，确认验证码已发送。
@@ -54,6 +149,17 @@ def _wait_for_countdown(page: Page, timeout: float = 5.0) -> None:
 def get_current_user_identity(page: Page) -> dict:
     """Read the currently logged-in XHS UID and nickname."""
     try:
+        current_url = str(page.evaluate("location.href") or "")
+        if _profile_user_id(current_url):
+            try:
+                page.wait_for_load()
+                page.wait_dom_stable()
+                current_url = str(page.evaluate("location.href") or current_url)
+                if _is_current_user_profile(page, current_url):
+                    return _identity_from_profile(page, current_url)
+            except Exception as exc:
+                logger.debug("当前主页身份探测失败，将回退到探索页: %s", exc)
+
         page.navigate(EXPLORE_URL)
         page.wait_for_load()
         if not check_login_status(page):
@@ -64,46 +170,13 @@ def get_current_user_identity(page: Page) -> dict:
                 "profile_url": "",
             }
 
-        # 从导航栏"我"的链接取个人主页 URL（含 /user/profile/<user_id>）
-        profile_href = page.evaluate(
-            "document.querySelector("
-            f"{json.dumps(USER_PROFILE_NAV_LINK)}"
-            ")?.getAttribute('href') || ''"
-        )
+        # 从导航栏"我"的链接取个人主页 URL（含 /user/profile/<user_id>）。
+        # 精确选择器失效时，只接受文本/无障碍标签明确为"我"的链接。
+        profile_href = _find_profile_nav_href(page)
         if not profile_href:
-            return {
-                "logged_in": True,
-                "user_id": "",
-                "nickname": "",
-                "profile_url": "",
-            }
+            return dict(_EMPTY_IDENTITY)
 
-        # 导航到个人主页读取真实昵称
-        navigation_url = (
-            profile_href
-            if profile_href.startswith("http")
-            else f"https://www.xiaohongshu.com{profile_href}"
-        )
-        match = re.search(r"/user/profile/([^/?#]+)", navigation_url)
-        user_id = match.group(1) if match else ""
-        profile_url = (
-            f"https://www.xiaohongshu.com/user/profile/{user_id}"
-            if user_id
-            else navigation_url.split("?", 1)[0].split("#", 1)[0]
-        )
-        page.navigate(navigation_url)
-        page.wait_for_load()
-        page.wait_dom_stable()
-
-        nickname = page.evaluate(
-            f"document.querySelector({json.dumps(USER_NICKNAME)})?.innerText?.trim() || ''"
-        )
-        return {
-            "logged_in": True,
-            "user_id": user_id,
-            "nickname": nickname or "",
-            "profile_url": profile_url,
-        }
+        return _identity_from_profile(page, profile_href)
     except Exception as exc:
         logger.warning("获取当前登录身份失败: %s", exc)
         return {

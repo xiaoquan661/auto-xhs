@@ -135,6 +135,117 @@ def test_current_user_identity_extracts_uid_and_nickname():
     assert identity["nickname"] == "新账号昵称"
 
 
+def test_current_user_identity_preserves_open_self_profile():
+    class FakePage:
+        def __init__(self) -> None:
+            self.url = "https://www.xiaohongshu.com/user/profile/self-123?xsec_token=token"
+            self.navigations: list[str] = []
+
+        def navigate(self, url: str) -> None:
+            self.navigations.append(url)
+            self.url = url
+
+        def wait_for_load(self) -> None:
+            pass
+
+        def wait_dom_stable(self) -> None:
+            pass
+
+        def evaluate(self, expression: str):
+            if expression == "location.href":
+                return self.url
+            if "编辑资料" in expression:
+                return True
+            if "innerText" in expression:
+                return "主页昵称"
+            return ""
+
+    page = FakePage()
+    identity = get_current_user_identity(page)
+
+    assert identity == {
+        "logged_in": True,
+        "user_id": "self-123",
+        "nickname": "主页昵称",
+        "profile_url": "https://www.xiaohongshu.com/user/profile/self-123",
+    }
+    assert page.navigations == []
+
+
+def test_current_user_identity_uses_guarded_sidebar_fallback():
+    class FakePage:
+        def __init__(self) -> None:
+            self.url = "https://www.xiaohongshu.com/explore"
+
+        def navigate(self, url: str) -> None:
+            self.url = url
+
+        def wait_for_load(self) -> None:
+            pass
+
+        def wait_dom_stable(self) -> None:
+            pass
+
+        def has_element(self, selector: str) -> bool:
+            return "login-btn" in selector or "channel" in selector
+
+        def evaluate(self, expression: str):
+            if expression == "location.href":
+                return self.url
+            if "document.querySelector(" in expression and "getAttribute('href')" in expression:
+                return ""
+            if "profileLink" in expression:
+                return "/user/profile/fallback-456?xsec_token=token"
+            if "innerText" in expression:
+                return "回退昵称"
+            return ""
+
+    identity = get_current_user_identity(FakePage())
+
+    assert identity["user_id"] == "fallback-456"
+    assert identity["nickname"] == "回退昵称"
+
+
+def test_current_user_identity_does_not_trust_open_author_profile():
+    class FakePage:
+        def __init__(self) -> None:
+            self.url = "https://www.xiaohongshu.com/user/profile/author-999"
+            self.navigations: list[str] = []
+
+        def navigate(self, url: str) -> None:
+            self.navigations.append(url)
+            self.url = url
+
+        def wait_for_load(self) -> None:
+            pass
+
+        def wait_dom_stable(self) -> None:
+            pass
+
+        def has_element(self, selector: str) -> bool:
+            return "login-btn" in selector or "channel" in selector
+
+        def evaluate(self, expression: str):
+            if expression == "location.href":
+                return self.url
+            if "编辑资料" in expression:
+                return False
+            if "document.querySelector(" in expression and "getAttribute('href')" in expression:
+                return ""
+            if "profileLink" in expression:
+                return "/user/profile/signed-in-123"
+            if "innerText" in expression:
+                return "本人昵称"
+            return ""
+
+    page = FakePage()
+    identity = get_current_user_identity(page)
+
+    assert identity["user_id"] == "signed-in-123"
+    assert identity["user_id"] != "author-999"
+    assert page.navigations[0] == "https://www.xiaohongshu.com/explore"
+
+
 def test_pending_switch_blocks_business_commands_but_allows_auth(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     begin_login_switch("alpha", _identity("user-old"))

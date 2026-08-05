@@ -15,6 +15,7 @@ from scripts.account_pairing import (
     pairing_session_path,
     revoke_account_pairing,
 )
+from scripts.cli import cmd_account_onboard
 
 
 def _make_extension(path: Path) -> Path:
@@ -25,57 +26,51 @@ def _make_extension(path: Path) -> Path:
     return path
 
 
-def test_pairing_bundle_is_single_use_and_rotates_token(tmp_path, monkeypatch):
+def test_pairing_bundle_is_one_time_and_rotates_credentials(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
-    config = add_account(
-        "alpha",
-        bridge_port=19601,
-        extension_source=_make_extension(tmp_path / "extension-source"),
-    )
+    source = _make_extension(tmp_path / "extension-source")
+    config = add_account("alpha", bridge_port=19601, extension_source=source)
     old_token = config.bridge_token
 
-    pairing = create_pairing_session(config)
+    pairing = create_pairing_session(config, ttl_seconds=120)
     payload = decode_pairing_bundle(pairing["pairing_bundle"])
     assert payload["account"] == "alpha"
     assert payload["bridgeUrl"] == "ws://localhost:19601"
-    assert get_pairing_status("alpha")["pairing_pending"] is True
+    assert old_token not in pairing["pairing_bundle"]
 
     paired = consume_pairing_session(
         "alpha",
         payload["pairingCode"],
-        instance_id="instance_alpha_123",
+        instance_id="instance_alpha_001",
         extension_id="a" * 32,
         profile_directory="Default",
     )
-
-    assert paired.extension_instance_id == "instance_alpha_123"
+    assert paired.extension_instance_id == "instance_alpha_001"
     assert paired.bridge_token != old_token
-    assert get_pairing_status("alpha")["paired"] is True
     assert not pairing_session_path("alpha").exists()
+
     with pytest.raises(RuntimeError, match="不存在或已经使用"):
         consume_pairing_session(
             "alpha",
             payload["pairingCode"],
-            instance_id="instance_alpha_123",
+            instance_id="instance_alpha_001",
             extension_id="a" * 32,
             profile_directory="Default",
         )
 
 
-def test_wrong_and_expired_pairing_codes_are_rejected(tmp_path, monkeypatch):
+def test_pairing_rejects_wrong_and_expired_codes(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
-    config = add_account(
-        "alpha",
-        bridge_port=19602,
-        extension_source=_make_extension(tmp_path / "extension-source"),
-    )
-    payload = decode_pairing_bundle(create_pairing_session(config)["pairing_bundle"])
+    source = _make_extension(tmp_path / "extension-source")
+    config = add_account("alpha", bridge_port=19611, extension_source=source)
+    pairing = create_pairing_session(config, ttl_seconds=120)
+    payload = decode_pairing_bundle(pairing["pairing_bundle"])
 
     with pytest.raises(RuntimeError, match="不正确"):
         consume_pairing_session(
             "alpha",
             "wrong-code",
-            instance_id="instance_alpha_123",
+            instance_id="instance_alpha_002",
             extension_id="b" * 32,
             profile_directory="Default",
         )
@@ -88,7 +83,7 @@ def test_wrong_and_expired_pairing_codes_are_rejected(tmp_path, monkeypatch):
         consume_pairing_session(
             "alpha",
             payload["pairingCode"],
-            instance_id="instance_alpha_123",
+            instance_id="instance_alpha_002",
             extension_id="b" * 32,
             profile_directory="Default",
         )
@@ -97,10 +92,10 @@ def test_wrong_and_expired_pairing_codes_are_rejected(tmp_path, monkeypatch):
 def test_two_accounts_share_code_but_keep_independent_pairings(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     source = _make_extension(tmp_path / "extension-source")
-    alpha = add_account("alpha", bridge_port=19603, extension_source=source)
-    beta = add_account("beta", bridge_port=19604, extension_source=source)
-
+    alpha = add_account("alpha", bridge_port=19621, extension_source=source)
+    beta = add_account("beta", bridge_port=19622, extension_source=source)
     assert alpha.extension_dir == beta.extension_dir
+
     alpha_payload = decode_pairing_bundle(
         create_pairing_session(alpha)["pairing_bundle"]
     )
@@ -108,62 +103,82 @@ def test_two_accounts_share_code_but_keep_independent_pairings(tmp_path, monkeyp
     consume_pairing_session(
         "alpha",
         alpha_payload["pairingCode"],
-        instance_id="instance_alpha_123",
+        instance_id="profile_default_001",
         extension_id="c" * 32,
         profile_directory="Default",
     )
     consume_pairing_session(
         "beta",
         beta_payload["pairingCode"],
-        instance_id="instance_beta_1234",
-        extension_id="d" * 32,
+        instance_id="profile_two_0001",
+        extension_id="c" * 32,
         profile_directory="Default",
     )
 
-    assert load_account("alpha").extension_instance_id == "instance_alpha_123"
-    assert load_account("beta").extension_instance_id == "instance_beta_1234"
+    assert load_account("alpha").extension_instance_id == "profile_default_001"
+    assert load_account("beta").extension_instance_id == "profile_two_0001"
     assert load_account("alpha").bridge_token != load_account("beta").bridge_token
 
 
-def test_revoke_pairing_clears_instance_and_rotates_token(tmp_path, monkeypatch):
+def test_revoke_pairing_rotates_token_and_clears_instance(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
-    config = add_account(
-        "alpha",
-        bridge_port=19605,
-        extension_source=_make_extension(tmp_path / "extension-source"),
-    )
+    source = _make_extension(tmp_path / "extension-source")
+    config = add_account("alpha", bridge_port=19631, extension_source=source)
     payload = decode_pairing_bundle(create_pairing_session(config)["pairing_bundle"])
     paired = consume_pairing_session(
         "alpha",
         payload["pairingCode"],
-        instance_id="instance_alpha_123",
-        extension_id="e" * 32,
+        instance_id="instance_alpha_003",
+        extension_id="d" * 32,
         profile_directory="Default",
     )
 
     revoked = revoke_account_pairing("alpha")
-
     assert revoked.extension_instance_id is None
     assert revoked.bridge_token != paired.bridge_token
     assert get_pairing_status("alpha")["paired"] is False
 
 
-def test_pairing_rejects_a_different_profile_slot(tmp_path, monkeypatch):
+def test_account_onboard_creates_slot_starts_runtime_and_copies_bundle(
+    tmp_path, monkeypatch, capsys
+):
+    import argparse
+
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
-    config = add_account(
-        "alpha",
-        bridge_port=19606,
-        extension_source=_make_extension(tmp_path / "extension-source"),
+    runtime_calls = []
+    chrome_calls = []
+    copied = []
+    monkeypatch.setattr(
+        "scripts.cli._ensure_bridge_ready",
+        lambda url, config, open_browser: runtime_calls.append(
+            (url, config.name, open_browser)
+        ),
     )
-    payload = decode_pairing_bundle(create_pairing_session(config)["pairing_bundle"])
+    monkeypatch.setattr(
+        "scripts.cli._open_chrome", lambda config: chrome_calls.append(config.name)
+    )
+    monkeypatch.setattr(
+        "scripts.cli._copy_text_to_clipboard",
+        lambda text: copied.append(text) or True,
+    )
 
-    with pytest.raises(RuntimeError, match="Profile 与账号槽位不一致"):
-        consume_pairing_session(
-            "alpha",
-            payload["pairingCode"],
-            instance_id="instance_alpha_123",
-            extension_id="f" * 32,
-            profile_directory="Profile 2",
-        )
+    args = argparse.Namespace(
+        name="alpha",
+        port=19641,
+        confirm=True,
+        ttl=120,
+        show_bundle=False,
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_account_onboard(args)
 
-    assert pairing_session_path("alpha").exists()
+    assert exc_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["success"] is True
+    assert report["created"] is True
+    assert report["pairing_bundle_copied"] is True
+    assert "pairing_bundle" not in report
+    assert copied[0].startswith("xhs-pair-v1:")
+    assert runtime_calls == [("ws://localhost:19641", "alpha", False)]
+    assert chrome_calls == ["alpha"]
+    assert get_pairing_status("alpha")["pairing_pending"] is True

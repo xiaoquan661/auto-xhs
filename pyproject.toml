@@ -47,6 +47,7 @@ known-first-party = ["xiaohongshu_skills"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["scripts"]
 
 [dependency-groups]
 dev = [

@@ -46,6 +46,32 @@ def _output(data: dict, exit_code: int = 0) -> None:
     sys.exit(exit_code)
 
 
+def _copy_text_to_clipboard(text: str) -> bool:
+    """Copy local setup material without putting it in normal CLI output."""
+    import platform
+    import subprocess
+
+    commands = {
+        "Windows": ["clip.exe"],
+        "Darwin": ["pbcopy"],
+        "Linux": ["xclip", "-selection", "clipboard"],
+    }
+    command = commands.get(platform.system())
+    if not command:
+        return False
+    try:
+        subprocess.run(
+            command,
+            input=text,
+            text=True,
+            check=True,
+            capture_output=True,
+        )
+        return True
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return False
+
+
 def _ensure_switch_allows_command(args: argparse.Namespace) -> None:
     if getattr(args, "allow_during_switch", False):
         return
@@ -122,7 +148,17 @@ def _ensure_bridge_ready(
             )
         kwargs["env"] = process_env
         if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            kwargs["start_new_session"] = True
+        kwargs.update(
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
         subprocess.Popen(
             [
                 sys.executable,
@@ -978,6 +1014,61 @@ def cmd_account_add(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_account_onboard(args: argparse.Namespace) -> None:
+    """Create or resume an account slot and prepare one-time extension pairing."""
+    from pathlib import Path
+
+    from account_manager import add_account, load_account, public_config
+    from account_pairing import create_pairing_session
+
+    if not args.confirm:
+        raise ValueError("首次账号入驻必须显式提供 --confirm")
+
+    created = False
+    try:
+        config = load_account(args.name, allow_legacy_default=False)
+    except FileNotFoundError:
+        extension_source = Path(__file__).parent.parent / "extension"
+        config = add_account(
+            args.name,
+            bridge_port=args.port,
+            extension_source=extension_source,
+        )
+        created = True
+
+    if config.extension_instance_id:
+        raise RuntimeError(
+            f"账号 {config.name!r} 已完成扩展配对；请使用 account-start"
+        )
+
+    _ensure_bridge_ready(config.bridge_url, config, open_browser=False)
+    _open_chrome(config)
+    pairing = create_pairing_session(config, ttl_seconds=args.ttl)
+    pairing_bundle = pairing.pop("pairing_bundle")
+    copied = _copy_text_to_clipboard(pairing_bundle)
+
+    result = {
+        "success": True,
+        "created": created,
+        "account": public_config(config),
+        "pairing": pairing,
+        "pairing_bundle_copied": copied,
+        "extension_dir": config.extension_dir,
+        "instruction": (
+            "在刚打开的目标 Chrome Profile 中打开 XHS Bridge 弹窗，"
+            "粘贴剪贴板内容并确认配对"
+            if copied
+            else "剪贴板不可用；复制输出中的 pairing_bundle 到目标扩展弹窗"
+        ),
+        "next_step": (
+            f"python scripts/cli.py --account {config.name} account-pair-status"
+        ),
+    }
+    if args.show_bundle or not copied:
+        result["pairing_bundle"] = pairing_bundle
+    _output(result)
+
+
 def cmd_account_import(args: argparse.Namespace) -> None:
     from pathlib import Path
 
@@ -1195,6 +1286,34 @@ def cmd_account_unpair(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_account_autostart_enable(args: argparse.Namespace) -> None:
+    from account_autostart import enable_account_autostart
+    from account_manager import load_account
+
+    if not args.confirm:
+        raise ValueError("启用登录自启动必须显式提供 --confirm")
+    config = load_account(args.account, allow_legacy_default=False)
+    _output({"success": True, "autostart": enable_account_autostart(config.name)})
+
+
+def cmd_account_autostart_status(args: argparse.Namespace) -> None:
+    from account_autostart import account_autostart_status
+    from account_manager import load_account
+
+    config = load_account(args.account, allow_legacy_default=False)
+    _output({"success": True, "autostart": account_autostart_status(config.name)})
+
+
+def cmd_account_autostart_disable(args: argparse.Namespace) -> None:
+    from account_autostart import disable_account_autostart
+    from account_manager import load_account
+
+    if not args.confirm:
+        raise ValueError("关闭登录自启动必须显式提供 --confirm")
+    config = load_account(args.account, allow_legacy_default=False)
+    _output({"success": True, "autostart": disable_account_autostart(config.name)})
+
+
 def cmd_account_doctor(args: argparse.Namespace) -> None:
     from account_doctor import diagnose_accounts
 
@@ -1401,6 +1520,21 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # account management
+    sub = subparsers.add_parser(
+        "account-onboard",
+        help="一条命令创建账号槽位、启动 Chrome 并准备一次性配对",
+    )
+    sub.add_argument("--name", required=True, help="账号别名，如 brand-a")
+    sub.add_argument("--port", type=int, help="Bridge 端口；省略时自动分配")
+    sub.add_argument("--confirm", action="store_true", help="确认创建槽位并启动配对")
+    sub.add_argument("--ttl", type=int, default=300, help="配对包有效秒数（30-900）")
+    sub.add_argument(
+        "--show-bundle",
+        action="store_true",
+        help="同时在 JSON 中显示配对包；默认只复制到剪贴板",
+    )
+    sub.set_defaults(func=cmd_account_onboard, requires_account_lock=False)
+
     sub = subparsers.add_parser("account-add", help="创建独立账号浏览器环境")
     sub.add_argument("--name", required=True, help="账号别名，如 brand-a")
     sub.add_argument("--port", type=int, help="Bridge 端口；省略时自动分配")
@@ -1462,6 +1596,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_argument("--confirm", action="store_true", help="确认撤销当前配对")
     sub.set_defaults(func=cmd_account_unpair, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "account-autostart-enable",
+        help="注册 Windows 登录任务，自动启动该账号的 Bridge 和 Chrome",
+    )
+    sub.add_argument("--confirm", action="store_true", help="确认注册登录自启动任务")
+    sub.set_defaults(func=cmd_account_autostart_enable, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "account-autostart-status", help="查看该账号的 Windows 登录自启动状态"
+    )
+    sub.set_defaults(func=cmd_account_autostart_status, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "account-autostart-disable", help="删除该账号的 Windows 登录自启动任务"
+    )
+    sub.add_argument("--confirm", action="store_true", help="确认删除登录自启动任务")
+    sub.set_defaults(func=cmd_account_autostart_disable, requires_account_lock=False)
 
     sub = subparsers.add_parser("account-doctor", help="只读诊断账号配置和运行状态")
     sub.add_argument("--name", help="只检查指定账号；省略时检查全部账号")
