@@ -186,7 +186,7 @@ def _diagnose_profile(
                 _check(
                     "profile_initialized",
                     "info",
-                    "独立 Profile 尚未生成 Default 子目录，首次启动 Chrome 后会创建",
+                    "独立 Profile 尚未生成 Default 子目录，首次手动打开 Chrome 后会创建",
                 )
             )
 
@@ -378,6 +378,8 @@ def _diagnose_extension(
     return checks
 
 def _diagnose_runtime(config: AccountConfig, page_factory: Callable) -> tuple[list[dict], dict]:
+    from account_runtime import evaluate_profile_connection
+
     checks: list[dict] = []
     bridge_running = False
     extension_connected = False
@@ -395,6 +397,14 @@ def _diagnose_runtime(config: AccountConfig, page_factory: Callable) -> tuple[li
             extension_connected = (
                 bool(page.is_extension_connected()) if bridge_running else False
             )
+            if bridge_running:
+                bridge_status = {
+                    "extension_connected": extension_connected,
+                    "extension": {
+                        "profile_directory": config.chrome_profile_directory
+                        or "Default"
+                    },
+                }
     except Exception as exc:
         checks.append(
             _check(
@@ -447,6 +457,49 @@ def _diagnose_runtime(config: AccountConfig, page_factory: Callable) -> tuple[li
         )
 
     extension_info = (bridge_status or {}).get("extension") or {}
+    profile_runtime = evaluate_profile_connection(config, bridge_status)
+    if (
+        extension_connected
+        and profile_runtime["profile_verification_level"] == "paired_instance"
+    ):
+        checks.append(
+            _check(
+                "connected_profile",
+                "pass",
+                "当前连接来自该槽位已登记的 Chrome Profile 扩展实例",
+            )
+        )
+    elif (
+        extension_connected
+        and profile_runtime["profile_verification_level"] == "legacy_claim"
+    ):
+        checks.append(
+            _check(
+                "connected_profile",
+                "warning",
+                "旧版扩展的 Profile 声明与槽位一致，但尚无配对实例强校验",
+                fix="通过 WebUI 引导该 Profile 加载通用扩展并重新安全配对",
+            )
+        )
+    elif extension_connected:
+        checks.append(
+            _check(
+                "connected_profile",
+                "fail",
+                "当前连接扩展的 Chrome Profile 与槽位配置不一致: "
+                f"expected={profile_runtime['expected_profile_directory']!r}, "
+                f"actual={profile_runtime['connected_profile_directory']!r}",
+                fix="停止当前 Bridge，重新启动槽位指定 Profile 后再检查",
+            )
+        )
+    else:
+        checks.append(
+            _check(
+                "connected_profile",
+                "warning",
+                "扩展未连接，暂时无法核验实际 Chrome Profile",
+            )
+        )
     identity_verified = bool(
         extension_connected
         and config.account_id
@@ -498,6 +551,16 @@ def _diagnose_runtime(config: AccountConfig, page_factory: Callable) -> tuple[li
     return checks, {
         "bridge_running": bridge_running,
         "extension_connected": extension_connected,
+        "expected_profile_directory": profile_runtime[
+            "expected_profile_directory"
+        ],
+        "connected_profile_directory": profile_runtime[
+            "connected_profile_directory"
+        ],
+        "profile_verified": profile_runtime["profile_verified"],
+        "profile_verification_level": profile_runtime[
+            "profile_verification_level"
+        ],
         "connection_identity_verified": identity_verified,
         "extension_instance_enrolled": instance_enrolled,
     }
@@ -539,7 +602,12 @@ def _diagnose_account(
     runtime_checks, runtime = _diagnose_runtime(config, page_factory)
     checks.extend(runtime_checks)
     healthy = not any(item["status"] == "fail" for item in checks)
-    ready = healthy and runtime["bridge_running"] and runtime["extension_connected"]
+    ready = (
+        healthy
+        and runtime["bridge_running"]
+        and runtime["extension_connected"]
+        and runtime["profile_verified"]
+    )
     return {
         "name": config.name,
         "account": public_config(config),

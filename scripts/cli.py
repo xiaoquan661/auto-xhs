@@ -118,10 +118,8 @@ class _DummyBrowser:
 def _ensure_bridge_ready(
     bridge_url: str,
     account_config,
-    *,
-    open_browser: bool = True,
-) -> None:
-    """确保 bridge server 在运行、浏览器扩展已连接。若未就绪则自动启动。"""
+) -> dict:
+    """Ensure the local Bridge is running without starting or changing Chrome."""
     import subprocess
     import time
     from pathlib import Path
@@ -167,6 +165,8 @@ def _ensure_bridge_ready(
                 str(bridge_port),
                 "--account",
                 account_config.name,
+                "--profile-directory",
+                getattr(account_config, "chrome_profile_directory", None) or "Default",
             ],
             **kwargs,
         )
@@ -177,66 +177,9 @@ def _ensure_bridge_ready(
                 break
         else:
             logger.warning("Bridge server 启动超时，请手动运行 bridge_server.py")
-            return
+            return {"bridge_running": False}
 
-    if not open_browser:
-        return
-
-    # ── 2. 检查扩展是否连接 ──────────────────────────────────────────
-    if page.is_extension_connected():
-        return
-
-    logger.info("浏览器扩展未连接，正在打开 Chrome...")
-    _open_chrome(account_config)
-
-    for _ in range(20):
-        time.sleep(1)
-        if page.is_extension_connected():
-            logger.info("浏览器扩展已连接")
-            return
-    logger.warning("等待扩展连接超时，请确认 Chrome 已安装 XHS Bridge 扩展并已启用")
-
-
-def _open_chrome(account_config=None) -> None:
-    """尝试启动 Chrome 浏览器。"""
-    import subprocess
-
-    candidates = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            command = [path]
-            if account_config and account_config.chrome_user_data_dir:
-                command.append(f"--user-data-dir={account_config.chrome_user_data_dir}")
-                command.extend(["--no-first-run", "--no-default-browser-check"])
-            if account_config and account_config.chrome_profile_directory:
-                command.append(
-                    f"--profile-directory={account_config.chrome_profile_directory}"
-                )
-            if (
-                account_config
-                and account_config.extension_dir
-                and account_config.profile_mode != "existing"
-            ):
-                command.extend(
-                    [
-                        f"--disable-extensions-except={account_config.extension_dir}",
-                        f"--load-extension={account_config.extension_dir}",
-                    ]
-                )
-            subprocess.Popen(command)
-            return
-    # macOS / Linux fallback
-    for cmd in [["open", "-a", "Google Chrome"], ["google-chrome"], ["chromium-browser"]]:
-        try:
-            subprocess.Popen(cmd)
-            return
-        except FileNotFoundError:
-            continue
-    logger.warning("找不到 Chrome，请手动打开浏览器")
+    return {"bridge_running": True}
 
 
 def _connect(args: argparse.Namespace):
@@ -247,13 +190,22 @@ def _connect(args: argparse.Namespace):
     account_name = getattr(args, "account", "default")
     account_config = load_account(account_name)
     bridge_url = getattr(args, "bridge_url", None) or account_config.bridge_url
-    _ensure_bridge_ready(bridge_url, account_config)
+    startup = _ensure_bridge_ready(bridge_url, account_config)
+    if not startup["bridge_running"]:
+        raise RuntimeError("BLOCKED: Bridge 启动失败，请先在 WebUI 运行诊断")
     page = BridgePage(
         bridge_url,
         account=account_name,
         account_id=account_config.account_id,
         bridge_token=account_config.bridge_token,
     )
+    if not page.is_extension_connected():
+        profile = account_config.chrome_profile_directory or "Default"
+        raise RuntimeError(
+            "BLOCKED: 热登录浏览器未连接。请手动打开账号 "
+            f"{account_name!r} 对应的 Chrome Profile {profile!r}，"
+            "保持小红书页面和 XHS Bridge 扩展开启后重试"
+        )
     if getattr(args, "command", None) in _IDENTITY_GUARDED_COMMANDS:
         from account_identity import assert_live_identity
         from xhs.login import get_current_user_identity
@@ -1007,8 +959,9 @@ def cmd_account_add(args: argparse.Namespace) -> None:
             "success": True,
             "account": public_config(config),
             "next_step": (
-                f"python scripts/cli.py --account {config.name} account-start; "
-                "首次启动后再执行 account-pair-begin --confirm"
+                "请手动打开该槽位对应的 Chrome Profile，加载通用扩展，"
+                f"再运行 python scripts/cli.py --account {config.name} "
+                "account-pair-begin --confirm"
             ),
         }
     )
@@ -1038,11 +991,10 @@ def cmd_account_onboard(args: argparse.Namespace) -> None:
 
     if config.extension_instance_id:
         raise RuntimeError(
-            f"账号 {config.name!r} 已完成扩展配对；请使用 account-start"
+            f"账号 {config.name!r} 已完成扩展配对；请保持对应 Chrome Profile 开启"
         )
 
-    _ensure_bridge_ready(config.bridge_url, config, open_browser=False)
-    _open_chrome(config)
+    _ensure_bridge_ready(config.bridge_url, config)
     pairing = create_pairing_session(config, ttl_seconds=args.ttl)
     pairing_bundle = pairing.pop("pairing_bundle")
     copied = _copy_text_to_clipboard(pairing_bundle)
@@ -1055,7 +1007,7 @@ def cmd_account_onboard(args: argparse.Namespace) -> None:
         "pairing_bundle_copied": copied,
         "extension_dir": config.extension_dir,
         "instruction": (
-            "在刚打开的目标 Chrome Profile 中打开 XHS Bridge 弹窗，"
+            "请手动打开目标 Chrome Profile，并在 XHS Bridge 弹窗中"
             "粘贴剪贴板内容并确认配对"
             if copied
             else "剪贴板不可用；复制输出中的 pairing_bundle 到目标扩展弹窗"
@@ -1095,8 +1047,9 @@ def cmd_account_import(args: argparse.Namespace) -> None:
                 "message": "请在该 Profile 中开启开发者模式并加载通用扩展目录",
             },
             "next_step": (
-                f"python scripts/cli.py --account {config.name} account-start; "
-                "首次启动后再执行 account-pair-begin --confirm"
+                "请手动打开该 Profile，加载通用扩展，"
+                f"再运行 python scripts/cli.py --account {config.name} "
+                "account-pair-begin --confirm"
             ),
         }
     )
@@ -1122,29 +1075,70 @@ def cmd_account_discover(args: argparse.Namespace) -> None:
 
 
 def cmd_account_list(args: argparse.Namespace) -> None:
-    from account_manager import list_accounts, public_config
+    from application_service import ApplicationService
 
-    _output({"success": True, "accounts": [public_config(c) for c in list_accounts()]})
+    _output(ApplicationService().list_accounts())
 
 
 def cmd_account_start(args: argparse.Namespace) -> None:
     from account_manager import load_account, public_config
+    from account_runtime import evaluate_profile_connection
     from xhs.bridge import BridgePage
 
     config = load_account(args.account, allow_legacy_default=False)
     bridge_url = args.bridge_url or config.bridge_url
-    _ensure_bridge_ready(bridge_url, config)
+    startup = _ensure_bridge_ready(bridge_url, config)
+    if getattr(args, "bridge_only", False):
+        _output(
+            {
+                "success": startup["bridge_running"],
+                "status": "BRIDGE_READY" if startup["bridge_running"] else "BLOCKED",
+                "server_running": startup["bridge_running"],
+                "chrome_managed": False,
+                "message": "Bridge 已启动；Chrome 由用户手动打开并保持在线",
+                "account": public_config(config),
+            },
+            exit_code=0 if startup["bridge_running"] else 2,
+        )
     page = BridgePage(bridge_url, account=config.name)
-    server_running = page.is_server_running()
-    extension_connected = page.is_extension_connected()
-    ready = server_running and extension_connected
+    bridge_status = page.get_server_status()
+    runtime = evaluate_profile_connection(config, bridge_status)
+    ready = bool(
+        runtime["bridge_running"]
+        and runtime["extension_connected"]
+        and runtime["profile_verified"]
+    )
     result = {
         "success": ready,
-        "server_running": server_running,
-        "extension_connected": extension_connected,
+        "server_running": runtime["bridge_running"],
+        "extension_connected": runtime["extension_connected"],
+        "profile_verified": runtime["profile_verified"],
+        "expected_profile_directory": runtime["expected_profile_directory"],
+        "connected_profile_directory": runtime["connected_profile_directory"],
+        "profile_directory_claim_matches": runtime[
+            "profile_directory_claim_matches"
+        ],
+        "profile_verification_level": runtime["profile_verification_level"],
+        "connection_identity_verified": runtime["connection_identity_verified"],
+        "extension_instance_enrolled": runtime["extension_instance_enrolled"],
+        "status": "READY" if ready else "BLOCKED",
         "account": public_config(config),
     }
-    if not extension_connected and config.extension_dir:
+    if runtime["extension_connected"] and not runtime["profile_verified"]:
+        result["error_code"] = "PROFILE_MISMATCH"
+        result["message"] = (
+            "已连接扩展的 Profile 声明或已登记实例与槽位不一致，"
+            "拒绝把账号标记为启动成功"
+        )
+    elif not startup["bridge_running"]:
+        result["error_code"] = "BRIDGE_NOT_READY"
+        result["message"] = "Bridge 启动失败，请在 WebUI 运行诊断"
+    elif not runtime["extension_connected"] and config.extension_dir:
+        result["error_code"] = "HOT_SESSION_NOT_READY"
+        result["message"] = (
+            "系统不会自动启动 Chrome。请手动打开目标 Profile，"
+            "保持小红书页面和 XHS Bridge 扩展开启后重新检查"
+        )
         result["extension_setup"] = {
             "required_once": True,
             "url": "chrome://extensions",
@@ -1163,23 +1157,13 @@ def cmd_account_start(args: argparse.Namespace) -> None:
 
 
 def cmd_account_status(args: argparse.Namespace) -> None:
-    from account_manager import load_account, public_config
-    from xhs.bridge import BridgePage
+    from application_service import ApplicationService
 
-    config = load_account(args.account)
-    bridge_url = args.bridge_url or config.bridge_url
-    page = BridgePage(bridge_url, account=config.name)
-    bridge_status = page.get_server_status()
     _output(
-        {
-            "success": True,
-            "server_running": bridge_status is not None,
-            "extension_connected": bool(
-                bridge_status and bridge_status.get("extension_connected")
-            ),
-            "bridge": bridge_status,
-            "account": public_config(config),
-        }
+        ApplicationService().get_account_status(
+            args.account,
+            bridge_url=args.bridge_url,
+        )
     )
 
 
@@ -1215,7 +1199,7 @@ def cmd_account_pair_begin(args: argparse.Namespace) -> None:
     config = load_account(args.account, allow_legacy_default=False)
     pairing = create_pairing_session(config, ttl_seconds=args.ttl)
     bridge_url = args.bridge_url or config.bridge_url
-    _ensure_bridge_ready(bridge_url, config, open_browser=False)
+    _ensure_bridge_ready(bridge_url, config)
     page = BridgePage(bridge_url, account=config.name)
     if not page.is_server_running():
         raise RuntimeError("Bridge 启动失败，配对会话无法使用")
@@ -1315,9 +1299,9 @@ def cmd_account_autostart_disable(args: argparse.Namespace) -> None:
 
 
 def cmd_account_doctor(args: argparse.Namespace) -> None:
-    from account_doctor import diagnose_accounts
+    from application_service import ApplicationService
 
-    result = diagnose_accounts(args.name)
+    result = ApplicationService().doctor_account(args.name)
     failed = not result["healthy"] or (args.require_ready and not result["ready"])
     _output(result, exit_code=2 if failed else 0)
 
@@ -1522,7 +1506,7 @@ def build_parser() -> argparse.ArgumentParser:
     # account management
     sub = subparsers.add_parser(
         "account-onboard",
-        help="一条命令创建账号槽位、启动 Chrome 并准备一次性配对",
+        help="一条命令创建账号槽位、启动 Bridge 并准备一次性配对",
     )
     sub.add_argument("--name", required=True, help="账号别名，如 brand-a")
     sub.add_argument("--port", type=int, help="Bridge 端口；省略时自动分配")
@@ -1570,7 +1554,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("account-list", help="列出已配置账号")
     sub.set_defaults(func=cmd_account_list, requires_account_lock=False)
 
-    sub = subparsers.add_parser("account-start", help="启动目标账号的 Bridge 和 Chrome")
+    sub = subparsers.add_parser(
+        "account-start", help="启动目标账号的 Bridge 并检查热登录连接（不会启动 Chrome）"
+    )
+    sub.add_argument(
+        "--bridge-only",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     sub.set_defaults(func=cmd_account_start, requires_account_lock=False)
 
     sub = subparsers.add_parser("account-status", help="检查目标账号运行状态")
@@ -1599,7 +1590,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = subparsers.add_parser(
         "account-autostart-enable",
-        help="注册 Windows 登录任务，自动启动该账号的 Bridge 和 Chrome",
+        help="注册 Windows 登录任务，只自动启动该账号的 Bridge",
     )
     sub.add_argument("--confirm", action="store_true", help="确认注册登录自启动任务")
     sub.set_defaults(func=cmd_account_autostart_enable, requires_account_lock=False)

@@ -139,23 +139,17 @@ def test_revoke_pairing_rotates_token_and_clears_instance(tmp_path, monkeypatch)
     assert get_pairing_status("alpha")["paired"] is False
 
 
-def test_account_onboard_creates_slot_starts_runtime_and_copies_bundle(
+def test_account_onboard_creates_slot_starts_bridge_and_copies_bundle(
     tmp_path, monkeypatch, capsys
 ):
     import argparse
 
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     runtime_calls = []
-    chrome_calls = []
     copied = []
     monkeypatch.setattr(
         "scripts.cli._ensure_bridge_ready",
-        lambda url, config, open_browser: runtime_calls.append(
-            (url, config.name, open_browser)
-        ),
-    )
-    monkeypatch.setattr(
-        "scripts.cli._open_chrome", lambda config: chrome_calls.append(config.name)
+        lambda url, config: runtime_calls.append((url, config.name)),
     )
     monkeypatch.setattr(
         "scripts.cli._copy_text_to_clipboard",
@@ -179,6 +173,6 @@ def test_account_onboard_creates_slot_starts_runtime_and_copies_bundle(
     assert report["pairing_bundle_copied"] is True
     assert "pairing_bundle" not in report
     assert copied[0].startswith("xhs-pair-v1:")
-    assert runtime_calls == [("ws://localhost:19641", "alpha", False)]
-    assert chrome_calls == ["alpha"]
+    assert runtime_calls == [("ws://localhost:19641", "alpha")]
+    assert "手动打开目标 Chrome Profile" in report["instruction"]
     assert get_pairing_status("alpha")["pairing_pending"] is True

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f1eb" />
+    <title>auto-xhs 本地控制台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <a class="brand" href="#top" aria-label="auto-xhs 首页">
+          <span class="brand-mark">小</span>
+          <span class="brand-copy"><strong>auto-xhs</strong><small>本地运营台</small></span>
+        </a>
+
+        <nav class="nav-list">
+          <a class="nav-item active" href="#accounts"><span class="nav-icon">⌂</span><span>账号总览</span></a>
+          <a class="nav-item" href="#diagnosis"><span class="nav-icon">◎</span><span>系统诊断</span></a>
+          <span class="nav-item disabled" aria-disabled="true"><span class="nav-icon">＋</span><span>添加账号</span><em>即将上线</em></span>
+          <span class="nav-item disabled" aria-disabled="true"><span class="nav-icon">✎</span><span>草稿中心</span><em>规划中</em></span>
+        </nav>
+
+        <div class="sidebar-foot">
+          <span class="privacy-dot"></span>
+          <div><strong>数据留在本机</strong><small>仅监听 127.0.0.1</small></div>
+        </div>
+      </aside>
+
+      <main class="main" id="top">
+        <header class="topbar">
+          <div>
+            <p class="breadcrumb">工作台 / 账号总览</p>
+            <h1>早上好，今天从账号状态开始。</h1>
+          </div>
+          <div class="topbar-actions">
+            <div class="service-health" id="health" data-state="loading" role="status">
+              <span class="status-pulse"></span><span>正在连接本地服务</span>
+            </div>
+            <button class="icon-button" id="refresh" type="button" aria-label="刷新全部状态" title="刷新全部状态">↻</button>
+          </div>
+        </header>
+
+        <section class="overview" aria-labelledby="overview-title">
+          <div class="overview-copy">
+            <p class="eyebrow">HOT SESSION WORKSPACE</p>
+            <h2 id="overview-title">浏览器由你掌控，<br />自动化只在就绪时运行。</h2>
+            <p>手动保持对应 Chrome Profile 与小红书页面开启。系统不会启动、重启或关闭你的浏览器。</p>
+            <div class="overview-actions">
+              <a class="primary-action" href="#accounts">查看账号状态 <span>→</span></a>
+              <a class="text-action" href="#diagnosis">打开诊断</a>
+            </div>
+          </div>
+          <div class="overview-visual" aria-hidden="true">
+            <div class="orbit orbit-one"></div>
+            <div class="orbit orbit-two"></div>
+            <div class="core-status">
+              <span class="core-ring"><i></i></span>
+              <strong id="ready-total">—</strong>
+              <small>账号已就绪</small>
+            </div>
+            <div class="floating-chip chip-one"><span></span>Bridge</div>
+            <div class="floating-chip chip-two"><span></span>Profile</div>
+            <div class="floating-chip chip-three"><span></span>UID</div>
+          </div>
+        </section>
+
+        <section class="metric-grid" aria-label="运行概览">
+          <article class="metric-card">
+            <div class="metric-label"><span class="metric-icon coral">A</span><span>账号槽位</span></div>
+            <strong id="account-total">—</strong><small>本机已配置</small>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span class="metric-icon green">C</span><span>热连接</span></div>
+            <strong id="connected-total">—</strong><small>扩展保持在线</small>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span class="metric-icon amber">!</span><span>需要处理</span></div>
+            <strong id="blocked-total">—</strong><small>等待人工恢复</small>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span class="metric-icon violet">V1</span><span>开放能力</span></div>
+            <strong id="capability-count">—</strong><small>CLI 与 WebUI 共用</small>
+          </article>
+        </section>
+
+        <section class="content-section" id="accounts">
+          <div class="section-heading">
+            <div><p class="section-kicker">ACCOUNTS</p><h2>账号运行状态</h2></div>
+            <p>完整 READY 前会逐项检查 Bridge、扩展、Profile 与当前登录身份。</p>
+          </div>
+          <div id="account-grid" class="account-grid" aria-live="polite">
+            <article class="loading-card"><span></span><span></span><span></span></article>
+          </div>
+        </section>
+
+        <section class="diagnosis-layout" id="diagnosis">
+          <article class="diagnosis-card">
+            <div class="section-heading compact">
+              <div><p class="section-kicker">DIAGNOSIS</p><h2>系统诊断</h2></div>
+              <span class="diagnosis-badge" id="diagnosis-state">检查中</span>
+            </div>
+            <div class="diagnosis-bars">
+              <div><span>配置健康</span><strong id="healthy-total">—</strong></div>
+              <div><span>运行就绪</span><strong id="doctor-ready-total">—</strong></div>
+              <div><span>警告项目</span><strong id="warning-total">—</strong></div>
+            </div>
+            <p class="diagnosis-note" id="diagnosis-note">正在汇总账号配置与运行状态…</p>
+          </article>
+
+          <article class="principle-card">
+            <p class="section-kicker light">OPERATING PRINCIPLE</p>
+            <h2>不打扰浏览器，<br />是当前版本的第一原则。</h2>
+            <div class="principle-list">
+              <span><i>01</i>不自动启动 Chrome</span>
+              <span><i>02</i>离线任务进入 BLOCKED</span>
+              <span><i>03</i>外发内容确认后执行</span>
+            </div>
+          </article>
+        </section>
+
+        <footer><span>auto-xhs · 本地优先</span><span>当前界面为只读预览</span></footer>
+      </main>
+    </div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

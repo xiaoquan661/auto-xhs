@@ -56,6 +56,7 @@ def _policy(
     requires_target_account: bool = True,
     requires_identity_check: bool = False,
     requires_result_verification: bool = False,
+    enabled_in_v1: bool | None = None,
 ) -> CapabilityPolicy:
     return CapabilityPolicy(
         command=command,
@@ -77,7 +78,11 @@ def _policy(
             if risk_level in {RiskLevel.STATE_CHANGE, RiskLevel.EXTERNAL_OUTPUT}
             else EvidenceLevel.BASIC
         ),
-        enabled_in_v1=risk_level is not RiskLevel.EXTERNAL_OUTPUT,
+        enabled_in_v1=(
+            risk_level is not RiskLevel.EXTERNAL_OUTPUT
+            if enabled_in_v1 is None
+            else enabled_in_v1
+        ),
     )
 
 
@@ -160,20 +165,23 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
     ),
-    # L2 output operations remain registered for compatibility but are
-    # disabled in the first product release.
+    # V1 allows comments and replies only after confirming the final draft.
     _policy(
         "post-comment",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,
+        enabled_in_v1=True,
     ),
     _policy(
         "reply-comment",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,
+        enabled_in_v1=True,
     ),
+    # Publishing operations remain registered for compatibility but are
+    # disabled in the first product release.
     _policy(
         "publish",
         RiskLevel.EXTERNAL_OUTPUT,

@@ -24,7 +24,7 @@ def test_every_public_cli_command_has_exactly_one_policy():
     assert set(CAPABILITY_POLICIES) == _parser_commands()
 
 
-def test_v1_disables_all_external_output_capabilities():
+def test_v1_only_enables_confirmed_comment_and_reply_outputs():
     output_policies = [
         policy
         for policy in list_capability_policies()
@@ -33,8 +33,12 @@ def test_v1_disables_all_external_output_capabilities():
 
     assert output_policies
     assert all(policy.requires_confirmation for policy in output_policies)
-    assert all(not policy.enabled_in_v1 for policy in output_policies)
     assert all(policy.retry_policy is RetryPolicy.NONE for policy in output_policies)
+    assert {
+        policy.command for policy in output_policies if policy.enabled_in_v1
+    } == {"post-comment", "reply-comment"}
+    assert get_capability_policy("publish").enabled_in_v1 is False
+    assert get_capability_policy("publish-video").enabled_in_v1 is False
 
 
 def test_security_configuration_always_requires_confirmation():

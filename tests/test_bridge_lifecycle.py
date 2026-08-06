@@ -34,11 +34,18 @@ def test_bridge_process_is_detached_from_agent(monkeypatch) -> None:
         extension_instance_id="instance-alpha",
     )
 
-    _ensure_bridge_ready("ws://localhost:19701", config, open_browser=False)
+    _ensure_bridge_ready("ws://localhost:19701", config)
 
     command, kwargs = popen_calls[0]
     assert command[0] == sys.executable
-    assert command[-4:] == ["--port", "19701", "--account", "alpha"]
+    assert command[-6:] == [
+        "--port",
+        "19701",
+        "--account",
+        "alpha",
+        "--profile-directory",
+        "Default",
+    ]
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert kwargs["stdout"] == subprocess.DEVNULL
     assert kwargs["stderr"] == subprocess.DEVNULL

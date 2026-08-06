@@ -255,14 +255,9 @@ def test_legacy_account_can_initialize_and_enroll_connection_identity(
     assert upgraded.bridge_token not in route
 
 
-def test_existing_profile_launch_uses_profile_directory_without_extension_flags(
-    monkeypatch,
-):
-    from scripts import cli
+def test_runtime_profile_connection_requires_expected_profile():
+    from account_runtime import evaluate_profile_connection
 
-    launched: list[list[str]] = []
-    monkeypatch.setattr(cli.os.path, "exists", lambda path: "Google\\Chrome" in path)
-    monkeypatch.setattr("subprocess.Popen", lambda command: launched.append(command))
     config = AccountConfig(
         name="existing-a",
         bridge_port=19481,
@@ -272,13 +267,148 @@ def test_existing_profile_launch_uses_profile_directory_without_extension_flags(
         profile_mode="existing",
     )
 
-    cli._open_chrome(config)
+    wrong = evaluate_profile_connection(
+        config,
+        {
+            "extension_connected": True,
+            "extension": {"profile_directory": "Default"},
+        },
+    )
+    right = evaluate_profile_connection(
+        config,
+        {
+            "extension_connected": True,
+            "extension": {"profile_directory": "Profile 3"},
+        },
+    )
 
-    command = launched[0]
-    assert "--user-data-dir=C:\\Chrome\\User Data" in command
-    assert "--profile-directory=Profile 3" in command
-    assert not any(arg.startswith("--load-extension=") for arg in command)
-    assert not any(arg.startswith("--disable-extensions-except=") for arg in command)
+    assert wrong["profile_verified"] is False
+    assert wrong["connected_profile_directory"] == "Default"
+    assert right["profile_verified"] is True
+    assert right["profile_verification_level"] == "legacy_claim"
+
+
+def test_runtime_profile_connection_uses_enrolled_instance_as_strong_proof():
+    from account_runtime import evaluate_profile_connection
+
+    config = AccountConfig(
+        name="paired-a",
+        bridge_port=19482,
+        chrome_user_data_dir=r"C:\Chrome\User Data",
+        extension_dir=r"C:\XHS\extension",
+        chrome_profile_directory="Profile 3",
+        profile_mode="existing",
+        extension_instance_id="instance-expected",
+    )
+
+    verified = evaluate_profile_connection(
+        config,
+        {
+            "extension_connected": True,
+            "extension": {
+                "profile_directory": "Profile 3",
+                "instance_id": "instance-expected",
+                "instance_enrolled": True,
+            },
+        },
+    )
+    wrong_instance = evaluate_profile_connection(
+        config,
+        {
+            "extension_connected": True,
+            "extension": {
+                "profile_directory": "Profile 3",
+                "instance_id": "instance-other",
+                "instance_enrolled": False,
+            },
+        },
+    )
+
+    assert verified["profile_verified"] is True
+    assert verified["profile_verification_level"] == "paired_instance"
+    assert wrong_instance["profile_verified"] is False
+    assert wrong_instance["profile_verification_level"] == "unverified"
+
+
+def test_account_start_blocks_when_user_hot_session_is_not_connected(
+    monkeypatch, capsys
+):
+    import argparse
+
+    from scripts.cli import cmd_account_start
+
+    config = AccountConfig(
+        name="existing-a",
+        bridge_port=19483,
+        chrome_user_data_dir=r"C:\Chrome\User Data",
+        extension_dir=r"C:\XHS\extension",
+        chrome_profile_directory="Profile 3",
+        profile_mode="existing",
+    )
+
+    class FakeBridgePage:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def get_server_status(self):
+            return {"extension_connected": False, "extension": None}
+
+    monkeypatch.setattr("account_manager.load_account", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("account_manager.public_config", lambda _config: {"name": "existing-a"})
+    monkeypatch.setattr(
+        "scripts.cli._ensure_bridge_ready",
+        lambda *_args, **_kwargs: {"bridge_running": True},
+    )
+    monkeypatch.setattr("xhs.bridge.BridgePage", FakeBridgePage)
+
+    args = argparse.Namespace(
+        account="existing-a",
+        bridge_url=None,
+        bridge_only=False,
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_account_start(args)
+
+    assert exc_info.value.code == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["success"] is False
+    assert report["status"] == "BLOCKED"
+    assert report["error_code"] == "HOT_SESSION_NOT_READY"
+    assert "不会自动启动 Chrome" in report["message"]
+
+
+def test_account_start_bridge_only_does_not_require_chrome(monkeypatch, capsys):
+    import argparse
+
+    from scripts.cli import cmd_account_start
+
+    config = AccountConfig(
+        name="existing-a",
+        bridge_port=19484,
+        chrome_user_data_dir=r"C:\Chrome\User Data",
+        extension_dir=r"C:\XHS\extension",
+        chrome_profile_directory="Profile 3",
+        profile_mode="existing",
+    )
+    monkeypatch.setattr("account_manager.load_account", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("account_manager.public_config", lambda _config: {"name": "existing-a"})
+    monkeypatch.setattr(
+        "scripts.cli._ensure_bridge_ready",
+        lambda *_args, **_kwargs: {"bridge_running": True},
+    )
+
+    args = argparse.Namespace(
+        account="existing-a",
+        bridge_url=None,
+        bridge_only=True,
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_account_start(args)
+
+    assert exc_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "BRIDGE_READY"
+    assert report["chrome_managed"] is False
 
 
 def test_discover_profiles_shows_display_name_and_binding(tmp_path, monkeypatch):

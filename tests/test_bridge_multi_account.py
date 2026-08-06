@@ -290,3 +290,14 @@ def test_pairing_enrolls_instance_and_cli_commands_require_credentials(
     )
 
     asyncio.run(_exercise_pairing_and_cli_auth(config, pairing_payload))
+
+
+def test_extension_profile_must_match_account_slot():
+    server = BridgeServer("alpha", profile_directory="Profile 2")
+
+    assert server._validate_extension_handshake(
+        {"profile_directory": "Profile 2"}
+    ) is None
+    assert "Chrome Profile 声明不匹配" in server._validate_extension_handshake(
+        {"profile_directory": "Default"}
+    )

@@ -35,11 +35,13 @@ class BridgeServer:
         account_id: str | None = None,
         bridge_token: str | None = None,
         extension_instance_id: str | None = None,
+        profile_directory: str | None = None,
     ) -> None:
         self.account = account
         self.account_id = account_id or None
         self.bridge_token = bridge_token or None
         self.extension_instance_id = extension_instance_id or None
+        self.profile_directory = profile_directory or None
         self._extension_ws: ServerConnection | None = None
         self._extension_info: dict[str, Any] | None = None
         self._pending: dict[str, asyncio.Future[Any]] = {}
@@ -154,6 +156,15 @@ class BridgeServer:
     # ─── Extension 端（长连接） ───────────────────────────────────────
 
     def _validate_extension_handshake(self, msg: dict) -> str | None:
+        if (
+            self.profile_directory
+            and msg.get("profile_directory") != self.profile_directory
+        ):
+            return (
+                "Chrome Profile 声明不匹配: "
+                f"expected={self.profile_directory!r}, "
+                f"actual={msg.get('profile_directory')!r}"
+            )
         if self.account_id and msg.get("account_id") != self.account_id:
             return "账号连接 ID 不匹配"
         received_token = str(msg.get("bridge_token") or "")
@@ -216,6 +227,7 @@ class BridgeServer:
                     "extension_connected": self._extension_ws is not None,
                     "account": self.account,
                     "account_id": self.account_id,
+                    "expected_profile_directory": self.profile_directory,
                     "connection_identity_required": bool(
                         self.account_id and self.bridge_token
                     ),
@@ -275,12 +287,14 @@ async def main(
     account_id: str | None = None,
     bridge_token: str | None = None,
     extension_instance_id: str | None = None,
+    profile_directory: str | None = None,
 ) -> None:
     server = BridgeServer(
         account,
         account_id=account_id,
         bridge_token=bridge_token,
         extension_instance_id=extension_instance_id,
+        profile_directory=profile_directory,
     )
     async with websockets.serve(server.handle, "localhost", port):
         logger.info(
@@ -318,6 +332,11 @@ if __name__ == "__main__":
         default=os.getenv("XHS_EXTENSION_INSTANCE_ID"),
         help="已登记的扩展实例 ID",
     )
+    parser.add_argument(
+        "--profile-directory",
+        default=os.getenv("XHS_PROFILE_DIRECTORY"),
+        help="该账号槽位期望连接的 Chrome Profile 目录名",
+    )
     args = parser.parse_args()
 
     asyncio.run(
@@ -327,5 +346,6 @@ if __name__ == "__main__":
             args.account_id,
             args.token,
             args.extension_instance_id,
+            args.profile_directory,
         )
     )

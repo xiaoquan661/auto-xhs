@@ -61,7 +61,7 @@ description: |
 
 | 命令                                             | 功能                                                    |
 | ------------------------------------------------ | ------------------------------------------------------- |
-| `cli.py account-onboard --name <别名> --confirm` | 首次创建槽位、启动 Chrome，并把一次性配对包复制到剪贴板 |
+| `cli.py account-onboard --name <别名> --confirm` | 首次创建槽位、启动 Bridge，并把一次性配对包复制到剪贴板 |
 | `cli.py check-login`                             | 检查登录状态，返回推荐登录方式                          |
 | `cli.py login`                                   | 二维码登录（有界面环境）                                |
 | `cli.py send-code --phone <号码>`                | 手机登录第一步：发送验证码                              |
@@ -75,7 +75,7 @@ description: |
 | `cli.py account-pair-begin --confirm`            | 生成通用扩展一次性配对包                                |
 | `cli.py account-pair-status`                     | 查看扩展配对与连接状态                                  |
 | `cli.py account-unpair --confirm`                | 撤销扩展实例并轮换连接令牌                              |
-| `cli.py account-autostart-enable --confirm`      | 注册 Windows 登录自启动，恢复 Bridge 和 Chrome          |
+| `cli.py account-autostart-enable --confirm`      | 注册 Windows 登录自启动，只恢复 Bridge                   |
 | `cli.py account-autostart-status`                | 查看登录自启动状态                                      |
 | `cli.py account-autostart-disable --confirm`     | 删除登录自启动任务                                      |
 
@@ -131,10 +131,10 @@ python scripts/cli.py account-import \
   --user-data-dir "/path/to/Chrome/User Data" \
   --profile-directory "Profile 2"
 
-# 2. 在刚打开的目标 Profile 扩展弹窗中粘贴剪贴板内容并确认，再检查状态
+# 2. 用户手动打开目标 Profile，在扩展弹窗中粘贴剪贴板内容并确认，再检查状态
 python scripts/cli.py --account brand-a account-pair-status
 
-# 3. 可选：经用户确认后注册 Windows 登录自启动
+# 3. 可选：经用户确认后注册 Windows 登录自启动（只启动 Bridge）
 python scripts/cli.py --account brand-a account-autostart-enable --confirm
 
 # 可选：只读诊断配置和连接；不会执行小红书业务操作
@@ -171,8 +171,8 @@ python scripts/cli.py --account brand-a like-feed \
 ## 失败处理
 
 - **未登录**：提示用户执行登录流程（xhs-auth）。
-- **Chrome 未启动**：运行 `python scripts/cli.py --account <账号别名> account-start`。
-- **扩展未连接**：`account-start` 只有在 Bridge 和目标 Profile 中已配对的通用扩展都连接时才成功。按输出路径加载通用扩展；旧版账号专属扩展应先禁用或移除，再运行 `account-pair-begin --confirm`。
+- **Chrome 未启动**：提示用户手动打开目标账号对应的 Chrome Profile，并保持小红书页面开启；禁止自动启动、重启或关闭 Chrome。
+- **扩展未连接**：`account-start` 只启动 Bridge 和检查热登录连接，不会启动 Chrome。请在用户已手动打开的目标 Profile 中加载通用扩展；旧版账号专属扩展应先禁用或移除，再运行 `account-pair-begin --confirm`。
 - **多账号配置异常**：先运行 `python scripts/cli.py account-doctor`，按 `fail` 检查项及 `fix` 建议修复；该命令只读。
 - **Python 或项目依赖不可用**：运行 `scripts/bootstrap.ps1 -Prepare`。只有脚本返回
   `python_missing` 时才向用户申请安装权限；不得未经确认安装 Python 或 uv。

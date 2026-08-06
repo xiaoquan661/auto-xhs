@@ -42,6 +42,14 @@ class StoppedPage(ReadyPage):
         return False
 
 
+class WrongProfilePage(ReadyPage):
+    def get_server_status(self) -> dict:
+        return {
+            "extension_connected": True,
+            "extension": {"profile_directory": "Profile 9"},
+        }
+
+
 def test_doctor_reports_two_ready_accounts(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     source = _make_extension(tmp_path / "extension-source")
@@ -57,7 +65,7 @@ def test_doctor_reports_two_ready_accounts(tmp_path, monkeypatch):
         "healthy_accounts": 2,
         "ready_accounts": 2,
         "errors": 0,
-        "warnings": 4,
+        "warnings": 6,
         "info": 2,
     }
 
@@ -126,6 +134,24 @@ def test_doctor_treats_stopped_runtime_as_warning(tmp_path, monkeypatch):
     checks = result["accounts"][0]["checks"]
     assert any(
         item["name"] == "bridge_running" and item["status"] == "warning"
+        for item in checks
+    )
+
+
+def test_doctor_rejects_connected_extension_from_wrong_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    source = _make_extension(tmp_path / "extension-source")
+    add_account("alpha", bridge_port=19532, extension_source=source)
+
+    result = account_doctor.diagnose_accounts(
+        "alpha", page_factory=WrongProfilePage
+    )
+
+    assert result["healthy"] is False
+    assert result["ready"] is False
+    checks = result["accounts"][0]["checks"]
+    assert any(
+        item["name"] == "connected_profile" and item["status"] == "fail"
         for item in checks
     )
 
