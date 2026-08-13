@@ -12,8 +12,10 @@ from urllib.parse import unquote, urlparse
 
 try:
     from .application_service import ApplicationService, ServiceError
+    from .web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 except ImportError:  # Direct execution: python scripts/web_server.py
     from application_service import ApplicationService, ServiceError
+    from web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "webui"
@@ -30,7 +32,10 @@ def make_handler(
     service: ApplicationService,
     *,
     web_root: Path = WEB_ROOT,
+    session_token: str | None = None,
 ) -> type[BaseHTTPRequestHandler]:
+    token = session_token or create_session_token()
+
     class LocalWebHandler(BaseHTTPRequestHandler):
         server_version = "auto-xhs-local/1"
 
@@ -42,23 +47,21 @@ def make_handler(
             self._serve_static(path)
 
         def do_POST(self) -> None:
-            self._send_json(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                {
-                    "success": False,
-                    "error": {
-                        "code": "READ_ONLY_API",
-                        "message": "当前 WebUI 增量只开放只读接口",
-                    },
-                },
-            )
+            self._handle_mutation("POST")
+
+        def do_PATCH(self) -> None:
+            self._handle_mutation("PATCH")
 
         def log_message(self, _format: str, *_args) -> None:
             return
 
         def _handle_api(self, path: str) -> None:
             try:
-                payload = _dispatch_api(service, path)
+                payload = (
+                    {"success": True, "session_token": token}
+                    if path == f"{API_PREFIX}/session"
+                    else _dispatch_api(service, path)
+                )
             except ServiceError as exc:
                 self._send_json(exc.http_status, exc.to_dict())
                 return
@@ -75,6 +78,55 @@ def make_handler(
                 )
                 return
             self._send_json(HTTPStatus.OK, payload)
+
+        def _handle_mutation(self, method: str) -> None:
+            path = urlparse(self.path).path
+            if not path.startswith(API_PREFIX):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if self.headers.get(SESSION_HEADER) != token:
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    ServiceError(
+                        "SESSION_REQUIRED",
+                        "本地会话已失效，请刷新 WebUI",
+                        403,
+                    ).to_dict(),
+                )
+                return
+            try:
+                payload = _dispatch_mutation(service, method, path, self._read_json())
+            except ServiceError as exc:
+                self._send_json(exc.http_status, exc.to_dict())
+                return
+            except Exception:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    ServiceError(
+                        "INTERNAL_ERROR",
+                        "本地服务处理请求失败，请查看诊断",
+                        500,
+                    ).to_dict(),
+                )
+                return
+            self._send_json(HTTPStatus.OK, payload)
+
+        def _read_json(self) -> dict:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError as exc:
+                raise ServiceError("INVALID_REQUEST", "请求长度无效") from exc
+            if length > MAX_JSON_BODY:
+                raise ServiceError("INVALID_REQUEST", "请求内容过大", 413)
+            if length == 0:
+                return {}
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ServiceError("INVALID_REQUEST", "请求必须是 JSON") from exc
+            if not isinstance(payload, dict):
+                raise ServiceError("INVALID_REQUEST", "JSON 请求必须是对象")
+            return payload
 
         def _serve_static(self, path: str) -> None:
             relative = "index.html" if path in {"", "/"} else unquote(path.lstrip("/"))
@@ -93,6 +145,8 @@ def make_handler(
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Cache-Control", "no-store")
+            if target.name == "index.html":
+                self.send_header(SESSION_HEADER, token)
             self.end_headers()
             self.wfile.write(content)
 
@@ -115,8 +169,18 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
         return service.list_capabilities()
     if path == f"{API_PREFIX}/accounts":
         return service.list_accounts()
+    if path == f"{API_PREFIX}/accounts/profiles":
+        return service.discover_profiles()
     if path == f"{API_PREFIX}/doctor":
         return service.doctor_account()
+    if path == f"{API_PREFIX}/system/status":
+        return service.system_status()
+    if path == f"{API_PREFIX}/tasks":
+        return service.list_tasks()
+    if path == f"{API_PREFIX}/drafts":
+        return service.list_drafts()
+    if path == f"{API_PREFIX}/records":
+        return service.list_records()
 
     parts = [unquote(part) for part in path.split("/") if part]
     if len(parts) == 5 and parts[:3] == ["api", "v1", "accounts"]:
@@ -125,6 +189,89 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
             return service.get_account_status(account)
         if action == "doctor":
             return service.doctor_account(account)
+        if action == "pairing":
+            return service.account_pairing_status(account)
+        if action == "bridge":
+            return service.get_bridge_status(account)
+        if action == "autostart":
+            return service.get_account_autostart(account)
+    if len(parts) == 4 and parts[:3] == ["api", "v1", "tasks"]:
+        return service.get_task(parts[3])
+    raise ServiceError("NOT_FOUND", "接口不存在", 404)
+
+
+def _dispatch_mutation(
+    service: ApplicationService,
+    method: str,
+    path: str,
+    body: dict,
+) -> dict:
+    if method == "POST" and path == f"{API_PREFIX}/system/pause":
+        return service.set_global_pause(True)
+    if method == "POST" and path == f"{API_PREFIX}/system/resume":
+        return service.set_global_pause(False)
+    if method == "POST" and path == f"{API_PREFIX}/diagnostics/export":
+        return service.export_diagnostics()
+    if method == "POST" and path == f"{API_PREFIX}/system/settings":
+        return service.update_system_settings(**body)
+    if method == "POST" and path == f"{API_PREFIX}/tasks":
+        return service.create_task(**body)
+    if method == "POST" and path == f"{API_PREFIX}/drafts":
+        return service.create_draft(**body)
+    if method == "POST" and path == f"{API_PREFIX}/accounts":
+        return service.create_account_slot(**body)
+    if method == "POST" and path == f"{API_PREFIX}/accounts/import":
+        return service.import_account_slot(**body)
+    if method == "POST" and path == f"{API_PREFIX}/accounts/discover":
+        return service.discover_profiles(body.get("user_data_dir"))
+
+    parts = [unquote(part) for part in path.split("/") if part]
+    if (
+        len(parts) == 4
+        and parts[:3] == ["api", "v1", "drafts"]
+        and method == "PATCH"
+    ):
+        return service.update_draft(parts[3], **body)
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "drafts"]
+        and method == "POST"
+        and parts[4] == "confirm"
+    ):
+        return service.confirm_draft(
+            parts[3],
+            ttl_seconds=int(body.get("ttl_seconds", 300)),
+        )
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "drafts"]
+        and method == "POST"
+        and parts[4] == "execute"
+    ):
+        return service.execute_draft(parts[3], **body)
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "tasks"]
+        and method == "POST"
+        and parts[4] == "execute"
+    ):
+        return service.execute_task(parts[3])
+    if len(parts) == 6 and parts[:3] == ["api", "v1", "accounts"]:
+        account, section, action = parts[3], parts[4], parts[5]
+        if method == "POST" and (section, action) == ("pairing", "begin"):
+            return service.begin_account_pairing(account, **body)
+        if method == "POST" and (section, action) == ("identity", "check"):
+            return service.check_account_identity(account)
+        if method == "POST" and (section, action) == ("identity", "record"):
+            return service.record_account_identity(account, **body)
+        if method == "POST" and (section, action) == ("bridge", "start"):
+            return service.start_account_bridge(account)
+        if method == "POST" and (section, action) == ("bridge", "stop"):
+            return service.stop_account_bridge(account)
+        if method == "POST" and (section, action) == ("bridge", "restart"):
+            return service.restart_account_bridge(account)
+        if method == "POST" and (section, action) == ("autostart", "update"):
+            return service.set_account_autostart(account, **body)
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
 
 
@@ -141,7 +288,7 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="启动 auto-xhs 本地只读 WebUI")
+    parser = argparse.ArgumentParser(description="启动 auto-xhs 本地 WebUI")
     parser.add_argument("--host", default="127.0.0.1", help="固定为 127.0.0.1")
     parser.add_argument("--port", type=int, default=8765, help="本地 WebUI 端口")
     return parser

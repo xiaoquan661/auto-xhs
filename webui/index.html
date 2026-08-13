@@ -16,10 +16,12 @@
         </a>
 
         <nav class="nav-list">
-          <a class="nav-item active" href="#accounts"><span class="nav-icon">⌂</span><span>账号总览</span></a>
-          <a class="nav-item" href="#diagnosis"><span class="nav-icon">◎</span><span>系统诊断</span></a>
-          <span class="nav-item disabled" aria-disabled="true"><span class="nav-icon">＋</span><span>添加账号</span><em>即将上线</em></span>
-          <span class="nav-item disabled" aria-disabled="true"><span class="nav-icon">✎</span><span>草稿中心</span><em>规划中</em></span>
+          <a class="nav-item active" href="#top"><span class="nav-icon">⌂</span><span>首页</span></a>
+          <a class="nav-item" href="#accounts"><span class="nav-icon">A</span><span>账号</span></a>
+          <a class="nav-item" href="#setup"><span class="nav-icon">＋</span><span>添加账号</span></a>
+          <a class="nav-item" href="#work"><span class="nav-icon">✎</span><span>任务与确认</span></a>
+          <a class="nav-item" href="#records"><span class="nav-icon">◷</span><span>执行记录</span></a>
+          <a class="nav-item" href="#diagnosis"><span class="nav-icon">◎</span><span>设置</span></a>
         </nav>
 
         <div class="sidebar-foot">
@@ -35,6 +37,7 @@
             <h1>早上好，今天从账号状态开始。</h1>
           </div>
           <div class="topbar-actions">
+            <button class="pause-button" id="global-pause" type="button">暂停全部任务</button>
             <div class="service-health" id="health" data-state="loading" role="status">
               <span class="status-pulse"></span><span>正在连接本地服务</span>
             </div>
@@ -44,12 +47,17 @@
 
         <section class="overview" aria-labelledby="overview-title">
           <div class="overview-copy">
-            <p class="eyebrow">HOT SESSION WORKSPACE</p>
-            <h2 id="overview-title">浏览器由你掌控，<br />自动化只在就绪时运行。</h2>
+            <p class="eyebrow">LOCAL OPERATIONS WORKSPACE</p>
+            <h2 id="overview-title">先处理需要关注的账号，<br />再开始今天的运营。</h2>
             <p>手动保持对应 Chrome Profile 与小红书页面开启。系统不会启动、重启或关闭你的浏览器。</p>
             <div class="overview-actions">
-              <a class="primary-action" href="#accounts">查看账号状态 <span>→</span></a>
-              <a class="text-action" href="#diagnosis">打开诊断</a>
+              <a class="primary-action" href="#setup">添加账号 <span>→</span></a>
+              <a class="text-action" href="#accounts">查看需要处理的账号</a>
+            </div>
+            <div class="today-summary" aria-label="今日工作摘要">
+              <span><strong id="today-task-total">—</strong>任务</span>
+              <span><strong id="waiting-draft-total">—</strong>待确认</span>
+              <span><strong id="recent-failure-total">—</strong>近期异常</span>
             </div>
           </div>
           <div class="overview-visual" aria-hidden="true">
@@ -64,6 +72,76 @@
             <div class="floating-chip chip-two"><span></span>Profile</div>
             <div class="floating-chip chip-three"><span></span>UID</div>
           </div>
+        </section>
+
+        <section class="content-section setup-section" id="setup">
+          <div class="section-heading">
+            <div><p class="section-kicker">ACCOUNT SETUP</p><h2>添加账号</h2></div>
+            <p>选择本机已有 Chrome Profile，或创建一个独立槽位。浏览器始终由你手动打开。</p>
+          </div>
+          <div class="setup-grid">
+            <form class="setup-card" id="account-form">
+              <label>槽位名称<input id="account-name" name="name" required maxlength="32" placeholder="例如 brand-a" /></label>
+              <label>添加方式
+                <select id="account-mode" name="mode">
+                  <option value="existing">绑定已有 Chrome Profile</option>
+                  <option value="managed">新建独立槽位</option>
+                </select>
+              </label>
+              <label id="profile-field">Chrome Profile
+                <select id="profile-select" name="profile"><option value="">点击“扫描 Profile”</option></select>
+              </label>
+              <div class="setup-actions">
+                <button class="secondary-button" id="discover-profiles" type="button">扫描 Profile</button>
+                <button class="primary-button" type="submit">确认添加</button>
+              </div>
+              <p class="form-note" id="setup-message" role="status">创建槽位会保存本地配置，不会打开或关闭 Chrome。</p>
+            </form>
+            <article class="setup-card steps-card">
+              <p class="section-kicker">NEXT STEPS</p>
+              <ol>
+                <li>添加槽位并手动打开正确 Profile</li>
+                <li>在目标 Profile 中加载通用扩展</li>
+                <li>发起配对并在扩展弹窗确认</li>
+                <li>检查登录身份并确认 UID</li>
+              </ol>
+              <p id="pairing-guidance">添加后，账号卡片会显示唯一的下一步操作。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-section placeholder-section" id="work">
+          <div class="section-heading"><div><p class="section-kicker">TASKS</p><h2>任务与确认</h2></div><p>L0 可直接执行；点赞和收藏执行前会检查身份、配额与重复目标。</p></div>
+          <div class="setup-grid">
+            <form class="setup-card" id="task-form">
+              <label>目标账号<select id="task-account" required><option value="">请先配置账号</option></select></label>
+              <label>任务类型<select id="task-capability"><option value="search-feeds">搜索笔记</option><option value="list-feeds">浏览首页</option><option value="like-feed">点赞/取消点赞</option><option value="favorite-feed">收藏/取消收藏</option></select></label>
+              <label>关键词或笔记 ID<input id="task-target" required placeholder="搜索填关键词；互动填笔记 ID" /></label>
+              <label id="token-field">XSEC Token<input id="task-token" placeholder="互动任务需要" /></label>
+              <label class="inline-check"><input id="task-undo" type="checkbox" /> 取消点赞或收藏</label>
+              <button class="primary-button" type="submit">创建并执行</button>
+              <p class="form-note" id="task-message" role="status">任务只会在账号 READY 时执行。</p>
+            </form>
+            <div class="record-list" id="task-list"><article class="empty-card"><div><strong>暂无任务</strong><span>创建后会在这里显示执行状态。</span></div></article></div>
+          </div>
+          <div class="draft-layout">
+            <form class="setup-card" id="draft-form">
+              <div class="section-heading compact"><div><p class="section-kicker">DRAFT</p><h2>评论与回复草稿</h2></div></div>
+              <label>目标账号<select id="draft-account" required></select></label>
+              <label>动作<select id="draft-action"><option value="post-comment">评论笔记</option><option value="reply-comment">回复评论</option></select></label>
+              <label>目标 ID<input id="draft-target" required placeholder="评论填笔记 ID；回复填评论 ID" /></label>
+              <label>目标说明<input id="draft-summary" placeholder="方便确认时识别目标" /></label>
+              <label>最终文本<textarea id="draft-content" required maxlength="1000" rows="5"></textarea></label>
+              <button class="primary-button" type="submit">保存草稿</button>
+              <p class="form-note" id="draft-message" role="status">保存不会向小红书发送任何内容。</p>
+            </form>
+            <div class="record-list" id="draft-list"><article class="empty-card"><div><strong>暂无草稿</strong><span>最终确认后才能执行。</span></div></article></div>
+          </div>
+        </section>
+
+        <section class="content-section placeholder-section" id="records">
+          <div class="section-heading"><div><p class="section-kicker">RECORDS</p><h2>执行记录</h2></div><p>所有任务都将显示明确终态和下一步建议。</p></div>
+          <div class="record-list" id="record-list"><article class="empty-card"><div><strong>暂无记录</strong><span>任务完成后会保留最小结果。</span></div></article></div>
         </section>
 
         <section class="metric-grid" aria-label="运行概览">
@@ -107,20 +185,30 @@
               <div><span>警告项目</span><strong id="warning-total">—</strong></div>
             </div>
             <p class="diagnosis-note" id="diagnosis-note">正在汇总账号配置与运行状态…</p>
+            <div class="diagnosis-actions">
+              <button class="secondary-button" id="export-diagnostics" type="button">导出脱敏诊断</button>
+              <span id="diagnostic-path" role="status">报告只保存到本机</span>
+            </div>
           </article>
 
-          <article class="principle-card">
-            <p class="section-kicker light">OPERATING PRINCIPLE</p>
-            <h2>不打扰浏览器，<br />是当前版本的第一原则。</h2>
-            <div class="principle-list">
-              <span><i>01</i>不自动启动 Chrome</span>
-              <span><i>02</i>离线任务进入 BLOCKED</span>
-              <span><i>03</i>外发内容确认后执行</span>
-            </div>
+          <article class="settings-card">
+            <p class="section-kicker">SETTINGS</p>
+            <h2>运行设置</h2>
+            <form id="settings-form">
+              <label>全局并发<select id="setting-concurrency"><option>1</option><option>2</option><option selected>3</option></select></label>
+              <div class="settings-grid">
+                <label>每小时 L1<input id="setting-hourly" type="number" min="1" value="20" /></label>
+                <label>每日 L1<input id="setting-daily" type="number" min="1" value="100" /></label>
+                <label>去重分钟<input id="setting-dedup" type="number" min="1" value="10" /></label>
+                <label>熔断阈值<input id="setting-failures" type="number" min="1" value="3" /></label>
+              </div>
+              <button class="primary-button" type="submit">确认保存设置</button>
+            </form>
+            <p class="version-line">版本 <strong id="product-version">—</strong> · Bridge 自启动在各账号卡片中设置</p>
           </article>
         </section>
 
-        <footer><span>auto-xhs · 本地优先</span><span>当前界面为只读预览</span></footer>
+        <footer><span>auto-xhs · 本地优先</span><span>配置和任务数据只保存在本机</span></footer>
       </main>
     </div>
     <script src="/app.js" defer></script>

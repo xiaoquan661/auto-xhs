@@ -9,7 +9,9 @@ import secrets
 import shutil
 import socket
 import sys
+import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -19,6 +21,7 @@ ACCOUNT_SCHEMA_VERSION = 2
 UNIVERSAL_EXTENSION_MODE = "universal"
 LEGACY_EXTENSION_MODE = "per_account"
 _ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+_ACCOUNT_REGISTRY_PROCESS_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -172,6 +175,20 @@ def add_account(
     bridge_port: int | None = None,
     extension_source: str | Path,
 ) -> AccountConfig:
+    with account_registry_transaction():
+        return _add_account_unlocked(
+            name,
+            bridge_port=bridge_port,
+            extension_source=extension_source,
+        )
+
+
+def _add_account_unlocked(
+    name: str,
+    *,
+    bridge_port: int | None,
+    extension_source: str | Path,
+) -> AccountConfig:
     name = validate_account_name(name)
     path = account_config_path(name)
     if path.exists():
@@ -182,19 +199,22 @@ def add_account(
     target_dir = account_dir(name)
     profile_dir = target_dir / "chrome-profile"
     target_dir.mkdir(parents=True, exist_ok=False)
-    profile_dir.mkdir()
-
-    config = AccountConfig(
-        name=name,
-        bridge_port=port,
-        chrome_user_data_dir=str(profile_dir),
-        extension_dir=str(extension_dir),
-        profile_mode="managed",
-        account_id=uuid.uuid4().hex,
-        bridge_token=secrets.token_urlsafe(32),
-    )
-    _write_config(config)
-    return config
+    try:
+        profile_dir.mkdir()
+        config = AccountConfig(
+            name=name,
+            bridge_port=port,
+            chrome_user_data_dir=str(profile_dir),
+            extension_dir=str(extension_dir),
+            profile_mode="managed",
+            account_id=uuid.uuid4().hex,
+            bridge_token=secrets.token_urlsafe(32),
+        )
+        _write_config(config)
+        return config
+    except Exception:
+        shutil.rmtree(target_dir, ignore_errors=True)
+        raise
 
 
 def import_existing_profile(
@@ -207,6 +227,26 @@ def import_existing_profile(
     replace: bool = False,
 ) -> AccountConfig:
     """Bind an existing Chrome profile without copying or modifying it."""
+    with account_registry_transaction():
+        return _import_existing_profile_unlocked(
+            name,
+            user_data_dir=user_data_dir,
+            profile_directory=profile_directory,
+            bridge_port=bridge_port,
+            extension_source=extension_source,
+            replace=replace,
+        )
+
+
+def _import_existing_profile_unlocked(
+    name: str,
+    *,
+    user_data_dir: str | Path,
+    profile_directory: str,
+    bridge_port: int | None,
+    extension_source: str | Path,
+    replace: bool,
+) -> AccountConfig:
     name = validate_account_name(name)
     path = account_config_path(name)
     current = _read_config(path) if path.exists() else None
@@ -235,6 +275,7 @@ def import_existing_profile(
     )
     extension_dir = sync_universal_extension(extension_source)
     target_dir = account_dir(name)
+    target_existed = target_dir.exists()
     target_dir.mkdir(parents=True, exist_ok=True)
     config = AccountConfig(
         name=name,
@@ -252,10 +293,31 @@ def import_existing_profile(
         # A Profile rebind must be paired again; an instance belongs to the old Profile.
         extension_instance_id=None,
     )
-    if current:
-        shutil.copy2(path, path.with_name("account.previous.json"))
-    _write_config(config)
-    return config
+    try:
+        if current:
+            shutil.copy2(path, path.with_name("account.previous.json"))
+        _write_config(config)
+        return config
+    except Exception:
+        if not target_existed:
+            shutil.rmtree(target_dir, ignore_errors=True)
+        raise
+
+
+@contextmanager
+def account_registry_transaction(timeout: float = 30.0):
+    """Serialize slot metadata changes across threads and local processes."""
+    from run_lock import RunLock
+
+    lock_path = accounts_root() / ".registry.lock"
+    with _ACCOUNT_REGISTRY_PROCESS_LOCK:
+        lock = RunLock(str(lock_path))
+        if not lock.acquire(timeout=timeout):
+            raise TimeoutError("账号配置正在被其他进程修改")
+        try:
+            yield
+        finally:
+            lock.release()
 
 
 def sync_universal_extension(extension_source: str | Path) -> Path:

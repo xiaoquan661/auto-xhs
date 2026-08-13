@@ -218,11 +218,41 @@ if len(CAPABILITY_POLICIES) != len(_POLICIES):
     raise RuntimeError("duplicate command in capability registry")
 
 
+# Some CLI commands expose more than one product operation. Keep the public
+# command conservatively classified while allowing the shared service layer to
+# apply the exact policy for a specific operation.
+SERVICE_OPERATION_POLICIES: dict[tuple[str, str], CapabilityPolicy] = {
+    (
+        "account-identity",
+        "check",
+    ): _policy("account-identity", RiskLevel.READ_ONLY),
+    (
+        "account-identity",
+        "record",
+    ): _policy("account-identity", RiskLevel.SECURITY_CONFIG),
+}
+
+
 def get_capability_policy(command: str) -> CapabilityPolicy:
     try:
         return CAPABILITY_POLICIES[command]
     except KeyError as exc:
         raise KeyError(f"unregistered CLI capability: {command}") from exc
+
+
+def get_operation_policy(command: str, operation: str | None = None) -> CapabilityPolicy:
+    """Return the exact service policy for a command operation.
+
+    Public CLI metadata remains conservative. Callers that have already parsed
+    a command into a precise operation can request the narrower service policy.
+    """
+
+    if operation is None:
+        return get_capability_policy(command)
+    try:
+        return SERVICE_OPERATION_POLICIES[(command, operation)]
+    except KeyError as exc:
+        raise KeyError(f"unregistered capability operation: {command}:{operation}") from exc
 
 
 def list_capability_policies() -> list[CapabilityPolicy]:

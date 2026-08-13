@@ -120,66 +120,14 @@ def _ensure_bridge_ready(
     account_config,
 ) -> dict:
     """Ensure the local Bridge is running without starting or changing Chrome."""
-    import subprocess
-    import time
-    from pathlib import Path
-    from urllib.parse import urlparse
+    from bridge_lifecycle import start_bridge
 
-    from xhs.bridge import BridgePage
-
-    page = BridgePage(bridge_url, account=account_config.name)
-    bridge_port = urlparse(bridge_url).port or account_config.bridge_port
-
-    # ── 1. 检查 bridge server ────────────────────────────────────────
-    if not page.is_server_running():
-        logger.info("Bridge server 未运行，正在启动...")
-        scripts_dir = Path(__file__).parent
-        kwargs: dict = {}
-        process_env = os.environ.copy()
-        if account_config.account_id:
-            process_env["XHS_BRIDGE_ACCOUNT_ID"] = account_config.account_id
-        if account_config.bridge_token:
-            process_env["XHS_BRIDGE_TOKEN"] = account_config.bridge_token
-        if account_config.extension_instance_id:
-            process_env["XHS_EXTENSION_INSTANCE_ID"] = (
-                account_config.extension_instance_id
-            )
-        kwargs["env"] = process_env
-        if sys.platform == "win32":
-            kwargs["creationflags"] = (
-                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            )
-        else:
-            kwargs["start_new_session"] = True
-        kwargs.update(
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-        subprocess.Popen(
-            [
-                sys.executable,
-                str(scripts_dir / "bridge_server.py"),
-                "--port",
-                str(bridge_port),
-                "--account",
-                account_config.name,
-                "--profile-directory",
-                getattr(account_config, "chrome_profile_directory", None) or "Default",
-            ],
-            **kwargs,
-        )
-        for _ in range(10):
-            time.sleep(1)
-            if page.is_server_running():
-                logger.info("Bridge server 已启动")
-                break
-        else:
-            logger.warning("Bridge server 启动超时，请手动运行 bridge_server.py")
-            return {"bridge_running": False}
-
-    return {"bridge_running": True}
+    try:
+        lifecycle = start_bridge(account_config)
+    except RuntimeError as exc:
+        logger.warning("%s", exc)
+        return {"bridge_running": False}
+    return {"bridge_running": lifecycle["bridge_running"]}
 
 
 def _connect(args: argparse.Namespace):

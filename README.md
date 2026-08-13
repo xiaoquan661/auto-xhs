@@ -1,6 +1,7 @@
 # xiaohongshu-skills
 
-小红书自动化 Skills，直接使用你已登录的浏览器和真实账号，以普通用户的方式操作小红书。
+面向个人运营者的本地多账号小红书运营系统。系统使用用户已打开并登录的 Chrome Profile，通过
+WebUI、Codex 和统一 Python CLI 完成配置、任务、确认和结果反馈。
 
 支持 [OpenClaw](https://github.com/anthropics/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台（如 Claude Code）。
 
@@ -12,10 +13,31 @@
 | 技能                | 说明     | 核心能力                                   |
 | ------------------- | -------- | ------------------------------------------ |
 | **xhs-auth**        | 认证管理 | 登录检查、扫码登录、手机验证码登录         |
-| **xhs-publish**     | 内容发布 | 图文 / 视频 / 长文发布、定时发布、分步预览 |
+| **xhs-publish**     | 后续能力 | 发布相关 CLI 仅保留工程兼容，V1 产品入口禁用 |
 | **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐   |
 | **xhs-interact**    | 社交互动 | 评论、回复、点赞、收藏                     |
 | **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作     |
+
+### V1 产品开放范围
+
+- L0：登录/状态检查、首页 Feed、搜索、笔记详情和用户主页；
+- L1：点赞与收藏，已接入配额、去重、熔断和执行记录；
+- L2：仅评论和回复，并且必须经过 WebUI 最终草稿确认；
+- L3：账号、配对、登录、身份和系统配置，必须显式确认；
+- 发布、定时发布、私信和公开资料修改不属于 V1 产品开放能力。
+
+底层 CLI 中仍存在发布命令，供后续版本开发和兼容性测试使用，不代表普通用户现在可以通过
+WebUI 或 Codex 执行发布。
+
+## 普通用户快速开始
+
+Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动器会检查环境、复用已经运行的
+本地服务并打开 `http://127.0.0.1:8765`；它不会自动打开、关闭或切换 Chrome。首次进入后按
+“添加账号 → 手动打开目标 Profile → 配对扩展 → 检查并确认 UID”的顺序完成账号准备。
+
+WebUI 当前包含账号槽位、Bridge 启停、任务、评论/回复草稿确认、执行记录、全局暂停、L1 配额、
+并发设置和脱敏诊断导出。详细步骤见 [普通用户操作手册](docs/USER-GUIDE.md)，常见故障见
+[故障恢复指南](docs/TROUBLESHOOTING.md)。
 
 支持**连贯操作** — 你可以用自然语言下达复合指令，Agent 会自动串联多个技能完成任务。例如：
 
@@ -27,8 +49,8 @@ Agent 会自动执行：搜索 → 筛选图文 → 按点赞排序 → 收藏 �
 
 ### 前置条件
 
-- Python >= 3.11
-- [uv](https://docs.astral.sh/uv/) 包管理器
+- Windows PowerShell
+- Python >= 3.11（可选；缺少时由首次运行引导器在确认后准备）
 - Google Chrome 浏览器
 
 ### 第一步：安装项目
@@ -52,12 +74,16 @@ cd <your-agent-project>/skills/
 git clone https://github.com/autoclaw-cc/xiaohongshu-skills.git
 ```
 
-2. 安装 Python 依赖：
+2. 检测 Python 并准备项目依赖：
 
-```bash
+```powershell
 cd xiaohongshu-skills
-uv sync
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1 -Prepare
 ```
+
+脚本会优先使用项目 `.venv` 或本机 Python。若输出 `python_missing`，先向用户确认；得到同意后
+再执行 `scripts/bootstrap.ps1 -Prepare -InstallMissingPython`。此时才会通过官方 uv 为项目准备
+托管 Python。脚本输出的 `python_executable` 是后续 CLI 应使用的解释器；下文的 `python` 是其简写。
 
 ### 第二步：安装浏览器扩展
 
@@ -81,19 +107,12 @@ uv sync
 账号名称只是本机别名，不要填写手机号、密码或验证码：
 
 ```bash
-# 创建两个账号环境；端口会自动分配
-python scripts/cli.py account-add --name brand-a
-python scripts/cli.py account-add --name brand-b
+# 依次创建槽位、启动 Bridge，并把一次性配对包放入剪贴板
+python scripts/cli.py account-onboard --name brand-a --confirm
+python scripts/cli.py account-onboard --name brand-b --confirm
 
-# 分别启动独立 Chrome
-python scripts/cli.py --account brand-a account-start
-python scripts/cli.py --account brand-b account-start
-
-# 首次启动尚未配对时会报告未就绪；分别生成配对包并粘贴到对应 Profile 的扩展弹窗
-python scripts/cli.py --account brand-a account-pair-begin --confirm
-python scripts/cli.py --account brand-b account-pair-begin --confirm
-
-# 在各自 Chrome 中完成一次登录
+# 用户手动打开各自对应的 Chrome Profile，并保持小红书页面开启
+# 然后在各自 Chrome 中完成一次登录
 python scripts/cli.py --account brand-a login
 python scripts/cli.py --account brand-b login
 
@@ -107,6 +126,22 @@ python scripts/cli.py account-doctor
 # 检查单个账号，并要求 Bridge 和扩展均已连接
 python scripts/cli.py account-doctor --name brand-a --require-ready
 ```
+
+每次 `account-onboard` 执行后，请用户手动打开对应 Chrome Profile，再打开 XHS Bridge 弹窗，
+粘贴剪贴板内容并确认。这是浏览器侧的安全确认，不能跨 Profile 自动代替。剪贴板不可用时，
+命令会在 JSON 中回退显示短期配对包。
+
+Bridge 默认以独立后台进程启动，关闭 Agent 或 PowerShell 不应终止它。若希望电脑重新登录后
+自动恢复 Bridge，需由用户明确确认后为每个槽位注册 Windows 登录任务：
+
+```bash
+python scripts/cli.py --account brand-a account-autostart-enable --confirm
+python scripts/cli.py --account brand-b account-autostart-enable --confirm
+```
+
+可分别使用 `account-autostart-status` 和 `account-autostart-disable --confirm` 检查或撤销；计划任务
+中不保存账号连接令牌、Cookie 或小红书登录信息，也不会启动 Chrome。Chrome Profile 和
+小红书页面始终由用户手动打开并保持在线。
 
 之后给所有业务命令加上目标账号：
 
@@ -181,6 +216,7 @@ python scripts/cli.py account-import `
   --user-data-dir "C:\Users\EDY\AppData\Local\Google\Chrome\User Data" `
   --profile-directory "Profile 2"
 
+# 用户手动打开 Profile 2 并保持小红书页面开启，然后检查 Bridge/扩展连接
 python scripts/cli.py --account brand-existing account-start
 ```
 
@@ -196,10 +232,22 @@ python scripts/cli.py account-import `
 ```
 
 导入操作不会修改或复制原 Profile，原 Cookie 和登录状态会继续使用。每个 Profile 只能绑定
-一个账号别名。首次启动后，在该 Profile 的 `chrome://extensions` 中加载通用扩展目录并完成
+一个账号别名。用户首次手动打开后，在该 Profile 的 `chrome://extensions` 中加载通用扩展目录并完成
 一次性配对。多个 Profile 应共用这一目录，但每个 Profile 只能保留一个 XHS Bridge 实例；若已加载
-旧版账号专属扩展，先禁用或移除旧副本。`account-start` 只有 Bridge 服务和已配对扩展都连接时
-才返回 `success: true`。
+旧版账号专属扩展，先禁用或移除旧副本。`account-start` 不会启动 Chrome；只有 Bridge 服务和
+已配对扩展都连接时才返回 `success: true`。
+
+#### 本地 WebUI 开发预览
+
+当前工作区已提供只读 WebUI 骨架，用于检查本地服务、能力清单、账号配置和热登录连接状态：
+
+```powershell
+$env:PYTHONPATH = "scripts"
+python scripts/web_server.py
+```
+
+然后在浏览器访问 `http://127.0.0.1:8765`。服务固定监听本机回环地址，不会启动、重启或关闭
+Chrome。当前页面不提供账号新增、配对或登录写操作，这些将在后续配置向导增量接入。
 
 ## 使用方式
 
@@ -215,9 +263,9 @@ python scripts/cli.py account-import `
 
 > "搜索关于露营的笔记" / "查看这条笔记的详情"
 
-**发布内容：**
+**发布内容（V1 不开放）：**
 
-> "帮我发一条图文笔记，标题是…，配图是…"
+> 发布相关底层 CLI 暂时只保留工程兼容，WebUI 和 Codex 的 V1 产品入口应拒绝执行。
 
 **社交互动：**
 
@@ -251,6 +299,7 @@ python scripts/cli.py search-feeds \
 python scripts/cli.py get-feed-detail \
   --feed-id FEED_ID --xsec-token XSEC_TOKEN
 
+# 以下发布命令仅供后续版本开发和兼容性测试，V1 产品入口禁用
 # 图文发布（分步：填写 → 预览 → 确认）
 python scripts/cli.py fill-publish \
   --title-file title.txt \
@@ -288,7 +337,7 @@ python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --c
 | `account-discover`          | 列出已有 Chrome Profile 及绑定状态                  |
 | `account-import`            | 绑定已有 Chrome Profile，保留登录状态               |
 | `account-list`              | 列出所有已配置账号                                  |
-| `account-start`             | 启动目标账号的 Bridge 和 Chrome                     |
+| `account-start`             | 启动目标账号的 Bridge 并检查热登录连接，不启动 Chrome |
 | `account-status`            | 检查目标账号的服务和扩展连接状态                    |
 | `account-sync`              | 将最新代码同步到所有 Profile 共用的通用扩展目录     |
 | `account-doctor`            | 只读诊断账号配置、Profile、扩展路由、端口和连接状态 |
@@ -312,15 +361,15 @@ python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --c
 | `reply-comment`             | 回复指定评论                                        |
 | `like-feed`                 | 点赞 / 取消点赞                                     |
 | `favorite-feed`             | 收藏 / 取消收藏                                     |
-| `publish`                   | 一步发布图文                                        |
-| `publish-video`             | 一步发布视频                                        |
-| `fill-publish`              | 填写图文表单（不发布，供预览）                      |
-| `fill-publish-video`        | 填写视频表单（不发布，供预览）                      |
-| `click-publish`             | 确认发布（点击发布按钮）                            |
-| `save-draft`                | 保存为草稿                                          |
-| `long-article`              | 长文模式：填写 + 一键排版                           |
-| `select-template`           | 选择长文排版模板                                    |
-| `next-step`                 | 长文下一步 + 填写描述                               |
+| `publish`                   | 后续版本：一步发布图文，V1 产品入口禁用             |
+| `publish-video`             | 后续版本：一步发布视频，V1 产品入口禁用             |
+| `fill-publish`              | 后续版本：填写图文表单，V1 产品入口禁用             |
+| `fill-publish-video`        | 后续版本：填写视频表单，V1 产品入口禁用             |
+| `click-publish`             | 后续版本：点击发布按钮，V1 产品入口禁用             |
+| `save-draft`                | 后续版本：保存平台草稿，V1 产品入口禁用             |
+| `long-article`              | 后续版本：长文模式，V1 产品入口禁用                 |
+| `select-template`           | 后续版本：选择长文模板，V1 产品入口禁用             |
+| `next-step`                 | 后续版本：长文下一步，V1 产品入口禁用               |
 
 退出码：`0` 成功 · `1` 未登录 · `2` 错误
 
@@ -337,6 +386,8 @@ xiaohongshu-skills/
 │   ├── account_pairing.py          # 一次性配对、撤销与连接令牌轮换
 │   ├── account_doctor.py           # 多账号配置和运行状态只读诊断
 │   ├── account_identity.py         # 登录身份记录、安全换号和任务保护
+│   ├── application_service.py      # CLI、WebUI 和 Agent 共用的应用服务层
+│   ├── web_server.py               # 仅监听本机的 WebUI/API 服务
 │   ├── run_lock.py                 # 每账号独立的任务锁
 │   ├── xhs/                        # 核心自动化包
 │   │   ├── bridge.py               # 扩展通信客户端
@@ -361,6 +412,10 @@ xiaohongshu-skills/
 │   ├── image_downloader.py         # 媒体下载（SHA256 缓存）
 │   ├── title_utils.py              # UTF-16 标题长度计算
 │   └── run_lock.py                 # 单实例锁
+├── webui/                          # 本地 WebUI 静态页面
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
 ├── skills/                         # Claude Code Skills 定义
 │   ├── xhs-auth/SKILL.md
 │   ├── xhs-publish/SKILL.md
@@ -372,6 +427,12 @@ xiaohongshu-skills/
 ├── pyproject.toml
 └── README.md
 ```
+
+## 跨电脑验收
+
+需要把 Private 仓库交给另一台电脑的 Codex 安装和测试时，使用
+[另一台电脑部署、使用与验收手册](docs/OTHER-COMPUTER-ACCEPTANCE-TEST.md)。文档包含双 Profile
+通用扩展配对、Skill 路由、只读实测、验收标准和结果报告模板。
 
 ## 开发
 

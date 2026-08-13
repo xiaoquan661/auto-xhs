@@ -6,6 +6,7 @@ from capability_registry import (
     RetryPolicy,
     RiskLevel,
     get_capability_policy,
+    get_operation_policy,
     list_capability_policies,
 )
 
@@ -70,3 +71,22 @@ def test_policy_serialization_is_json_ready():
     assert policy["risk_level"] == "L0"
     assert policy["retry_policy"] == "safe"
     assert policy["supports_scheduling"] is True
+
+
+def test_account_identity_check_and_record_have_distinct_service_policies():
+    public_policy = get_capability_policy("account-identity")
+    check_policy = get_operation_policy("account-identity", "check")
+    record_policy = get_operation_policy("account-identity", "record")
+
+    assert public_policy.risk_level is RiskLevel.SECURITY_CONFIG
+    assert check_policy.risk_level is RiskLevel.READ_ONLY
+    assert check_policy.requires_confirmation is False
+    assert record_policy.risk_level is RiskLevel.SECURITY_CONFIG
+    assert record_policy.requires_confirmation is True
+
+
+def test_unknown_service_operation_is_rejected():
+    import pytest
+
+    with pytest.raises(KeyError, match="unregistered capability operation"):
+        get_operation_policy("account-identity", "overwrite")

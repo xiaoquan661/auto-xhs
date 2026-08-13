@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,39 @@ def test_add_accounts_get_independent_profiles_and_ports(tmp_path, monkeypatch):
     assert '"storageKey": "xhsBridgeBinding"' in config_text
     assert alpha.account_id and alpha.account_id not in config_text
     assert alpha.bridge_token and alpha.bridge_token not in config_text
+
+
+def test_concurrent_account_creation_allocates_distinct_ports(tmp_path, monkeypatch):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    source = _make_extension(tmp_path / "extension-source")
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        configs = list(
+            executor.map(
+                lambda name: add_account(name, extension_source=source),
+                ("alpha", "beta", "gamma", "delta"),
+            )
+        )
+
+    assert len({item.bridge_port for item in configs}) == 4
+    assert len(list_accounts()) == 4
+
+
+def test_failed_account_creation_rolls_back_new_slot(tmp_path, monkeypatch):
+    from scripts import account_manager
+
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    source = _make_extension(tmp_path / "extension-source")
+    monkeypatch.setattr(
+        account_manager,
+        "_write_config",
+        lambda _config: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        account_manager.add_account("alpha", extension_source=source)
+
+    assert not (tmp_path / "accounts" / "alpha").exists()
 
 
 def test_duplicate_port_is_rejected(tmp_path, monkeypatch):
