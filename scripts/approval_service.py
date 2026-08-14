@@ -88,6 +88,9 @@ class ApprovalService:
             draft = state["drafts"].get(draft_id)
             if draft is None:
                 raise ServiceError("NOT_FOUND", "草稿不存在", 404)
+            for existing in state["approvals"].values():
+                if existing["draft_id"] == draft_id and existing["status"] == "CONFIRMED":
+                    existing["status"] = "INVALIDATED"
             now = datetime.now(UTC)
             approval_id = uuid.uuid4().hex
             approval = {
@@ -106,6 +109,20 @@ class ApprovalService:
             state["approvals"][approval_id] = approval
             draft["status"] = "CONFIRMED"
             return dict(approval)
+
+        return self.store.mutate(mutate)
+
+    def mark_execution(self, draft_id: str, status: str) -> dict:
+        if status not in {"EXECUTED", "RESULT_UNKNOWN"}:
+            raise ServiceError("INVALID_REQUEST", "未知草稿执行状态")
+
+        def mutate(state: dict) -> dict:
+            draft = state["drafts"].get(draft_id)
+            if draft is None:
+                raise ServiceError("NOT_FOUND", "草稿不存在", 404)
+            draft["status"] = status
+            draft["updated_at"] = utc_now()
+            return dict(draft)
 
         return self.store.mutate(mutate)
 

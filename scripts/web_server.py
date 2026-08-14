@@ -256,6 +256,20 @@ def _dispatch_mutation(
         and parts[4] == "execute"
     ):
         return service.execute_task(parts[3])
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "tasks"]
+        and method == "POST"
+        and parts[4] == "retry"
+    ):
+        return service.retry_task(parts[3])
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "tasks"]
+        and method == "POST"
+        and parts[4] == "cancel"
+    ):
+        return service.cancel_task(parts[3])
     if len(parts) == 6 and parts[:3] == ["api", "v1", "accounts"]:
         account, section, action = parts[3], parts[4], parts[5]
         if method == "POST" and (section, action) == ("pairing", "begin"):

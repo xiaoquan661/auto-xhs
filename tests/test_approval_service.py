@@ -92,6 +92,35 @@ def test_confirmation_matches_context_and_is_consumed_once(tmp_path) -> None:
     assert consumed.value.code == "CONFIRMATION_CONSUMED"
 
 
+def test_new_confirmation_invalidates_previous_one(tmp_path) -> None:
+    service = _service(tmp_path)
+    draft = _draft(service)
+    first = service.confirm(draft["draft_id"])
+
+    second = service.confirm(draft["draft_id"])
+
+    assert second["approval_id"] != first["approval_id"]
+    with pytest.raises(ServiceError) as exc_info:
+        service.consume(
+            first["approval_id"],
+            account_slot="alpha",
+            verified_uid="uid-alpha",
+            action_type="post-comment",
+            target_id="feed-1",
+        )
+    assert exc_info.value.code == "DRAFT_CHANGED"
+
+
+def test_execution_status_is_written_back_to_draft(tmp_path) -> None:
+    service = _service(tmp_path)
+    draft = _draft(service)
+
+    executed = service.mark_execution(draft["draft_id"], "EXECUTED")
+
+    assert executed["status"] == "EXECUTED"
+    assert executed["updated_at"] >= draft["updated_at"]
+
+
 def test_expired_confirmation_is_rejected(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path)
     draft = _draft(service)

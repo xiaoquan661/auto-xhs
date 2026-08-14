@@ -14,16 +14,17 @@ TASK_STATES = {
     "RUNNING",
     "WAITING_APPROVAL",
     "SUCCESS",
+    "PARTIAL_SUCCESS",
     "FAILED",
     "BLOCKED",
     "CANCELLED",
     "RESULT_UNKNOWN",
 }
-FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED", "RESULT_UNKNOWN"}
+FINAL_STATES = {"SUCCESS", "PARTIAL_SUCCESS", "FAILED", "CANCELLED", "RESULT_UNKNOWN"}
 _TRANSITIONS = {
     "QUEUED": {"RUNNING", "BLOCKED", "CANCELLED"},
     "WAITING_APPROVAL": {"QUEUED", "BLOCKED", "CANCELLED"},
-    "RUNNING": {"SUCCESS", "FAILED", "BLOCKED", "CANCELLED", "RESULT_UNKNOWN"},
+    "RUNNING": {"SUCCESS", "PARTIAL_SUCCESS", "FAILED", "BLOCKED", "CANCELLED", "RESULT_UNKNOWN"},
     "BLOCKED": {"QUEUED", "CANCELLED"},
 }
 
@@ -114,8 +115,12 @@ class TaskService:
                 )
             now = utc_now()
             task["state"] = state
+            if state == "QUEUED":
+                task["started_at"] = None
+                task["finished_at"] = None
             if state == "RUNNING":
                 task["started_at"] = now
+                task["finished_at"] = None
             if state in FINAL_STATES or state == "BLOCKED":
                 task["finished_at"] = now
             task["result_summary"] = result_summary

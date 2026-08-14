@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import time
+from collections.abc import Callable
 
 from .cdp import Page
 from .errors import NoFeedsError
@@ -112,6 +114,76 @@ def search_feeds(
         raise NoFeedsError()
 
     return [Feed.from_dict(f) for f in feeds_data]
+
+
+def collect_search_feeds(
+    page: Page,
+    keyword: str,
+    filter_option: FilterOption | None = None,
+    *,
+    target_count: int = 20,
+    duration_seconds: int = 120,
+    accept: Callable[[Feed], bool] | None = None,
+    max_empty_scrolls: int = 5,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> tuple[list[Feed], dict]:
+    """Search and collect a deduplicated candidate pool while scrolling."""
+
+    if target_count < 1:
+        raise ValueError("候选池数量必须大于 0")
+    if duration_seconds < 1:
+        raise ValueError("搜集时间必须大于 0")
+
+    started = time.monotonic()
+    initial = search_feeds(page, keyword, filter_option)
+    seen: set[str] = set()
+    collected: dict[str, Feed] = {}
+
+    def add_feeds(feeds: list[Feed]) -> int:
+        added = 0
+        for feed in feeds:
+            if not feed.id or feed.id in seen:
+                continue
+            seen.add(feed.id)
+            if accept is not None and not accept(feed):
+                continue
+            collected[feed.id] = feed
+            added += 1
+        return added
+
+    add_feeds(initial)
+    scroll_count = 0
+    empty_scrolls = 0
+    deadline = started + duration_seconds
+
+    while len(collected) < target_count and time.monotonic() < deadline:
+        viewport = int(page.evaluate("window.innerHeight || 768") or 768)
+        page.scroll_by(0, int(viewport * random.uniform(0.72, 0.96)))
+        scroll_count += 1
+        sleeper(min(random.uniform(0.9, 1.5), max(0.0, deadline - time.monotonic())))
+
+        result = page.evaluate(_EXTRACT_SEARCH_JS)
+        feeds = [Feed.from_dict(item) for item in json.loads(result)] if result else []
+        if add_feeds(feeds):
+            empty_scrolls = 0
+        else:
+            empty_scrolls += 1
+            if empty_scrolls >= max_empty_scrolls:
+                break
+
+    if len(collected) >= target_count:
+        stop_reason = "pool_reached"
+    elif time.monotonic() >= deadline:
+        stop_reason = "time_limit"
+    else:
+        stop_reason = "no_new_results"
+    return list(collected.values())[:target_count], {
+        "collected_count": min(len(collected), target_count),
+        "total_seen_count": len(seen),
+        "scroll_count": scroll_count,
+        "collection_elapsed_seconds": round(time.monotonic() - started, 2),
+        "collection_stop_reason": stop_reason,
+    }
 
 
 def _wait_for_search_feeds(page: Page, timeout: float = 15.0) -> None:

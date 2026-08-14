@@ -81,6 +81,12 @@ class FakeService:
     def execute_task(self, task_id: str) -> dict:
         return {"success": True, "task": {"task_id": task_id, "state": "SUCCESS"}}
 
+    def retry_task(self, task_id: str) -> dict:
+        return {"success": True, "task": {"task_id": task_id, "state": "SUCCESS"}}
+
+    def cancel_task(self, task_id: str) -> dict:
+        return {"success": True, "task": {"task_id": task_id, "state": "CANCELLED"}}
+
     def list_records(self) -> dict:
         return {"success": True, "records": []}
 
@@ -171,11 +177,25 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
         "/api/v1/diagnostics/export",
         {},
     )
+    retried = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/tasks/task-1/retry",
+        {},
+    )
+    cancelled = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/tasks/task-2/cancel",
+        {},
+    )
 
     assert paused["global_paused"] is True
     assert task["task"]["capability"] == "search-feeds"
     assert draft["draft"]["content"] == "新文本"
     assert diagnostics["path"] == "diagnostic.json"
+    assert retried["task"]["state"] == "SUCCESS"
+    assert cancelled["task"]["state"] == "CANCELLED"
 
 
 def test_account_setup_api_routes_to_shared_service() -> None:
@@ -238,13 +258,40 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     html = (web_root / "index.html").read_text(encoding="utf-8")
     script = (web_root / "app.js").read_text(encoding="utf-8")
 
-    for label in ("首页", "账号", "任务与确认", "执行记录", "设置"):
+    for label in ("总览", "账号状态", "任务与确认", "执行记录", "诊断设置"):
         assert label in html
     assert 'id="account-form"' in html
     assert "accounts/import" in script
     assert "pairing/begin" in script
     assert "identity/check" in script
     assert "tasks/${created.task.task_id}/execute" in script
+    assert "tasks/${task.task_id}/${action}" in script
+    assert 'id="task-submit"' in html
+    for capability in ("browse-feeds", "search-feeds", "get-feed-detail", "user-profile", "like-feed", "favorite-feed", "keyword-engagement"):
+        assert f'"{capability}"' in script
+    assert 'engagement: ["keyword-engagement"]' in script
+    assert 'id="task-undo"' not in html
+    assert 'id="task-engagement-action"' in html
+    assert 'id="task-engagement-count"' in html
+    assert 'id="task-candidate-pool"' in html
+    assert 'id="task-collection-minutes"' in html
+    assert "collection_stop_reason" in script
+    for template in ("browse", "search", "analysis", "engagement"):
+        assert f'value="{template}"' in html
+    assert 'id="task-duration"' in html
+    assert 'id="task-count"' in html
+    assert 'id="task-tab-immediate"' in html
+    assert 'id="task-tab-plan"' in html
+    assert 'id="task-tab-confirmation"' in html
+    assert 'id="task-template"' in html
+    assert "renderTaskTemplateActions" in script
+    assert "showTaskPanel" in script
+    assert "appendBrowseResults" in script
+    assert "appendTaskResult" in script
+    assert "resultByTask" in script
+    assert "立即任务" in html
+    assert "批量／定时计划" in html
+    assert "确认区" in html
     assert 'id="record-list"' in html
     assert 'id="draft-form"' in html
     assert "drafts/${draft.draft_id}/execute" in script
@@ -252,6 +299,7 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert 'id="settings-form"' in html
     assert "diagnostics/export" in script
     assert "bridge/${action}" in script
+    assert "account.extension_dir" in script
 
 
 def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:

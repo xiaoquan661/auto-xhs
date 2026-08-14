@@ -3,84 +3,132 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f4f1eb" />
-    <title>auto-xhs 本地控制台</title>
+    <meta name="theme-color" content="#f6f6f5" />
+    <meta name="description" content="自动多账号小红书运营系统本地控制台" />
+    <title>auto-xhs · 本地运营中枢</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <div class="page-noise" aria-hidden="true"></div>
     <div class="app-shell">
       <aside class="sidebar" aria-label="主导航">
         <a class="brand" href="#top" aria-label="auto-xhs 首页">
           <span class="brand-mark">小</span>
-          <span class="brand-copy"><strong>auto-xhs</strong><small>本地运营台</small></span>
+          <span class="brand-copy">
+            <strong>auto-xhs</strong>
+            <small>本地运营台</small>
+          </span>
         </a>
 
+        <p class="nav-caption">工作台</p>
         <nav class="nav-list">
-          <a class="nav-item active" href="#top"><span class="nav-icon">⌂</span><span>首页</span></a>
-          <a class="nav-item" href="#accounts"><span class="nav-icon">A</span><span>账号</span></a>
+          <a class="nav-item active" href="#top"><span class="nav-icon">⌂</span><span>总览</span></a>
+          <a class="nav-item" href="#accounts"><span class="nav-icon">◎</span><span>账号状态</span></a>
           <a class="nav-item" href="#setup"><span class="nav-icon">＋</span><span>添加账号</span></a>
-          <a class="nav-item" href="#work"><span class="nav-icon">✎</span><span>任务与确认</span></a>
+          <a class="nav-item" href="#work"><span class="nav-icon">▷</span><span>任务与确认</span></a>
           <a class="nav-item" href="#records"><span class="nav-icon">◷</span><span>执行记录</span></a>
-          <a class="nav-item" href="#diagnosis"><span class="nav-icon">◎</span><span>设置</span></a>
+          <a class="nav-item" href="#diagnosis"><span class="nav-icon">⌘</span><span>诊断设置</span></a>
         </nav>
 
         <div class="sidebar-foot">
           <span class="privacy-dot"></span>
-          <div><strong>数据留在本机</strong><small>仅监听 127.0.0.1</small></div>
+          <div><strong>仅在本机运行</strong><small>127.0.0.1 · PRIVATE</small></div>
         </div>
       </aside>
 
-      <main class="main" id="top">
-        <header class="topbar">
-          <div>
-            <p class="breadcrumb">工作台 / 账号总览</p>
-            <h1>早上好，今天从账号状态开始。</h1>
+      <main class="main" id="main-content">
+        <header class="topbar" id="top">
+          <div class="topbar-title">
+            <p class="breadcrumb">本地工作台</p>
+            <h1>账号与任务</h1>
           </div>
           <div class="topbar-actions">
             <button class="pause-button" id="global-pause" type="button">暂停全部任务</button>
             <div class="service-health" id="health" data-state="loading" role="status">
               <span class="status-pulse"></span><span>正在连接本地服务</span>
             </div>
-            <button class="icon-button" id="refresh" type="button" aria-label="刷新全部状态" title="刷新全部状态">↻</button>
+            <button class="icon-button" id="refresh" type="button" aria-label="刷新全部状态" title="刷新全部状态">
+              <span aria-hidden="true">↻</span>
+            </button>
           </div>
         </header>
 
         <section class="overview" aria-labelledby="overview-title">
+          <div class="overview-index" aria-hidden="true">LOCAL · PRIVATE</div>
           <div class="overview-copy">
-            <p class="eyebrow">LOCAL OPERATIONS WORKSPACE</p>
+            <p class="eyebrow">工作状态</p>
             <h2 id="overview-title">先处理需要关注的账号，<br />再开始今天的运营。</h2>
-            <p>手动保持对应 Chrome Profile 与小红书页面开启。系统不会启动、重启或关闭你的浏览器。</p>
+            <p>清楚查看 Bridge、扩展、Profile 与 UID 状态。浏览器始终由你掌控，所有任务和确认记录只保存在本机。</p>
             <div class="overview-actions">
-              <a class="primary-action" href="#setup">添加账号 <span>→</span></a>
-              <a class="text-action" href="#accounts">查看需要处理的账号</a>
+              <a class="primary-action" href="#accounts"><span>查看账号状态</span><i aria-hidden="true">↗</i></a>
+              <a class="text-action" href="#work">进入任务台 <span aria-hidden="true">→</span></a>
             </div>
             <div class="today-summary" aria-label="今日工作摘要">
-              <span><strong id="today-task-total">—</strong>任务</span>
-              <span><strong id="waiting-draft-total">—</strong>待确认</span>
-              <span><strong id="recent-failure-total">—</strong>近期异常</span>
+              <span><small>任务总数</small><strong id="today-task-total">—</strong></span>
+              <span><small>待确认</small><strong id="waiting-draft-total">—</strong></span>
+              <span><small>近期异常</small><strong id="recent-failure-total">—</strong></span>
             </div>
           </div>
           <div class="overview-visual" aria-hidden="true">
-            <div class="orbit orbit-one"></div>
-            <div class="orbit orbit-two"></div>
-            <div class="core-status">
-              <span class="core-ring"><i></i></span>
+            <div class="status-plate">
+              <span class="plate-label">READY SLOTS</span>
               <strong id="ready-total">—</strong>
-              <small>账号已就绪</small>
+              <span class="plate-caption">账号已就绪</span>
             </div>
-            <div class="floating-chip chip-one"><span></span>Bridge</div>
-            <div class="floating-chip chip-two"><span></span>Profile</div>
-            <div class="floating-chip chip-three"><span></span>UID</div>
+            <div class="signal-rail rail-one"><span>BRIDGE</span><i></i></div>
+            <div class="signal-rail rail-two"><span>PROFILE</span><i></i></div>
+            <div class="signal-rail rail-three"><span>IDENTITY</span><i></i></div>
+            <div class="visual-cross cross-one"></div>
+            <div class="visual-cross cross-two"></div>
+          </div>
+        </section>
+
+        <section class="metric-grid" aria-label="运行概览">
+          <article class="metric-card coral">
+            <span class="metric-index">01</span>
+            <div class="metric-label">账号槽位</div>
+            <strong id="account-total">—</strong>
+            <small>本机已配置</small>
+          </article>
+          <article class="metric-card green">
+            <span class="metric-index">02</span>
+            <div class="metric-label">热连接</div>
+            <strong id="connected-total">—</strong>
+            <small>扩展保持在线</small>
+          </article>
+          <article class="metric-card amber">
+            <span class="metric-index">03</span>
+            <div class="metric-label">需要处理</div>
+            <strong id="blocked-total">—</strong>
+            <small>等待人工恢复</small>
+          </article>
+          <article class="metric-card ink">
+            <span class="metric-index">04</span>
+            <div class="metric-label">开放能力</div>
+            <strong id="capability-count">—</strong>
+            <small>CLI 与 WebUI 共用</small>
+          </article>
+        </section>
+
+        <section class="content-section account-section" id="accounts">
+          <div class="section-heading">
+            <div><p class="section-kicker">02 / ACCOUNT ROSTER</p><h2>账号运行状态</h2></div>
+            <p>每个槽位都是一条独立运营线路。只有 Bridge、扩展、Profile 和当前 UID 全部通过，才会进入 READY。</p>
+          </div>
+          <div id="account-grid" class="account-grid" aria-live="polite">
+            <article class="loading-card"><span></span><span></span><span></span></article>
           </div>
         </section>
 
         <section class="content-section setup-section" id="setup">
           <div class="section-heading">
-            <div><p class="section-kicker">ACCOUNT SETUP</p><h2>添加账号</h2></div>
-            <p>选择本机已有 Chrome Profile，或创建一个独立槽位。浏览器始终由你手动打开。</p>
+            <div><p class="section-kicker">03 / SLOT INTAKE</p><h2>添加账号</h2></div>
+            <p>绑定本机已有 Chrome Profile，或创建独立槽位。控制台不会代替你打开或关闭浏览器。</p>
           </div>
           <div class="setup-grid">
-            <form class="setup-card" id="account-form">
+            <form class="setup-card composer-card" id="account-form">
+              <div class="card-number" aria-hidden="true">A</div>
               <label>槽位名称<input id="account-name" name="name" required maxlength="32" placeholder="例如 brand-a" /></label>
               <label>添加方式
                 <select id="account-mode" name="mode">
@@ -98,85 +146,139 @@
               <p class="form-note" id="setup-message" role="status">创建槽位会保存本地配置，不会打开或关闭 Chrome。</p>
             </form>
             <article class="setup-card steps-card">
-              <p class="section-kicker">NEXT STEPS</p>
+              <p class="section-kicker light">ONBOARDING SEQUENCE</p>
+              <h3>四步进入 READY</h3>
               <ol>
-                <li>添加槽位并手动打开正确 Profile</li>
-                <li>在目标 Profile 中加载通用扩展</li>
-                <li>发起配对并在扩展弹窗确认</li>
-                <li>检查登录身份并确认 UID</li>
+                <li><span>01</span><div><strong>准备槽位</strong><small>添加账号并打开正确 Profile</small></div></li>
+                <li><span>02</span><div><strong>加载扩展</strong><small>使用当前项目 extension</small></div></li>
+                <li><span>03</span><div><strong>建立配对</strong><small>在目标 Profile 弹窗确认</small></div></li>
+                <li><span>04</span><div><strong>核验身份</strong><small>检查登录并确认 UID</small></div></li>
               </ol>
-              <p id="pairing-guidance">添加后，账号卡片会显示唯一的下一步操作。</p>
+              <p id="pairing-guidance">添加后，账号卡片会给出唯一的下一步操作。</p>
             </article>
           </div>
         </section>
 
-        <section class="content-section placeholder-section" id="work">
-          <div class="section-heading"><div><p class="section-kicker">TASKS</p><h2>任务与确认</h2></div><p>L0 可直接执行；点赞和收藏执行前会检查身份、配额与重复目标。</p></div>
-          <div class="setup-grid">
-            <form class="setup-card" id="task-form">
-              <label>目标账号<select id="task-account" required><option value="">请先配置账号</option></select></label>
-              <label>任务类型<select id="task-capability"><option value="search-feeds">搜索笔记</option><option value="list-feeds">浏览首页</option><option value="like-feed">点赞/取消点赞</option><option value="favorite-feed">收藏/取消收藏</option></select></label>
-              <label>关键词或笔记 ID<input id="task-target" required placeholder="搜索填关键词；互动填笔记 ID" /></label>
-              <label id="token-field">XSEC Token<input id="task-token" placeholder="互动任务需要" /></label>
-              <label class="inline-check"><input id="task-undo" type="checkbox" /> 取消点赞或收藏</label>
-              <button class="primary-button" type="submit">创建并执行</button>
-              <p class="form-note" id="task-message" role="status">任务只会在账号 READY 时执行。</p>
-            </form>
-            <div class="record-list" id="task-list"><article class="empty-card"><div><strong>暂无任务</strong><span>创建后会在这里显示执行状态。</span></div></article></div>
-          </div>
-          <div class="draft-layout">
-            <form class="setup-card" id="draft-form">
-              <div class="section-heading compact"><div><p class="section-kicker">DRAFT</p><h2>评论与回复草稿</h2></div></div>
-              <label>目标账号<select id="draft-account" required></select></label>
-              <label>动作<select id="draft-action"><option value="post-comment">评论笔记</option><option value="reply-comment">回复评论</option></select></label>
-              <label>目标 ID<input id="draft-target" required placeholder="评论填笔记 ID；回复填评论 ID" /></label>
-              <label>目标说明<input id="draft-summary" placeholder="方便确认时识别目标" /></label>
-              <label>最终文本<textarea id="draft-content" required maxlength="1000" rows="5"></textarea></label>
-              <button class="primary-button" type="submit">保存草稿</button>
-              <p class="form-note" id="draft-message" role="status">保存不会向小红书发送任何内容。</p>
-            </form>
-            <div class="record-list" id="draft-list"><article class="empty-card"><div><strong>暂无草稿</strong><span>最终确认后才能执行。</span></div></article></div>
-          </div>
-        </section>
-
-        <section class="content-section placeholder-section" id="records">
-          <div class="section-heading"><div><p class="section-kicker">RECORDS</p><h2>执行记录</h2></div><p>所有任务都将显示明确终态和下一步建议。</p></div>
-          <div class="record-list" id="record-list"><article class="empty-card"><div><strong>暂无记录</strong><span>任务完成后会保留最小结果。</span></div></article></div>
-        </section>
-
-        <section class="metric-grid" aria-label="运行概览">
-          <article class="metric-card">
-            <div class="metric-label"><span class="metric-icon coral">A</span><span>账号槽位</span></div>
-            <strong id="account-total">—</strong><small>本机已配置</small>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label"><span class="metric-icon green">C</span><span>热连接</span></div>
-            <strong id="connected-total">—</strong><small>扩展保持在线</small>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label"><span class="metric-icon amber">!</span><span>需要处理</span></div>
-            <strong id="blocked-total">—</strong><small>等待人工恢复</small>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label"><span class="metric-icon violet">V1</span><span>开放能力</span></div>
-            <strong id="capability-count">—</strong><small>CLI 与 WebUI 共用</small>
-          </article>
-        </section>
-
-        <section class="content-section" id="accounts">
+        <section class="content-section work-section" id="work">
           <div class="section-heading">
-            <div><p class="section-kicker">ACCOUNTS</p><h2>账号运行状态</h2></div>
-            <p>完整 READY 前会逐项检查 Bridge、扩展、Profile 与当前登录身份。</p>
+            <div><p class="section-kicker">04 / TASK DESK</p><h2>任务与确认</h2></div>
+            <p>立即执行、批量计划和外发确认各自独立，执行结果统一进入记录。</p>
           </div>
-          <div id="account-grid" class="account-grid" aria-live="polite">
-            <article class="loading-card"><span></span><span></span><span></span></article>
+
+          <div class="task-mode-tabs" role="tablist" aria-label="任务板块视图">
+            <button class="task-mode-tab active" id="task-tab-immediate" type="button" role="tab" aria-selected="true" aria-controls="task-panel-immediate" data-task-panel="immediate">
+              <span>立即任务</span><small>创建后执行</small>
+            </button>
+            <button class="task-mode-tab" id="task-tab-plan" type="button" role="tab" aria-selected="false" aria-controls="task-panel-plan" data-task-panel="plan">
+              <span>批量／定时计划</span><small>下一阶段接入</small>
+            </button>
+            <button class="task-mode-tab" id="task-tab-confirmation" type="button" role="tab" aria-selected="false" aria-controls="task-panel-confirmation" data-task-panel="confirmation">
+              <span>确认区</span><small><b id="confirmation-count">0</b> 条待处理</small>
+            </button>
           </div>
+
+          <div class="task-panel active" id="task-panel-immediate" role="tabpanel" aria-labelledby="task-tab-immediate" data-task-view="immediate">
+          <div class="work-lane direct-lane">
+            <div class="lane-heading">
+              <div><span class="lane-index">A</span><div><p>RUN NOW</p><h3>立即任务</h3></div></div>
+              <span class="lane-rule">“创建并执行”即授权本次明确动作</span>
+            </div>
+            <div class="setup-grid task-grid">
+              <form class="setup-card task-composer" id="task-form">
+                <label>目标账号<select id="task-account" required><option value="">请先配置账号</option></select></label>
+                <label>任务模板
+                  <select id="task-template">
+                    <option value="browse">自动浏览</option>
+                    <option value="search">搜索与收集</option>
+                    <option value="analysis">内容与账号分析</option>
+                    <option value="engagement">点赞与收藏</option>
+                    <option value="creation" disabled>内容创作（后续阶段）</option>
+                    <option value="insight" disabled>数据与状态读取（后续阶段）</option>
+                  </select>
+                </label>
+                <label>具体动作<select id="task-capability"></select></label>
+                <p class="field-help" id="task-capability-help">在一个首页会话中自动滚动、点开并阅读笔记；达到时间或数量任一上限即停止。</p>
+                <fieldset class="browse-settings" id="browse-settings">
+                  <legend>浏览上限</legend>
+                  <label>浏览时间<input id="task-duration" type="number" min="1" max="120" value="5" required /><span>分钟</span></label>
+                  <label>点开数量<input id="task-count" type="number" min="1" max="50" value="5" required /><span>篇</span></label>
+                </fieldset>
+                <fieldset class="browse-settings engagement-settings" id="engagement-settings" hidden>
+                  <legend>随机互动设置</legend>
+                  <label>互动方式
+                    <select id="task-engagement-action">
+                      <option value="like">随机点赞</option>
+                      <option value="favorite">随机收藏</option>
+                      <option value="both">随机点赞并收藏</option>
+                    </select>
+                  </label>
+                  <label>抽取数量<input id="task-engagement-count" type="number" min="1" max="20" value="3" /><span>篇</span></label>
+                  <label>候选池数量<input id="task-candidate-pool" type="number" min="3" max="100" value="20" /><span>篇</span></label>
+                  <label>最长搜集时间<input id="task-collection-minutes" type="number" min="1" max="10" value="2" /><span>分钟</span></label>
+                </fieldset>
+                <label id="task-target-field"><span id="task-target-label">任务目标</span><input id="task-target" /></label>
+                <label id="token-field"><span id="task-token-label">XSEC Token</span><input id="task-token" placeholder="查看详情或互动时需要" /></label>
+                <button class="primary-button wide-button" id="task-submit" type="submit">创建并执行 <span aria-hidden="true">→</span></button>
+                <p class="form-note" id="task-message" role="status">任务只会在账号 READY 时执行。</p>
+              </form>
+              <div class="record-list task-ledger" id="task-list"><article class="empty-card"><div><strong>暂无任务</strong><span>创建后会在这里显示执行状态。</span></div></article></div>
+            </div>
+          </div>
+          </div>
+
+          <div class="task-panel" id="task-panel-plan" role="tabpanel" aria-labelledby="task-tab-plan" data-task-view="plan" hidden>
+          <div class="work-lane plan-lane">
+            <div class="lane-heading">
+              <div><span class="lane-index">B</span><div><p>PLAN AHEAD</p><h3>批量／定时计划</h3></div></div>
+              <span class="lane-rule">产品规则已确定，执行引擎下一阶段接入</span>
+            </div>
+            <div class="plan-stage-note">
+              <span>阶段 02</span>
+              <div><strong>这里暂时不会创建计划</strong><p>下一阶段将先实现计划对象、目标池和子任务拆分，再开放提交入口。</p></div>
+            </div>
+            <div class="plan-capability-grid" aria-label="计划能力范围">
+              <article><span>01</span><strong>浏览与收集</strong><p>批量或定时浏览、搜索和候选内容收集。</p></article>
+              <article><span>02</span><strong>监测与分析</strong><p>关键词、话题、竞品、评论和审核状态监测。</p></article>
+              <article><span>03</span><strong>点赞与收藏</strong><p>创建计划时一次授权，按账号和目标拆分执行。</p></article>
+              <article><span>04</span><strong>内容与报告</strong><p>批量生成本地草稿和定期运营报告。</p></article>
+            </div>
+          </div>
+          </div>
+
+          <div class="task-panel" id="task-panel-confirmation" role="tabpanel" aria-labelledby="task-tab-confirmation" data-task-view="confirmation" hidden>
+          <div class="work-lane approval-lane">
+            <div class="lane-heading">
+              <div><span class="lane-index">C</span><div><p>REVIEW & APPROVE</p><h3>确认区</h3></div></div>
+              <span class="lane-rule">核对账号、UID、目标和最终文本</span>
+            </div>
+            <div class="draft-layout">
+              <form class="setup-card draft-composer" id="draft-form">
+                <label>目标账号<select id="draft-account" required></select></label>
+                <label>动作<select id="draft-action"><option value="post-comment">评论笔记</option><option value="reply-comment">回复评论</option></select></label>
+                <label>目标 ID<input id="draft-target" required placeholder="评论填笔记 ID；回复填评论 ID" /></label>
+                <label>目标说明<input id="draft-summary" placeholder="方便确认时识别目标" /></label>
+                <label>最终文本<textarea id="draft-content" required maxlength="1000" rows="5" placeholder="这里保存的是等待你最终确认的文本"></textarea></label>
+                <button class="primary-button wide-button" id="draft-submit" type="submit">保存为待确认草稿 <span aria-hidden="true">→</span></button>
+                <p class="form-note" id="draft-message" role="status">保存不会向小红书发送任何内容。</p>
+              </form>
+              <div class="record-list draft-ledger" id="draft-list"><article class="empty-card"><div><strong>暂无草稿</strong><span>最终确认后才能执行。</span></div></article></div>
+            </div>
+          </div>
+          </div>
+        </section>
+
+        <section class="content-section records-section" id="records">
+          <div class="section-heading">
+            <div><p class="section-kicker">05 / ACTIVITY LOG</p><h2>执行记录</h2></div>
+            <p>成功、阻塞、取消与结果未知都会留下终态，方便回看每一次操作为什么发生。</p>
+          </div>
+          <div class="record-list record-ledger" id="record-list"><article class="empty-card"><div><strong>暂无记录</strong><span>任务完成后会保留最小结果。</span></div></article></div>
         </section>
 
         <section class="diagnosis-layout" id="diagnosis">
           <article class="diagnosis-card">
             <div class="section-heading compact">
-              <div><p class="section-kicker">DIAGNOSIS</p><h2>系统诊断</h2></div>
+              <div><p class="section-kicker">06 / DIAGNOSTICS</p><h2>系统诊断</h2></div>
               <span class="diagnosis-badge" id="diagnosis-state">检查中</span>
             </div>
             <div class="diagnosis-bars">
@@ -192,7 +294,7 @@
           </article>
 
           <article class="settings-card">
-            <p class="section-kicker">SETTINGS</p>
+            <p class="section-kicker light">RUNTIME SETTINGS</p>
             <h2>运行设置</h2>
             <form id="settings-form">
               <label>全局并发<select id="setting-concurrency"><option>1</option><option>2</option><option selected>3</option></select></label>
@@ -204,11 +306,11 @@
               </div>
               <button class="primary-button" type="submit">确认保存设置</button>
             </form>
-            <p class="version-line">版本 <strong id="product-version">—</strong> · Bridge 自启动在各账号卡片中设置</p>
+            <p class="version-line">VERSION <strong id="product-version">—</strong><br />Bridge 自启动在各账号卡片中设置</p>
           </article>
         </section>
 
-        <footer><span>auto-xhs · 本地优先</span><span>配置和任务数据只保存在本机</span></footer>
+        <footer><span>AUTO—XHS / LOCAL FIRST</span><span>配置与任务数据只保存在本机</span></footer>
       </main>
     </div>
     <script src="/app.js" defer></script>

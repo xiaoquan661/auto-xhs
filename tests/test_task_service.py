@@ -76,6 +76,30 @@ def test_task_transition_has_stable_final_state(tmp_path) -> None:
         service.transition(task["task_id"], "RUNNING")
 
 
+def test_requeue_clears_previous_attempt_timestamps_and_error(tmp_path) -> None:
+    service = _service(tmp_path)
+    task = service.create(
+        source="webui",
+        account_slot="alpha",
+        capability="list-feeds",
+        request_summary="浏览首页",
+    )
+    blocked = service.transition(
+        task["task_id"],
+        "BLOCKED",
+        error_code="ACCOUNT_NOT_READY",
+        recommended_action="启动 Bridge",
+    )
+
+    queued = service.transition(task["task_id"], "QUEUED")
+
+    assert blocked["finished_at"]
+    assert queued["started_at"] is None
+    assert queued["finished_at"] is None
+    assert queued["error_code"] == ""
+    assert queued["recommended_action"] == ""
+
+
 def test_recovery_marks_read_only_failed_and_l1_result_unknown(tmp_path) -> None:
     service = _service(tmp_path)
     read_task = service.create(

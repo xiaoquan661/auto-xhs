@@ -55,7 +55,7 @@ def test_security_configuration_always_requires_confirmation():
 
 
 def test_l1_social_state_changes_require_identity_and_result_verification():
-    for command in ("like-feed", "favorite-feed"):
+    for command in ("like-feed", "favorite-feed", "keyword-engagement"):
         policy = get_capability_policy(command)
         assert policy.risk_level is RiskLevel.STATE_CHANGE
         assert policy.enabled_in_v1 is True
@@ -71,6 +71,15 @@ def test_policy_serialization_is_json_ready():
     assert policy["risk_level"] == "L0"
     assert policy["retry_policy"] == "safe"
     assert policy["supports_scheduling"] is True
+
+
+def test_automatic_browse_is_a_read_only_schedulable_capability():
+    policy = get_capability_policy("browse-feeds")
+
+    assert policy.risk_level is RiskLevel.READ_ONLY
+    assert policy.enabled_in_v1 is True
+    assert policy.supports_scheduling is True
+    assert policy.requires_confirmation is False
 
 
 def test_account_identity_check_and_record_have_distinct_service_policies():

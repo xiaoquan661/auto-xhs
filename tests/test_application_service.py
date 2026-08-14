@@ -8,6 +8,7 @@ from scripts.application_service import ApplicationService, ServiceError
 from scripts.business_runner import BusinessRunner
 from scripts.capability_registry import CAPABILITY_POLICIES
 from scripts.product_store import ProductStore
+from scripts.task_service import TaskService
 
 
 def _config(name: str = "alpha") -> SimpleNamespace:
@@ -29,10 +30,25 @@ def _config(name: str = "alpha") -> SimpleNamespace:
 
 class StatusPage:
     status: dict | None = None
+    last_connection: dict | None = None
 
-    def __init__(self, bridge_url: str, account: str) -> None:
+    def __init__(
+        self,
+        bridge_url: str,
+        account: str,
+        account_id: str | None = None,
+        bridge_token: str | None = None,
+    ) -> None:
         self.bridge_url = bridge_url
         self.account = account
+        self.account_id = account_id
+        self.bridge_token = bridge_token
+        type(self).last_connection = {
+            "bridge_url": bridge_url,
+            "account": account,
+            "account_id": account_id,
+            "bridge_token": bridge_token,
+        }
 
     def get_server_status(self) -> dict | None:
         return self.status
@@ -167,6 +183,7 @@ def test_service_creates_task_and_draft_through_shared_boundary(tmp_path) -> Non
         account_slot="alpha",
         capability="search-feeds",
         request_summary="搜索露营",
+        parameters={"keyword": "露营"},
     )["task"]
     draft = service.create_draft(
         account_slot="alpha",
@@ -270,6 +287,44 @@ def test_account_reaches_ready_only_after_matching_live_uid_check(tmp_path) -> N
 
     assert result["status"] == "READY"
     assert result["ready"] is True
+    assert StatusPage.last_connection == {
+        "bridge_url": "ws://localhost:19801",
+        "account": "alpha",
+        "account_id": "slot-alpha",
+        "bridge_token": "secret-not-public",
+    }
+
+
+def test_identity_bridge_error_is_not_reported_as_logged_out(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        page_factory=StatusPage,
+        identity_observer=lambda _page: {
+            "logged_in": False,
+            "error": "Bridge 认证失败",
+        },
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.check_account_identity("alpha")
+
+    assert exc_info.value.code == "IDENTITY_CHECK_FAILED"
+    assert "Bridge 认证失败" in exc_info.value.message
+
+
+def test_logged_in_identity_without_uid_has_distinct_error(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        page_factory=StatusPage,
+        identity_observer=lambda _page: {"logged_in": True, "user_id": ""},
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.check_account_identity("alpha")
+
+    assert exc_info.value.code == "IDENTITY_UID_UNAVAILABLE"
 
 
 def test_account_identity_mismatch_never_reaches_ready(tmp_path) -> None:
@@ -331,6 +386,170 @@ def test_service_executes_ready_l0_task_and_records_result(tmp_path, monkeypatch
     assert service.list_records()["records"][0]["task_id"] == task["task_id"]
 
 
+def test_service_rejects_missing_task_parameters(tmp_path) -> None:
+    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
+
+    with pytest.raises(ServiceError) as search_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="search-feeds",
+            request_summary="搜索",
+            parameters={"keyword": ""},
+        )
+    with pytest.raises(ServiceError) as interaction_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="like-feed",
+            request_summary="点赞",
+            parameters={"feed_id": "feed-1", "xsec_token": ""},
+        )
+    with pytest.raises(ServiceError) as detail_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="get-feed-detail",
+            request_summary="查看详情",
+            parameters={"xsec_token": "token"},
+        )
+    with pytest.raises(ServiceError) as profile_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="user-profile",
+            request_summary="查看主页",
+            parameters={"user_id": "user-1"},
+        )
+    with pytest.raises(ServiceError) as browse_time_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="browse-feeds",
+            request_summary="自动浏览",
+            parameters={"duration_minutes": 0, "count": 5},
+        )
+    with pytest.raises(ServiceError) as browse_count_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="browse-feeds",
+            request_summary="自动浏览",
+            parameters={"duration_minutes": 5, "count": 51},
+        )
+    with pytest.raises(ServiceError) as keyword_engagement_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="keyword-engagement",
+            request_summary="随机点赞",
+            parameters={"keyword": "", "action": "like", "count": 3},
+        )
+    with pytest.raises(ServiceError) as candidate_pool_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="keyword-engagement",
+            request_summary="随机点赞",
+            parameters={
+                "keyword": "露营",
+                "action": "like",
+                "count": 5,
+                "candidate_pool_size": 3,
+                "collection_minutes": 2,
+            },
+        )
+
+    assert search_error.value.code == "INVALID_REQUEST"
+    assert interaction_error.value.code == "INVALID_REQUEST"
+    assert detail_error.value.code == "INVALID_REQUEST"
+    assert profile_error.value.code == "INVALID_REQUEST"
+    assert browse_time_error.value.code == "INVALID_REQUEST"
+    assert browse_count_error.value.code == "INVALID_REQUEST"
+    assert keyword_engagement_error.value.code == "INVALID_REQUEST"
+    assert candidate_pool_error.value.code == "INVALID_REQUEST"
+
+
+def test_keyword_engagement_preserves_item_results_and_partial_state(tmp_path, monkeypatch) -> None:
+    received: dict = {}
+
+    def execute(account, capability, parameters):
+        received.update(account=account, capability=capability, parameters=parameters)
+        return {
+            "success": False,
+            "partial": True,
+            "result_type": "keyword_engagement",
+            "message": "随机互动部分完成",
+            "items": [{"feed_id": "feed-1", "success": False, "actions": {}}],
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(execute),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="keyword-engagement",
+        request_summary="关键词随机点赞：露营 / 1 篇",
+        parameters={"keyword": "露营", "action": "like", "count": 1},
+    )["task"]
+
+    result = service.execute_task(task["task_id"])
+
+    assert result["task"]["state"] == "PARTIAL_SUCCESS"
+    assert result["result"]["items"][0]["feed_id"] == "feed-1"
+    assert received["capability"] == "keyword-engagement"
+    assert received["parameters"]["excluded_by_action"] == {"like": [], "favorite": []}
+
+
+def test_unexpected_l0_failure_reaches_failed_terminal_state(tmp_path, monkeypatch) -> None:
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(
+            lambda _account, _capability, _parameters: (_ for _ in ()).throw(
+                RuntimeError("页面解析失败")
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="list-feeds",
+        request_summary="浏览首页",
+    )["task"]
+
+    result = service.execute_task(task["task_id"])
+
+    assert result["task"]["state"] == "FAILED"
+    assert result["task"]["error_code"] == "EXECUTION_ERROR"
+
+
+def test_service_recovers_interrupted_task_on_startup(tmp_path) -> None:
+    store = ProductStore(tmp_path / "product")
+    task = TaskService(store).create(
+        source="webui",
+        account_slot="alpha",
+        capability="list-feeds",
+        request_summary="浏览首页",
+    )
+    TaskService(store).transition(task["task_id"], "RUNNING")
+
+    service = ApplicationService(product_store=store)
+
+    assert service.get_task(task["task_id"])["task"]["state"] == "FAILED"
+
+
 def test_service_blocks_task_when_account_is_not_ready(tmp_path, monkeypatch) -> None:
     service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
     monkeypatch.setattr(
@@ -349,6 +568,62 @@ def test_service_blocks_task_when_account_is_not_ready(tmp_path, monkeypatch) ->
 
     assert result["task"]["state"] == "BLOCKED"
     assert result["task"]["recommended_action"] == "手动打开 Chrome"
+    records = service.list_records()["records"]
+    assert records[0]["state"] == "BLOCKED"
+    assert records[0]["error_code"] == "ACCOUNT_NOT_READY"
+
+
+def test_service_retries_blocked_task_after_account_recovers(tmp_path, monkeypatch) -> None:
+    readiness = iter(
+        [
+            {"ready": False, "next_action": "手动打开 Chrome"},
+            {"ready": True, "next_action": None},
+        ]
+    )
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(
+            lambda _account, _capability, _parameters: {"count": 3}
+        ),
+    )
+    monkeypatch.setattr(service, "get_account_status", lambda _account: next(readiness))
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="list-feeds",
+        request_summary="浏览首页",
+    )["task"]
+    service.execute_task(task["task_id"])
+
+    result = service.retry_task(task["task_id"])
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["task"]["result_summary"] == "完成，共 3 条结果"
+    assert [item["state"] for item in service.list_records()["records"]] == [
+        "SUCCESS",
+        "BLOCKED",
+    ]
+
+
+def test_service_cancels_blocked_task_and_records_it(tmp_path, monkeypatch) -> None:
+    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": False, "next_action": "启动 Bridge"},
+    )
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="list-feeds",
+        request_summary="浏览首页",
+    )["task"]
+    service.execute_task(task["task_id"])
+
+    result = service.cancel_task(task["task_id"])
+
+    assert result["task"]["state"] == "CANCELLED"
+    assert service.list_records()["records"][0]["state"] == "CANCELLED"
 
 
 def test_l1_uncertain_failure_never_retries_automatically(tmp_path, monkeypatch) -> None:
@@ -376,6 +651,33 @@ def test_l1_uncertain_failure_never_retries_automatically(tmp_path, monkeypatch)
 
     assert result["task"]["state"] == "RESULT_UNKNOWN"
     assert "回读" in result["task"]["recommended_action"]
+
+
+def test_l1_quota_rejection_becomes_visible_blocked_task(tmp_path, monkeypatch) -> None:
+    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+
+    def reject(**_kwargs):
+        raise ServiceError("QUOTA_EXCEEDED", "已达到当前操作配额", 409)
+
+    monkeypatch.setattr(service.quota, "check_l1", reject)
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="like-feed",
+        request_summary="点赞",
+        parameters={"feed_id": "feed-1", "xsec_token": "token"},
+    )["task"]
+
+    result = service.execute_task(task["task_id"])
+
+    assert result["task"]["state"] == "BLOCKED"
+    assert result["task"]["error_code"] == "QUOTA_EXCEEDED"
+    assert result["task"]["recommended_action"] == "已达到当前操作配额"
 
 
 def _ready_output_service(tmp_path, executor):
@@ -421,6 +723,7 @@ def test_confirmed_comment_executes_once_and_records_result(tmp_path) -> None:
     assert calls[0][1] == "post-comment"
     assert calls[0][2]["content"] == "很实用"
     assert service.list_records()["records"][0]["state"] == "SUCCESS"
+    assert service.list_drafts()["drafts"][0]["status"] == "EXECUTED"
     with pytest.raises(ServiceError) as consumed:
         service.execute_draft(
             draft["draft_id"],
@@ -492,6 +795,7 @@ def test_comment_adapter_failure_becomes_result_unknown(tmp_path) -> None:
     assert result["task"]["state"] == "RESULT_UNKNOWN"
     assert result["task"]["error_code"] == "EXECUTION_ERROR"
     assert "不要直接重发" in result["task"]["recommended_action"]
+    assert service.list_drafts()["drafts"][0]["status"] == "RESULT_UNKNOWN"
 
 
 def test_account_status_blocks_without_user_hot_session() -> None:

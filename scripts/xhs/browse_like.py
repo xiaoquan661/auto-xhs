@@ -98,6 +98,111 @@ def _select_candidates(page, count: int, video_only: bool) -> list[Feed]:
     return sorted(random.sample(candidates, count), key=lambda feed: feed.index)
 
 
+def _browse_candidates(page, seen: set[str]) -> list[Feed]:
+    return [
+        feed
+        for feed in extract_current_feeds(page)
+        if feed.model_type == "note"
+        and feed.id
+        and feed.id not in seen
+        and page.has_element(_card_selector(feed.id))
+    ]
+
+
+def _simulate_reading(page, duration_seconds: float, deadline: float) -> float:
+    """Scroll inside an opened note for the allocated time budget."""
+    started = time.monotonic()
+    budget_end = min(deadline, started + max(0.0, duration_seconds))
+    viewport = int(page.evaluate("window.innerHeight || 768") or 768)
+    width = int(page.evaluate("window.innerWidth || 1280") or 1280)
+    while time.monotonic() < budget_end:
+        page.mouse_move(
+            random.uniform(width * 0.35, width * 0.72),
+            random.uniform(viewport * 0.28, viewport * 0.68),
+        )
+        page.dispatch_wheel_event(random.uniform(viewport * 0.18, viewport * 0.38))
+        time.sleep(min(random.uniform(1.2, 2.4), max(0.0, budget_end - time.monotonic())))
+    return round(max(0.0, time.monotonic() - started), 2)
+
+
+def browse_feed_cycle(page, *, duration_seconds: int = 300, count: int = 5) -> dict:
+    """Scroll the home feed and open notes until the time or count limit is reached."""
+    if duration_seconds < 1:
+        raise ValueError("浏览时间必须大于 0")
+    if count < 1:
+        raise ValueError("点开数量必须大于 0")
+
+    started = time.monotonic()
+    deadline = started + duration_seconds
+    page.navigate(HOME_URL)
+    page.wait_for_load()
+    page.wait_dom_stable()
+
+    completed: list[dict] = []
+    seen: set[str] = set()
+    empty_scrolls = 0
+
+    while len(completed) < count and time.monotonic() < deadline:
+        candidates = _browse_candidates(page, seen)
+        if not candidates:
+            viewport = int(page.evaluate("window.innerHeight || 768") or 768)
+            page.scroll_by(0, int(viewport * random.uniform(0.7, 0.95)))
+            time.sleep(min(1.5, max(0.0, deadline - time.monotonic())))
+            empty_scrolls += 1
+            if empty_scrolls >= 8:
+                break
+            continue
+
+        empty_scrolls = 0
+        feed = random.choice(candidates)
+        seen.add(feed.id)
+        _open_from_feed(page, feed)
+
+        remaining_seconds = max(0.0, deadline - time.monotonic())
+        remaining_items = max(1, count - len(completed))
+        allocated_seconds = remaining_seconds / remaining_items
+        read_seconds = _simulate_reading(page, allocated_seconds, deadline)
+        close_method = _close_detail(page, feed.id)
+        completed.append(
+            {
+                "feed_id": feed.id,
+                "title": feed.note_card.display_title,
+                "author": feed.note_card.user.nickname or feed.note_card.user.nick_name,
+                "type": feed.note_card.type,
+                "read_seconds": read_seconds,
+                "closed_by": close_method,
+            }
+        )
+
+        if len(completed) < count and time.monotonic() < deadline:
+            viewport = int(page.evaluate("window.innerHeight || 768") or 768)
+            page.scroll_by(0, int(viewport * random.uniform(0.65, 0.95)))
+
+    elapsed = round(max(0.0, time.monotonic() - started), 2)
+    if len(completed) >= count:
+        stop_reason = "count_reached"
+    elif time.monotonic() >= deadline:
+        stop_reason = "time_limit"
+    else:
+        stop_reason = "no_more_feeds"
+    reason_label = {
+        "count_reached": "已达到点开数量",
+        "time_limit": "已达到浏览时间",
+        "no_more_feeds": "当前页面没有更多可浏览笔记",
+    }[stop_reason]
+    return {
+        "success": True,
+        "message": f"自动浏览完成，共点开 {len(completed)} 篇；{reason_label}",
+        "count": len(completed),
+        "requested_count": count,
+        "duration_seconds": duration_seconds,
+        "elapsed_seconds": elapsed,
+        "stop_reason": stop_reason,
+        "refreshed_between_items": False,
+        "items": completed,
+    }
+
+
 def browse_like_cycle(
     page,
     count: int = 3,

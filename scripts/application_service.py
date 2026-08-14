@@ -98,6 +98,7 @@ class ApplicationService:
         self._autostart_disabler = autostart_disabler
         self._store = product_store or ProductStore()
         self.tasks = TaskService(self._store)
+        self.tasks.recover_interrupted()
         self.approvals = ApprovalService(self._store)
         self.quota = QuotaService(self._store)
         self._runner_is_managed = business_runner is None
@@ -242,13 +243,25 @@ class ApplicationService:
     def check_account_identity(self, account: str) -> dict:
         self.require_enabled_capability("account-identity", operation="check")
         config = self._load_account(account)
-        page = self._page_factory(config.bridge_url, account=config.name)
+        page = self._page_for_account(config)
         try:
             identity = self._identity_observer(page)
         except Exception as exc:
             raise ServiceError("IDENTITY_CHECK_FAILED", str(exc), 409) from exc
         if not identity.get("logged_in"):
+            if identity.get("error"):
+                raise ServiceError(
+                    "IDENTITY_CHECK_FAILED",
+                    f"无法读取当前登录身份：{identity['error']}",
+                    409,
+                )
             raise ServiceError("LOGIN_REQUIRED", "当前 Profile 尚未登录小红书", 409)
+        if not identity.get("user_id"):
+            raise ServiceError(
+                "IDENTITY_UID_UNAVAILABLE",
+                "已检测到登录，但无法读取当前 UID，请刷新小红书首页后重试",
+                409,
+            )
         checks = dict(self._store.get_setting("runtime_identity_checks", {}))
         checks[account] = {
             "user_id": str(identity.get("user_id") or ""),
@@ -412,6 +425,10 @@ class ApplicationService:
     def create_task(self, **values) -> dict:
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
+        self._validate_task_parameters(
+            str(values.get("capability") or ""),
+            values.get("parameters") or {},
+        )
         return {"success": True, "task": self.tasks.create(**values)}
 
     def list_tasks(self) -> dict:
@@ -426,6 +443,7 @@ class ApplicationService:
         task = self.tasks.get(task_id)
         if task["state"] != "QUEUED":
             raise ServiceError("INVALID_TASK_STATE", "只有排队中的任务可以执行", 409)
+        target_key = self._task_target_key(task)
         status = self.get_account_status(task["account_slot"])
         if not status["ready"]:
             task = self.tasks.transition(
@@ -434,32 +452,60 @@ class ApplicationService:
                 error_code="ACCOUNT_NOT_READY",
                 recommended_action=status["next_action"] or "检查账号状态",
             )
+            self._record_task_event(task, target_key)
             return {"success": True, "task": task}
-        parameters = task.get("parameters") or {}
-        target_key = str(
-            parameters.get("feed_id")
-            or parameters.get("user_id")
-            or parameters.get("keyword")
-            or ""
-        )
+        parameters = dict(task.get("parameters") or {})
         if task["risk_level"] == "L1":
-            self.quota.check_l1(
-                account=task["account_slot"],
-                capability=task["capability"],
-                target_key=target_key,
-            )
+            try:
+                if task["capability"] == "keyword-engagement":
+                    action = str(parameters.get("action") or "")
+                    requested = int(parameters.get("count") or 0)
+                    requested_actions = requested * (2 if action == "both" else 1)
+                    self.quota.check_l1_batch(
+                        account=task["account_slot"],
+                        requested_actions=requested_actions,
+                    )
+                    parameters["excluded_by_action"] = {
+                        "like": sorted(
+                            self.quota.recent_target_ids(
+                                account=task["account_slot"], capability="like-feed"
+                            )
+                        ),
+                        "favorite": sorted(
+                            self.quota.recent_target_ids(
+                                account=task["account_slot"], capability="favorite-feed"
+                            )
+                        ),
+                    }
+                else:
+                    self.quota.check_l1(
+                        account=task["account_slot"],
+                        capability=task["capability"],
+                        target_key=target_key,
+                    )
+            except ServiceError as exc:
+                blocked = self.tasks.transition(
+                    task_id,
+                    "BLOCKED",
+                    error_code=exc.code,
+                    recommended_action=exc.message,
+                )
+                self._record_task_event(blocked, target_key)
+                return {"success": True, "task": blocked}
         self.tasks.transition(task_id, "RUNNING")
         try:
             result = self.runner.execute(
                 task["account_slot"], task["capability"], parameters
             )
-        except ServiceError as exc:
+        except Exception as exc:
             final = "RESULT_UNKNOWN" if task["risk_level"] == "L1" else "FAILED"
+            code = exc.code if isinstance(exc, ServiceError) else "EXECUTION_ERROR"
+            message = exc.message if isinstance(exc, ServiceError) else str(exc)
             completed = self.tasks.transition(
                 task_id,
                 final,
-                result_summary=exc.message,
-                error_code=exc.code,
+                result_summary=message,
+                error_code=code,
                 recommended_action=(
                     "先回读平台当前状态，再决定是否重试"
                     if final == "RESULT_UNKNOWN"
@@ -470,11 +516,36 @@ class ApplicationService:
             return {"success": True, "task": completed}
         completed = self.tasks.transition(
             task_id,
-            "SUCCESS",
+            "PARTIAL_SUCCESS" if result.get("partial") else "SUCCESS",
             result_summary=self._result_summary(result),
         )
         self._record_task_event(completed, target_key, result=result)
         return {"success": True, "task": completed, "result": result}
+
+    def retry_task(self, task_id: str) -> dict:
+        if self._store.get_setting("global_paused", False):
+            raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
+        task = self.tasks.get(task_id)
+        if task["state"] != "BLOCKED":
+            raise ServiceError("INVALID_TASK_STATE", "只有需处理的任务可以重试", 409)
+        self.tasks.transition(task_id, "QUEUED")
+        return self.execute_task(task_id)
+
+    def cancel_task(self, task_id: str) -> dict:
+        task = self.tasks.get(task_id)
+        if task["state"] not in {"QUEUED", "WAITING_APPROVAL", "BLOCKED"}:
+            raise ServiceError(
+                "INVALID_TASK_STATE",
+                "只有尚未开始或需处理的任务可以取消",
+                409,
+            )
+        cancelled = self.tasks.transition(
+            task_id,
+            "CANCELLED",
+            result_summary="任务已由用户取消",
+        )
+        self._record_task_event(cancelled, self._task_target_key(cancelled))
+        return {"success": True, "task": cancelled}
 
     def list_records(self) -> dict:
         records = sorted(
@@ -500,9 +571,67 @@ class ApplicationService:
             "finished_at": task["finished_at"],
             "result_summary": task["result_summary"],
             "error_code": task["error_code"],
+            "recommended_action": task["recommended_action"],
             "result": result or {},
         }
         self._store.put("events", event_id, event)
+
+    @staticmethod
+    def _task_target_key(task: dict) -> str:
+        parameters = task.get("parameters") or {}
+        return str(
+            parameters.get("feed_id")
+            or parameters.get("user_id")
+            or parameters.get("keyword")
+            or ""
+        )
+
+    @staticmethod
+    def _validate_task_parameters(capability: str, parameters: dict) -> None:
+        if capability == "browse-feeds":
+            try:
+                duration_minutes = int(parameters.get("duration_minutes"))
+                count = int(parameters.get("count"))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "自动浏览时间和点开数量必须是整数") from exc
+            if not 1 <= duration_minutes <= 120:
+                raise ServiceError("INVALID_REQUEST", "自动浏览时间必须在 1 到 120 分钟之间")
+            if not 1 <= count <= 50:
+                raise ServiceError("INVALID_REQUEST", "自动浏览点开数量必须在 1 到 50 篇之间")
+        if capability == "search-feeds" and not str(parameters.get("keyword") or "").strip():
+            raise ServiceError("INVALID_REQUEST", "搜索任务必须填写关键词")
+        if capability == "keyword-engagement":
+            if not str(parameters.get("keyword") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "随机点赞收藏任务必须填写筛选关键词")
+            if str(parameters.get("action") or "") not in {"like", "favorite", "both"}:
+                raise ServiceError("INVALID_REQUEST", "请选择点赞、收藏或点赞并收藏")
+            try:
+                count = int(parameters.get("count"))
+                candidate_pool_size = int(parameters.get("candidate_pool_size", 20))
+                collection_minutes = int(parameters.get("collection_minutes", 2))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "随机互动、候选池和搜集时间必须是整数") from exc
+            if not 1 <= count <= 20:
+                raise ServiceError("INVALID_REQUEST", "随机互动数量必须在 1 到 20 篇之间")
+            if not count <= candidate_pool_size <= 100:
+                raise ServiceError("INVALID_REQUEST", "候选池数量必须不少于互动数量，且不超过 100 篇")
+            if not 1 <= collection_minutes <= 10:
+                raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
+        if capability == "get-feed-detail":
+            if not str(parameters.get("feed_id") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "查看笔记详情必须填写笔记 ID")
+            if not str(parameters.get("xsec_token") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "查看笔记详情必须填写 XSEC Token")
+        if capability == "user-profile":
+            if not str(parameters.get("user_id") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "查看用户主页必须填写用户 ID")
+            if not str(parameters.get("xsec_token") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "查看用户主页必须填写 XSEC Token")
+        if capability in {"like-feed", "favorite-feed"}:
+            if not str(parameters.get("feed_id") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "点赞或收藏任务必须填写笔记 ID")
+            if not str(parameters.get("xsec_token") or "").strip():
+                raise ServiceError("INVALID_REQUEST", "点赞或收藏任务必须填写 XSEC Token")
 
     @staticmethod
     def _result_summary(result: dict) -> str:
@@ -595,11 +724,13 @@ class ApplicationService:
                 error_code=code,
                 recommended_action="请先在小红书页面人工检查结果，不要直接重发",
             )
+            self.approvals.mark_execution(draft_id, "RESULT_UNKNOWN")
             self._record_task_event(completed, draft["target_id"])
             return {"success": True, "task": completed, "approval": consumed["approval"]}
         completed = self.tasks.transition(
             task["task_id"], "SUCCESS", result_summary=self._result_summary(result)
         )
+        self.approvals.mark_execution(draft_id, "EXECUTED")
         self._record_task_event(completed, draft["target_id"], result=result)
         return {
             "success": True,
@@ -610,7 +741,7 @@ class ApplicationService:
 
     def get_account_status(self, account: str, *, bridge_url: str | None = None) -> dict:
         config = self._load_account(account)
-        page = self._page_factory(bridge_url or config.bridge_url, account=config.name)
+        page = self._page_for_account(config, bridge_url=bridge_url)
         bridge_status = page.get_server_status()
         runtime = evaluate_profile_connection(config, bridge_status)
         identity = self._identity_summary(config.name)
@@ -643,6 +774,19 @@ class ApplicationService:
             return self._account_loader(account)
         except (FileNotFoundError, ValueError) as exc:
             raise ServiceError("ACCOUNT_NOT_FOUND", str(exc), 404) from exc
+
+    def _page_for_account(
+        self,
+        config: AccountConfig,
+        *,
+        bridge_url: str | None = None,
+    ) -> BridgePage:
+        return self._page_factory(
+            bridge_url or config.bridge_url,
+            account=config.name,
+            account_id=config.account_id,
+            bridge_token=config.bridge_token,
+        )
 
     def _ensure_slot_capacity(self) -> None:
         if len(self._account_lister()) >= 6:

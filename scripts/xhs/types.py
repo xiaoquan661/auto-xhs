@@ -153,7 +153,9 @@ class Feed:
                 "nickname": self.note_card.user.nickname or self.note_card.user.nick_name,
             },
             "interactInfo": {
+                "liked": self.note_card.interact_info.liked,
                 "likedCount": self.note_card.interact_info.liked_count,
+                "collected": self.note_card.interact_info.collected,
                 "collectedCount": self.note_card.interact_info.collected_count,
                 "commentCount": self.note_card.interact_info.comment_count,
                 "sharedCount": self.note_card.interact_info.shared_count,

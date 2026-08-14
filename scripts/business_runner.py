@@ -58,12 +58,32 @@ class BusinessRunner:
 
             feeds = list_feeds(page)
             return {"feeds": _serialize(feeds), "count": len(feeds)}
+        if capability == "browse-feeds":
+            from xhs.browse_like import browse_feed_cycle
+
+            return browse_feed_cycle(
+                page,
+                duration_seconds=int(parameters.get("duration_minutes") or 5) * 60,
+                count=int(parameters.get("count") or 5),
+            )
         if capability == "search-feeds":
             from xhs.search import search_feeds
             from xhs.types import FilterOption
 
             feeds = search_feeds(page, str(parameters.get("keyword") or ""), FilterOption())
             return {"feeds": _serialize(feeds), "count": len(feeds)}
+        if capability == "keyword-engagement":
+            from xhs.keyword_engagement import keyword_engagement
+
+            return keyword_engagement(
+                page,
+                keyword=str(parameters.get("keyword") or ""),
+                action=str(parameters.get("action") or ""),
+                count=int(parameters.get("count") or 0),
+                candidate_pool_size=int(parameters.get("candidate_pool_size") or 20),
+                collection_duration_seconds=int(parameters.get("collection_minutes") or 2) * 60,
+                excluded_by_action=parameters.get("excluded_by_action") or {},
+            )
         if capability == "get-feed-detail":
             from xhs.feed_detail import get_feed_detail
 

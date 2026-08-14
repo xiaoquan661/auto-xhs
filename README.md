@@ -70,8 +70,9 @@ Agent 会自动执行：搜索 → 筛选图文 → 按点赞排序 → 收藏 �
 **方法二：Git Clone**
 
 ```bash
-cd <your-agent-project>/skills/
-git clone https://github.com/autoclaw-cc/xiaohongshu-skills.git
+cd <your-project-directory>
+git clone https://github.com/xiaoquan661/auto-xhs.git
+cd auto-xhs
 ```
 
 2. 检测 Python 并准备项目依赖：
@@ -91,8 +92,8 @@ powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1 -Prepare
 当前版本使用一套通用扩展；不同 Chrome Profile 通过各自的 `chrome.storage.local` 保存配对，
 不再为每个账号复制扩展代码或在扩展磁盘文件中写入长期令牌。
 
-1. 先按下方说明创建或导入至少一个账号槽位；CLI 会把通用扩展部署到
-   `~/.xhs/universal-extension`。
+1. 先按下方说明创建或导入至少一个账号槽位；通用扩展就是当前项目根目录中的
+   `extension` 文件夹，不使用 `.codex` 下的旧安装副本。
 2. 在目标 Chrome Profile 打开 `chrome://extensions/` 并开启**开发者模式**。
 3. 点击**加载已解压的扩展程序**，选择 CLI 输出的同一个通用扩展目录。
 4. 运行 `account-pair-begin --confirm`，把一次性配对包粘贴到扩展弹窗。
@@ -339,7 +340,7 @@ python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --c
 | `account-list`              | 列出所有已配置账号                                  |
 | `account-start`             | 启动目标账号的 Bridge 并检查热登录连接，不启动 Chrome |
 | `account-status`            | 检查目标账号的服务和扩展连接状态                    |
-| `account-sync`              | 将最新代码同步到所有 Profile 共用的通用扩展目录     |
+| `account-sync`              | 让账号槽位指向当前项目中所有 Profile 共用的扩展目录 |
 | `account-doctor`            | 只读诊断账号配置、Profile、扩展路由、端口和连接状态 |
 | `account-pair-begin`        | 生成目标账号的一次性 Profile 配对包                 |
 | `account-pair-status`       | 查看 Profile 配对与扩展连接状态                     |
@@ -354,6 +355,7 @@ python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --c
 | `login`                     | 获取登录二维码，等待扫码，登录后返回用户信息        |
 | `delete-cookies`            | 通过页面退出当前登录                                |
 | `list-feeds`                | 获取首页推荐 Feed                                   |
+| `browse-feeds`              | 按时间和数量自动滚动首页并点开笔记                  |
 | `search-feeds`              | 关键词搜索笔记（支持排序/类型/时间/范围/位置筛选）  |
 | `get-feed-detail`           | 获取笔记完整内容和评论                              |
 | `user-profile`              | 获取用户主页信息和帖子列表                          |

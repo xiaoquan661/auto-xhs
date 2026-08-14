@@ -16,6 +16,7 @@ from scripts.account_manager import (
     list_accounts,
     load_account,
     sync_account_extension,
+    universal_extension_dir,
 )
 from scripts.run_lock import RunLock
 
@@ -36,6 +37,12 @@ def _make_chrome_profile(root: Path, profile_name: str) -> Path:
     return profile
 
 
+def test_default_extension_directory_is_current_workspace(monkeypatch):
+    monkeypatch.delenv("XHS_UNIVERSAL_EXTENSION_DIR", raising=False)
+
+    assert universal_extension_dir() == Path(__file__).resolve().parents[1] / "extension"
+
+
 def test_add_accounts_get_independent_profiles_and_ports(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     source = _make_extension(tmp_path / "extension-source")
@@ -50,6 +57,7 @@ def test_add_accounts_get_independent_profiles_and_ports(tmp_path, monkeypatch):
     assert load_account("alpha") == alpha
 
     assert alpha.extension_dir == beta.extension_dir
+    assert alpha.extension_dir == str(source.resolve())
     config_text = (Path(alpha.extension_dir) / "bridge_config.js").read_text(encoding="utf-8")
     assert '"mode": "universal"' in config_text
     assert '"storageKey": "xhsBridgeBinding"' in config_text
@@ -150,6 +158,19 @@ def test_sync_extension_preserves_account_route(tmp_path, monkeypatch):
     assert '"mode": "universal"' in route
     assert '"storageKey": "xhsBridgeBinding"' in route
     assert "ws://localhost:19431" not in route
+
+
+def test_explicit_extension_target_still_gets_a_deployed_copy(tmp_path, monkeypatch):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    target = tmp_path / "explicit-extension-target"
+    monkeypatch.setenv("XHS_UNIVERSAL_EXTENSION_DIR", str(target))
+    source = _make_extension(tmp_path / "extension-source")
+
+    config = add_account("alpha", extension_source=source)
+
+    assert config.extension_dir == str(target.resolve())
+    assert (target / "manifest.json").is_file()
+    assert '"mode": "universal"' in (target / "bridge_config.js").read_text("utf-8")
 
 
 def test_import_existing_profile_without_copying_it(tmp_path, monkeypatch):

@@ -60,3 +60,34 @@ def test_quota_opens_circuit_after_repeated_failures(tmp_path) -> None:
     with pytest.raises(ServiceError) as exc_info:
         service.check_l1(account="alpha", capability="like-feed", target_key="new")
     assert exc_info.value.code == "RISK_BLOCKED"
+
+
+def test_batch_quota_counts_each_successful_keyword_action(tmp_path) -> None:
+    store = ProductStore(tmp_path / "product")
+    store.set_setting(
+        "l1_limits",
+        {"hourly": 2, "daily": 100, "dedup_minutes": 10, "failure_threshold": 3},
+    )
+    event_id = uuid.uuid4().hex
+    store.put(
+        "events",
+        event_id,
+        {
+            "event_id": event_id,
+            "account_slot": "alpha",
+            "capability": "keyword-engagement",
+            "risk_level": "L1",
+            "state": "PARTIAL_SUCCESS",
+            "finished_at": datetime.now(UTC).isoformat(),
+            "result": {
+                "items": [
+                    {"feed_id": "feed-1", "actions": {"like": {"status": "success"}}}
+                ]
+            },
+        },
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        QuotaService(store).check_l1_batch(account="alpha", requested_actions=2)
+
+    assert exc_info.value.code == "RATE_LIMITED"

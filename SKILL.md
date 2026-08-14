@@ -39,6 +39,7 @@ description: |
 - 已有 Chrome Profile 时使用 `account-import` 绑定，禁止复制 Profile 目录。
 - 已有账号别名需改绑到原 Chrome Profile 时，使用 `account-import --replace`；原配置会备份为 `account.previous.json`。
 - 所有 Profile 加载同一个通用扩展目录；每个 Profile 必须通过 `account-pair-begin --confirm` 分别配对目标账号槽位。
+- 默认通用扩展目录是当前工作区根目录下的 `extension`；不得把 `.codex` 下的旧安装副本当作当前开发源。
 - 配对包只能粘贴到目标 Profile 的扩展弹窗；不得跨账号、跨 Profile 猜测或复用配对包。
 - 多账号命令统一使用 `python scripts/cli.py --account <账号别名> <子命令>`。
 - 区分账号槽位和小红书登录身份：账号别名固定指向 Profile/扩展/Bridge，槽位内登录 UID 可更换。
@@ -98,6 +99,7 @@ description: |
 | 命令                     | 功能                   |
 | ------------------------ | ---------------------- |
 | `cli.py list-feeds`      | 获取首页推荐 Feed      |
+| `cli.py browse-feeds`    | 按时间和数量自动浏览首页笔记 |
 | `cli.py search-feeds`    | 关键词搜索笔记         |
 | `cli.py get-feed-detail` | 获取笔记完整内容和评论 |
 | `cli.py user-profile`    | 获取用户主页信息       |
@@ -176,7 +178,7 @@ python scripts/cli.py --account brand-a like-feed \
 - **多账号配置异常**：先运行 `python scripts/cli.py account-doctor`，按 `fail` 检查项及 `fix` 建议修复；该命令只读。
 - **Python 或项目依赖不可用**：运行 `scripts/bootstrap.ps1 -Prepare`。只有脚本返回
   `python_missing` 时才向用户申请安装权限；不得未经确认安装 Python 或 uv。
-- **连接身份未启用**：运行 `account-sync`，重新加载通用扩展，再运行 `account-pair-begin --confirm` 完成 Profile 配对。
+- **连接身份未启用**：运行 `account-sync` 让槽位指向当前工作区 `extension`，重新加载扩展，再运行 `account-pair-begin --confirm` 完成 Profile 配对。
 - **账号正在换号**：只执行认证或换号命令；登录新账号后运行 `account-switch-complete`。
 - **登录 UID 不一致**：禁止继续发布或互动；使用安全换号流程，或经用户确认后执行 `account-identity --record`。
 - **操作超时**：检查网络连接，适当增加等待时间。

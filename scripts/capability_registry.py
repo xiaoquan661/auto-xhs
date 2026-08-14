@@ -143,6 +143,7 @@ _POLICIES = [
     _policy("delete-cookies", RiskLevel.SECURITY_CONFIG, requires_result_verification=True),
     # Read-only discovery and diagnostics.
     _policy("list-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
+    _policy("browse-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("search-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("get-feed-detail", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("user-profile", RiskLevel.READ_ONLY, supports_scheduling=True),
@@ -160,6 +161,13 @@ _POLICIES = [
     ),
     _policy(
         "favorite-feed",
+        RiskLevel.STATE_CHANGE,
+        supports_scheduling=True,
+        requires_identity_check=True,
+        requires_result_verification=True,
+    ),
+    _policy(
+        "keyword-engagement",
         RiskLevel.STATE_CHANGE,
         supports_scheduling=True,
         requires_identity_check=True,

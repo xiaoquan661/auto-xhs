@@ -50,11 +50,13 @@ def accounts_root() -> Path:
     return Path.home() / ".xhs" / "accounts"
 
 
-def universal_extension_dir() -> Path:
+def universal_extension_dir(extension_source: str | Path | None = None) -> Path:
     override = os.getenv("XHS_UNIVERSAL_EXTENSION_DIR")
     if override:
         return Path(override).expanduser().resolve()
-    return accounts_root().parent / "universal-extension"
+    if extension_source is not None:
+        return Path(extension_source).expanduser().resolve()
+    return Path(__file__).resolve().parent.parent / "extension"
 
 
 def validate_account_name(name: str) -> str:
@@ -321,15 +323,33 @@ def account_registry_transaction(timeout: float = 30.0):
 
 
 def sync_universal_extension(extension_source: str | Path) -> Path:
-    """Deploy one generic extension directory shared by all Chrome Profiles."""
+    """Use the workspace extension, unless an explicit deployment target is set."""
     source = Path(extension_source).resolve()
     if not (source / "manifest.json").exists():
         raise FileNotFoundError(f"扩展源码目录无效: {source}")
-    target = universal_extension_dir()
+    target = universal_extension_dir(source)
+    if target == source:
+        if not _has_universal_extension_config(source):
+            _write_universal_extension_config(source)
+        return source
     target.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target, dirs_exist_ok=True)
     _write_universal_extension_config(target)
     return target
+
+
+def _has_universal_extension_config(extension_dir: Path) -> bool:
+    try:
+        text = (extension_dir / "bridge_config.js").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return bool(
+        re.search(r'''["']?mode["']?\s*:\s*["']universal["']''', text)
+        and re.search(
+            r'''["']?storageKey["']?\s*:\s*["']xhsBridgeBinding["']''',
+            text,
+        )
+    )
 
 
 def sync_account_extension(

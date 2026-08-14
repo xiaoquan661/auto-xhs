@@ -33,6 +33,7 @@ _IDENTITY_GUARDED_COMMANDS = {
     "reply-comment",
     "like-feed",
     "favorite-feed",
+    "keyword-engagement",
     "publish",
     "publish-video",
 }
@@ -414,6 +415,23 @@ def cmd_list_feeds(args: argparse.Namespace) -> None:
         browser.close()
 
 
+def cmd_browse_feeds(args: argparse.Namespace) -> None:
+    """自动滚动首页并按时间和数量点开笔记。"""
+    from xhs.browse_like import browse_feed_cycle
+
+    browser, page = _connect(args)
+    try:
+        _output(
+            browse_feed_cycle(
+                page,
+                duration_seconds=args.duration_minutes * 60,
+                count=args.count,
+            )
+        )
+    finally:
+        browser.close()
+
+
 def cmd_search_feeds(args: argparse.Namespace) -> None:
     """搜索 Feeds。"""
     from xhs.search import search_feeds
@@ -431,6 +449,25 @@ def cmd_search_feeds(args: argparse.Namespace) -> None:
     try:
         feeds = search_feeds(page, args.keyword, filter_opt)
         _output({"feeds": [f.to_dict() for f in feeds], "count": len(feeds)})
+    finally:
+        browser.close()
+
+
+def cmd_keyword_engagement(args: argparse.Namespace) -> None:
+    """按关键词随机抽取笔记并点赞或收藏。"""
+    from xhs.keyword_engagement import keyword_engagement
+
+    browser, page = _connect(args)
+    try:
+        result = keyword_engagement(
+            page,
+            keyword=args.keyword,
+            action=args.action,
+            count=args.count,
+            candidate_pool_size=args.candidate_pool_size,
+            collection_duration_seconds=args.collect_minutes * 60,
+        )
+        _output(result, exit_code=0 if result.get("success") else 2)
     finally:
         browser.close()
 
@@ -1130,7 +1167,7 @@ def cmd_account_sync(args: argparse.Namespace) -> None:
             "account": public_config(config),
             "extension_dir": str(target),
             "message": (
-                "通用扩展已同步；请让所有目标 Profile 加载或重新加载同一个扩展目录，"
+                "账号槽位已指向当前项目的通用扩展；请让所有目标 Profile 加载或重新加载该目录，"
                 "然后分别执行 account-pair-begin"
             ),
         }
@@ -1515,7 +1552,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("account-status", help="检查目标账号运行状态")
     sub.set_defaults(func=cmd_account_status, requires_account_lock=False)
 
-    sub = subparsers.add_parser("account-sync", help="同步所有 Profile 共用的通用扩展代码")
+    sub = subparsers.add_parser(
+        "account-sync", help="让账号槽位使用当前项目中所有 Profile 共用的通用扩展"
+    )
     sub.set_defaults(func=cmd_account_sync, requires_account_lock=False)
 
     sub = subparsers.add_parser(
@@ -1655,6 +1694,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("list-feeds", help="获取首页 Feed 列表")
     sub.set_defaults(func=cmd_list_feeds)
 
+    # browse-feeds
+    sub = subparsers.add_parser("browse-feeds", help="自动滚动首页并点开笔记")
+    sub.add_argument("--duration-minutes", type=int, default=5, help="最长浏览分钟数")
+    sub.add_argument("--count", type=int, default=5, help="最多点开笔记数量")
+    sub.set_defaults(func=cmd_browse_feeds)
+
     # search-feeds
     sub = subparsers.add_parser("search-feeds", help="搜索 Feeds")
     sub.add_argument("--keyword", required=True, help="搜索关键词")
@@ -1664,6 +1709,23 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--search-scope", help="范围: 不限|已看过|未看过|已关注")
     sub.add_argument("--location", help="位置: 不限|同城|附近")
     sub.set_defaults(func=cmd_search_feeds)
+
+    # keyword-engagement
+    sub = subparsers.add_parser(
+        "keyword-engagement",
+        help="按关键词筛选并随机点赞或收藏",
+    )
+    sub.add_argument("--keyword", required=True, help="用于筛选笔记的关键词")
+    sub.add_argument(
+        "--action",
+        required=True,
+        choices=("like", "favorite", "both"),
+        help="互动方式",
+    )
+    sub.add_argument("--count", type=int, default=3, help="随机处理的笔记数量")
+    sub.add_argument("--candidate-pool-size", type=int, default=20, help="滑动搜集的候选池数量")
+    sub.add_argument("--collect-minutes", type=int, default=2, help="最长滑动搜集时间")
+    sub.set_defaults(func=cmd_keyword_engagement)
 
     # get-feed-detail
     sub = subparsers.add_parser("get-feed-detail", help="获取 Feed 详情")

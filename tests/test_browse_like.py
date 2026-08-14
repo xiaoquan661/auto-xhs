@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from xhs.browse_like import browse_like_cycle
+from xhs.browse_like import browse_feed_cycle, browse_like_cycle
 from xhs.types import ActionResult, Feed, InteractInfo, NoteCard, User
 from xhs.urls import HOME_URL
 
@@ -102,3 +102,25 @@ def test_browse_like_cycle_keeps_one_feed_session() -> None:
     assert page.clicked.count(".close-circle") == 3
     assert result["count"] == 3
     assert result["refreshed_between_items"] is False
+
+
+def test_browse_feed_cycle_scrolls_opens_and_stops_at_count() -> None:
+    page = FakePage()
+    feeds = [_feed(index) for index in range(5)]
+
+    with (
+        patch("xhs.browse_like.extract_current_feeds", return_value=feeds),
+        patch("xhs.browse_like.random.choice", side_effect=lambda items: items[0]),
+        patch("xhs.browse_like._simulate_reading", return_value=12.0),
+        patch("xhs.browse_like.time.sleep"),
+    ):
+        result = browse_feed_cycle(page, duration_seconds=300, count=3)
+
+    assert page.navigate_calls == [HOME_URL]
+    assert len([item for item in page.clicked if "/explore/" in item]) == 3
+    assert page.clicked.count(".close-circle") == 3
+    assert len(page.scrolls) == 2
+    assert result["count"] == 3
+    assert result["stop_reason"] == "count_reached"
+    assert result["refreshed_between_items"] is False
+    assert all(item["read_seconds"] == 12.0 for item in result["items"])
