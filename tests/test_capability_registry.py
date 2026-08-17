@@ -25,7 +25,7 @@ def test_every_public_cli_command_has_exactly_one_policy():
     assert set(CAPABILITY_POLICIES) == _parser_commands()
 
 
-def test_v1_only_enables_confirmed_comment_and_reply_outputs():
+def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     output_policies = [
         policy
         for policy in list_capability_policies()
@@ -33,11 +33,14 @@ def test_v1_only_enables_confirmed_comment_and_reply_outputs():
     ]
 
     assert output_policies
-    assert all(policy.requires_confirmation for policy in output_policies)
     assert all(policy.retry_policy is RetryPolicy.NONE for policy in output_policies)
     assert {
         policy.command for policy in output_policies if policy.enabled_in_v1
-    } == {"post-comment", "reply-comment"}
+    } == {"post-comment", "random-comment", "reply-comment"}
+    assert get_capability_policy("post-comment").requires_confirmation is True
+    assert get_capability_policy("reply-comment").requires_confirmation is True
+    assert get_capability_policy("random-comment").requires_confirmation is False
+    assert get_capability_policy("random-comment").supports_scheduling is False
     assert get_capability_policy("publish").enabled_in_v1 is False
     assert get_capability_policy("publish-video").enabled_in_v1 is False
 

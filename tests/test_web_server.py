@@ -28,7 +28,11 @@ class FakeService:
         return {"success": True, "status": "ok"}
 
     def list_capabilities(self) -> dict:
-        return {"success": True, "capabilities": [], "summary": {"total": 0}}
+        return {
+            "success": True,
+            "capabilities": [],
+            "summary": {"total": 0, "enabled_in_v1": 0},
+        }
 
     def list_accounts(self) -> dict:
         return {"success": True, "accounts": [{"name": "alpha"}]}
@@ -42,7 +46,23 @@ class FakeService:
         return {"success": True, "account": {"name": account}, "status": "BLOCKED"}
 
     def system_status(self) -> dict:
-        return {"success": True, "global_paused": self.paused}
+        return {
+            "success": True,
+            "global_paused": self.paused,
+            "global_concurrency": 3,
+            "product_version": "test",
+            "l1_limits": {
+                "hourly": 20,
+                "daily": 100,
+                "dedup_minutes": 10,
+                "failure_threshold": 3,
+            },
+            "summary": {
+                "tasks_total": len(self.tasks),
+                "drafts_waiting": 0,
+                "recent_failures": 0,
+            },
+        }
 
     def set_global_pause(self, paused: bool) -> dict:
         self.paused = paused
@@ -121,6 +141,9 @@ class FakeService:
     def import_account_slot(self, **body) -> dict:
         return {"success": True, "account": body}
 
+    def remove_account_slot(self, account: str, **body) -> dict:
+        return {"success": True, "account": account, "archived": True, **body}
+
     def begin_account_pairing(self, account: str, **body) -> dict:
         return {"success": True, "pairing": {"account": account, **body}}
 
@@ -132,6 +155,21 @@ class FakeService:
 
     def record_account_identity(self, account: str, **body) -> dict:
         return {"success": True, "identity": {"account": account, **body}}
+
+    def get_account_switch(self, account: str) -> dict:
+        return {"success": True, "account": account, "pending": None, "history": []}
+
+    def begin_account_switch(self, account: str, **body) -> dict:
+        return {"success": True, "account": account, "switch": {"status": "awaiting_login", **body}}
+
+    def complete_account_switch(self, account: str, **body) -> dict:
+        return {"success": True, "account": account, "switch": {"event": "login-switched", **body}}
+
+    def cancel_account_switch(self, account: str, **body) -> dict:
+        return {"success": True, "account": account, "switch": {"cancelled": True, **body}}
+
+    def logout_account(self, account: str, **body) -> dict:
+        return {"success": True, "account": account, "logged_out": True, **body}
 
 
 def test_web_server_refuses_non_loopback_bind() -> None:
@@ -150,6 +188,7 @@ def test_api_dispatch_routes_to_shared_service() -> None:
         _dispatch_api(service, "/api/v1/accounts/alpha/status")["account"]["name"]
         == "alpha"
     )
+    assert _dispatch_api(service, "/api/v1/accounts/alpha/switch")["pending"] is None
     with pytest.raises(ServiceError) as exc_info:
         _dispatch_api(service, "/api/v1/unknown")
     assert exc_info.value.code == "NOT_FOUND"
@@ -225,6 +264,36 @@ def test_account_setup_api_routes_to_shared_service() -> None:
         "/api/v1/accounts/alpha/identity/check",
         {},
     )
+    switch_begin = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/switch/begin",
+        {"confirmed": True},
+    )
+    switch_complete = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/switch/complete",
+        {"confirmed": True},
+    )
+    switch_cancel = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/switch/cancel",
+        {"confirmed": True},
+    )
+    logout = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/auth/logout",
+        {"confirmed": True},
+    )
+    removed = _dispatch_mutation(
+        service,
+        "DELETE",
+        "/api/v1/accounts/alpha",
+        {"confirmed": True, "confirmation_name": "alpha"},
+    )
     bridge = _dispatch_mutation(
         service,
         "POST",
@@ -236,6 +305,13 @@ def test_account_setup_api_routes_to_shared_service() -> None:
     assert imported["account"]["name"] == "alpha"
     assert pairing["pairing"]["account"] == "alpha"
     assert identity["identity"]["user_id"] == "uid"
+    assert switch_begin["switch"]["status"] == "awaiting_login"
+    assert switch_complete["switch"]["event"] == "login-switched"
+    assert switch_cancel["switch"]["cancelled"] is True
+    assert logout["logged_out"] is True
+    assert logout["confirmed"] is True
+    assert removed["archived"] is True
+    assert removed["confirmation_name"] == "alpha"
     assert bridge["lifecycle"]["restarted"] is True
 
 
@@ -264,9 +340,24 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "accounts/import" in script
     assert "pairing/begin" in script
     assert "identity/check" in script
+    assert "switch/begin" in script
+    assert "switch/complete" in script
+    assert "switch/cancel" in script
+    assert "auth/logout" in script
+    assert "退出当前账号" in script
+    assert "回读页面确认已退出" in script
+    assert 'id="account-remove-dialog"' in html
+    assert "删除槽位" in script
+    assert '"DELETE"' in script
+    assert "切换登录账号" in html
+    assert "切换账号" in script
     assert "tasks/${created.task.task_id}/execute" in script
     assert "tasks/${task.task_id}/${action}" in script
     assert 'id="task-submit"' in html
+    assert "account-activity" in script
+    assert "pendingSubmissionByAccount" in script
+    assert "pollTaskActivity" in script
+    assert "可选择其他已就绪且空闲的账号并行执行" in script
     for capability in ("browse-feeds", "search-feeds", "get-feed-detail", "user-profile", "like-feed", "favorite-feed", "keyword-engagement"):
         assert f'"{capability}"' in script
     assert 'engagement: ["keyword-engagement"]' in script
@@ -281,7 +372,6 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert 'id="task-duration"' in html
     assert 'id="task-count"' in html
     assert 'id="task-tab-immediate"' in html
-    assert 'id="task-tab-plan"' in html
     assert 'id="task-tab-confirmation"' in html
     assert 'id="task-template"' in html
     assert "renderTaskTemplateActions" in script
@@ -290,10 +380,27 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "appendTaskResult" in script
     assert "resultByTask" in script
     assert "立即任务" in html
-    assert "批量／定时计划" in html
-    assert "确认区" in html
+    assert 'id="task-tab-plan"' not in html
+    assert 'id="task-panel-plan"' not in html
+    assert "批量／定时计划" not in html
+    assert "评论／回复确认" in html
     assert 'id="record-list"' in html
     assert 'id="draft-form"' in html
+    assert html.index('value="post-comment"') < html.index('value="reply-comment"')
+    assert 'id="draft-action-help"' in html
+    assert 'id="draft-generate"' in html
+    assert 'id="draft-target-label">目标笔记 ID' in html
+    assert "function updateDraftFields" in script
+    assert "function generateCommentDraft" in script
+    assert "function useResultAsComment" not in script
+    assert '$("#draft-action").value = "post-comment"' in script
+    assert 'draft.action_type === "post-comment"' in script
+    assert '<option value="comment">随机评论</option>' in html
+    assert 'id="random-comment-settings"' in html
+    assert 'id="task-comment-count"' in html
+    assert "direct_send_authorized: true" in script
+    assert "function appendRandomCommentResults" in script
+    assert "创建并直接发送" in script
     assert "drafts/${draft.draft_id}/execute" in script
     assert 'id="global-pause"' in html
     assert 'id="settings-form"' in html
@@ -344,6 +451,20 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
         with urlopen(request, timeout=3) as response:
             task = json.loads(response.read().decode("utf-8"))
         assert task["task"]["capability"] == "search-feeds"
+
+        body = json.dumps(
+            {"confirmed": True, "confirmation_name": "alpha"}
+        ).encode()
+        request = Request(
+            f"{base_url}/api/v1/accounts/alpha",
+            data=body,
+            method="DELETE",
+            headers={"Content-Type": "application/json", SESSION_HEADER: token},
+        )
+        with urlopen(request, timeout=3) as response:
+            removed = json.loads(response.read().decode("utf-8"))
+        assert removed["archived"] is True
+        assert removed["confirmation_name"] == "alpha"
     finally:
         server.shutdown()
         server.server_close()

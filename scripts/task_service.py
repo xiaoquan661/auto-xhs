@@ -133,6 +133,50 @@ class TaskService:
             raise ServiceError("NOT_FOUND", "任务不存在", 404)
         return updated
 
+    def claim_for_execution(self, task_id: str) -> dict:
+        """Atomically mark a queued task running when its account is idle."""
+
+        def mutate(state: dict) -> dict:
+            task = state["tasks"].get(task_id)
+            if task is None:
+                raise ServiceError("NOT_FOUND", "任务不存在", 404)
+            if task["state"] != "QUEUED":
+                raise ServiceError(
+                    "INVALID_TASK_STATE",
+                    "只有排队中的任务可以执行",
+                    409,
+                )
+
+            running = next(
+                (
+                    item
+                    for other_id, item in state["tasks"].items()
+                    if other_id != task_id
+                    and item.get("account_slot") == task.get("account_slot")
+                    and item.get("state") == "RUNNING"
+                ),
+                None,
+            )
+            now = utc_now()
+            if running:
+                task["state"] = "BLOCKED"
+                task["finished_at"] = now
+                task["result_summary"] = "同一账号已有任务正在执行"
+                task["error_code"] = "ACCOUNT_BUSY"
+                task["recommended_action"] = (
+                    f"等待任务 {running['task_id'][:8]} 完成后再重试"
+                )
+            else:
+                task["state"] = "RUNNING"
+                task["started_at"] = now
+                task["finished_at"] = None
+                task["result_summary"] = ""
+                task["error_code"] = ""
+                task["recommended_action"] = ""
+            return dict(task)
+
+        return self.store.mutate(mutate)
+
     def recover_interrupted(self) -> list[dict]:
         recovered: list[dict] = []
         for task in self.list():

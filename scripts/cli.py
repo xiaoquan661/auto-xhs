@@ -29,6 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger("xhs-cli")
 
 _IDENTITY_GUARDED_COMMANDS = {
+    "random-comment",
     "post-comment",
     "reply-comment",
     "like-feed",
@@ -391,14 +392,26 @@ def cmd_verify_code(args: argparse.Namespace) -> None:
 
 
 def cmd_delete_cookies(args: argparse.Namespace) -> None:
-    """退出登录（页面 UI 点击退出）。"""
-    from xhs.login import logout
+    """退出登录并回读页面确认真实状态。"""
+    from xhs.login import get_current_user_identity, logout
 
     browser, page = _connect(args)
     try:
         logged_out = logout(page)
+        observed_after = get_current_user_identity(page)
+        if observed_after.get("error"):
+            raise RuntimeError(f"退出后无法核验登录状态：{observed_after['error']}")
+        if observed_after.get("logged_in"):
+            raise RuntimeError("退出后仍检测到账号登录，操作未完成")
         msg = "已退出登录" if logged_out else "未登录"
-        _output({"success": True, "message": msg})
+        _output(
+            {
+                "success": True,
+                "message": msg,
+                "verified_logged_out": True,
+                "identity": observed_after,
+            }
+        )
     finally:
         browser.close()
 
@@ -466,6 +479,24 @@ def cmd_keyword_engagement(args: argparse.Namespace) -> None:
             count=args.count,
             candidate_pool_size=args.candidate_pool_size,
             collection_duration_seconds=args.collect_minutes * 60,
+        )
+        _output(result, exit_code=0 if result.get("success") else 2)
+    finally:
+        browser.close()
+
+
+def cmd_random_comment(args: argparse.Namespace) -> None:
+    """从首页推荐中随机选择笔记并直接发表评论。"""
+    from xhs.random_comment import random_comment
+
+    browser, page = _connect(args)
+    try:
+        result = random_comment(
+            page,
+            count=args.count,
+            candidate_pool_size=args.candidate_pool_size,
+            collection_duration_seconds=args.collect_minutes * 60,
+            style=args.style,
         )
         _output(result, exit_code=0 if result.get("success") else 2)
     finally:
@@ -1065,6 +1096,18 @@ def cmd_account_list(args: argparse.Namespace) -> None:
     _output(ApplicationService().list_accounts())
 
 
+def cmd_account_remove(args: argparse.Namespace) -> None:
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().remove_account_slot(
+            args.account,
+            confirmed=args.confirm,
+            confirmation_name=args.confirm_name,
+        )
+    )
+
+
 def cmd_account_start(args: argparse.Namespace) -> None:
     from account_manager import load_account, public_config
     from account_runtime import evaluate_profile_connection
@@ -1386,20 +1429,28 @@ def cmd_account_identity(args: argparse.Namespace) -> None:
 
 
 def cmd_account_switch_begin(args: argparse.Namespace) -> None:
-    from account_identity import begin_login_switch
+    from account_identity import begin_login_switch, cancel_login_switch
     from xhs.login import logout
 
     if not args.confirm:
         raise ValueError("开始换号会退出当前小红书账号，必须显式提供 --confirm")
     browser, page, observed = _observe_login_identity(args)
+    pending = None
     try:
-        pending = begin_login_switch(
-            args.account,
-            observed,
-            target_user_id=args.target_user_id,
-            target_label=args.label,
-        )
-        logged_out = logout(page)
+        try:
+            pending = begin_login_switch(
+                args.account,
+                observed,
+                target_user_id=args.target_user_id,
+                target_label=args.label,
+            )
+            logged_out = logout(page)
+            if not logged_out:
+                raise RuntimeError("自动退出未完成，请重试换号操作")
+        except Exception:
+            if pending is not None:
+                cancel_login_switch(args.account, observed, force=False)
+            raise
         _output(
             {
                 "success": True,
@@ -1538,6 +1589,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = subparsers.add_parser("account-list", help="列出已配置账号")
     sub.set_defaults(func=cmd_account_list, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "account-remove",
+        help="将账号槽位移入本机归档（保留 Chrome Profile、登录数据和共享扩展）",
+    )
+    sub.add_argument("--confirm", action="store_true", help="确认归档并移除该槽位")
+    sub.add_argument("--confirm-name", required=True, help="再次输入完整槽位名称")
+    sub.set_defaults(func=cmd_account_remove, requires_account_lock=False)
 
     sub = subparsers.add_parser(
         "account-start", help="启动目标账号的 Bridge 并检查热登录连接（不会启动 Chrome）"
@@ -1726,6 +1785,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--candidate-pool-size", type=int, default=20, help="滑动搜集的候选池数量")
     sub.add_argument("--collect-minutes", type=int, default=2, help="最长滑动搜集时间")
     sub.set_defaults(func=cmd_keyword_engagement)
+
+    # random-comment
+    sub = subparsers.add_parser(
+        "random-comment",
+        help="从首页推荐随机选择笔记并直接发表评论",
+    )
+    sub.add_argument("--count", type=int, default=1, choices=range(1, 4), help="随机评论数量")
+    sub.add_argument("--candidate-pool-size", type=int, default=20, help="候选池数量")
+    sub.add_argument("--collect-minutes", type=int, default=2, help="最长搜集时间")
+    sub.add_argument(
+        "--style",
+        choices=("natural", "praise", "question"),
+        default="natural",
+        help="评论风格",
+    )
+    sub.set_defaults(func=cmd_random_comment)
 
     # get-feed-detail
     sub = subparsers.add_parser("get-feed-detail", help="获取 Feed 详情")

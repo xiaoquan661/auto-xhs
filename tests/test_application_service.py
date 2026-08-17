@@ -9,6 +9,7 @@ from scripts.business_runner import BusinessRunner
 from scripts.capability_registry import CAPABILITY_POLICIES
 from scripts.product_store import ProductStore
 from scripts.task_service import TaskService
+from xhs.errors import CDPError
 
 
 def _config(name: str = "alpha") -> SimpleNamespace:
@@ -354,6 +355,320 @@ def test_account_identity_mismatch_never_reaches_ready(tmp_path) -> None:
     assert result["ready"] is False
 
 
+def test_service_runs_confirmed_account_switch_flow(tmp_path) -> None:
+    config = _config()
+    StatusPage.status = {
+        "extension_connected": True,
+        "account_id": "slot-alpha",
+        "extension": {
+            "profile_directory": "Profile 2",
+            "instance_id": "instance-alpha",
+            "instance_enrolled": True,
+            "identity_verified": True,
+        },
+    }
+    current_identity = {
+        "logged_in": True,
+        "user_id": "user-1",
+        "nickname": "旧账号",
+    }
+    switch_state = {"pending": None}
+    logout_calls = []
+
+    def begin_switch(account, observed, **values):
+        switch_state["pending"] = {
+            "account": account,
+            "status": "awaiting_login",
+            "from": dict(observed),
+            "target_user_id": values["target_user_id"],
+            "target_label": values["target_label"],
+        }
+        return switch_state["pending"]
+
+    def complete_switch(account, observed, **values):
+        assert account == "alpha"
+        assert observed["user_id"] == "user-2"
+        assert values["expected_user_id"] == "user-2"
+        switch_state["pending"] = None
+        return {"event": "login-switched", "to": dict(observed)}
+
+    def logout_account(_page):
+        logout_calls.append(True)
+        current_identity.update(logged_in=False, user_id="", nickname="")
+        return True
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: config,
+        page_factory=StatusPage,
+        identity_loader=lambda _account: {
+            "current": {
+                "user_id": current_identity["user_id"],
+                "nickname": current_identity["nickname"],
+            }
+        },
+        switch_loader=lambda _account: switch_state["pending"],
+        switch_history_loader=lambda _account, **_kwargs: [],
+        identity_observer=lambda _page: dict(current_identity),
+        switch_beginner=begin_switch,
+        switch_completer=complete_switch,
+        account_logout=logout_account,
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    started = service.begin_account_switch(
+        "alpha",
+        confirmed=True,
+        target_user_id="user-2",
+        label="新账号",
+    )
+
+    assert started["business_tasks_blocked"] is True
+    assert started["verified_logged_out"] is True
+    assert logout_calls == [True]
+    assert service.get_account_status("alpha")["status"] == "SWITCH_PENDING"
+    assert service.get_account_switch("alpha")["pending"]["target_label"] == "新账号"
+
+    current_identity.update(logged_in=True, user_id="user-2", nickname="新账号")
+    completed = service.complete_account_switch(
+        "alpha",
+        confirmed=True,
+        expected_user_id="user-2",
+        label="新账号",
+    )
+
+    assert completed["switch"]["event"] == "login-switched"
+    assert completed["business_tasks_blocked"] is False
+
+
+def test_service_runs_confirmed_standalone_logout(tmp_path) -> None:
+    logout_calls = []
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        page_factory=StatusPage,
+        account_logout=lambda _page: logout_calls.append(True) or True,
+        identity_observer=lambda _page: {"logged_in": False, "user_id": ""},
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    result = service.logout_account("alpha", confirmed=True)
+
+    assert result["logged_out"] is True
+    assert result["message"] == "已退出登录"
+    assert result["verified_logged_out"] is True
+    assert logout_calls == [True]
+
+
+def test_service_rejects_logout_when_identity_is_still_logged_in(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        page_factory=StatusPage,
+        account_logout=lambda _page: True,
+        identity_observer=lambda _page: {"logged_in": True, "user_id": "user-1"},
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.logout_account("alpha", confirmed=True)
+
+    assert exc_info.value.code == "ACCOUNT_LOGOUT_FAILED"
+    assert "仍检测到原账号登录" in exc_info.value.message
+
+
+def test_service_archives_slot_after_stopping_local_dependencies(tmp_path) -> None:
+    calls = []
+
+    class RemovalPage(StatusPage):
+        def is_extension_connected(self):
+            return True
+
+        def clear_extension_binding(self):
+            calls.append("binding")
+            return True
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        page_factory=RemovalPage,
+        bridge_status_reader=lambda _config: {
+            "bridge_running": True,
+            "registered": True,
+        },
+        bridge_stopper=lambda _config: calls.append("bridge") or {},
+        autostart_disabler=lambda account: calls.append(f"autostart:{account}") or {},
+        pairing_revoker=lambda account: calls.append(f"pairing:{account}") or _config(),
+        account_archiver=lambda account: calls.append(f"archive:{account}") or {
+            "archive_id": "alpha-archive",
+            "archive_path": str(tmp_path / "archive"),
+        },
+        product_store=ProductStore(tmp_path / "product"),
+    )
+    queued = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="待删除",
+        parameters={"keyword": "测试"},
+    )["task"]
+
+    result = service.remove_account_slot(
+        "alpha", confirmed=True, confirmation_name="alpha"
+    )
+
+    assert result["archived"] is True
+    assert result["cancelled_task_ids"] == [queued["task_id"]]
+    assert result["preserved"] == ["Chrome Profile", "小红书登录数据", "共享通用扩展"]
+    assert calls == ["binding", "bridge", "autostart:alpha", "pairing:alpha", "archive:alpha"]
+    assert service.tasks.get(queued["task_id"])["state"] == "CANCELLED"
+
+
+def test_service_refuses_slot_removal_for_wrong_name_or_running_task(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        bridge_status_reader=lambda _config: {
+            "bridge_running": False,
+            "registered": False,
+        },
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as mismatch:
+        service.remove_account_slot(
+            "alpha", confirmed=True, confirmation_name="Alpha"
+        )
+    assert mismatch.value.code == "CONFIRMATION_MISMATCH"
+
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="运行中",
+        parameters={"keyword": "测试"},
+    )["task"]
+    service.tasks.transition(task["task_id"], "RUNNING")
+    with pytest.raises(ServiceError) as busy:
+        service.remove_account_slot(
+            "alpha", confirmed=True, confirmation_name="alpha"
+        )
+    assert busy.value.code == "ACCOUNT_BUSY"
+
+
+def test_service_requires_confirmation_for_standalone_logout(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.logout_account("alpha", confirmed=False)
+
+    assert exc_info.value.code == "CONFIRMATION_REQUIRED"
+
+
+def test_service_rolls_back_switch_when_auto_logout_fails(tmp_path) -> None:
+    switch_state = {"pending": None}
+
+    def begin_switch(account, observed, **_values):
+        switch_state["pending"] = {
+            "account": account,
+            "status": "awaiting_login",
+            "from": observed,
+        }
+        return switch_state["pending"]
+
+    def cancel_switch(_account, _observed, **_values):
+        switch_state["pending"] = None
+        return {"cancelled": True}
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        identity_observer=lambda _page: {
+            "logged_in": True,
+            "user_id": "user-1",
+            "nickname": "旧账号",
+        },
+        switch_loader=lambda _account: switch_state["pending"],
+        switch_beginner=begin_switch,
+        switch_canceller=cancel_switch,
+        account_logout=lambda _page: False,
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.begin_account_switch("alpha", confirmed=True)
+
+    assert exc_info.value.code == "ACCOUNT_SWITCH_BEGIN_FAILED"
+    assert switch_state["pending"] is None
+
+
+def test_service_rolls_back_switch_and_reports_bridge_click_error(tmp_path) -> None:
+    switch_state = {"pending": None}
+
+    def begin_switch(account, observed, **_values):
+        switch_state["pending"] = {
+            "account": account,
+            "status": "awaiting_login",
+            "from": observed,
+        }
+        return switch_state["pending"]
+
+    def cancel_switch(_account, _observed, **_values):
+        switch_state["pending"] = None
+        return {"cancelled": True}
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        identity_observer=lambda _page: {
+            "logged_in": True,
+            "user_id": "user-1",
+            "nickname": "旧账号",
+        },
+        switch_loader=lambda _account: switch_state["pending"],
+        switch_beginner=begin_switch,
+        switch_canceller=cancel_switch,
+        account_logout=lambda _page: (_ for _ in ()).throw(
+            CDPError("Bridge 点击失败")
+        ),
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.begin_account_switch("alpha", confirmed=True)
+
+    assert exc_info.value.code == "ACCOUNT_SWITCH_BEGIN_FAILED"
+    assert "Bridge 点击失败" in exc_info.value.message
+    assert switch_state["pending"] is None
+
+
+def test_service_requires_confirmation_for_account_switch_mutations(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as begin_error:
+        service.begin_account_switch("alpha", confirmed=False)
+    with pytest.raises(ServiceError) as complete_error:
+        service.complete_account_switch("alpha", confirmed=False)
+    with pytest.raises(ServiceError) as cancel_error:
+        service.cancel_account_switch("alpha", confirmed=False)
+
+    assert begin_error.value.code == "CONFIRMATION_REQUIRED"
+    assert complete_error.value.code == "CONFIRMATION_REQUIRED"
+    assert cancel_error.value.code == "CONFIRMATION_REQUIRED"
+
+
+def test_service_blocks_identity_record_while_switch_is_pending(tmp_path) -> None:
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        switch_loader=lambda _account: {"status": "awaiting_login"},
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.record_account_identity("alpha", confirmed=True)
+
+    assert exc_info.value.code == "ACCOUNT_SWITCH_PENDING"
+
+
 def test_service_executes_ready_l0_task_and_records_result(tmp_path, monkeypatch) -> None:
     service = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
@@ -384,6 +699,55 @@ def test_service_executes_ready_l0_task_and_records_result(tmp_path, monkeypatch
     assert result["task"]["state"] == "SUCCESS"
     assert result["result"]["count"] == 2
     assert service.list_records()["records"][0]["task_id"] == task["task_id"]
+
+
+def test_service_does_not_report_two_running_tasks_for_one_account(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    executed_accounts = []
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(
+            lambda account, _capability, _parameters: executed_accounts.append(account)
+            or {"count": 1}
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+    first = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="alpha 正在运行",
+        parameters={"keyword": "露营"},
+    )["task"]
+    duplicate = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="alpha 重复任务",
+        parameters={"keyword": "美食"},
+    )["task"]
+    other_account = service.create_task(
+        source="webui",
+        account_slot="beta",
+        capability="search-feeds",
+        request_summary="beta 并行任务",
+        parameters={"keyword": "旅行"},
+    )["task"]
+    service.tasks.claim_for_execution(first["task_id"])
+
+    blocked = service.execute_task(duplicate["task_id"])
+    parallel = service.execute_task(other_account["task_id"])
+
+    assert blocked["task"]["state"] == "BLOCKED"
+    assert blocked["task"]["error_code"] == "ACCOUNT_BUSY"
+    assert parallel["task"]["state"] == "SUCCESS"
+    assert executed_accounts == ["beta"]
 
 
 def test_service_rejects_missing_task_parameters(tmp_path) -> None:
@@ -506,6 +870,89 @@ def test_keyword_engagement_preserves_item_results_and_partial_state(tmp_path, m
     assert result["result"]["items"][0]["feed_id"] == "feed-1"
     assert received["capability"] == "keyword-engagement"
     assert received["parameters"]["excluded_by_action"] == {"like": [], "favorite": []}
+
+
+def test_random_comment_requires_click_authorization_and_valid_limits(tmp_path) -> None:
+    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
+
+    with pytest.raises(ServiceError) as missing_authorization:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="random-comment",
+            request_summary="随机评论",
+            parameters={"count": 1, "candidate_pool_size": 20, "collection_minutes": 2},
+        )
+    with pytest.raises(ServiceError) as excessive_count:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="random-comment",
+            request_summary="随机评论",
+            parameters={
+                "count": 4,
+                "candidate_pool_size": 20,
+                "collection_minutes": 2,
+                "style": "natural",
+                "direct_send_authorized": True,
+            },
+        )
+
+    assert missing_authorization.value.code == "CONFIRMATION_REQUIRED"
+    assert excessive_count.value.code == "INVALID_REQUEST"
+
+
+def test_random_comment_executes_immediately_and_preserves_item_results(tmp_path, monkeypatch) -> None:
+    received: dict = {}
+
+    def execute(account, capability, parameters):
+        received.update(account=account, capability=capability, parameters=parameters)
+        return {
+            "success": True,
+            "partial": False,
+            "result_type": "random_comment",
+            "message": "随机评论完成，共发送 1 条评论",
+            "items": [
+                {
+                    "feed_id": "feed-1",
+                    "title": "露营清单",
+                    "content": "整理得很清楚",
+                    "status": "success",
+                    "success": True,
+                }
+            ],
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(execute),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="random-comment",
+        request_summary="首页随机评论：直接发送 1 条",
+        parameters={
+            "count": 1,
+            "candidate_pool_size": 20,
+            "collection_minutes": 2,
+            "style": "natural",
+            "direct_send_authorized": True,
+        },
+    )["task"]
+
+    result = service.execute_task(task["task_id"])
+
+    assert task["state"] == "QUEUED"
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["result"]["items"][0]["content"] == "整理得很清楚"
+    assert received["capability"] == "random-comment"
+    assert received["parameters"]["direct_send_authorized"] is True
 
 
 def test_unexpected_l0_failure_reaches_failed_terminal_state(tmp_path, monkeypatch) -> None:

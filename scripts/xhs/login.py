@@ -8,12 +8,13 @@ import os
 import re
 import tempfile
 import time
+from urllib.parse import urljoin
 
 _QR_DIR = os.path.join(tempfile.gettempdir(), "xhs")
 _QR_FILE = os.path.join(_QR_DIR, "login_qrcode.png")
 
 from .cdp import Page
-from .errors import RateLimitError
+from .errors import RateLimitError, XHSError
 from .human import sleep_random
 from .selectors import (
     AGREE_CHECKBOX,
@@ -31,7 +32,7 @@ from .selectors import (
     USER_NICKNAME,
     USER_PROFILE_NAV_LINK,
 )
-from .urls import EXPLORE_URL
+from .urls import EXPLORE_URL, HOME_URL
 
 logger = logging.getLogger(__name__)
 
@@ -438,8 +439,13 @@ def submit_phone_code(page: Page, code: str) -> bool:
     return wait_for_login(page, timeout=30.0)
 
 
-def logout(page: Page) -> bool:
-    """通过页面 UI 退出登录（点击"更多"→"退出登录"）。
+def logout(
+    page: Page,
+    *,
+    target_timeout: float = 5.0,
+    verification_timeout: float = 10.0,
+) -> bool:
+    """结束当前登录会话；页面菜单仅作为旧扩展的兼容回退。
 
     Args:
         page: CDP 页面对象。
@@ -449,23 +455,358 @@ def logout(page: Page) -> bool:
     """
     page.navigate(EXPLORE_URL)
     page.wait_for_load()
-    sleep_random(800, 1500)
+    page.wait_dom_stable()
+    sleep_random(500, 900)
 
-    if not page.has_element(LOGIN_STATUS):
+    if not _has_logged_in_account(page):
         logger.info("当前未登录，无需退出")
         return False
 
-    # 点击"更多"按钮展开菜单
-    page.click_element(LOGOUT_MORE_BUTTON)
-    sleep_random(500, 800)
+    session_ended = _expire_web_session_cookie(page)
+    if session_ended:
+        logger.info("已通过扩展清除当前小红书登录会话")
+    else:
+        # 兼容尚未重载新版扩展的 Profile。首页页脚也有“更多”，账号退出
+        # 入口位于“我”的个人主页，因此先进入当前账号主页再定位菜单。
+        profile_href = _find_profile_nav_href(page)
+        if profile_href:
+            page.navigate(urljoin(HOME_URL, profile_href))
+            page.wait_for_load()
+            page.wait_dom_stable()
+            sleep_random(350, 600)
 
-    # 等待退出菜单项出现并点击
-    page.wait_for_element(LOGOUT_MENU_ITEM, timeout=5.0)
-    page.click_element(LOGOUT_MENU_ITEM)
-    sleep_random(1000, 1500)
+        _wait_and_mark_logout_target(page, "more", timeout=target_timeout)
+        _click_marked_logout_target(page, "more")
+        sleep_random(350, 600)
+        _wait_and_mark_logout_target(page, "menu", timeout=target_timeout)
+        _click_marked_logout_target(page, "menu")
+        sleep_random(500, 800)
 
-    logger.info("已退出登录")
+        # 部分页面会延迟弹出确认框；短暂等待，避免菜单点击后过早开始结果核验。
+        if _wait_for_optional_logout_target(
+            page,
+            "confirm",
+            timeout=min(target_timeout, 1.5),
+        ):
+            _click_marked_logout_target(page, "confirm")
+            sleep_random(500, 800)
+
+    # 重新加载首页后再核验，避免把菜单弹层关闭或局部重绘造成的短暂元素缺失
+    # 误判为退出成功。
+    page.navigate(EXPLORE_URL)
+    page.wait_for_load()
+    page.wait_dom_stable()
+
+    if not _wait_for_logged_out(page, timeout=verification_timeout):
+        raise RuntimeError(
+            "自动退出未完成：未检测到明确的未登录界面，账号可能仍处于登录状态"
+        )
+
+    logger.info("已退出登录并完成状态核验")
     return True
+
+
+_LOGOUT_TARGET_ATTRIBUTE = "data-auto-xhs-logout-target"
+
+
+def _has_logged_in_account(page: Page) -> bool:
+    if page.has_element(LOGIN_STATUS):
+        return True
+    return bool(_find_profile_nav_href(page))
+
+
+def _expire_web_session_cookie(page: Page) -> bool:
+    """Remove the account session through the extension, with a page-cookie fallback."""
+    cookie_remover = getattr(page, "delete_auth_cookies", None)
+    if callable(cookie_remover):
+        try:
+            removal = cookie_remover()
+        except XHSError as exc:
+            logger.warning("扩展尚不支持删除 HttpOnly 登录 Cookie: %s", exc)
+        else:
+            if (
+                isinstance(removal, dict)
+                and "web_session" in removal.get("removed", [])
+                and not removal.get("remaining")
+            ):
+                return True
+
+    result = page.evaluate(
+        """
+        (() => {
+            const cookieNames = new Set(document.cookie.split(';').map((part) => {
+                const index = part.indexOf('=');
+                return index < 0 ? '' : part.slice(0, index).trim();
+            }));
+            const hadWebSession = cookieNames.has('web_session');
+            const domains = ['', '.xiaohongshu.com', 'xiaohongshu.com'];
+            for (const domain of domains) {
+                const domainPart = domain ? `; Domain=${domain}` : '';
+                document.cookie = `web_session=; Max-Age=0; Path=/${domainPart}`;
+            }
+            const remainingNames = new Set(document.cookie.split(';').map((part) => {
+                const index = part.indexOf('=');
+                return index < 0 ? '' : part.slice(0, index).trim();
+            }));
+            return {
+                hadWebSession,
+                hasWebSession: remainingNames.has('web_session'),
+            };
+        })()
+        """
+    )
+    removed_in_page = bool(
+        isinstance(result, dict)
+        and result.get("hadWebSession") is True
+        and result.get("hasWebSession") is False
+    )
+    if removed_in_page:
+        return True
+    return False
+
+
+def _mark_logout_target(page: Page, target: str) -> bool:
+    if target == "more":
+        labels = ["更多"]
+        preferred_selector = LOGOUT_MORE_BUTTON
+        search_selector = (
+            'button, [role="button"], [aria-label], [title], [data-testid], '
+            "li.side-bar-component, div.side-bar-component, span.channel"
+        )
+        restrict_to_dialog = False
+    elif target == "menu":
+        labels = ["退出登录", "退出账号"]
+        preferred_selector = LOGOUT_MENU_ITEM
+        search_selector = (
+            '[role="menuitem"], .menu-item, .dropdown-item, '
+            'button, [role="button"], li, a, div'
+        )
+        restrict_to_dialog = False
+    elif target == "confirm":
+        labels = ["确认退出", "退出登录", "退出", "确定", "确认"]
+        preferred_selector = ""
+        search_selector = (
+            '[role="dialog"] button, [role="dialog"] [role="button"], '
+            ".modal button, .modal [role=\"button\"], "
+            ".reds-modal button, .reds-modal [role=\"button\"], "
+            ".dialog button, .dialog [role=\"button\"], "
+            "[class*=\"modal\"] button, [class*=\"dialog\"] button, "
+            "[class*=\"popup\"] button, [class*=\"confirm\"] button"
+        )
+        restrict_to_dialog = True
+    else:
+        raise ValueError(f"未知退出目标: {target}")
+
+    expression = f"""
+        (() => {{
+            const attribute = {json.dumps(_LOGOUT_TARGET_ATTRIBUTE)};
+            document.querySelectorAll(`[${{attribute}}]`).forEach((element) => {{
+                element.removeAttribute(attribute);
+            }});
+            const visible = (element) => {{
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0
+                    && style.display !== 'none' && style.visibility !== 'hidden';
+            }};
+            const normalized = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+            const labels = {json.dumps(labels, ensure_ascii=False)};
+            const nodes = Array.from(document.querySelectorAll(
+                {json.dumps(search_selector)}
+            )).filter(visible);
+            const preferredSelector = {json.dumps(preferred_selector)};
+            const preferredNodes = preferredSelector
+                ? Array.from(document.querySelectorAll(preferredSelector)).filter(visible)
+                : [];
+            const matchesLabel = (element) => {{
+                const values = [
+                    normalized(element.innerText || element.textContent),
+                    normalized(element.getAttribute('aria-label')),
+                    normalized(element.getAttribute('title')),
+                    normalized(element.getAttribute('data-name')),
+                ];
+                return labels.some((label) => values.includes(label));
+            }};
+            const candidates = [...preferredNodes, ...nodes]
+                .filter((element, index, all) => all.indexOf(element) === index)
+                .filter(matchesLabel)
+                .sort((left, right) => {{
+                    const score = (element) => {{
+                        let value = preferredNodes.includes(element) ? 100 : 0;
+                        if (element.closest(
+                            'nav, aside, .side-bar-component, .sidebar, .side-bar'
+                        )) value += 40;
+                        if (element.matches(
+                            '[role="menuitem"], .menu-item, .dropdown-item'
+                        )) value += 30;
+                        return value;
+                    }};
+                    return score(right) - score(left);
+                }});
+            const candidate = candidates[0];
+            if (!candidate) return false;
+            const clickable = candidate.closest(
+                'button, [role="button"], [role="menuitem"], a, li, ' +
+                '.menu-item, .dropdown-item, .side-bar-component, [tabindex]'
+            ) || candidate;
+            if ({str(restrict_to_dialog).lower()} && !clickable.closest(
+                '[role="dialog"], .modal, .reds-modal, .dialog, ' +
+                '[class*="modal"], [class*="dialog"], ' +
+                '[class*="popup"], [class*="confirm"]'
+            )) return false;
+            clickable.setAttribute(attribute, {json.dumps(target)});
+            return true;
+        }})()
+    """
+    return page.evaluate(expression) is True
+
+
+def _wait_and_mark_logout_target(page: Page, target: str, *, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _mark_logout_target(page, target):
+            return
+        time.sleep(0.2)
+    label = "更多" if target == "more" else "退出登录"
+    if target == "menu":
+        visible_labels = _visible_menu_labels(page)
+        if visible_labels:
+            raise RuntimeError(
+                f"页面上没有找到可点击的“{label}”按钮；"
+                f"“更多”菜单当前可见文字: {' / '.join(visible_labels)}"
+            )
+    raise RuntimeError(f"页面上没有找到可点击的“{label}”按钮")
+
+
+def _visible_menu_labels(page: Page) -> list[str]:
+    """Return concise page/menu context to explain locator failures."""
+    expression = """
+        (() => {
+            const visible = (element) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0
+                    && style.display !== 'none' && style.visibility !== 'hidden';
+            };
+            const normalized = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+            const selector = '[role="menuitem"], .menu-item, .dropdown-item, button, '
+                + '[role="button"], li, a, div, span, [aria-label], [title]';
+            const nodes = Array.from(document.querySelectorAll(selector));
+            const keywords = /退出|登录|账号|设置|帮助|客服|隐私|更多|关于/;
+            const visibleLabels = nodes.filter(visible).flatMap((element) => [
+                normalized(element.innerText || element.textContent),
+                normalized(element.getAttribute('aria-label')),
+                normalized(element.getAttribute('title')),
+            ]).filter((value) => value && value.length <= 50 && keywords.test(value));
+            const hiddenExitLabels = nodes.filter((element) => !visible(element)).map(
+                (element) => normalized(element.innerText || element.textContent)
+            ).filter((value) => value && value.length <= 50 && /退出/.test(value)).map(
+                (value) => `[隐藏] ${value}`
+            );
+            return [...new Set([...visibleLabels, ...hiddenExitLabels])].slice(0, 20);
+        })()
+    """
+    try:
+        values = page.evaluate(expression)
+    except XHSError:
+        return []
+    if not isinstance(values, list):
+        return []
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _wait_for_optional_logout_target(page: Page, target: str, *, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _mark_logout_target(page, target):
+            return True
+        time.sleep(0.15)
+    return False
+
+
+def _click_marked_logout_target(page: Page, target: str) -> None:
+    selector = f'[{_LOGOUT_TARGET_ATTRIBUTE}="{target}"]'
+    click_error: XHSError | None = None
+    try:
+        page.click_element_by_text(selector, "")
+        return
+    except XHSError as exc:
+        click_error = exc
+        logger.warning("真实点击退出目标失败，改用页面事件回退: %s", exc)
+
+    clicked = page.evaluate(
+        f"""
+        (() => {{
+            const selector = {json.dumps(selector)};
+            const element = document.querySelector(selector);
+            if (!element) return false;
+            const clickable = element.closest(
+                'button, [role="button"], [role="menuitem"], a, li, ' +
+                '.menu-item, .dropdown-item, .side-bar-component, [tabindex]'
+            ) || element;
+            clickable.scrollIntoView({{ block: 'center' }});
+            const rect = clickable.getBoundingClientRect();
+            const options = {{
+                bubbles: true,
+                cancelable: true,
+                clientX: rect.left + rect.width / 2,
+                clientY: rect.top + rect.height / 2,
+            }};
+            clickable.dispatchEvent(new PointerEvent('pointerdown', options));
+            clickable.dispatchEvent(new MouseEvent('mousedown', options));
+            clickable.dispatchEvent(new PointerEvent('pointerup', options));
+            clickable.dispatchEvent(new MouseEvent('mouseup', options));
+            clickable.click();
+            return true;
+        }})()
+        """
+    )
+    if clicked is not True:
+        assert click_error is not None
+        raise click_error
+
+
+def _has_visible_logged_out_ui(page: Page) -> bool:
+    """Require an explicit visible login surface before reporting logout success."""
+    expression = f"""
+        (() => {{
+            const visible = (element) => {{
+                if (!element) return false;
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && style.opacity !== '0';
+            }};
+            const loginContainerSelector = {json.dumps(LOGIN_CONTAINER)};
+            if (Array.from(document.querySelectorAll(loginContainerSelector)).some(visible)) {{
+                return true;
+            }}
+            const normalized = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+            const labels = ['登录', '登录/注册', '立即登录', '扫码登录'];
+            return Array.from(document.querySelectorAll(
+                'button, [role="button"], a, [aria-label], [title]'
+            )).filter(visible).some((element) => {{
+                const values = [
+                    normalized(element.innerText || element.textContent),
+                    normalized(element.getAttribute('aria-label')),
+                    normalized(element.getAttribute('title')),
+                ];
+                return labels.some((label) => values.includes(label));
+            }});
+        }})()
+    """
+    return page.evaluate(expression) is True
+
+
+def _wait_for_logged_out(page: Page, *, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _has_logged_in_account(page) and _has_visible_logged_out_ui(page):
+            return True
+        time.sleep(0.3)
+    return False
 
 
 def wait_for_login(page: Page, timeout: float = 120.0) -> bool:

@@ -11,17 +11,30 @@ from account_autostart import (
     enable_account_autostart,
 )
 from account_doctor import diagnose_accounts
-from account_identity import load_identity_record, record_current_identity
+from account_identity import (
+    begin_login_switch,
+    cancel_login_switch,
+    complete_login_switch,
+    load_identity_history,
+    load_identity_record,
+    load_switch_state,
+    record_current_identity,
+)
 from account_manager import (
     AccountConfig,
     add_account,
+    archive_account,
     discover_chrome_profiles,
     import_existing_profile,
     list_accounts,
     load_account,
     public_config,
 )
-from account_pairing import create_pairing_session, get_pairing_status
+from account_pairing import (
+    create_pairing_session,
+    get_pairing_status,
+    revoke_account_pairing,
+)
 from account_runtime import evaluate_profile_connection
 from approval_service import ApprovalService
 from bridge_lifecycle import (
@@ -42,7 +55,8 @@ from quota_service import QuotaService
 from service_errors import ServiceError
 from task_service import TaskService
 from xhs.bridge import BridgePage
-from xhs.login import get_current_user_identity
+from xhs.errors import XHSError
+from xhs.login import get_current_user_identity, logout
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EXTENSION_SOURCE = PROJECT_ROOT / "extension"
@@ -60,11 +74,18 @@ class ApplicationService:
         diagnostic: Callable[..., dict] = diagnose_accounts,
         page_factory: Callable[..., BridgePage] = BridgePage,
         identity_loader: Callable[[str], dict | None] = load_identity_record,
+        switch_loader: Callable[[str], dict | None] = load_switch_state,
+        switch_history_loader: Callable[..., list[dict]] = load_identity_history,
         identity_observer: Callable[[object], dict] = get_current_user_identity,
         account_creator: Callable[..., AccountConfig] = add_account,
+        account_archiver: Callable[[str], dict] = archive_account,
         profile_importer: Callable[..., AccountConfig] = import_existing_profile,
         profile_discoverer: Callable[..., list[dict]] = discover_chrome_profiles,
         identity_recorder: Callable[..., dict] = record_current_identity,
+        switch_beginner: Callable[..., dict] = begin_login_switch,
+        switch_completer: Callable[..., dict] = complete_login_switch,
+        switch_canceller: Callable[..., dict] = cancel_login_switch,
+        account_logout: Callable[[object], bool] = logout,
         product_store: ProductStore | None = None,
         extension_source: str | Path = DEFAULT_EXTENSION_SOURCE,
         business_runner: BusinessRunner | None = None,
@@ -76,17 +97,25 @@ class ApplicationService:
         autostart_reader: Callable[[str], dict] = account_autostart_status,
         autostart_enabler: Callable[[str], dict] = enable_account_autostart,
         autostart_disabler: Callable[[str], dict] = disable_account_autostart,
+        pairing_revoker: Callable[[str], AccountConfig] = revoke_account_pairing,
     ) -> None:
         self._account_lister = account_lister
         self._account_loader = account_loader
         self._diagnostic = diagnostic
         self._page_factory = page_factory
         self._identity_loader = identity_loader
+        self._switch_loader = switch_loader
+        self._switch_history_loader = switch_history_loader
         self._identity_observer = identity_observer
         self._account_creator = account_creator
+        self._account_archiver = account_archiver
         self._profile_importer = profile_importer
         self._profile_discoverer = profile_discoverer
         self._identity_recorder = identity_recorder
+        self._switch_beginner = switch_beginner
+        self._switch_completer = switch_completer
+        self._switch_canceller = switch_canceller
+        self._account_logout = account_logout
         self._extension_source = Path(extension_source).resolve()
         self._bridge_status_reader = bridge_status_reader
         self._bridge_starter = bridge_starter
@@ -96,6 +125,7 @@ class ApplicationService:
         self._autostart_reader = autostart_reader
         self._autostart_enabler = autostart_enabler
         self._autostart_disabler = autostart_disabler
+        self._pairing_revoker = pairing_revoker
         self._store = product_store or ProductStore()
         self.tasks = TaskService(self._store)
         self.tasks.recover_interrupted()
@@ -216,6 +246,80 @@ class ApplicationService:
             "next_action": "手动打开该 Chrome Profile，再完成扩展配对",
         }
 
+    def remove_account_slot(
+        self,
+        account: str,
+        *,
+        confirmed: bool,
+        confirmation_name: str,
+    ) -> dict:
+        """Archive one local slot without deleting Chrome or XHS login data."""
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "删除账号槽位需要明确确认", 409)
+        if confirmation_name.strip() != account:
+            raise ServiceError(
+                "CONFIRMATION_MISMATCH",
+                f"请输入完整槽位名称 {account!r} 进行确认",
+                409,
+            )
+        self.require_enabled_capability("account-remove")
+        config = self._load_account(account)
+
+        account_tasks = [
+            task for task in self.tasks.list() if task.get("account_slot") == account
+        ]
+        if any(task.get("state") == "RUNNING" for task in account_tasks):
+            raise ServiceError(
+                "ACCOUNT_BUSY",
+                "该槽位仍有任务正在运行，请等待任务结束后再删除",
+                409,
+            )
+        try:
+            lifecycle = self._bridge_status_reader(config)
+        except Exception as exc:
+            raise ServiceError("BRIDGE_STATUS_FAILED", str(exc), 409) from exc
+        if lifecycle.get("bridge_running") and not lifecycle.get("registered"):
+            raise ServiceError(
+                "BRIDGE_NOT_MANAGED",
+                "该槽位端口上有未登记的 Bridge 进程；请先在诊断中确认并手动停止",
+                409,
+            )
+
+        cancelled_task_ids = []
+        for task in account_tasks:
+            if task.get("state") in {"QUEUED", "WAITING_APPROVAL", "BLOCKED"}:
+                self.cancel_task(task["task_id"])
+                cancelled_task_ids.append(task["task_id"])
+
+        local_binding_cleared = False
+        bridge_stopped = False
+        try:
+            if lifecycle.get("bridge_running"):
+                page = self._page_for_account(config)
+                if page.is_extension_connected():
+                    local_binding_cleared = bool(page.clear_extension_binding())
+                self._bridge_stopper(config)
+                bridge_stopped = True
+            self._autostart_disabler(account)
+            self._pairing_revoker(account)
+            archive = self._account_archiver(account)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ServiceError("ACCOUNT_REMOVE_FAILED", str(exc), 409) from exc
+
+        self._clear_runtime_identity_check(account)
+        return {
+            "success": True,
+            "account": account,
+            "archived": True,
+            "archive": archive,
+            "cancelled_task_ids": cancelled_task_ids,
+            "bridge_stopped": bridge_stopped,
+            "autostart_disabled": True,
+            "local_binding_cleared": local_binding_cleared,
+            "preserved": ["Chrome Profile", "小红书登录数据", "共享通用扩展"],
+            "message": "账号槽位已移出列表并保存到本机归档",
+        }
+
     def begin_account_pairing(
         self,
         account: str,
@@ -244,37 +348,20 @@ class ApplicationService:
         self.require_enabled_capability("account-identity", operation="check")
         config = self._load_account(account)
         page = self._page_for_account(config)
-        try:
-            identity = self._identity_observer(page)
-        except Exception as exc:
-            raise ServiceError("IDENTITY_CHECK_FAILED", str(exc), 409) from exc
-        if not identity.get("logged_in"):
-            if identity.get("error"):
-                raise ServiceError(
-                    "IDENTITY_CHECK_FAILED",
-                    f"无法读取当前登录身份：{identity['error']}",
-                    409,
-                )
-            raise ServiceError("LOGIN_REQUIRED", "当前 Profile 尚未登录小红书", 409)
-        if not identity.get("user_id"):
-            raise ServiceError(
-                "IDENTITY_UID_UNAVAILABLE",
-                "已检测到登录，但无法读取当前 UID，请刷新小红书首页后重试",
-                409,
-            )
-        checks = dict(self._store.get_setting("runtime_identity_checks", {}))
-        checks[account] = {
-            "user_id": str(identity.get("user_id") or ""),
-            "nickname": str(identity.get("nickname") or ""),
-            "observed_at": str(identity.get("observed_at") or ""),
-        }
-        self._store.set_setting("runtime_identity_checks", checks)
+        identity = self._observe_identity(page)
+        self._remember_runtime_identity(account, identity)
         return {"success": True, "account": account, "identity": identity}
 
     def record_account_identity(self, account: str, *, confirmed: bool, label: str = "") -> dict:
         if not confirmed:
             raise ServiceError("CONFIRMATION_REQUIRED", "记录当前 UID 需要明确确认", 409)
         self.require_enabled_capability("account-identity", operation="record")
+        if self._switch_loader(account):
+            raise ServiceError(
+                "ACCOUNT_SWITCH_PENDING",
+                "账号正在换号，不能重新记录 UID；请完成或取消当前换号流程",
+                409,
+            )
         observed = self.check_account_identity(account)["identity"]
         try:
             record = self._identity_recorder(
@@ -286,6 +373,138 @@ class ApplicationService:
         except ValueError as exc:
             raise ServiceError("IDENTITY_RECORD_FAILED", str(exc), 409) from exc
         return {"success": True, "identity": record}
+
+    def get_account_switch(self, account: str) -> dict:
+        self._load_account(account)
+        try:
+            pending = self._switch_loader(account)
+            history = self._switch_history_loader(account, limit=10)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ServiceError("ACCOUNT_SWITCH_STATUS_FAILED", str(exc), 409) from exc
+        return {
+            "success": True,
+            "account": account,
+            "pending": pending,
+            "history": history,
+        }
+
+    def logout_account(self, account: str, *, confirmed: bool) -> dict:
+        """Exit one XHS session and verify the logged-out state from the page."""
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "退出登录需要明确确认", 409)
+        self.require_enabled_capability("delete-cookies")
+        config = self._load_account(account)
+        page = self._page_for_account(config)
+        try:
+            logged_out = self._account_logout(page)
+            observed_after = self._observe_identity(page, require_uid=False)
+            if observed_after.get("logged_in"):
+                raise RuntimeError("退出后仍检测到原账号登录，操作未完成")
+        except (OSError, RuntimeError, ValueError, XHSError) as exc:
+            raise ServiceError("ACCOUNT_LOGOUT_FAILED", str(exc), 409) from exc
+        self._clear_runtime_identity_check(account)
+        return {
+            "success": True,
+            "account": account,
+            "logged_out": logged_out,
+            "verified_logged_out": True,
+            "identity": observed_after,
+            "message": "已退出登录" if logged_out else "当前账号未登录，无需退出",
+        }
+
+    def begin_account_switch(
+        self,
+        account: str,
+        *,
+        confirmed: bool,
+        target_user_id: str = "",
+        label: str = "",
+    ) -> dict:
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "开始换号需要明确确认", 409)
+        self.require_enabled_capability("account-switch-begin")
+        config = self._load_account(account)
+        page = self._page_for_account(config)
+        observed = self._observe_identity(page)
+        pending = None
+        try:
+            pending = self._switch_beginner(
+                account,
+                observed,
+                target_user_id=target_user_id,
+                target_label=label,
+            )
+            logged_out = self._account_logout(page)
+            if not logged_out:
+                raise RuntimeError("自动退出未完成，请重试换号操作")
+            observed_after = self._observe_identity(page, require_uid=False)
+            if observed_after.get("logged_in"):
+                raise RuntimeError("退出后仍检测到旧账号登录，换号流程未开始")
+        except ServiceError:
+            if pending is not None:
+                self._switch_canceller(account, observed, force=False)
+            raise
+        except (OSError, RuntimeError, ValueError, XHSError) as exc:
+            if pending is not None:
+                self._switch_canceller(account, observed, force=False)
+            raise ServiceError("ACCOUNT_SWITCH_BEGIN_FAILED", str(exc), 409) from exc
+        self._clear_runtime_identity_check(account)
+        return {
+            "success": True,
+            "account": account,
+            "switch": pending,
+            "logged_out": logged_out,
+            "verified_logged_out": True,
+            "identity": observed_after,
+            "business_tasks_blocked": True,
+            "next_action": "请在该槽位对应的 Chrome Profile 中登录新账号",
+        }
+
+    def complete_account_switch(
+        self,
+        account: str,
+        *,
+        confirmed: bool,
+        expected_user_id: str = "",
+        label: str = "",
+    ) -> dict:
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "完成换号需要明确确认", 409)
+        self.require_enabled_capability("account-switch-complete")
+        config = self._load_account(account)
+        page = self._page_for_account(config)
+        observed = self._observe_identity(page)
+        try:
+            event = self._switch_completer(
+                account,
+                observed,
+                expected_user_id=expected_user_id,
+                label=label,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ServiceError("ACCOUNT_SWITCH_COMPLETE_FAILED", str(exc), 409) from exc
+        self._remember_runtime_identity(account, observed)
+        return {
+            "success": True,
+            "account": account,
+            "switch": event,
+            "business_tasks_blocked": False,
+            "message": "新登录身份已核验并绑定，业务任务已恢复",
+        }
+
+    def cancel_account_switch(self, account: str, *, confirmed: bool) -> dict:
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "取消换号需要明确确认", 409)
+        self.require_enabled_capability("account-switch-cancel")
+        config = self._load_account(account)
+        page = self._page_for_account(config)
+        observed = self._observe_identity(page, require_uid=False)
+        try:
+            result = self._switch_canceller(account, observed, force=False)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ServiceError("ACCOUNT_SWITCH_CANCEL_FAILED", str(exc), 409) from exc
+        self._clear_runtime_identity_check(account)
+        return {"success": True, "account": account, "switch": result}
 
     def system_status(self) -> dict:
         limits = self._store.get_setting(
@@ -492,7 +711,10 @@ class ApplicationService:
                 )
                 self._record_task_event(blocked, target_key)
                 return {"success": True, "task": blocked}
-        self.tasks.transition(task_id, "RUNNING")
+        claimed = self.tasks.claim_for_execution(task_id)
+        if claimed["state"] == "BLOCKED":
+            self._record_task_event(claimed, target_key)
+            return {"success": True, "task": claimed}
         try:
             result = self.runner.execute(
                 task["account_slot"], task["capability"], parameters
@@ -617,6 +839,31 @@ class ApplicationService:
                 raise ServiceError("INVALID_REQUEST", "候选池数量必须不少于互动数量，且不超过 100 篇")
             if not 1 <= collection_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
+        if capability == "random-comment":
+            if parameters.get("direct_send_authorized") is not True:
+                raise ServiceError(
+                    "CONFIRMATION_REQUIRED",
+                    "随机评论会直接发送，必须确认本次任务授权",
+                    409,
+                )
+            if str(parameters.get("style") or "natural") not in {
+                "natural",
+                "praise",
+                "question",
+            }:
+                raise ServiceError("INVALID_REQUEST", "请选择有效的随机评论风格")
+            try:
+                count = int(parameters.get("count"))
+                candidate_pool_size = int(parameters.get("candidate_pool_size", 20))
+                collection_minutes = int(parameters.get("collection_minutes", 2))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "评论数量、候选池和搜集时间必须是整数") from exc
+            if not 1 <= count <= 3:
+                raise ServiceError("INVALID_REQUEST", "随机评论数量必须在 1 到 3 篇之间")
+            if not count <= candidate_pool_size <= 100:
+                raise ServiceError("INVALID_REQUEST", "候选池数量必须不少于评论数量，且不超过 100 篇")
+            if not 1 <= collection_minutes <= 10:
+                raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
         if capability == "get-feed-detail":
             if not str(parameters.get("feed_id") or "").strip():
                 raise ServiceError("INVALID_REQUEST", "查看笔记详情必须填写笔记 ID")
@@ -709,7 +956,14 @@ class ApplicationService:
             },
         )
         self.tasks.transition(task["task_id"], "QUEUED")
-        self.tasks.transition(task["task_id"], "RUNNING")
+        claimed = self.tasks.claim_for_execution(task["task_id"])
+        if claimed["state"] == "BLOCKED":
+            self._record_task_event(claimed, draft["target_id"])
+            return {
+                "success": True,
+                "task": claimed,
+                "approval": consumed["approval"],
+            }
         try:
             result = self.runner.execute(
                 draft["account_slot"], draft["action_type"], task["parameters"]
@@ -794,6 +1048,7 @@ class ApplicationService:
 
     def _identity_summary(self, account: str) -> dict:
         record = self._identity_loader(account)
+        switch = self._switch_loader(account)
         current = (record or {}).get("current") or {}
         runtime_checks = self._store.get_setting("runtime_identity_checks", {})
         live = runtime_checks.get(account) or {}
@@ -808,7 +1063,44 @@ class ApplicationService:
             "live_user_id": live_uid,
             "live_nickname": str(live.get("nickname") or ""),
             "matches_record": bool(recorded_uid and live_uid == recorded_uid),
+            "switch_pending": bool(switch),
+            "switch": switch,
         }
+
+    def _observe_identity(self, page: object, *, require_uid: bool = True) -> dict:
+        try:
+            identity = self._identity_observer(page)
+        except Exception as exc:
+            raise ServiceError("IDENTITY_CHECK_FAILED", str(exc), 409) from exc
+        if identity.get("error"):
+            raise ServiceError(
+                "IDENTITY_CHECK_FAILED",
+                f"无法读取当前登录身份：{identity['error']}",
+                409,
+            )
+        if require_uid and not identity.get("logged_in"):
+            raise ServiceError("LOGIN_REQUIRED", "当前 Profile 尚未登录小红书", 409)
+        if require_uid and not identity.get("user_id"):
+            raise ServiceError(
+                "IDENTITY_UID_UNAVAILABLE",
+                "已检测到登录，但无法读取当前 UID，请刷新小红书首页后重试",
+                409,
+            )
+        return identity
+
+    def _remember_runtime_identity(self, account: str, identity: dict) -> None:
+        checks = dict(self._store.get_setting("runtime_identity_checks", {}))
+        checks[account] = {
+            "user_id": str(identity.get("user_id") or ""),
+            "nickname": str(identity.get("nickname") or ""),
+            "observed_at": str(identity.get("observed_at") or ""),
+        }
+        self._store.set_setting("runtime_identity_checks", checks)
+
+    def _clear_runtime_identity_check(self, account: str) -> None:
+        checks = dict(self._store.get_setting("runtime_identity_checks", {}))
+        checks.pop(account, None)
+        self._store.set_setting("runtime_identity_checks", checks)
 
 
 def _account_state(runtime: dict, identity: dict) -> tuple[str, str | None]:
@@ -818,6 +1110,8 @@ def _account_state(runtime: dict, identity: dict) -> tuple[str, str | None]:
         return "BLOCKED", "手动打开对应 Chrome Profile 并保持扩展在线"
     if not runtime["profile_verified"]:
         return "BLOCKED", "检查 Profile 绑定和扩展配对"
+    if identity["switch_pending"]:
+        return "SWITCH_PENDING", "在对应 Chrome Profile 登录新账号，然后完成换号核验"
     if not identity["recorded"]:
         return "IDENTITY_REQUIRED", "在 WebUI 中完成登录身份核验"
     if not identity["live_checked"]:

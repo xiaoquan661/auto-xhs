@@ -176,6 +176,10 @@ class BridgePage:
         result = self._call("get_elements_count", {"selector": selector})
         return int(result) if result is not None else 0
 
+    def delete_auth_cookies(self) -> dict[str, Any]:
+        result = self._call("delete_auth_cookies", {})
+        return result if isinstance(result, dict) else {}
+
     def remove_element(self, selector: str) -> None:
         self._call("remove_element", {"selector": selector})
 

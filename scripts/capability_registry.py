@@ -56,13 +56,17 @@ def _policy(
     requires_target_account: bool = True,
     requires_identity_check: bool = False,
     requires_result_verification: bool = False,
+    requires_confirmation: bool | None = None,
     enabled_in_v1: bool | None = None,
 ) -> CapabilityPolicy:
     return CapabilityPolicy(
         command=command,
         risk_level=risk_level,
-        requires_confirmation=risk_level
-        in {RiskLevel.EXTERNAL_OUTPUT, RiskLevel.SECURITY_CONFIG},
+        requires_confirmation=(
+            risk_level in {RiskLevel.EXTERNAL_OUTPUT, RiskLevel.SECURITY_CONFIG}
+            if requires_confirmation is None
+            else requires_confirmation
+        ),
         supports_scheduling=supports_scheduling,
         retry_policy={
             RiskLevel.READ_ONLY: RetryPolicy.SAFE,
@@ -93,6 +97,7 @@ _POLICIES = [
     _policy("account-import", RiskLevel.SECURITY_CONFIG, requires_target_account=False),
     _policy("account-discover", RiskLevel.READ_ONLY, requires_target_account=False),
     _policy("account-list", RiskLevel.READ_ONLY, requires_target_account=False),
+    _policy("account-remove", RiskLevel.SECURITY_CONFIG, requires_result_verification=True),
     _policy("account-start", RiskLevel.STATE_CHANGE, requires_result_verification=True),
     _policy("account-status", RiskLevel.READ_ONLY),
     _policy("account-sync", RiskLevel.SECURITY_CONFIG, requires_target_account=False),
@@ -173,7 +178,17 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
     ),
-    # V1 allows comments and replies only after confirming the final draft.
+    # A user-created random-comment task uses the WebUI submit click as the
+    # one-time authorization for that account and batch size.
+    _policy(
+        "random-comment",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    # Direct comments and replies still use the final-draft confirmation flow.
     _policy(
         "post-comment",
         RiskLevel.EXTERNAL_OUTPUT,

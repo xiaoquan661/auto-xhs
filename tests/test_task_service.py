@@ -39,6 +39,21 @@ def test_external_output_waits_for_approval(tmp_path) -> None:
     assert task["state"] == "WAITING_APPROVAL"
 
 
+def test_authorized_random_comment_is_immediately_queued(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    task = service.create(
+        source="webui",
+        account_slot="alpha",
+        capability="random-comment",
+        request_summary="随机评论 1 条",
+        parameters={"direct_send_authorized": True, "count": 1},
+    )
+
+    assert task["risk_level"] == "L2"
+    assert task["state"] == "QUEUED"
+
+
 def test_disabled_task_is_rejected(tmp_path) -> None:
     service = _service(tmp_path)
 
@@ -74,6 +89,40 @@ def test_task_transition_has_stable_final_state(tmp_path) -> None:
     assert completed["result_summary"] == "找到 10 条笔记"
     with pytest.raises(ServiceError, match="不能从 SUCCESS"):
         service.transition(task["task_id"], "RUNNING")
+
+
+def test_execution_claim_allows_parallel_accounts_but_blocks_same_account(
+    tmp_path,
+) -> None:
+    service = _service(tmp_path)
+    first = service.create(
+        source="webui",
+        account_slot="alpha",
+        capability="browse-feeds",
+        request_summary="alpha 第一个任务",
+        parameters={"duration_minutes": 5, "count": 5},
+    )
+    duplicate = service.create(
+        source="webui",
+        account_slot="alpha",
+        capability="browse-feeds",
+        request_summary="alpha 第二个任务",
+        parameters={"duration_minutes": 5, "count": 5},
+    )
+    other_account = service.create(
+        source="webui",
+        account_slot="beta",
+        capability="browse-feeds",
+        request_summary="beta 任务",
+        parameters={"duration_minutes": 5, "count": 5},
+    )
+
+    assert service.claim_for_execution(first["task_id"])["state"] == "RUNNING"
+    blocked = service.claim_for_execution(duplicate["task_id"])
+    assert blocked["state"] == "BLOCKED"
+    assert blocked["error_code"] == "ACCOUNT_BUSY"
+    assert first["task_id"][:8] in blocked["recommended_action"]
+    assert service.claim_for_execution(other_account["task_id"])["state"] == "RUNNING"
 
 
 def test_requeue_clears_previous_attempt_timestamps_and_error(tmp_path) -> None:

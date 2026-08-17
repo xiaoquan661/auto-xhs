@@ -162,18 +162,15 @@
         <section class="content-section work-section" id="work">
           <div class="section-heading">
             <div><p class="section-kicker">04 / TASK DESK</p><h2>任务与确认</h2></div>
-            <p>立即执行、批量计划和外发确认各自独立，执行结果统一进入记录。</p>
+            <p>立即任务直接执行；评论和回复先保存草稿，经人工核对后再发送。</p>
           </div>
 
           <div class="task-mode-tabs" role="tablist" aria-label="任务板块视图">
             <button class="task-mode-tab active" id="task-tab-immediate" type="button" role="tab" aria-selected="true" aria-controls="task-panel-immediate" data-task-panel="immediate">
               <span>立即任务</span><small>创建后执行</small>
             </button>
-            <button class="task-mode-tab" id="task-tab-plan" type="button" role="tab" aria-selected="false" aria-controls="task-panel-plan" data-task-panel="plan">
-              <span>批量／定时计划</span><small>下一阶段接入</small>
-            </button>
             <button class="task-mode-tab" id="task-tab-confirmation" type="button" role="tab" aria-selected="false" aria-controls="task-panel-confirmation" data-task-panel="confirmation">
-              <span>确认区</span><small><b id="confirmation-count">0</b> 条待处理</small>
+              <span>评论／回复确认</span><small><b id="confirmation-count">0</b> 条待处理</small>
             </button>
           </div>
 
@@ -192,6 +189,7 @@
                     <option value="search">搜索与收集</option>
                     <option value="analysis">内容与账号分析</option>
                     <option value="engagement">点赞与收藏</option>
+                    <option value="comment">随机评论</option>
                     <option value="creation" disabled>内容创作（后续阶段）</option>
                     <option value="insight" disabled>数据与状态读取（后续阶段）</option>
                   </select>
@@ -216,6 +214,20 @@
                   <label>候选池数量<input id="task-candidate-pool" type="number" min="3" max="100" value="20" /><span>篇</span></label>
                   <label>最长搜集时间<input id="task-collection-minutes" type="number" min="1" max="10" value="2" /><span>分钟</span></label>
                 </fieldset>
+                <fieldset class="browse-settings random-comment-settings" id="random-comment-settings" hidden>
+                  <legend>随机评论设置</legend>
+                  <label>评论风格
+                    <select id="task-comment-style">
+                      <option value="natural">自然互动</option>
+                      <option value="praise">友好认可</option>
+                      <option value="question">提问互动</option>
+                    </select>
+                  </label>
+                  <label>发送数量<input id="task-comment-count" type="number" min="1" max="3" value="1" /><span>篇</span></label>
+                  <label>候选池数量<input id="task-comment-candidate-pool" type="number" min="1" max="100" value="20" /><span>篇</span></label>
+                  <label>最长搜集时间<input id="task-comment-collection-minutes" type="number" min="1" max="10" value="2" /><span>分钟</span></label>
+                  <p class="direct-send-note">点击下方按钮即授权当前账号完成本次随机评论，生成后将直接发送，不进入逐条确认。</p>
+                </fieldset>
                 <label id="task-target-field"><span id="task-target-label">任务目标</span><input id="task-target" /></label>
                 <label id="token-field"><span id="task-token-label">XSEC Token</span><input id="task-token" placeholder="查看详情或互动时需要" /></label>
                 <button class="primary-button wide-button" id="task-submit" type="submit">创建并执行 <span aria-hidden="true">→</span></button>
@@ -226,38 +238,27 @@
           </div>
           </div>
 
-          <div class="task-panel" id="task-panel-plan" role="tabpanel" aria-labelledby="task-tab-plan" data-task-view="plan" hidden>
-          <div class="work-lane plan-lane">
-            <div class="lane-heading">
-              <div><span class="lane-index">B</span><div><p>PLAN AHEAD</p><h3>批量／定时计划</h3></div></div>
-              <span class="lane-rule">产品规则已确定，执行引擎下一阶段接入</span>
-            </div>
-            <div class="plan-stage-note">
-              <span>阶段 02</span>
-              <div><strong>这里暂时不会创建计划</strong><p>下一阶段将先实现计划对象、目标池和子任务拆分，再开放提交入口。</p></div>
-            </div>
-            <div class="plan-capability-grid" aria-label="计划能力范围">
-              <article><span>01</span><strong>浏览与收集</strong><p>批量或定时浏览、搜索和候选内容收集。</p></article>
-              <article><span>02</span><strong>监测与分析</strong><p>关键词、话题、竞品、评论和审核状态监测。</p></article>
-              <article><span>03</span><strong>点赞与收藏</strong><p>创建计划时一次授权，按账号和目标拆分执行。</p></article>
-              <article><span>04</span><strong>内容与报告</strong><p>批量生成本地草稿和定期运营报告。</p></article>
-            </div>
-          </div>
-          </div>
-
           <div class="task-panel" id="task-panel-confirmation" role="tabpanel" aria-labelledby="task-tab-confirmation" data-task-view="confirmation" hidden>
           <div class="work-lane approval-lane">
             <div class="lane-heading">
-              <div><span class="lane-index">C</span><div><p>REVIEW & APPROVE</p><h3>确认区</h3></div></div>
+              <div><span class="lane-index">B</span><div><p>REVIEW & APPROVE</p><h3>评论／回复确认</h3></div></div>
               <span class="lane-rule">核对账号、UID、目标和最终文本</span>
             </div>
             <div class="draft-layout">
               <form class="setup-card draft-composer" id="draft-form">
                 <label>目标账号<select id="draft-account" required></select></label>
-                <label>动作<select id="draft-action"><option value="post-comment">评论笔记</option><option value="reply-comment">回复评论</option></select></label>
-                <label>目标 ID<input id="draft-target" required placeholder="评论填笔记 ID；回复填评论 ID" /></label>
-                <label>目标说明<input id="draft-summary" placeholder="方便确认时识别目标" /></label>
-                <label>最终文本<textarea id="draft-content" required maxlength="1000" rows="5" placeholder="这里保存的是等待你最终确认的文本"></textarea></label>
+                <label>动作<select id="draft-action" autocomplete="off"><option value="post-comment">评论笔记</option><option value="reply-comment">回复评论</option></select></label>
+                <p class="draft-mode-help" id="draft-action-help">对目标笔记发表一条新评论，不需要选择已有评论。</p>
+                <label><span id="draft-target-label">目标笔记 ID</span><input id="draft-target" required autocomplete="off" placeholder="填写要评论的笔记 ID" /></label>
+                <label><span id="draft-summary-label">笔记内容说明</span><input id="draft-summary" autocomplete="off" placeholder="例如：露营装备清单与避坑建议" /></label>
+                <div class="draft-content-field">
+                  <div class="draft-field-heading">
+                    <label id="draft-content-label" for="draft-content">评论内容</label>
+                    <button class="draft-generate-button" id="draft-generate" type="button">生成基础评论草稿</button>
+                  </div>
+                  <textarea id="draft-content" required maxlength="1000" rows="5" placeholder="填写评论，或先补充笔记内容说明后生成草稿"></textarea>
+                  <p class="draft-generation-note" id="draft-generation-help">生成内容只使用你填写的笔记说明；发送前请结合原笔记核对。</p>
+                </div>
                 <button class="primary-button wide-button" id="draft-submit" type="submit">保存为待确认草稿 <span aria-hidden="true">→</span></button>
                 <p class="form-note" id="draft-message" role="status">保存不会向小红书发送任何内容。</p>
               </form>
@@ -313,6 +314,79 @@
         <footer><span>AUTO—XHS / LOCAL FIRST</span><span>配置与任务数据只保存在本机</span></footer>
       </main>
     </div>
-    <script src="/app.js" defer></script>
+
+    <dialog class="switch-dialog" id="account-switch-dialog" aria-labelledby="switch-dialog-title">
+      <div class="switch-dialog-head">
+        <div>
+          <p class="section-kicker">IDENTITY HANDOFF</p>
+          <h2 id="switch-dialog-title">切换登录账号</h2>
+        </div>
+        <button class="dialog-close" id="switch-dialog-close" type="button" aria-label="关闭换号面板">×</button>
+      </div>
+      <div class="switch-account-strip">
+        <span class="switch-avatar" id="switch-account-avatar">—</span>
+        <div><small>当前操作槽位</small><strong id="switch-account-name">—</strong></div>
+        <span class="switch-stage" id="switch-stage">准备换号</span>
+      </div>
+      <div class="switch-dialog-body">
+        <div class="switch-current" id="switch-current">
+          <span>当前记录身份</span>
+          <strong id="switch-current-name">尚未记录</strong>
+          <small id="switch-current-uid">UID —</small>
+        </div>
+        <div class="switch-sequence" aria-label="账号切换流程">
+          <span data-switch-step="begin"><b>01</b>退出旧账号</span>
+          <i aria-hidden="true">→</i>
+          <span data-switch-step="login"><b>02</b>登录新账号</span>
+          <i aria-hidden="true">→</i>
+          <span data-switch-step="complete"><b>03</b>核验新 UID</span>
+        </div>
+        <div class="switch-fields" id="switch-fields">
+          <label>新账号备注（可选）<input id="switch-label" maxlength="50" placeholder="例如：品牌主账号" /></label>
+          <label>预期新 UID（可选）<input id="switch-target-uid" maxlength="128" placeholder="填写后，完成时必须一致" /></label>
+        </div>
+        <div class="switch-guidance" id="switch-guidance">
+          <strong>开始后会退出当前小红书登录</strong>
+          <p>系统负责自动退出当前账号；槽位、Chrome Profile、扩展和 Bridge 保持不变。你只需在这个 Profile 中手动登录新账号，再回到这里完成核验。</p>
+        </div>
+        <p class="switch-message" id="switch-message" role="status"></p>
+      </div>
+      <div class="switch-dialog-actions">
+        <button class="secondary-button switch-cancel" id="switch-cancel" type="button" hidden>取消换号</button>
+        <button class="secondary-button" id="switch-dismiss" type="button">暂不切换</button>
+        <button class="primary-button" id="switch-primary" type="button">自动退出并开始换号</button>
+      </div>
+    </dialog>
+    <dialog class="switch-dialog remove-dialog" id="account-remove-dialog" aria-labelledby="remove-dialog-title">
+      <div class="switch-dialog-head">
+        <div>
+          <p class="section-kicker">RECOVERABLE REMOVAL</p>
+          <h2 id="remove-dialog-title">删除账号槽位</h2>
+        </div>
+        <button class="dialog-close" id="remove-dialog-close" type="button" aria-label="关闭删除槽位面板">×</button>
+      </div>
+      <div class="switch-account-strip remove-account-strip">
+        <span class="switch-avatar">存</span>
+        <div><small>准备移出本地列表</small><strong id="remove-account-name">—</strong></div>
+        <span class="switch-stage">可恢复归档</span>
+      </div>
+      <div class="switch-dialog-body">
+        <p class="remove-profile" id="remove-account-profile">Chrome · —</p>
+        <div class="remove-guidance">
+          <strong>不会删除这些内容</strong>
+          <p>Chrome Profile、小红书登录数据和共享通用扩展都会保留。系统只会停止该槽位的受管 Bridge、关闭自启动、撤销配对，并把槽位数据保存到本机归档。</p>
+        </div>
+        <label class="remove-confirm-field">
+          输入完整槽位名称以确认
+          <input id="remove-confirm-name" autocomplete="off" spellcheck="false" placeholder="槽位名称" />
+        </label>
+        <p class="switch-message" id="remove-message" role="status"></p>
+      </div>
+      <div class="switch-dialog-actions">
+        <button class="secondary-button" id="remove-account-cancel" type="button">取消</button>
+        <button class="primary-button danger-button" id="remove-account-submit" type="button" disabled>确认删除槽位</button>
+      </div>
+    </dialog>
+    <script src="/app.js?v=20260817-random-comment-1" defer></script>
   </body>
 </html>

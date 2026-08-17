@@ -52,6 +52,9 @@ def make_handler(
         def do_PATCH(self) -> None:
             self._handle_mutation("PATCH")
 
+        def do_DELETE(self) -> None:
+            self._handle_mutation("DELETE")
+
         def log_message(self, _format: str, *_args) -> None:
             return
 
@@ -195,6 +198,8 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
             return service.get_bridge_status(account)
         if action == "autostart":
             return service.get_account_autostart(account)
+        if action == "switch":
+            return service.get_account_switch(account)
     if len(parts) == 4 and parts[:3] == ["api", "v1", "tasks"]:
         return service.get_task(parts[3])
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
@@ -226,6 +231,12 @@ def _dispatch_mutation(
         return service.discover_profiles(body.get("user_data_dir"))
 
     parts = [unquote(part) for part in path.split("/") if part]
+    if (
+        len(parts) == 4
+        and parts[:3] == ["api", "v1", "accounts"]
+        and method == "DELETE"
+    ):
+        return service.remove_account_slot(parts[3], **body)
     if (
         len(parts) == 4
         and parts[:3] == ["api", "v1", "drafts"]
@@ -278,6 +289,14 @@ def _dispatch_mutation(
             return service.check_account_identity(account)
         if method == "POST" and (section, action) == ("identity", "record"):
             return service.record_account_identity(account, **body)
+        if method == "POST" and (section, action) == ("auth", "logout"):
+            return service.logout_account(account, **body)
+        if method == "POST" and (section, action) == ("switch", "begin"):
+            return service.begin_account_switch(account, **body)
+        if method == "POST" and (section, action) == ("switch", "complete"):
+            return service.complete_account_switch(account, **body)
+        if method == "POST" and (section, action) == ("switch", "cancel"):
+            return service.cancel_account_switch(account, **body)
         if method == "POST" and (section, action) == ("bridge", "start"):
             return service.start_account_bridge(account)
         if method == "POST" and (section, action) == ("bridge", "stop"):

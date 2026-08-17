@@ -13,6 +13,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_ACCOUNT = "default"
@@ -75,6 +76,10 @@ def account_config_path(name: str) -> Path:
     return account_dir(name) / "account.json"
 
 
+def account_archive_root() -> Path:
+    return accounts_root() / ".archive"
+
+
 def list_accounts() -> list[AccountConfig]:
     root = accounts_root()
     if not root.exists():
@@ -86,6 +91,37 @@ def list_accounts() -> list[AccountConfig]:
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             continue
     return configs
+
+
+def archive_account(name: str) -> dict:
+    """Remove a slot from the active registry by moving it to a local archive."""
+    name = validate_account_name(name)
+    with account_registry_transaction():
+        source = account_dir(name)
+        config_path = source / "account.json"
+        if not config_path.is_file():
+            raise FileNotFoundError(f"账号 {name!r} 尚未配置")
+
+        archived_at = datetime.now(UTC)
+        archive_id = f"{name}-{archived_at.strftime('%Y%m%dT%H%M%S%fZ')}"
+        archive_root = account_archive_root()
+        archive_root.mkdir(parents=True, exist_ok=True)
+        target = archive_root / archive_id
+        source.rename(target)
+
+        metadata = {
+            "archive_id": archive_id,
+            "account": name,
+            "archived_at": archived_at.isoformat(),
+            "original_slot_path": str(source),
+            "chrome_profile_preserved": True,
+            "shared_extension_preserved": True,
+        }
+        (target / "slot-archive.json").write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return {**metadata, "archive_path": str(target)}
 
 
 def default_chrome_user_data_dir() -> Path:

@@ -22,7 +22,7 @@ WebUI、Codex 和统一 Python CLI 完成配置、任务、确认和结果反馈
 
 - L0：登录/状态检查、首页 Feed、搜索、笔记详情和用户主页；
 - L1：点赞与收藏，已接入配额、去重、熔断和执行记录；
-- L2：仅评论和回复，并且必须经过 WebUI 最终草稿确认；
+- L2：评论和回复；指定目标仍经过最终草稿确认，WebUI 随机评论以“创建并直接发送”的当前点击作为一次性批量授权；
 - L3：账号、配对、登录、身份和系统配置，必须显式确认；
 - 发布、定时发布、私信和公开资料修改不属于 V1 产品开放能力。
 
@@ -35,7 +35,7 @@ Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动
 本地服务并打开 `http://127.0.0.1:8765`；它不会自动打开、关闭或切换 Chrome。首次进入后按
 “添加账号 → 手动打开目标 Profile → 配对扩展 → 检查并确认 UID”的顺序完成账号准备。
 
-WebUI 当前包含账号槽位、Bridge 启停、任务、评论/回复草稿确认、执行记录、全局暂停、L1 配额、
+WebUI 当前包含账号槽位、Bridge 启停、随机评论、评论/回复草稿确认、执行记录、全局暂停、L1 配额、
 并发设置和脱敏诊断导出。详细步骤见 [普通用户操作手册](docs/USER-GUIDE.md)，常见故障见
 [故障恢复指南](docs/TROUBLESHOOTING.md)。
 
@@ -149,10 +149,12 @@ python scripts/cli.py --account brand-b account-autostart-enable --confirm
 ```bash
 python scripts/cli.py --account brand-a search-feeds --keyword "咖啡"
 python scripts/cli.py --account brand-b search-feeds --keyword "露营"
+python scripts/cli.py --account brand-a random-comment --count 1 --style natural
 ```
 
 不同账号的命令可由两个终端或 Agent 并发执行。同一账号的命令由账号锁串行执行，避免两个
-任务同时抢占同一个页面。发布、评论、点赞等操作仍应逐个确认，并保持合理频率。
+任务同时抢占同一个页面。指定目标的评论仍逐条确认；随机评论命令或 WebUI 的直接发送按钮代表
+对当前账号和本次 1–3 条评论的明确授权，不会创建持续或定时评论计划。
 
 项目扩展代码升级后，运行下面的命令部署或刷新通用扩展。旧账号执行后会自动迁移为
 `extension_mode=universal`：
@@ -202,6 +204,18 @@ python scripts/cli.py --account account-1 account-switch-history
 从 `account-switch-begin` 到 `account-switch-complete` 之间，同一槽位的搜索、互动和发布等业务
 命令都会被拒绝，登录命令仍然可用。如果指定了 `--target-user-id`，完成时必须登录对应 UID。
 如果旧账号以后还要快速使用，不要覆盖原槽位；为它保留独立 Profile，并新建另一个账号槽位。
+
+退出操作会优先由扩展结束当前登录会话，网页中的“更多 → 退出登录”只用于兼容旧版扩展。
+服务重新加载首页并回读登录状态后才会报告成功；仍检测到 UID 时会明确返回失败。
+
+不再使用某个槽位时，可在 WebUI 账号卡片的“更多”中选择“删除槽位”，或运行：
+
+```powershell
+python scripts/cli.py --account account-1 account-remove --confirm --confirm-name account-1
+```
+
+该操作会停止受管 Bridge、关闭该槽位自启动、撤销配对，并把槽位目录移入本机
+`.xhs\accounts\.archive`。它不会删除 Chrome Profile、小红书登录数据或共享通用扩展。
 
 #### 绑定已有 Chrome Profile
 
@@ -338,6 +352,7 @@ python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --c
 | `account-discover`          | 列出已有 Chrome Profile 及绑定状态                  |
 | `account-import`            | 绑定已有 Chrome Profile，保留登录状态               |
 | `account-list`              | 列出所有已配置账号                                  |
+| `account-remove`            | 将槽位移入本机归档，保留 Profile、登录数据与共享扩展 |
 | `account-start`             | 启动目标账号的 Bridge 并检查热登录连接，不启动 Chrome |
 | `account-status`            | 检查目标账号的服务和扩展连接状态                    |
 | `account-sync`              | 让账号槽位指向当前项目中所有 Profile 共用的扩展目录 |
@@ -353,7 +368,7 @@ python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --c
 | `account-switch-history`    | 查看本机保存的换号记录                              |
 | `check-login`               | 检查登录状态，返回用户昵称和小红书号                |
 | `login`                     | 获取登录二维码，等待扫码，登录后返回用户信息        |
-| `delete-cookies`            | 通过页面退出当前登录                                |
+| `delete-cookies`            | 结束当前登录会话并回读页面核验退出结果              |
 | `list-feeds`                | 获取首页推荐 Feed                                   |
 | `browse-feeds`              | 按时间和数量自动滚动首页并点开笔记                  |
 | `search-feeds`              | 关键词搜索笔记（支持排序/类型/时间/范围/位置筛选）  |

@@ -1,6 +1,12 @@
 const api = "/api/v1";
 let sessionToken = "";
 let accountStatusByName = new Map();
+let activeAccountSwitch = null;
+let activeAccountRemoval = null;
+let accountTaskActivityByName = new Map();
+const pendingSubmissionByAccount = new Map();
+const taskMessageByAccount = new Map();
+let taskActivityPollTimer = null;
 document.documentElement.classList.add("js-ready");
 
 const taskCapabilities = {
@@ -78,6 +84,16 @@ const taskCapabilities = {
     tokenRequired: false,
     engagementSettings: true,
   },
+  "random-comment": {
+    label: "首页随机评论",
+    help: "从首页推荐中搜集候选笔记，随机抽取并读取正文，生成相关评论后直接发送。",
+    targetLabel: "",
+    placeholder: "",
+    targetRequired: false,
+    targetVisible: false,
+    tokenRequired: false,
+    commentSettings: true,
+  },
 };
 
 const taskTemplates = {
@@ -85,7 +101,33 @@ const taskTemplates = {
   search: ["search-feeds"],
   analysis: ["get-feed-detail", "user-profile"],
   engagement: ["keyword-engagement"],
+  comment: ["random-comment"],
 };
+
+const draftModes = {
+  "post-comment": {
+    label: "评论笔记",
+    targetLabel: "目标笔记 ID",
+    targetPlaceholder: "填写要评论的笔记 ID",
+    summaryLabel: "笔记内容说明",
+    summaryPlaceholder: "例如：露营装备清单与避坑建议",
+    contentLabel: "评论内容",
+    contentPlaceholder: "填写评论，或先补充笔记内容说明后生成草稿",
+    help: "对目标笔记发表一条新评论，不需要选择已有评论。",
+  },
+  "reply-comment": {
+    label: "回复评论",
+    targetLabel: "目标评论 ID",
+    targetPlaceholder: "填写要回复的评论 ID",
+    summaryLabel: "原评论内容说明",
+    summaryPlaceholder: "摘录对方评论，方便确认回复对象",
+    contentLabel: "回复内容",
+    contentPlaceholder: "结合对方原话填写最终回复",
+    help: "仅在需要回应某条已有评论时使用；执行前还要填写该评论所属的笔记 ID。",
+  },
+};
+
+let commentSuggestionIndex = 0;
 
 const capabilityTemplate = Object.entries(taskTemplates).reduce((mapping, [template, capabilities]) => {
   capabilities.forEach((capability) => mapping.set(capability, template));
@@ -110,7 +152,7 @@ function stateStyle(state) {
   if (state === "READY" || state === "SUCCESS" || state === "EXECUTED") return "ready";
   if (state === "PARTIAL_SUCCESS") return "blocked";
   if (state === "ERROR" || state === "FAILED" || state === "RESULT_UNKNOWN") return "error";
-  if (["IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED", "QUEUED", "RUNNING", "WAITING_APPROVAL", "DRAFT", "CONFIRMED"].includes(state)) return "pending";
+  if (["IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED", "SWITCH_PENDING", "QUEUED", "RUNNING", "WAITING_APPROVAL", "DRAFT", "CONFIRMED"].includes(state)) return "pending";
   return "blocked";
 }
 
@@ -122,6 +164,7 @@ function stateLabel(state) {
     IDENTITY_REQUIRED: "待记录身份",
     IDENTITY_CHECK_REQUIRED: "待核验 UID",
     IDENTITY_MISMATCH: "身份不一致",
+    SWITCH_PENDING: "换号进行中",
     QUEUED: "排队中",
     RUNNING: "执行中",
     WAITING_APPROVAL: "待确认",
@@ -137,9 +180,90 @@ function stateLabel(state) {
   }[state] || state;
 }
 
+const taskActivityPriority = {
+  RUNNING: 0,
+  QUEUED: 1,
+  WAITING_APPROVAL: 2,
+  BLOCKED: 3,
+};
+
+function rebuildAccountTaskActivity(tasks) {
+  const activities = new Map();
+  tasks.forEach((task) => {
+    if (!(task.state in taskActivityPriority)) return;
+    const current = activities.get(task.account_slot);
+    if (!current || taskActivityPriority[task.state] < taskActivityPriority[current.state]) {
+      activities.set(task.account_slot, {
+        ...task,
+        open_count: (current?.open_count || 0) + 1,
+      });
+    } else {
+      current.open_count += 1;
+    }
+  });
+  accountTaskActivityByName = activities;
+}
+
+function currentAccountTaskActivity(account) {
+  const pending = pendingSubmissionByAccount.get(account);
+  if (pending) return { ...pending, state: "RUNNING", locally_submitting: true };
+  return accountTaskActivityByName.get(account) || null;
+}
+
+function accountHasUnfinishedTask(account) {
+  return Boolean(currentAccountTaskActivity(account));
+}
+
+function activityShortLabel(activity) {
+  if (!activity) return "空闲";
+  return {
+    RUNNING: "执行中",
+    QUEUED: "等待执行",
+    WAITING_APPROVAL: "等待确认",
+    BLOCKED: "需处理",
+  }[activity.state] || stateLabel(activity.state);
+}
+
+function paintAccountActivity(node, account) {
+  const activity = currentAccountTaskActivity(account);
+  const dot = document.createElement("span");
+  dot.className = "account-activity-dot";
+  dot.setAttribute("aria-hidden", "true");
+  const copy = document.createElement("div");
+  const label = document.createElement("small");
+  const title = document.createElement("strong");
+  const detail = document.createElement("span");
+
+  if (!activity) {
+    node.dataset.state = "IDLE";
+    label.textContent = "任务状态";
+    title.textContent = "空闲";
+    detail.textContent = "当前没有排队或执行中的任务";
+  } else {
+    const capabilityName = taskCapabilityLabel(activity.capability);
+    node.dataset.state = activity.state;
+    label.textContent = activityShortLabel(activity);
+    title.textContent = `${activityShortLabel(activity)} · ${capabilityName}`;
+    detail.textContent = activity.request_summary || `任务 ${String(activity.task_id || "").slice(0, 8)}`;
+    if ((activity.open_count || 1) > 1) detail.textContent += ` · 共 ${activity.open_count} 个未完成任务`;
+  }
+  copy.append(label, title, detail);
+  node.replaceChildren(dot, copy);
+}
+
+function syncAccountActivityUI() {
+  document.querySelectorAll(".account-card[data-account]").forEach((card) => {
+    const activity = card.querySelector(".account-activity");
+    if (activity) paintAccountActivity(activity, card.dataset.account);
+  });
+  refreshTaskAccountOptions();
+  updateTaskAvailability();
+}
+
 function accountCard(account, status) {
   const card = document.createElement("article");
   card.className = "account-card";
+  card.dataset.account = account.name;
 
   const head = document.createElement("div");
   head.className = "account-head";
@@ -166,7 +290,27 @@ function accountCard(account, status) {
   card.dataset.state = state;
   badge.className = `badge ${stateStyle(state)}`;
   badge.textContent = stateLabel(state);
-  head.append(identity, badge);
+  const headActions = document.createElement("div");
+  headActions.className = "account-head-actions";
+  const more = document.createElement("details");
+  more.className = "account-more";
+  const moreLabel = document.createElement("summary");
+  moreLabel.textContent = "更多";
+  moreLabel.setAttribute("aria-label", `${account.name} 更多操作`);
+  const morePanel = document.createElement("div");
+  morePanel.className = "account-more-panel";
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "account-remove-button";
+  removeButton.textContent = "删除槽位";
+  removeButton.addEventListener("click", () => {
+    more.removeAttribute("open");
+    openAccountRemoval(account);
+  });
+  morePanel.append(removeButton);
+  more.append(moreLabel, morePanel);
+  headActions.append(badge, more);
+  head.append(identity, headActions);
 
   const signals = document.createElement("div");
   signals.className = "signals";
@@ -176,7 +320,10 @@ function accountCard(account, status) {
     signal("PROFILE", status?.profile_verified ? "已核验" : "待核验")
   );
 
-  card.append(head, signals);
+  const taskActivity = document.createElement("div");
+  taskActivity.className = "account-activity";
+  paintAccountActivity(taskActivity, account.name);
+  card.append(head, signals, taskActivity);
   const next = document.createElement("p");
   next.className = "next-action";
   const identityName = status?.identity?.nickname || status?.identity?.user_id;
@@ -194,9 +341,25 @@ function accountCard(account, status) {
   const identityButton = document.createElement("button");
   identityButton.type = "button";
   identityButton.className = "secondary-button";
-  identityButton.textContent = status?.identity?.recorded ? "核验当前 UID" : "检查并确认 UID";
+  identityButton.textContent = status?.identity?.switch_pending
+    ? "换号中，等待核验"
+    : status?.identity?.recorded ? "核验当前 UID" : "检查并确认 UID";
+  identityButton.disabled = Boolean(status?.identity?.switch_pending);
   identityButton.addEventListener("click", () => verifyIdentity(account.name, status?.identity?.recorded, next));
   actions.append(pair, identityButton);
+  const switchButton = document.createElement("button");
+  switchButton.type = "button";
+  switchButton.className = "secondary-button account-switch-button";
+  switchButton.textContent = status?.identity?.switch_pending ? "继续切换账号" : "切换账号";
+  switchButton.addEventListener("click", () => openAccountSwitch(account.name, status));
+  actions.append(switchButton);
+  const logoutButton = document.createElement("button");
+  logoutButton.type = "button";
+  logoutButton.className = "secondary-button account-logout-button";
+  logoutButton.textContent = "退出当前账号";
+  logoutButton.title = "结束当前小红书登录会话，并回读页面确认已退出";
+  logoutButton.addEventListener("click", () => logoutAccount(account.name, next, logoutButton));
+  actions.append(logoutButton);
   const bridgeButton = document.createElement("button");
   bridgeButton.type = "button";
   bridgeButton.className = "secondary-button";
@@ -210,6 +373,70 @@ function accountCard(account, status) {
   actions.append(bridgeButton, autostartButton);
   card.append(actions);
   return card;
+}
+
+async function logoutAccount(account, messageNode, button) {
+  if (!window.confirm(`确认退出槽位 ${account} 当前登录的小红书账号？\n\nChrome Profile、扩展和 Bridge 会保留。`)) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  messageNode.textContent = "正在结束小红书登录会话并回读登录状态…";
+  try {
+    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/auth/logout`, "POST", {
+      confirmed: true,
+    });
+    messageNode.textContent = result.message || "退出操作已完成。";
+    await loadDashboard();
+  } catch (error) {
+    messageNode.textContent = `退出失败：${error.message}`;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+function openAccountRemoval(account) {
+  activeAccountRemoval = account;
+  $("#remove-account-name").textContent = account.name;
+  $("#remove-account-profile").textContent = `Chrome · ${account.chrome_profile_directory || "Default"}`;
+  $("#remove-confirm-name").value = "";
+  $("#remove-message").textContent = "";
+  $("#remove-account-submit").disabled = true;
+  $("#account-remove-dialog").showModal();
+  $("#remove-confirm-name").focus();
+}
+
+function closeAccountRemoval() {
+  $("#account-remove-dialog").close();
+  activeAccountRemoval = null;
+}
+
+async function removeAccountSlot() {
+  if (!activeAccountRemoval) return;
+  const account = activeAccountRemoval.name;
+  const confirmationName = $("#remove-confirm-name").value.trim();
+  const button = $("#remove-account-submit");
+  const message = $("#remove-message");
+  if (confirmationName !== account) {
+    message.textContent = `请输入完整槽位名称 ${account}`;
+    return;
+  }
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  message.textContent = "正在停止该槽位服务并保存本机归档…";
+  try {
+    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}`, "DELETE", {
+      confirmed: true,
+      confirmation_name: confirmationName,
+    });
+    closeAccountRemoval();
+    await loadDashboard();
+    $("#setup-message").textContent = `${result.message}；Chrome Profile、登录数据和共享扩展均未删除。`;
+  } catch (error) {
+    message.textContent = `删除失败：${error.message}`;
+  } finally {
+    button.disabled = $("#remove-confirm-name").value.trim() !== account;
+    button.removeAttribute("aria-busy");
+  }
 }
 
 async function updateBridge(account, action, messageNode) {
@@ -258,6 +485,138 @@ async function verifyIdentity(account, alreadyRecorded, messageNode) {
     await loadDashboard();
   } catch (error) {
     messageNode.textContent = error.message;
+  }
+}
+
+function setSwitchGuidance(title, body, pending = false) {
+  const guidance = $("#switch-guidance");
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const copy = document.createElement("p");
+  copy.textContent = body;
+  guidance.replaceChildren(heading, copy);
+  guidance.classList.toggle("pending", pending);
+}
+
+function renderAccountSwitch(status) {
+  const account = activeAccountSwitch?.account || "";
+  const identity = status?.identity || {};
+  const pending = identity.switch || null;
+  const isPending = Boolean(identity.switch_pending || pending);
+  activeAccountSwitch.status = status;
+
+  $("#switch-account-avatar").textContent = account.slice(0, 2).toUpperCase();
+  $("#switch-account-name").textContent = account;
+  $("#switch-current-name").textContent = identity.nickname || identity.user_id || "尚未记录";
+  $("#switch-current-uid").textContent = `UID ${identity.user_id || "—"}`;
+  $("#switch-stage").textContent = isPending ? "等待新登录" : "准备换号";
+  $("#switch-fields").hidden = isPending;
+  $("#switch-cancel").hidden = !isPending;
+  $("#switch-dismiss").textContent = isPending ? "关闭面板" : "暂不切换";
+  $("#switch-primary").textContent = isPending ? "核验并完成切换" : "自动退出并开始换号";
+  $("#switch-primary").dataset.action = isPending ? "complete" : "begin";
+  $("#switch-message").textContent = "";
+
+  document.querySelectorAll("[data-switch-step]").forEach((step) => {
+    const name = step.dataset.switchStep;
+    step.classList.toggle("active", isPending ? name === "login" : name === "begin");
+    step.classList.toggle("done", isPending && name === "begin");
+  });
+  if (isPending) {
+    $("#switch-label").value = pending?.target_label || "";
+    $("#switch-target-uid").value = pending?.target_user_id || "";
+    setSwitchGuidance(
+      "请先在对应 Chrome Profile 登录新账号",
+      "登录完成后回到这里点击“核验并完成切换”。系统会确认新 UID 与旧 UID 不同，再恢复该槽位的业务任务。",
+      true
+    );
+  } else {
+    $("#switch-label").value = "";
+    $("#switch-target-uid").value = "";
+    setSwitchGuidance(
+      "开始后会退出当前小红书登录",
+      "系统负责自动退出当前账号；槽位、Chrome Profile、扩展和 Bridge 保持不变。你只需在这个 Profile 中手动登录新账号，再回到这里完成核验。"
+    );
+  }
+}
+
+function openAccountSwitch(account, status) {
+  activeAccountSwitch = { account, status };
+  renderAccountSwitch(status);
+  $("#account-switch-dialog").showModal();
+}
+
+function closeAccountSwitch() {
+  $("#account-switch-dialog").close();
+  activeAccountSwitch = null;
+}
+
+async function runAccountSwitchAction(action) {
+  if (!activeAccountSwitch) return;
+  const account = activeAccountSwitch.account;
+  const primary = $("#switch-primary");
+  const cancel = $("#switch-cancel");
+  const message = $("#switch-message");
+  primary.disabled = true;
+  cancel.disabled = true;
+  primary.setAttribute("aria-busy", "true");
+  message.textContent = action === "begin" ? "正在退出旧账号并锁定业务任务…" : "正在读取新账号 UID 并完成核验…";
+  try {
+    if (action === "begin") {
+      const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/switch/begin`, "POST", {
+        confirmed: true,
+        label: $("#switch-label").value.trim(),
+        target_user_id: $("#switch-target-uid").value.trim(),
+      });
+      renderAccountSwitch({
+        ...activeAccountSwitch.status,
+        status: "SWITCH_PENDING",
+        identity: {
+          ...activeAccountSwitch.status.identity,
+          switch_pending: true,
+          switch: result.switch,
+        },
+      });
+      message.textContent = result.logged_out
+        ? "旧账号已退出。请在对应 Chrome Profile 登录新账号。"
+        : "换号流程已开始。请确认当前页面已退出，再登录新账号。";
+      await loadDashboard();
+    } else {
+      const pending = activeAccountSwitch.status?.identity?.switch || {};
+      await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/switch/complete`, "POST", {
+        confirmed: true,
+        expected_user_id: pending.target_user_id || "",
+        label: pending.target_label || "",
+      });
+      closeAccountSwitch();
+      await loadDashboard();
+    }
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    primary.disabled = false;
+    cancel.disabled = false;
+    primary.removeAttribute("aria-busy");
+  }
+}
+
+async function cancelAccountSwitch() {
+  if (!activeAccountSwitch) return;
+  const account = activeAccountSwitch.account;
+  const button = $("#switch-cancel");
+  const message = $("#switch-message");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  message.textContent = "正在取消换号流程…";
+  try {
+    await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/switch/cancel`, "POST", { confirmed: true });
+    closeAccountSwitch();
+    await loadDashboard();
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
   }
 }
 
@@ -414,6 +773,56 @@ function useResultAsTask(capability, target, token = "") {
   $("#task-target").focus();
 }
 
+function updateDraftFields() {
+  const action = $("#draft-action").value;
+  const mode = draftModes[action] || draftModes["post-comment"];
+  $("#draft-target-label").textContent = mode.targetLabel;
+  $("#draft-target").placeholder = mode.targetPlaceholder;
+  $("#draft-summary-label").textContent = mode.summaryLabel;
+  $("#draft-summary").placeholder = mode.summaryPlaceholder;
+  $("#draft-content-label").textContent = mode.contentLabel;
+  $("#draft-content").placeholder = mode.contentPlaceholder;
+  $("#draft-action-help").textContent = mode.help;
+  $("#draft-generate").hidden = action !== "post-comment";
+  $("#draft-generation-help").hidden = action !== "post-comment";
+}
+
+function resetDraftForm() {
+  $("#draft-form").reset();
+  // Browsers may restore the previous select value after a reload. The product
+  // default is always a new comment on a note, never a reply to a comment.
+  $("#draft-action").value = "post-comment";
+  updateDraftFields();
+}
+
+function commentDraftFocus(value) {
+  const normalized = value.replace(/\s+/g, " ").replace(/[。！？!?；;]+$/u, "").trim();
+  return normalized.length > 34 ? `${normalized.slice(0, 34)}…` : normalized;
+}
+
+function generateCommentDraft() {
+  const message = $("#draft-message");
+  if ($("#draft-action").value !== "post-comment") {
+    message.textContent = "回复需要结合对方原话手动填写，系统没有生成回复。";
+    return;
+  }
+  const focus = commentDraftFocus($("#draft-summary").value);
+  if (!focus) {
+    message.textContent = "请先填写笔记内容说明，系统才能生成相关的评论草稿。";
+    $("#draft-summary").focus();
+    return;
+  }
+  const suggestions = [
+    `看完很有收获，${focus}这部分讲得很清楚，感谢分享！`,
+    `${focus}这个角度很有启发，想请教一下实际操作时最需要注意什么？`,
+    `对${focus}有了新的理解，内容整理得很清楚，谢谢分享。`,
+  ];
+  $("#draft-content").value = suggestions[commentSuggestionIndex % suggestions.length];
+  commentSuggestionIndex += 1;
+  message.textContent = "已生成基础评论草稿，请结合原笔记核对或修改后再保存。";
+  $("#draft-content").focus();
+}
+
 function resultAction(label, capability, target, token) {
   const button = document.createElement("button");
   button.type = "button";
@@ -539,6 +948,43 @@ function appendKeywordEngagementResults(container, result) {
   container.append(list);
 }
 
+function appendRandomCommentResults(container, result) {
+  const overview = document.createElement("div");
+  overview.className = "browse-result-overview";
+  addResultMetric(overview, "候选", `${result.candidate_count ?? 0} 篇`);
+  addResultMetric(overview, "成功", `${result.succeeded_count ?? 0} 条`);
+  addResultMetric(overview, "失败", `${result.failed_count ?? 0} 条`);
+  addResultMetric(overview, "搜集用时", `${Math.round(result.collection_elapsed_seconds ?? 0)} 秒`);
+  container.append(overview);
+
+  const styleLabels = { natural: "自然互动", praise: "友好认可", question: "提问互动" };
+  const style = document.createElement("p");
+  style.className = "result-note";
+  style.textContent = `评论风格：${styleLabels[result.style] || result.style || "自然互动"}`;
+  container.append(style);
+
+  const list = document.createElement("ol");
+  list.className = "browse-result-list random-comment-result-list";
+  result.items.forEach((item) => {
+    const row = document.createElement("li");
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = item.title || "未命名笔记";
+    const meta = document.createElement("span");
+    meta.textContent = [item.author ? `作者：${item.author}` : "", item.status === "success" ? "已发送" : `失败：${item.message || "未知原因"}`].filter(Boolean).join(" · ");
+    const comment = document.createElement("p");
+    comment.className = "random-comment-content";
+    comment.textContent = item.content || "未生成评论内容";
+    const identifier = document.createElement("small");
+    identifier.textContent = `笔记 ID：${item.feed_id || "—"}`;
+    body.append(title, meta, comment, identifier);
+    row.dataset.state = item.status || "failed";
+    row.append(body);
+    list.append(row);
+  });
+  container.append(list);
+}
+
 function appendTaskResult(card, item, { interactive = false } = {}) {
   const result = item.result;
   if (!result || typeof result !== "object" || !Object.keys(result).length) return;
@@ -552,6 +998,8 @@ function appendTaskResult(card, item, { interactive = false } = {}) {
   content.className = "task-result-content";
   if (result.result_type === "keyword_engagement" && Array.isArray(result.items)) {
     appendKeywordEngagementResults(content, result);
+  } else if (result.result_type === "random_comment" && Array.isArray(result.items)) {
+    appendRandomCommentResults(content, result);
   } else if (Array.isArray(result.items)) {
     appendBrowseResults(content, result);
   } else if (result.note) {
@@ -656,6 +1104,7 @@ function populateAccountSelect(select, accounts, statuses, { readyRequired = fal
     const status = statuses[index] || { status: "ERROR", ready: false };
     const option = document.createElement("option");
     option.value = account.name;
+    option.dataset.account = account.name;
     option.dataset.status = status.status;
     option.disabled = readyRequired && !status.ready;
     option.textContent = `${account.name}（${stateLabel(status.status)}）`;
@@ -669,27 +1118,93 @@ function populateAccountSelect(select, accounts, statuses, { readyRequired = fal
   else if (selectable[0]) select.value = selectable[0].value;
 }
 
+function refreshTaskAccountOptions() {
+  const select = $("#task-account");
+  if (!select) return;
+  Array.from(select.options).forEach((option) => {
+    const account = option.dataset.account;
+    if (!account) return;
+    const status = accountStatusByName.get(account) || {};
+    const activity = currentAccountTaskActivity(account);
+    option.textContent = activity
+      ? `${account}（${activityShortLabel(activity)} · ${taskCapabilityLabel(activity.capability)}）`
+      : `${account}（${stateLabel(status.status || "ERROR")} · 空闲）`;
+  });
+}
+
 function updateTaskAvailability() {
   const select = $("#task-account");
   const button = $("#task-submit");
-  const status = accountStatusByName.get(select.value);
+  const account = select.value;
+  const status = accountStatusByName.get(account);
   const ready = Boolean(status?.ready);
-  button.disabled = !ready;
-  $("#task-message").textContent = ready
-    ? `账号 ${select.value} 已就绪，可以创建并执行任务。`
-    : "暂无 READY 账号，请先按账号卡片提示完成连接和 UID 核验。";
+  const activity = currentAccountTaskActivity(account);
+  button.disabled = !ready || Boolean(activity);
+  setActionButtonLabel(
+    button,
+    !ready ? "账号尚未就绪" : activity ? activityShortLabel(activity) : taskSubmitLabel()
+  );
+  if (!ready) {
+    $("#task-message").textContent = "暂无 READY 账号，请先按账号卡片提示完成连接和 UID 核验。";
+  } else if (activity) {
+    $("#task-message").textContent = `账号 ${account} ${activityShortLabel(activity)}：${activity.request_summary || taskCapabilityLabel(activity.capability)}。可选择其他已就绪且空闲的账号并行执行。`;
+  } else {
+    $("#task-message").textContent = taskMessageByAccount.get(account)
+      || ($("#task-capability").value === "random-comment"
+        ? `账号 ${account} 已就绪；点击后会生成并直接发送本次随机评论。`
+        : `账号 ${account} 已就绪且空闲，可以创建并执行任务。`);
+  }
+}
+
+function taskActivityNeedsPolling() {
+  if (pendingSubmissionByAccount.size) return true;
+  return Array.from(accountTaskActivityByName.values()).some((activity) =>
+    activity.state === "RUNNING"
+  );
+}
+
+function scheduleTaskActivityPoll() {
+  if (taskActivityPollTimer) clearTimeout(taskActivityPollTimer);
+  taskActivityPollTimer = null;
+  if (!taskActivityNeedsPolling()) return;
+  taskActivityPollTimer = setTimeout(pollTaskActivity, 2000);
+}
+
+async function pollTaskActivity() {
+  taskActivityPollTimer = null;
+  const hadBackendActivity = Array.from(accountTaskActivityByName.values()).some(
+    (activity) => activity.state === "RUNNING"
+  );
+  try {
+    const payload = await fetchJson(`${api}/tasks`);
+    rebuildAccountTaskActivity(payload.tasks);
+    syncAccountActivityUI();
+    const hasBackendActivity = Array.from(accountTaskActivityByName.values()).some(
+      (activity) => activity.state === "RUNNING"
+    );
+    if (hadBackendActivity && !hasBackendActivity && pendingSubmissionByAccount.size === 0) {
+      await loadDashboard();
+      return;
+    }
+  } catch (_error) {
+    // The normal dashboard error state remains authoritative; retry on the next tick.
+  }
+  scheduleTaskActivityPoll();
 }
 
 async function loadWorkData(accountData, statuses) {
   const [tasks, records, drafts] = await Promise.all([fetchJson(`${api}/tasks`), fetchJson(`${api}/records`), fetchJson(`${api}/drafts`)]);
   const resultByTask = new Map(records.records.filter((record) => record.result && Object.keys(record.result).length).map((record) => [record.task_id, record.result]));
   const tasksWithResults = tasks.tasks.map((task) => ({ ...task, result: resultByTask.get(task.task_id) || task.result || {} }));
+  rebuildAccountTaskActivity(tasksWithResults);
   renderTaskItems(tasksWithResults, "#task-list", "暂无任务", { interactive: true });
   renderTaskItems(records.records, "#record-list", "暂无执行记录");
   accountStatusByName = new Map(accountData.accounts.map((account, index) => [account.name, statuses[index]]));
   populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
+  refreshTaskAccountOptions();
   updateTaskAvailability();
+  scheduleTaskActivityPoll();
   $("#confirmation-count").textContent = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length;
   renderDrafts(drafts.drafts);
 }
@@ -707,7 +1222,7 @@ function renderDrafts(drafts) {
     const card = document.createElement("article");
     card.className = "record-card draft-card";
     const badge = document.createElement("span"); badge.className = `badge ${stateStyle(draft.status)}`; badge.textContent = stateLabel(draft.status);
-    const title = document.createElement("strong"); title.textContent = `${draft.account_slot} · ${draft.action_type}`;
+    const title = document.createElement("strong"); title.textContent = `${draft.account_slot} · ${(draftModes[draft.action_type] || {}).label || draft.action_type}`;
     const content = document.createElement("p"); content.textContent = draft.content;
     card.append(badge, title, content);
     if (["DRAFT", "CONFIRMED"].includes(draft.status)) {
@@ -733,7 +1248,7 @@ async function submitDraft(event) {
     if (!uid) throw new Error("请先在账号卡片中确认 UID。");
     await mutateJson(`${api}/drafts`, "POST", { account_slot: account, verified_uid: uid, action_type: $("#draft-action").value, target_id: $("#draft-target").value.trim(), target_summary: $("#draft-summary").value.trim(), content: $("#draft-content").value.trim() });
     message.textContent = "草稿已保存在本机，尚未发送。";
-    event.target.reset();
+    resetDraftForm();
     await loadDashboard();
     showTaskPanel("confirmation");
   } catch (error) {
@@ -745,11 +1260,14 @@ async function submitDraft(event) {
 }
 
 async function confirmDraft(draft, card, button) {
-  const feedId = window.prompt("请输入目标笔记 ID（回复评论也需要）：", draft.action_type === "post-comment" ? draft.target_id : "");
+  const feedId = draft.action_type === "post-comment"
+    ? draft.target_id
+    : window.prompt("请输入这条评论所属的笔记 ID：", "");
   if (!feedId) return;
   const token = window.prompt("请输入该笔记当前的 XSEC Token：", "");
   if (!token) return;
-  const accepted = window.confirm(`目标账号：${draft.account_slot}\nUID：${draft.verified_uid}\n目标：${draft.target_summary || draft.target_id}\n\n最终文本：\n${draft.content}\n\n确认后将立即执行，是否继续？`);
+  const actionLabel = (draftModes[draft.action_type] || {}).label || draft.action_type;
+  const accepted = window.confirm(`目标账号：${draft.account_slot}\nUID：${draft.verified_uid}\n动作：${actionLabel}\n目标：${draft.target_summary || draft.target_id}\n\n最终文本：\n${draft.content}\n\n确认后将立即执行，是否继续？`);
   if (!accepted) return;
   const original = button.textContent;
   button.disabled = true;
@@ -768,10 +1286,14 @@ async function confirmDraft(draft, card, button) {
 
 async function submitTask(event) {
   event.preventDefault();
-  const button = $("#task-submit");
   const account = $("#task-account").value;
   if (!accountStatusByName.get(account)?.ready) {
     $("#task-message").textContent = "目标账号尚未 READY，任务没有创建。";
+    return;
+  }
+  if (accountHasUnfinishedTask(account)) {
+    $("#task-message").textContent = `账号 ${account} 已有未完成任务，请等待完成或先在任务列表中处理。`;
+    updateTaskAvailability();
     return;
   }
   const capability = $("#task-capability").value;
@@ -783,36 +1305,52 @@ async function submitTask(event) {
   const engagementCount = Number($("#task-engagement-count").value);
   const candidatePoolSize = Number($("#task-candidate-pool").value);
   const collectionMinutes = Number($("#task-collection-minutes").value);
+  const commentStyle = $("#task-comment-style").value;
+  const commentCount = Number($("#task-comment-count").value);
+  const commentCandidatePool = Number($("#task-comment-candidate-pool").value);
+  const commentCollectionMinutes = Number($("#task-comment-collection-minutes").value);
   const parameters = capability === "browse-feeds"
     ? { duration_minutes: durationMinutes, count: browseCount }
     : capability === "search-feeds"
       ? { keyword: target }
       : capability === "keyword-engagement"
         ? { keyword: target, action: engagementAction, count: engagementCount, candidate_pool_size: candidatePoolSize, collection_minutes: collectionMinutes }
+      : capability === "random-comment"
+        ? { count: commentCount, candidate_pool_size: commentCandidatePool, collection_minutes: commentCollectionMinutes, style: commentStyle, direct_send_authorized: true }
       : capability === "list-feeds"
         ? {}
         : capability === "user-profile"
           ? { user_id: target, xsec_token: token }
           : { feed_id: target, xsec_token: token };
-  const message = $("#task-message");
   const capabilityName = taskCapabilityLabel(capability);
   const requestSummary = capability === "browse-feeds"
     ? `${capabilityName}：${durationMinutes} 分钟 / ${browseCount} 篇`
     : capability === "keyword-engagement"
       ? `${capabilityName}：${target} / 抽取 ${engagementCount} 篇 / 候选池 ${candidatePoolSize} 篇`
+    : capability === "random-comment"
+      ? `${capabilityName}：直接发送 ${commentCount} 条 / 候选池 ${commentCandidatePool} 篇`
     : target ? `${capabilityName}：${target}` : capabilityName;
-  button.disabled = true;
-  button.textContent = "执行中…";
+  pendingSubmissionByAccount.set(account, {
+    capability,
+    request_summary: requestSummary,
+  });
+  taskMessageByAccount.set(account, `正在为账号 ${account} 创建并执行任务…`);
+  syncAccountActivityUI();
+  scheduleTaskActivityPoll();
   try {
     const created = await mutateJson(`${api}/tasks`, "POST", { source: "webui", account_slot: account, capability, request_summary: requestSummary, parameters });
     const executed = await mutateJson(`${api}/tasks/${created.task.task_id}/execute`, "POST", {});
-    message.textContent = executed.task.result_summary || executed.task.recommended_action || executed.task.state;
-    await loadDashboard();
+    taskMessageByAccount.set(
+      account,
+      executed.task.result_summary || executed.task.recommended_action || stateLabel(executed.task.state)
+    );
   } catch (error) {
-    message.textContent = error.message;
+    taskMessageByAccount.set(account, `任务失败：${error.message}`);
   } finally {
-    setActionButtonLabel(button, "创建并执行");
-    updateTaskAvailability();
+    pendingSubmissionByAccount.delete(account);
+    await loadDashboard();
+    syncAccountActivityUI();
+    scheduleTaskActivityPoll();
   }
 }
 
@@ -821,6 +1359,10 @@ function setActionButtonLabel(button, label) {
   arrow.setAttribute("aria-hidden", "true");
   arrow.textContent = "→";
   button.replaceChildren(document.createTextNode(label), arrow);
+}
+
+function taskSubmitLabel() {
+  return $("#task-capability").value === "random-comment" ? "创建并直接发送" : "创建并执行";
 }
 
 function updateTaskFields() {
@@ -834,8 +1376,10 @@ function updateTaskFields() {
   $("#task-capability-help").textContent = config.help;
   $("#browse-settings").hidden = !config.browseSettings;
   $("#engagement-settings").hidden = !config.engagementSettings;
+  $("#random-comment-settings").hidden = !config.commentSettings;
   $("#token-field").hidden = !config.tokenRequired;
   $("#task-token").required = config.tokenRequired;
+  updateTaskAvailability();
 }
 
 function renderDiagnosis(diagnosis) {
@@ -980,6 +1524,18 @@ async function exportDiagnostics() {
 }
 
 $("#refresh").addEventListener("click", loadDashboard);
+$("#switch-dialog-close").addEventListener("click", closeAccountSwitch);
+$("#switch-dismiss").addEventListener("click", closeAccountSwitch);
+$("#switch-primary").addEventListener("click", (event) => runAccountSwitchAction(event.currentTarget.dataset.action));
+$("#switch-cancel").addEventListener("click", cancelAccountSwitch);
+$("#remove-dialog-close").addEventListener("click", closeAccountRemoval);
+$("#remove-account-cancel").addEventListener("click", closeAccountRemoval);
+$("#remove-account-submit").addEventListener("click", removeAccountSlot);
+$("#remove-confirm-name").addEventListener("input", (event) => {
+  const matches = Boolean(activeAccountRemoval && event.target.value.trim() === activeAccountRemoval.name);
+  $("#remove-account-submit").disabled = !matches;
+  $("#remove-message").textContent = matches ? "名称已匹配，可以删除槽位。" : "";
+});
 $("#global-pause").addEventListener("click", toggleGlobalPause);
 $("#settings-form").addEventListener("submit", saveSettings);
 $("#export-diagnostics").addEventListener("click", exportDiagnostics);
@@ -994,6 +1550,10 @@ $("#task-template").addEventListener("change", () => {
   $("#task-engagement-count").value = "3";
   $("#task-candidate-pool").value = "20";
   $("#task-collection-minutes").value = "2";
+  $("#task-comment-style").value = "natural";
+  $("#task-comment-count").value = "1";
+  $("#task-comment-candidate-pool").value = "20";
+  $("#task-comment-collection-minutes").value = "2";
   renderTaskTemplateActions();
 });
 $("#task-capability").addEventListener("change", updateTaskFields);
@@ -1003,12 +1563,21 @@ $("#task-engagement-count").addEventListener("input", (event) => {
   pool.min = String(count);
   if (Number(pool.value) < count) pool.value = String(count);
 });
+$("#task-comment-count").addEventListener("input", (event) => {
+  const pool = $("#task-comment-candidate-pool");
+  const count = Math.max(1, Number(event.target.value) || 1);
+  pool.min = String(count);
+  if (Number(pool.value) < count) pool.value = String(count);
+});
 $("#draft-form").addEventListener("submit", submitDraft);
+$("#draft-action").addEventListener("change", updateDraftFields);
+$("#draft-generate").addEventListener("click", generateCommentDraft);
 $("#account-mode").addEventListener("change", (event) => {
   $("#profile-field").hidden = event.target.value !== "existing";
   $("#discover-profiles").hidden = event.target.value !== "existing";
 });
 renderTaskTemplateActions();
+resetDraftForm();
 setupTaskPanels();
 setupNavigation();
 loadDashboard();

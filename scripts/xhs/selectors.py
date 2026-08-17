@@ -86,8 +86,16 @@ TEMPLATE_CARD = ".template-card"
 TEMPLATE_TITLE = ".template-card .template-title"
 
 # ========== 退出登录 ==========
-LOGOUT_MORE_BUTTON = "div.information-wrapper"
-LOGOUT_MENU_ITEM = 'div.menu-item[data-name="退出登录"]'
+LOGOUT_MORE_BUTTON = (
+    'button[aria-label="更多"], [role="button"][aria-label="更多"], '
+    '[title="更多"], li.more.side-bar-component, '
+    'li.side-bar-component.more'
+)
+LOGOUT_MENU_ITEM = (
+    '[role="menuitem"][data-name="退出登录"], '
+    'div.menu-item[data-name="退出登录"], '
+    '[role="menuitem"]'
+)
 
 # ========== 用户主页 ==========
 SIDEBAR_PROFILE = "div.main-container li.user.side-bar-component a.link-wrapper span.channel"

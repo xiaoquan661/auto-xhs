@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "XHS Bridge",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "小红书多账号通用 Bridge - 每个 Chrome Profile 通过安全配对连接本地 Python CLI",
   "permissions": [
     "tabs",

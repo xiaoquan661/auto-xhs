@@ -370,6 +370,9 @@ async function handleCommand(msg) {
     case "get_cookies":
       return await cmdGetCookies(params);
 
+    case "delete_auth_cookies":
+      return await cmdDeleteAuthCookies();
+
     // ── 在页面主 world 执行 JS（可访问 window.__INITIAL_STATE__ 等） ──
     case "evaluate":
     case "wait_dom_stable":
@@ -862,6 +865,30 @@ async function cmdScreenshot() {
 
 async function cmdGetCookies({ domain = "xiaohongshu.com" }) {
   return await chrome.cookies.getAll({ domain });
+}
+
+async function cmdDeleteAuthCookies() {
+  const authCookieNames = new Set(["web_session", "id_token"]);
+  const cookies = await chrome.cookies.getAll({ domain: "xiaohongshu.com" });
+  const targets = cookies.filter((cookie) => authCookieNames.has(cookie.name));
+  const removed = [];
+
+  for (const cookie of targets) {
+    const hostname = cookie.domain.replace(/^\./, "");
+    const scheme = cookie.secure ? "https" : "http";
+    const url = `${scheme}://${hostname}${cookie.path || "/"}`;
+    const details = { url, name: cookie.name, storeId: cookie.storeId };
+    const result = await chrome.cookies.remove(details);
+    if (result) removed.push(cookie.name);
+  }
+
+  const remaining = await chrome.cookies.getAll({ domain: "xiaohongshu.com" });
+  return {
+    removed: [...new Set(removed)],
+    remaining: remaining
+      .filter((cookie) => authCookieNames.has(cookie.name))
+      .map((cookie) => cookie.name),
+  };
 }
 
 // ───────────────────────── MAIN world JS 执行 ─────────────────────────

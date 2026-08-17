@@ -9,6 +9,7 @@ import pytest
 from scripts.account_manager import (
     AccountConfig,
     add_account,
+    archive_account,
     discover_chrome_profiles,
     enroll_extension_instance,
     import_existing_profile,
@@ -142,6 +143,37 @@ def test_account_file_is_json(tmp_path, monkeypatch):
     data = json.loads((tmp_path / "accounts" / "brand-a" / "account.json").read_text("utf-8"))
     assert data["name"] == config.name
     assert data["bridge_port"] == 19421
+
+
+def test_archive_account_removes_slot_but_preserves_profile_and_extension(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    source = _make_extension(tmp_path / "shared-extension")
+    user_data = tmp_path / "User Data"
+    profile = _make_chrome_profile(user_data, "Profile 2")
+    login_marker = profile / "login-state"
+    login_marker.write_text("keep", encoding="utf-8")
+    import_existing_profile(
+        "alpha",
+        user_data_dir=user_data,
+        profile_directory="Profile 2",
+        bridge_port=19422,
+        extension_source=source,
+    )
+
+    archived = archive_account("alpha")
+
+    assert list_accounts() == []
+    assert not (tmp_path / "accounts" / "alpha").exists()
+    archive_path = Path(archived["archive_path"])
+    assert archive_path.parent == tmp_path / "accounts" / ".archive"
+    assert (archive_path / "account.json").is_file()
+    assert (archive_path / "slot-archive.json").is_file()
+    assert login_marker.read_text(encoding="utf-8") == "keep"
+    assert (source / "manifest.json").is_file()
+    assert archived["chrome_profile_preserved"] is True
+    assert archived["shared_extension_preserved"] is True
 
 
 def test_sync_extension_preserves_account_route(tmp_path, monkeypatch):
