@@ -285,6 +285,8 @@ def _dispatch_mutation(
         account, section, action = parts[3], parts[4], parts[5]
         if method == "POST" and (section, action) == ("pairing", "begin"):
             return service.begin_account_pairing(account, **body)
+        if method == "POST" and (section, action) == ("setup", "begin"):
+            return service.begin_account_setup(account, **body)
         if method == "POST" and (section, action) == ("identity", "check"):
             return service.check_account_identity(account)
         if method == "POST" and (section, action) == ("identity", "record"):
@@ -299,6 +301,8 @@ def _dispatch_mutation(
             return service.cancel_account_switch(account, **body)
         if method == "POST" and (section, action) == ("bridge", "start"):
             return service.start_account_bridge(account)
+        if method == "POST" and (section, action) == ("bridge", "start-only"):
+            return service.start_account_bridge_only(account)
         if method == "POST" and (section, action) == ("bridge", "stop"):
             return service.stop_account_bridge(account)
         if method == "POST" and (section, action) == ("bridge", "restart"):

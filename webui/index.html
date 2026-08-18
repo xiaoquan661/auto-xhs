@@ -124,7 +124,7 @@
         <section class="content-section setup-section" id="setup">
           <div class="section-heading">
             <div><p class="section-kicker">03 / SLOT INTAKE</p><h2>添加账号</h2></div>
-            <p>绑定本机已有 Chrome Profile，或创建独立槽位。点击“启动账号”后，控制台可按需打开绑定的 Profile，但不会关闭浏览器。</p>
+            <p>绑定本机已有 Chrome Profile，或创建独立槽位。添加后控制台会自动准备 Bridge、等待扩展配对并核验 UID。</p>
           </div>
           <div class="setup-grid">
             <form class="setup-card composer-card" id="account-form">
@@ -141,7 +141,7 @@
               </label>
               <div class="setup-actions">
                 <button class="secondary-button" id="discover-profiles" type="button">扫描 Profile</button>
-                <button class="primary-button" type="submit">确认添加</button>
+                <button class="primary-button" type="submit">添加并开始配置</button>
               </div>
               <p class="form-note" id="setup-message" role="status">创建槽位会保存本地配置，不会打开或关闭 Chrome。</p>
             </form>
@@ -149,10 +149,10 @@
               <p class="section-kicker light">ONBOARDING SEQUENCE</p>
               <h3>四步进入 READY</h3>
               <ol>
-                <li><span>01</span><div><strong>准备槽位</strong><small>添加账号并点击“启动账号”</small></div></li>
-                <li><span>02</span><div><strong>加载扩展</strong><small>使用当前项目 extension</small></div></li>
-                <li><span>03</span><div><strong>建立配对</strong><small>在目标 Profile 弹窗确认</small></div></li>
-                <li><span>04</span><div><strong>核验身份</strong><small>检查登录并确认 UID</small></div></li>
+                <li><span>01</span><div><strong>选择 Profile</strong><small>绑定已有环境或创建独立槽位</small></div></li>
+                <li><span>02</span><div><strong>自动准备连接</strong><small>启动 Bridge 并复制配对信息</small></div></li>
+                <li><span>03</span><div><strong>确认扩展配对</strong><small>只需在目标 Profile 中确认一次</small></div></li>
+                <li><span>04</span><div><strong>确认首次身份</strong><small>以后恢复连接会自动核对 UID</small></div></li>
               </ol>
               <p id="pairing-guidance">添加后，账号卡片会给出唯一的下一步操作。</p>
             </article>
@@ -315,6 +315,48 @@
       </main>
     </div>
 
+    <dialog class="switch-dialog setup-dialog" id="account-setup-dialog" aria-labelledby="account-setup-title">
+      <div class="switch-dialog-head">
+        <div>
+          <p class="section-kicker">GUIDED ACCOUNT SETUP</p>
+          <h2 id="account-setup-title">配置账号连接</h2>
+        </div>
+        <button class="dialog-close" id="account-setup-close" type="button" aria-label="关闭账号配置面板">×</button>
+      </div>
+      <div class="switch-account-strip">
+        <span class="switch-avatar" id="account-setup-avatar">—</span>
+        <div><small>当前配置槽位</small><strong id="account-setup-name">—</strong></div>
+        <span class="switch-stage" id="account-setup-stage">准备连接</span>
+      </div>
+      <div class="switch-dialog-body">
+        <p class="setup-profile-line" id="account-setup-profile">Chrome · —</p>
+        <div class="setup-progress" aria-label="账号配置进度">
+          <span data-setup-step="bridge"><b>01</b>启动 Bridge</span>
+          <i aria-hidden="true">→</i>
+          <span data-setup-step="pairing"><b>02</b>扩展配对</span>
+          <i aria-hidden="true">→</i>
+          <span data-setup-step="identity"><b>03</b>确认身份</span>
+          <i aria-hidden="true">→</i>
+          <span data-setup-step="ready"><b>04</b>进入 READY</span>
+        </div>
+        <div class="switch-guidance" id="account-setup-guidance">
+          <strong>正在准备账号连接</strong>
+          <p>系统会自动判断下一步，不会关闭 Chrome，也不会更改当前登录状态。</p>
+        </div>
+        <div class="setup-identity" id="account-setup-identity" hidden>
+          <span>检测到当前小红书账号</span>
+          <strong id="account-setup-nickname">—</strong>
+          <small id="account-setup-uid">UID —</small>
+        </div>
+        <p class="switch-message" id="account-setup-message" role="status" aria-live="polite"></p>
+      </div>
+      <div class="switch-dialog-actions">
+        <button class="secondary-button" id="account-setup-copy" type="button" hidden>重新复制配对信息</button>
+        <button class="secondary-button" id="account-setup-dismiss" type="button">稍后继续</button>
+        <button class="primary-button" id="account-setup-primary" type="button" hidden>确认绑定此账号</button>
+      </div>
+    </dialog>
+
     <dialog class="switch-dialog" id="account-switch-dialog" aria-labelledby="switch-dialog-title">
       <div class="switch-dialog-head">
         <div>
@@ -387,6 +429,6 @@
         <button class="primary-button danger-button" id="remove-account-submit" type="button" disabled>确认删除槽位</button>
       </div>
     </dialog>
-    <script src="/app.js?v=20260817-random-comment-1" defer></script>
+    <script src="/app.js?v=20260818-account-tools-1" defer></script>
   </body>
 </html>

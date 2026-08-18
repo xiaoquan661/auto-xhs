@@ -8,6 +8,13 @@ const pendingSubmissionByAccount = new Map();
 const taskMessageByAccount = new Map();
 let taskActivityPollTimer = null;
 let taskSnapshotKey = "";
+let accountStatusPollTimer = null;
+let accountSnapshotKey = "";
+let currentAccountData = { accounts: [] };
+let currentAccountStatuses = [];
+let activeAccountSetup = null;
+let accountSetupPollTimer = null;
+let accountSetupPrimaryAction = null;
 document.documentElement.classList.add("js-ready");
 
 const taskCapabilities = {
@@ -305,15 +312,6 @@ function accountCard(account, status) {
   moreLabel.setAttribute("aria-label", `${account.name} 更多操作`);
   const morePanel = document.createElement("div");
   morePanel.className = "account-more-panel";
-  const removeButton = document.createElement("button");
-  removeButton.type = "button";
-  removeButton.className = "account-remove-button";
-  removeButton.textContent = "删除槽位";
-  removeButton.addEventListener("click", () => {
-    more.removeAttribute("open");
-    openAccountRemoval(account);
-  });
-  morePanel.append(removeButton);
   more.append(moreLabel, morePanel);
   headActions.append(badge, more);
   head.append(identity, headActions);
@@ -333,54 +331,350 @@ function accountCard(account, status) {
   const next = document.createElement("p");
   next.className = "next-action";
   const identityName = status?.identity?.nickname || status?.identity?.user_id;
-  next.textContent = status?.next_action
-    ? `下一步：${status.next_action}`
-    : `当前身份：${text(identityName || "已核验")}`;
+  let guidedNextAction = "";
+  if (!account.extension_instance_enrolled) guidedNextAction = "点击“继续配置”，然后在目标 Profile 的扩展中确认配对";
+  else if (!status?.connection_ready) guidedNextAction = "点击“恢复连接”，系统会复用或按需打开绑定的 Profile";
+  else if (["IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED"].includes(state)) guidedNextAction = "点击“完成身份核验”，系统会自动读取当前 UID";
+  else if (state === "IDENTITY_MISMATCH") guidedNextAction = "当前登录身份与槽位记录不一致，请使用切换账号流程";
+  next.textContent = guidedNextAction ? `下一步：${guidedNextAction}` : `当前身份：${text(identityName || "已核验")}`;
   card.append(next);
   const actions = document.createElement("div");
   actions.className = "account-actions";
-  const pair = document.createElement("button");
-  pair.type = "button";
-  pair.className = "secondary-button";
-  pair.textContent = "发起配对";
-  pair.addEventListener("click", () => beginPairing(account.name, next));
-  const identityButton = document.createElement("button");
-  identityButton.type = "button";
-  identityButton.className = "secondary-button";
-  identityButton.textContent = status?.identity?.switch_pending
-    ? "换号中，等待核验"
-    : status?.identity?.recorded ? "核验当前 UID" : "检查并确认 UID";
-  identityButton.disabled = Boolean(status?.identity?.switch_pending);
-  identityButton.addEventListener("click", () => verifyIdentity(account.name, status?.identity?.recorded, next));
-  actions.append(pair, identityButton);
-  const switchButton = document.createElement("button");
-  switchButton.type = "button";
-  switchButton.className = "secondary-button account-switch-button";
-  switchButton.textContent = status?.identity?.switch_pending ? "继续切换账号" : "切换账号";
-  switchButton.addEventListener("click", () => openAccountSwitch(account.name, status));
-  actions.append(switchButton);
-  const logoutButton = document.createElement("button");
-  logoutButton.type = "button";
-  logoutButton.className = "secondary-button account-logout-button";
-  logoutButton.textContent = "退出当前账号";
-  logoutButton.title = "结束当前小红书登录会话，并回读页面确认已退出";
-  logoutButton.addEventListener("click", () => logoutAccount(account.name, next, logoutButton));
-  actions.append(logoutButton);
-  const bridgeButton = document.createElement("button");
-  bridgeButton.type = "button";
-  bridgeButton.className = "secondary-button";
-  const accountRuntimeReady = Boolean(status?.connection_ready);
-  bridgeButton.textContent = accountRuntimeReady ? "重启账号连接" : "启动账号";
-  bridgeButton.title = "启动 Bridge；扩展未连接时自动打开该槽位绑定的 Chrome Profile";
-  bridgeButton.addEventListener("click", () => updateBridge(account.name, accountRuntimeReady ? "restart" : "start", next));
-  const autostartButton = document.createElement("button");
-  autostartButton.type = "button";
-  autostartButton.className = "secondary-button";
-  autostartButton.textContent = "账号自启动";
-  autostartButton.addEventListener("click", () => updateAutostart(account.name, next));
-  actions.append(bridgeButton, autostartButton);
+  const primaryButton = document.createElement("button");
+  primaryButton.type = "button";
+  primaryButton.className = "primary-button account-primary-action";
+  if (status?.identity?.switch_pending) {
+    primaryButton.textContent = "继续切换账号";
+    primaryButton.addEventListener("click", () => openAccountSwitch(account.name, status));
+  } else if (state === "READY") {
+    primaryButton.textContent = "已就绪";
+    primaryButton.dataset.ready = "true";
+    primaryButton.disabled = true;
+  } else {
+    primaryButton.textContent = !account.extension_instance_enrolled
+      ? "继续配置"
+      : status?.connection_ready ? "完成身份核验" : "恢复连接";
+    primaryButton.addEventListener("click", () => beginGuidedAccountSetup(account, status));
+  }
+  actions.append(primaryButton);
+
+  const addMoreGroup = (label) => {
+    const heading = document.createElement("span");
+    heading.className = "account-more-group";
+    heading.textContent = label;
+    morePanel.append(heading);
+  };
+  const addMoreAction = (label, handler, { className = "", disabled = false, title = "" } = {}) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `account-more-action ${className}`.trim();
+    button.textContent = label;
+    button.disabled = disabled;
+    button.title = title;
+    button.addEventListener("click", () => {
+      more.removeAttribute("open");
+      handler(button);
+    });
+    morePanel.append(button);
+    return button;
+  };
+  addMoreGroup("连接调试");
+  addMoreAction("启动 Bridge", (button) => updateBridge(account.name, "start-only", next, button), {
+    disabled: Boolean(status?.server_running),
+    title: status?.server_running ? "Bridge 当前已经在线" : "只启动本地 Bridge，不打开 Chrome",
+  });
+  addMoreAction("停止 Bridge", (button) => updateBridge(account.name, "stop", next, button), {
+    disabled: !status?.server_running,
+    title: status?.server_running ? "停止本槽位 Bridge，不关闭 Chrome" : "Bridge 当前未运行",
+  });
+  addMoreAction("重启账号连接", (button) => updateBridge(account.name, "restart", next, button));
+  addMoreAction("重新发起配对", () => beginPairing(account.name, next));
+  addMoreAction("单独核验当前 UID", () => verifyIdentity(account.name, status?.identity?.recorded, next));
+  addMoreGroup("账号管理");
+  addMoreAction(status?.identity?.switch_pending ? "继续切换账号" : "切换账号", () => openAccountSwitch(account.name, status));
+  const logoutAction = addMoreAction("退出当前账号", (button) => logoutAccount(account.name, next, button));
+  logoutAction.title = "结束当前小红书登录会话，并回读页面确认已退出";
+  addMoreAction("账号自启动设置", () => updateAutostart(account.name, next));
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "account-remove-button";
+  removeButton.textContent = "删除槽位";
+  removeButton.addEventListener("click", () => {
+    more.removeAttribute("open");
+    openAccountRemoval(account);
+  });
+  morePanel.append(removeButton);
   card.append(actions);
   return card;
+}
+
+const setupSteps = ["bridge", "pairing", "identity", "ready"];
+
+function paintSetupProgress(activeStep, completed = []) {
+  document.querySelectorAll("[data-setup-step]").forEach((node) => {
+    const step = node.dataset.setupStep;
+    node.classList.toggle("active", step === activeStep);
+    node.classList.toggle("done", completed.includes(step));
+  });
+}
+
+function setAccountSetupGuidance(title, body, pending = true) {
+  const guidance = $("#account-setup-guidance");
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const copy = document.createElement("p");
+  copy.textContent = body;
+  guidance.replaceChildren(heading, copy);
+  guidance.classList.toggle("pending", pending);
+}
+
+function scheduleAccountSetupPoll(callback, delay = 1000) {
+  if (accountSetupPollTimer) clearTimeout(accountSetupPollTimer);
+  accountSetupPollTimer = setTimeout(callback, delay);
+}
+
+function setAccountSetupPrimary(label, action = null, { hidden = false, disabled = false } = {}) {
+  const button = $("#account-setup-primary");
+  accountSetupPrimaryAction = action;
+  button.textContent = label;
+  button.hidden = hidden;
+  button.disabled = disabled;
+  button.removeAttribute("aria-busy");
+}
+
+async function runAccountSetupPrimaryAction() {
+  if (!accountSetupPrimaryAction) return;
+  if (accountSetupPollTimer) clearTimeout(accountSetupPollTimer);
+  accountSetupPollTimer = null;
+  const action = accountSetupPrimaryAction;
+  const button = $("#account-setup-primary");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    await action();
+  } finally {
+    if (accountSetupPrimaryAction === action && !button.hidden) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function closeGuidedAccountSetup() {
+  if (accountSetupPollTimer) clearTimeout(accountSetupPollTimer);
+  accountSetupPollTimer = null;
+  activeAccountSetup = null;
+  accountSetupPrimaryAction = null;
+  const dialog = $("#account-setup-dialog");
+  if (dialog.open) dialog.close();
+  scheduleAccountStatusPoll();
+}
+
+async function copyGuidedPairingBundle(showResult = true) {
+  if (!activeAccountSetup?.pairingBundle) return;
+  const message = $("#account-setup-message");
+  try {
+    await navigator.clipboard.writeText(activeAccountSetup.pairingBundle);
+    if (showResult) message.textContent = "配对信息已重新复制。";
+  } catch (_error) {
+    message.textContent = "浏览器未允许自动复制，请重新点击“复制配对信息”。";
+  }
+}
+
+async function beginGuidedAccountSetup(account, status = {}) {
+  if (accountSetupPollTimer) clearTimeout(accountSetupPollTimer);
+  if (accountStatusPollTimer) clearTimeout(accountStatusPollTimer);
+  accountStatusPollTimer = null;
+  activeAccountSetup = {
+    account,
+    status,
+    recorded: Boolean(status?.identity?.recorded),
+    recordedUid: status?.identity?.user_id || "",
+    pairingBundle: "",
+    phase: "STARTING",
+  };
+  $("#account-setup-name").textContent = account.name;
+  $("#account-setup-avatar").textContent = text(account.name).slice(0, 2).toUpperCase();
+  $("#account-setup-profile").textContent = `Chrome · ${account.chrome_profile_directory || "Default"}`;
+  $("#account-setup-stage").textContent = "正在准备";
+  $("#account-setup-message").textContent = "正在启动本地 Bridge…";
+  $("#account-setup-copy").hidden = true;
+  setAccountSetupPrimary("正在准备…", null, { disabled: true });
+  $("#account-setup-identity").hidden = true;
+  paintSetupProgress("bridge");
+  setAccountSetupGuidance("正在准备账号连接", "系统会复用现有连接；未配对的已有 Profile 不会被重复打开。", true);
+  const dialog = $("#account-setup-dialog");
+  if (!dialog.open) dialog.showModal();
+
+  try {
+    const payload = await mutateJson(`${api}/accounts/${encodeURIComponent(account.name)}/setup/begin`, "POST", { confirmed: true });
+    const setup = payload.setup;
+    if (!activeAccountSetup || activeAccountSetup.account.name !== account.name) return;
+    activeAccountSetup.phase = setup.phase;
+    if (setup.phase === "WAITING_PAIRING") {
+      activeAccountSetup.pairingBundle = setup.pairing.pairing_bundle;
+      $("#account-setup-copy").hidden = false;
+      $("#account-setup-stage").textContent = "等待扩展确认";
+      $("#account-setup-message").textContent = setup.message || "配对信息已准备。";
+      paintSetupProgress("pairing", ["bridge"]);
+      setAccountSetupGuidance(
+        "请在目标 Profile 的扩展中确认",
+        "配对信息已复制。打开 XHS Bridge 扩展，粘贴并确认当前 Profile；本页面会自动继续。",
+        true
+      );
+      setAccountSetupPrimary("我已在扩展确认，立即检测", pollGuidedAccountSetup);
+      await copyGuidedPairingBundle(false);
+      scheduleAccountSetupPoll(pollGuidedAccountSetup);
+      return;
+    }
+    $("#account-setup-stage").textContent = setup.lifecycle?.ready ? "正在核验身份" : "等待扩展连接";
+    $("#account-setup-message").textContent = setup.lifecycle?.message || "正在等待扩展连接…";
+    paintSetupProgress("identity", ["bridge", "pairing"]);
+    setAccountSetupGuidance("连接已启动", "扩展连接后会自动读取并核对当前小红书 UID。", true);
+    setAccountSetupPrimary("立即检测连接", pollGuidedAccountSetup);
+    scheduleAccountSetupPoll(pollGuidedAccountSetup, setup.lifecycle?.ready ? 100 : 1000);
+  } catch (error) {
+    $("#account-setup-stage").textContent = "配置受阻";
+    $("#account-setup-message").textContent = error.code === "NOT_FOUND"
+      ? "本地服务仍是旧版本，请重启 WebUI 后重试。"
+      : error.message;
+    setAccountSetupGuidance("暂时无法开始配置", "无需关闭此面板；处理上方问题后可在这里重新尝试。", false);
+    setAccountSetupPrimary("重新尝试", () => beginGuidedAccountSetup(account, activeAccountSetup?.status || status));
+  }
+}
+
+async function pollGuidedAccountSetup() {
+  if (!activeAccountSetup) return;
+  const current = activeAccountSetup;
+  try {
+    if (current.phase === "WAITING_PAIRING") {
+      const payload = await fetchJson(`${api}/accounts/${encodeURIComponent(current.account.name)}/pairing`);
+      if (!payload.pairing.paired) {
+        $("#account-setup-message").textContent = payload.pairing.pairing_pending
+          ? "等待你在扩展中确认当前 Profile…"
+          : "配对信息已过期，请重新生成。";
+        if (payload.pairing.pairing_pending) {
+          setAccountSetupPrimary("我已在扩展确认，立即检测", pollGuidedAccountSetup);
+          scheduleAccountSetupPoll(pollGuidedAccountSetup);
+        } else {
+          setAccountSetupGuidance("本次配对信息已失效", "点击下方按钮即可重新生成，不需要退出配置流程。", false);
+          setAccountSetupPrimary("重新生成配对信息", () => beginGuidedAccountSetup(current.account, current.status));
+        }
+        return;
+      }
+      current.phase = "WAITING_EXTENSION";
+      current.pairingBundle = "";
+      $("#account-setup-copy").hidden = true;
+      $("#account-setup-stage").textContent = "等待扩展连接";
+      $("#account-setup-message").textContent = "扩展配对成功，正在建立 Bridge 连接…";
+      paintSetupProgress("identity", ["bridge", "pairing"]);
+      setAccountSetupPrimary("立即检测连接", pollGuidedAccountSetup);
+      scheduleAccountSetupPoll(pollGuidedAccountSetup, 250);
+      return;
+    }
+
+    const status = await fetchJson(`${api}/accounts/${encodeURIComponent(current.account.name)}/status`);
+    current.status = status;
+    current.recorded = Boolean(status.identity?.recorded);
+    current.recordedUid = status.identity?.user_id || current.recordedUid;
+    if (!status.extension_connected) {
+      $("#account-setup-stage").textContent = "等待扩展连接";
+      $("#account-setup-message").textContent = "Bridge 已在线，正在等待目标 Profile 的扩展连接…";
+      setAccountSetupPrimary("立即检测连接", pollGuidedAccountSetup);
+      scheduleAccountSetupPoll(pollGuidedAccountSetup);
+      return;
+    }
+    if (!status.profile_verified) {
+      $("#account-setup-stage").textContent = "Profile 不一致";
+      $("#account-setup-message").textContent = status.next_action || "连接的扩展不属于当前槽位绑定的 Profile。";
+      setAccountSetupGuidance("请检查打开的 Chrome Profile", "系统不会把错误 Profile 记录到当前槽位。", false);
+      setAccountSetupPrimary("重新检测 Profile", pollGuidedAccountSetup);
+      return;
+    }
+    await inspectGuidedIdentity();
+  } catch (error) {
+    $("#account-setup-message").textContent = error.message;
+    scheduleAccountSetupPoll(pollGuidedAccountSetup, 1500);
+  }
+}
+
+async function inspectGuidedIdentity() {
+  if (!activeAccountSetup) return;
+  const current = activeAccountSetup;
+  $("#account-setup-stage").textContent = "正在核验身份";
+  $("#account-setup-message").textContent = "正在读取当前小红书登录身份…";
+  setAccountSetupPrimary("正在检测身份…", null, { disabled: true });
+  try {
+    const checked = await mutateJson(`${api}/accounts/${encodeURIComponent(current.account.name)}/identity/check`, "POST", {});
+    const identity = checked.identity;
+    if (!activeAccountSetup || activeAccountSetup.account.name !== current.account.name) return;
+    current.identity = identity;
+    $("#account-setup-nickname").textContent = identity.nickname || "未命名账号";
+    $("#account-setup-uid").textContent = `UID ${identity.user_id}`;
+    $("#account-setup-identity").hidden = false;
+    if (!current.recorded) {
+      current.phase = "WAITING_IDENTITY_CONFIRMATION";
+      $("#account-setup-stage").textContent = "等待身份确认";
+      $("#account-setup-message").textContent = "请确认把这个小红书账号绑定到当前槽位。";
+      setAccountSetupPrimary("确认绑定此账号", confirmGuidedIdentity);
+      paintSetupProgress("identity", ["bridge", "pairing"]);
+      setAccountSetupGuidance("首次绑定需要你确认一次", "确认后系统会记录 UID；以后恢复连接时将自动核对，不再要求重复点击。", false);
+      return;
+    }
+    if (current.recordedUid !== identity.user_id) {
+      $("#account-setup-stage").textContent = "身份不一致";
+      $("#account-setup-message").textContent = `槽位记录 UID ${current.recordedUid}，当前登录 UID ${identity.user_id}。`;
+      setAccountSetupGuidance("当前登录账号与槽位记录不一致", "系统已停止进入 READY；请使用“切换账号”流程处理。", false);
+      setAccountSetupPrimary("进入切换账号流程", () => {
+        const { account, status } = current;
+        closeGuidedAccountSetup();
+        openAccountSwitch(account.name, status);
+      });
+      return;
+    }
+    await finishGuidedAccountSetup(identity);
+  } catch (error) {
+    if (error.code === "LOGIN_REQUIRED" || error.code === "IDENTITY_UID_UNAVAILABLE") {
+      current.phase = "WAITING_LOGIN";
+      $("#account-setup-stage").textContent = "等待登录";
+      $("#account-setup-message").textContent = error.message;
+      setAccountSetupGuidance("请在当前 Profile 中登录小红书", "登录完成后留在小红书页面，本页面会自动检测，不需要再点击核验 UID。", true);
+      setAccountSetupPrimary("我已登录，立即检测", inspectGuidedIdentity);
+      scheduleAccountSetupPoll(inspectGuidedIdentity, 2000);
+      return;
+    }
+    $("#account-setup-stage").textContent = "身份检测失败";
+    $("#account-setup-message").textContent = error.message;
+    setAccountSetupGuidance("暂时无法读取 UID", "请刷新当前 Profile 的小红书页面，系统会继续自动检测。", false);
+    setAccountSetupPrimary("重新检测 UID", inspectGuidedIdentity);
+    scheduleAccountSetupPoll(inspectGuidedIdentity, 2000);
+  }
+}
+
+async function confirmGuidedIdentity() {
+  if (!activeAccountSetup?.identity) return;
+  try {
+    await mutateJson(`${api}/accounts/${encodeURIComponent(activeAccountSetup.account.name)}/identity/record`, "POST", { confirmed: true });
+    await finishGuidedAccountSetup(activeAccountSetup.identity);
+  } catch (error) {
+    $("#account-setup-message").textContent = error.message;
+    setAccountSetupPrimary("重新确认绑定", confirmGuidedIdentity);
+  }
+}
+
+async function finishGuidedAccountSetup(identity) {
+  if (!activeAccountSetup) return;
+  const accountName = activeAccountSetup.account.name;
+  activeAccountSetup.phase = "READY";
+  $("#account-setup-stage").textContent = "已就绪";
+  $("#account-setup-message").textContent = `${identity.nickname || identity.user_id} 已完成连接与身份核验。`;
+  setAccountSetupPrimary("配置完成", null, { disabled: true });
+  paintSetupProgress("ready", setupSteps);
+  setAccountSetupGuidance("账号已经 READY", "后续断线时点击“恢复连接”即可，UID 将自动核对。", true);
+  await refreshAccountRoster();
+  setTimeout(() => {
+    if (activeAccountSetup?.account.name === accountName && activeAccountSetup.phase === "READY") closeGuidedAccountSetup();
+  }, 900);
 }
 
 async function logoutAccount(account, messageNode, button) {
@@ -447,16 +741,44 @@ async function removeAccountSlot() {
   }
 }
 
-async function updateBridge(account, action, messageNode) {
-  if (!window.confirm(`${action === "start" ? "启动" : "重启"}槽位 ${account} 的账号连接？\n\n系统会启动 Bridge；扩展未连接时会自动打开绑定的 Chrome Profile，但不会关闭 Chrome。`)) return;
+async function updateBridge(account, action, messageNode, button) {
+  const operation = {
+    "start-only": {
+      label: "启动 Bridge",
+      confirmation: `只启动槽位 ${account} 的本地 Bridge？\n\n不会打开或关闭 Chrome。`,
+    },
+    stop: {
+      label: "停止 Bridge",
+      confirmation: `停止槽位 ${account} 的本地 Bridge？\n\n该槽位会暂时断开，但不会关闭 Chrome。`,
+    },
+    restart: {
+      label: "重启账号连接",
+      confirmation: `重启槽位 ${account} 的账号连接？\n\n系统会重启 Bridge；扩展未连接时会按需打开绑定的 Chrome Profile，但不会关闭 Chrome。`,
+    },
+  }[action];
+  if (!operation || !window.confirm(operation.confirmation)) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  messageNode.textContent = `正在${operation.label}…`;
   try {
     const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/bridge/${action}`, "POST", {});
     const lifecycle = result.lifecycle || {};
-    messageNode.textContent = lifecycle.ready
-      ? lifecycle.message || "账号连接已恢复，正在刷新状态。"
-      : `账号尚未就绪：${lifecycle.message || "请检查 Bridge、扩展和 Profile 状态"}`;
+    if (action === "start-only") {
+      messageNode.textContent = lifecycle.bridge_running ? "Bridge 已启动；可继续检查扩展连接。" : "Bridge 未能进入运行状态。";
+    } else if (action === "stop") {
+      messageNode.textContent = lifecycle.bridge_running ? "Bridge 仍在运行，请稍后重试。" : "Bridge 已停止；Chrome 保持打开。";
+    } else {
+      messageNode.textContent = lifecycle.ready
+        ? lifecycle.message || "账号连接已恢复，正在刷新状态。"
+        : `账号尚未就绪：${lifecycle.message || "请检查 Bridge、扩展和 Profile 状态"}`;
+    }
     await loadDashboard();
-  } catch (error) { messageNode.textContent = error.message; }
+  } catch (error) {
+    messageNode.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
 }
 
 async function updateAutostart(account, messageNode) {
@@ -648,7 +970,9 @@ async function fetchJson(path) {
   const response = await fetch(path, { cache: "no-store" });
   const payload = await response.json();
   if (!response.ok || payload.success === false) {
-    throw new Error(payload.error?.message || "请求失败");
+    const error = new Error(payload.error?.message || "请求失败");
+    error.code = payload.error?.code || "REQUEST_FAILED";
+    throw error;
   }
   return payload;
 }
@@ -664,7 +988,11 @@ async function mutateJson(path, method, body) {
     body: JSON.stringify(body || {}),
   });
   const payload = await response.json();
-  if (!response.ok || payload.success === false) throw new Error(payload.error?.message || "请求失败");
+  if (!response.ok || payload.success === false) {
+    const error = new Error(payload.error?.message || "请求失败");
+    error.code = payload.error?.code || "REQUEST_FAILED";
+    throw error;
+  }
   return payload;
 }
 
@@ -712,9 +1040,11 @@ async function submitAccount(event) {
     } else {
       payload = await mutateJson(`${api}/accounts`, "POST", { name, confirmed: true });
     }
-    message.textContent = `${payload.account.name} 已添加。扩展目录：${payload.account.extension_dir}。下一步：${payload.next_action}`;
+    message.textContent = `${payload.account.name} 已添加，正在打开引导配置。`;
     event.target.reset();
     await loadDashboard();
+    const addedAccount = currentAccountData.accounts.find((account) => account.name === payload.account.name) || payload.account;
+    await beginGuidedAccountSetup(addedAccount, accountStatusByName.get(payload.account.name) || {});
   } catch (error) {
     message.textContent = error.message;
   }
@@ -1216,7 +1546,10 @@ function scheduleTaskActivityPoll() {
   if (taskActivityPollTimer) clearTimeout(taskActivityPollTimer);
   taskActivityPollTimer = null;
   if (!taskActivityNeedsPolling()) return;
-  taskActivityPollTimer = setTimeout(pollTaskActivity, 3000);
+  const active = pendingSubmissionByAccount.size > 0 || Array.from(accountTaskActivityByName.values()).some(
+    (activity) => ["QUEUED", "RUNNING"].includes(activity.state)
+  );
+  taskActivityPollTimer = setTimeout(pollTaskActivity, active ? 1000 : 3000);
 }
 
 async function pollTaskActivity() {
@@ -1229,7 +1562,7 @@ async function pollTaskActivity() {
     const nextSnapshotKey = taskSnapshot(payload.tasks);
     if (nextSnapshotKey !== taskSnapshotKey) {
       taskSnapshotKey = nextSnapshotKey;
-      await loadDashboard();
+      await loadWorkData(currentAccountData, currentAccountStatuses);
       return;
     }
     rebuildAccountTaskActivity(payload.tasks);
@@ -1238,7 +1571,7 @@ async function pollTaskActivity() {
       (activity) => activity.state === "RUNNING"
     );
     if (hadBackendActivity && !hasBackendActivity && pendingSubmissionByAccount.size === 0) {
-      await loadDashboard();
+      await loadWorkData(currentAccountData, currentAccountStatuses);
       return;
     }
   } catch (_error) {
@@ -1263,6 +1596,82 @@ async function loadWorkData(accountData, statuses) {
   scheduleTaskActivityPoll();
   $("#confirmation-count").textContent = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length;
   renderDrafts(drafts.drafts);
+}
+
+function accountSnapshot(accounts, statuses) {
+  return JSON.stringify(accounts.map((account, index) => {
+    const status = statuses[index] || {};
+    return [
+      account.name,
+      account.extension_instance_enrolled,
+      status.status,
+      status.server_running,
+      status.extension_connected,
+      status.profile_verified,
+      status.next_action,
+      status.identity?.user_id || "",
+      status.identity?.live_user_id || "",
+      status.identity?.nickname || "",
+      status.identity?.switch_pending || false,
+    ];
+  }));
+}
+
+async function fetchAccountStatuses(accountData) {
+  return Promise.all(
+    accountData.accounts.map(async (account) => {
+      try {
+        return await fetchJson(`${api}/accounts/${encodeURIComponent(account.name)}/status`);
+      } catch (error) {
+        return { status: "ERROR", ready: false, next_action: error.message };
+      }
+    })
+  );
+}
+
+function renderAccountRoster(accountData, statuses) {
+  currentAccountData = accountData;
+  currentAccountStatuses = statuses;
+  accountStatusByName = new Map(accountData.accounts.map((account, index) => [account.name, statuses[index]]));
+  accountSnapshotKey = accountSnapshot(accountData.accounts, statuses);
+  const grid = $("#account-grid");
+  grid.replaceChildren();
+  if (accountData.accounts.length === 0) grid.append(emptyAccounts());
+  accountData.accounts.forEach((account, index) => grid.append(accountCard(account, statuses[index])));
+  $("#account-total").textContent = accountData.accounts.length;
+  $("#connected-total").textContent = statuses.filter((item) => item.extension_connected).length;
+  $("#blocked-total").textContent = statuses.filter((item) => item.status !== "READY").length;
+  $("#ready-total").textContent = statuses.filter((item) => item.status === "READY").length;
+  populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
+  populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
+  refreshTaskAccountOptions();
+  updateTaskAvailability();
+}
+
+async function refreshAccountRoster() {
+  const accountData = await fetchJson(`${api}/accounts`);
+  const statuses = await fetchAccountStatuses(accountData);
+  const nextSnapshot = accountSnapshot(accountData.accounts, statuses);
+  if (nextSnapshot !== accountSnapshotKey) renderAccountRoster(accountData, statuses);
+  scheduleAccountStatusPoll();
+  return { accountData, statuses };
+}
+
+function scheduleAccountStatusPoll() {
+  if (accountStatusPollTimer) clearTimeout(accountStatusPollTimer);
+  accountStatusPollTimer = null;
+  if (activeAccountSetup) return;
+  const allReady = currentAccountStatuses.length > 0 && currentAccountStatuses.every((item) => item.status === "READY");
+  accountStatusPollTimer = setTimeout(pollAccountStatuses, allReady ? 5000 : 1000);
+}
+
+async function pollAccountStatuses() {
+  accountStatusPollTimer = null;
+  try {
+    await refreshAccountRoster();
+  } catch (_error) {
+    scheduleAccountStatusPoll();
+  }
 }
 
 function renderDrafts(drafts) {
@@ -1451,6 +1860,19 @@ function renderDiagnosis(diagnosis) {
     : "发现配置或运行问题，请查看账号卡片中的下一步提示。";
 }
 
+async function loadDiagnosis() {
+  const badge = $("#diagnosis-state");
+  badge.textContent = "检查中";
+  badge.className = "diagnosis-badge";
+  try {
+    renderDiagnosis(await fetchJson(`${api}/doctor`));
+  } catch (error) {
+    badge.textContent = "检查失败";
+    badge.className = "diagnosis-badge warn";
+    $("#diagnosis-note").textContent = error.message;
+  }
+}
+
 async function loadDashboard() {
   const refresh = $("#refresh");
   const health = $("#health");
@@ -1458,37 +1880,22 @@ async function loadDashboard() {
   refresh.disabled = true;
   refresh.setAttribute("aria-busy", "true");
   try {
-    const [healthData, accountData, capabilityData, diagnosisData, systemData] = await Promise.all([
+    const [healthData, accountData, capabilityData, systemData] = await Promise.all([
       fetchJson(`${api}/health`),
       fetchJson(`${api}/accounts`),
       fetchJson(`${api}/capabilities`),
-      fetchJson(`${api}/doctor`),
       fetchJson(`${api}/system/status`),
     ]);
     health.dataset.state = healthData.status === "ok" ? "ok" : "error";
     health.lastElementChild.textContent = healthData.status === "ok" ? "本地服务正常" : "本地服务异常";
     $("#capability-count").textContent = capabilityData.summary.enabled_in_v1;
-    $("#account-total").textContent = accountData.accounts.length;
-    renderDiagnosis(diagnosisData);
     renderSystem(systemData);
 
-    grid.replaceChildren();
-    const statuses = await Promise.all(
-      accountData.accounts.map(async (account) => {
-        try {
-          return await fetchJson(`${api}/accounts/${encodeURIComponent(account.name)}/status`);
-        } catch (error) {
-          return { status: "ERROR", next_action: error.message };
-        }
-      })
-    );
+    const statuses = await fetchAccountStatuses(accountData);
+    renderAccountRoster(accountData, statuses);
     await loadWorkData(accountData, statuses);
-    if (accountData.accounts.length === 0) grid.append(emptyAccounts());
-    accountData.accounts.forEach((account, index) => grid.append(accountCard(account, statuses[index])));
-
-    $("#connected-total").textContent = statuses.filter((item) => item.extension_connected).length;
-    $("#blocked-total").textContent = statuses.filter((item) => item.status !== "READY").length;
-    $("#ready-total").textContent = statuses.filter((item) => item.status === "READY").length;
+    scheduleAccountStatusPoll();
+    loadDiagnosis();
   } catch (error) {
     health.dataset.state = "error";
     health.lastElementChild.textContent = "本地服务不可用";
@@ -1580,6 +1987,14 @@ async function exportDiagnostics() {
 }
 
 $("#refresh").addEventListener("click", loadDashboard);
+$("#account-setup-close").addEventListener("click", closeGuidedAccountSetup);
+$("#account-setup-dismiss").addEventListener("click", closeGuidedAccountSetup);
+$("#account-setup-copy").addEventListener("click", () => copyGuidedPairingBundle(true));
+$("#account-setup-primary").addEventListener("click", runAccountSetupPrimaryAction);
+$("#account-setup-dialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeGuidedAccountSetup();
+});
 $("#switch-dialog-close").addEventListener("click", closeAccountSwitch);
 $("#switch-dismiss").addEventListener("click", closeAccountSwitch);
 $("#switch-primary").addEventListener("click", (event) => runAccountSwitchAction(event.currentTarget.dataset.action));

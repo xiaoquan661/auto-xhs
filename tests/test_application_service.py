@@ -154,6 +154,66 @@ def test_service_bridge_lifecycle_uses_registered_manager(tmp_path) -> None:
     assert calls == ["alpha"]
 
 
+def test_service_can_start_bridge_without_opening_profile(tmp_path) -> None:
+    config = _config()
+    calls = []
+
+    def start_bridge_only(item):
+        calls.append(item.name)
+        return {"bridge_running": True, "registered": True, "pid": 43}
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: config,
+        product_store=ProductStore(tmp_path / "product"),
+        pairing_bridge_starter=start_bridge_only,
+    )
+
+    result = service.start_account_bridge_only("alpha")
+
+    assert result["lifecycle"]["pid"] == 43
+    assert calls == ["alpha"]
+
+
+def test_guided_setup_starts_bridge_without_reopening_unpaired_existing_profile(tmp_path) -> None:
+    config = _config()
+    config.extension_instance_id = None
+    calls = []
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: config,
+        product_store=ProductStore(tmp_path / "product"),
+        pairing_status_reader=lambda _account: {"paired": False, "pairing_pending": False},
+        pairing_bridge_starter=lambda item: calls.append(("bridge", item.name)) or {"bridge_running": True},
+        pairing_creator=lambda item, **_kwargs: calls.append(("pairing", item.name)) or {
+            "account": item.name,
+            "pairing_bundle": "xhs-pair-v1:test",
+        },
+        bridge_starter=lambda _item: (_ for _ in ()).throw(
+            AssertionError("unpaired existing Profile must not enter joint Chrome launch")
+        ),
+    )
+
+    result = service.begin_account_setup("alpha", confirmed=True)
+
+    assert result["setup"]["phase"] == "WAITING_PAIRING"
+    assert result["setup"]["pairing"]["pairing_bundle"] == "xhs-pair-v1:test"
+    assert calls == [("bridge", "alpha"), ("pairing", "alpha")]
+
+
+def test_guided_setup_reuses_joint_start_for_enrolled_extension(tmp_path) -> None:
+    config = _config()
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: config,
+        product_store=ProductStore(tmp_path / "product"),
+        pairing_status_reader=lambda _account: {"paired": True, "pairing_pending": False},
+        bridge_starter=lambda item: {"account": item.name, "ready": True},
+    )
+
+    result = service.begin_account_setup("alpha", confirmed=True)
+
+    assert result["setup"]["phase"] == "CONNECTION_READY"
+    assert result["setup"]["lifecycle"]["ready"] is True
+
+
 def test_service_exports_diagnostics_to_product_root(tmp_path) -> None:
     target = tmp_path / "report.json"
 

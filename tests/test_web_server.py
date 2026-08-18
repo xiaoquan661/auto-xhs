@@ -80,6 +80,12 @@ class FakeService:
     def start_account_bridge(self, account: str) -> dict:
         return {"success": True, "lifecycle": {"account": account, "started": True}}
 
+    def start_account_bridge_only(self, account: str) -> dict:
+        return {
+            "success": True,
+            "lifecycle": {"account": account, "bridge_running": True},
+        }
+
     def stop_account_bridge(self, account: str) -> dict:
         return {"success": True, "lifecycle": {"account": account, "started": False}}
 
@@ -146,6 +152,9 @@ class FakeService:
 
     def begin_account_pairing(self, account: str, **body) -> dict:
         return {"success": True, "pairing": {"account": account, **body}}
+
+    def begin_account_setup(self, account: str, **body) -> dict:
+        return {"success": True, "setup": {"account": account, "phase": "WAITING_PAIRING", **body}}
 
     def account_pairing_status(self, account: str) -> dict:
         return {"success": True, "pairing": {"account": account}}
@@ -258,6 +267,12 @@ def test_account_setup_api_routes_to_shared_service() -> None:
         "/api/v1/accounts/alpha/pairing/begin",
         {"confirmed": True},
     )
+    setup = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/setup/begin",
+        {"confirmed": True},
+    )
     identity = _dispatch_mutation(
         service,
         "POST",
@@ -300,10 +315,17 @@ def test_account_setup_api_routes_to_shared_service() -> None:
         "/api/v1/accounts/alpha/bridge/restart",
         {},
     )
+    bridge_only = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/bridge/start-only",
+        {},
+    )
 
     assert discovered["user_data_dir"].endswith("User Data")
     assert imported["account"]["name"] == "alpha"
     assert pairing["pairing"]["account"] == "alpha"
+    assert setup["setup"]["phase"] == "WAITING_PAIRING"
     assert identity["identity"]["user_id"] == "uid"
     assert switch_begin["switch"]["status"] == "awaiting_login"
     assert switch_complete["switch"]["event"] == "login-switched"
@@ -313,6 +335,7 @@ def test_account_setup_api_routes_to_shared_service() -> None:
     assert removed["archived"] is True
     assert removed["confirmation_name"] == "alpha"
     assert bridge["lifecycle"]["restarted"] is True
+    assert bridge_only["lifecycle"]["bridge_running"] is True
 
 
 def test_draft_execute_api_routes_to_shared_service() -> None:
@@ -337,7 +360,18 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     for label in ("总览", "账号状态", "任务与确认", "执行记录", "诊断设置"):
         assert label in html
     assert 'id="account-form"' in html
+    assert 'id="account-setup-dialog"' in html
     assert "accounts/import" in script
+    assert "setup/begin" in script
+    assert "连接调试" in script
+    assert "启动 Bridge" in script
+    assert "停止 Bridge" in script
+    assert "bridge/${action}" in script
+    assert "重新尝试" in script
+    assert "重新生成配对信息" in script
+    assert "我已在扩展确认，立即检测" in script
+    assert "我已登录，立即检测" in script
+    assert "进入切换账号流程" in script
     assert "pairing/begin" in script
     assert "identity/check" in script
     assert "switch/begin" in script
@@ -357,6 +391,8 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "account-activity" in script
     assert "pendingSubmissionByAccount" in script
     assert "pollTaskActivity" in script
+    assert "pollAccountStatuses" in script
+    assert "active ? 1000 : 3000" in script
     assert "可选择其他已就绪且空闲的账号并行执行" in script
     for capability in ("browse-feeds", "search-feeds", "get-feed-detail", "user-profile", "like-feed", "favorite-feed", "keyword-engagement"):
         assert f'"{capability}"' in script

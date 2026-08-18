@@ -40,6 +40,7 @@ from account_runtime import evaluate_profile_connection
 from approval_service import ApprovalService
 from bridge_lifecycle import (
     get_bridge_lifecycle,
+    start_bridge,
     stop_bridge,
 )
 from business_runner import BusinessRunner
@@ -90,12 +91,15 @@ class ApplicationService:
         business_runner: BusinessRunner | None = None,
         bridge_status_reader: Callable[..., dict] = get_bridge_lifecycle,
         bridge_starter: Callable[..., dict] = start_account_runtime,
+        pairing_bridge_starter: Callable[..., dict] = start_bridge,
         bridge_stopper: Callable[..., dict] = stop_bridge,
         bridge_restarter: Callable[..., dict] = restart_account_runtime,
         diagnostic_exporter: Callable[..., Path] = export_diagnostic_report,
         autostart_reader: Callable[[str], dict] = account_autostart_status,
         autostart_enabler: Callable[[str], dict] = enable_account_autostart,
         autostart_disabler: Callable[[str], dict] = disable_account_autostart,
+        pairing_creator: Callable[..., dict] = create_pairing_session,
+        pairing_status_reader: Callable[[str], dict] = get_pairing_status,
         pairing_revoker: Callable[[str], AccountConfig] = revoke_account_pairing,
     ) -> None:
         self._account_lister = account_lister
@@ -118,12 +122,15 @@ class ApplicationService:
         self._extension_source = Path(extension_source).resolve()
         self._bridge_status_reader = bridge_status_reader
         self._bridge_starter = bridge_starter
+        self._pairing_bridge_starter = pairing_bridge_starter
         self._bridge_stopper = bridge_stopper
         self._bridge_restarter = bridge_restarter
         self._diagnostic_exporter = diagnostic_exporter
         self._autostart_reader = autostart_reader
         self._autostart_enabler = autostart_enabler
         self._autostart_disabler = autostart_disabler
+        self._pairing_creator = pairing_creator
+        self._pairing_status_reader = pairing_status_reader
         self._pairing_revoker = pairing_revoker
         self._store = product_store or ProductStore()
         self.tasks = TaskService(self._store)
@@ -331,17 +338,69 @@ class ApplicationService:
         self.require_enabled_capability("account-pair-begin")
         config = self._load_account(account)
         try:
-            pairing = create_pairing_session(config, ttl_seconds=ttl_seconds)
+            pairing = self._pairing_creator(config, ttl_seconds=ttl_seconds)
         except (RuntimeError, ValueError) as exc:
             raise ServiceError("PAIRING_FAILED", str(exc), 409) from exc
         return {"success": True, "pairing": pairing}
 
     def account_pairing_status(self, account: str) -> dict:
         try:
-            status = get_pairing_status(account)
+            status = self._pairing_status_reader(account)
         except (FileNotFoundError, ValueError) as exc:
             raise ServiceError("ACCOUNT_NOT_FOUND", str(exc), 404) from exc
         return {"success": True, "pairing": status}
+
+    def begin_account_setup(
+        self,
+        account: str,
+        *,
+        confirmed: bool,
+        ttl_seconds: int = 300,
+    ) -> dict:
+        """Start or resume the shortest safe path from one slot to READY."""
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "开始账号配置需要明确确认", 409)
+        self.require_enabled_capability("account-start")
+        config = self._load_account(account)
+        pairing_status = self._pairing_status_reader(account)
+
+        if pairing_status["paired"]:
+            try:
+                lifecycle = self._bridge_starter(config)
+            except Exception as exc:
+                raise ServiceError("ACCOUNT_SETUP_FAILED", str(exc), 409) from exc
+            return {
+                "success": True,
+                "setup": {
+                    "account": account,
+                    "phase": "CONNECTION_READY" if lifecycle.get("ready") else "WAITING_EXTENSION",
+                    "pairing": pairing_status,
+                    "lifecycle": lifecycle,
+                    "profile_mode": config.profile_mode,
+                },
+            }
+
+        self.require_enabled_capability("account-pair-begin")
+        try:
+            bridge = self._pairing_bridge_starter(config)
+            pairing = self._pairing_creator(config, ttl_seconds=ttl_seconds)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ServiceError("ACCOUNT_SETUP_FAILED", str(exc), 409) from exc
+        return {
+            "success": True,
+            "setup": {
+                "account": account,
+                "phase": "WAITING_PAIRING",
+                "pairing": pairing,
+                "bridge": bridge,
+                "profile_mode": config.profile_mode,
+                "message": (
+                    "Bridge 已启动，配对信息已准备；请在已经打开的目标 Profile 扩展中确认"
+                    if config.profile_mode == "existing"
+                    else "Bridge 已启动，配对信息已准备；请打开新 Profile 并在扩展中确认"
+                ),
+            },
+        }
 
     def check_account_identity(self, account: str) -> dict:
         self.require_enabled_capability("account-identity", operation="check")
@@ -601,6 +660,16 @@ class ApplicationService:
         config = self._load_account(account)
         try:
             lifecycle = self._bridge_starter(config)
+        except Exception as exc:
+            raise ServiceError("BRIDGE_START_FAILED", str(exc), 409) from exc
+        return {"success": True, "lifecycle": lifecycle}
+
+    def start_account_bridge_only(self, account: str) -> dict:
+        """Start only the local Bridge process without opening the bound Profile."""
+        self.require_enabled_capability("account-start")
+        config = self._load_account(account)
+        try:
+            lifecycle = self._pairing_bridge_starter(config)
         except Exception as exc:
             raise ServiceError("BRIDGE_START_FAILED", str(exc), 409) from exc
         return {"success": True, "lifecycle": lifecycle}
