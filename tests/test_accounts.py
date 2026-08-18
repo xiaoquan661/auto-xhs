@@ -417,7 +417,7 @@ def test_runtime_profile_connection_uses_enrolled_instance_as_strong_proof():
     assert wrong_instance["profile_verification_level"] == "unverified"
 
 
-def test_account_start_blocks_when_user_hot_session_is_not_connected(
+def test_account_start_reports_extension_not_connected_after_profile_launch(
     monkeypatch, capsys
 ):
     import argparse
@@ -433,20 +433,22 @@ def test_account_start_blocks_when_user_hot_session_is_not_connected(
         profile_mode="existing",
     )
 
-    class FakeBridgePage:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
-
-        def get_server_status(self):
-            return {"extension_connected": False, "extension": None}
-
     monkeypatch.setattr("account_manager.load_account", lambda *_args, **_kwargs: config)
     monkeypatch.setattr("account_manager.public_config", lambda _config: {"name": "existing-a"})
     monkeypatch.setattr(
-        "scripts.cli._ensure_bridge_ready",
-        lambda *_args, **_kwargs: {"bridge_running": True},
+        "account_lifecycle.start_account_runtime",
+        lambda *_args, **_kwargs: {
+            "ready": False,
+            "status": "BLOCKED",
+            "bridge_running": True,
+            "extension_connected": False,
+            "profile_verified": False,
+            "error_code": "EXTENSION_NOT_CONNECTED",
+            "message": "已打开绑定的 Chrome Profile，但扩展仍未连接",
+            "chrome": {"launched": True},
+            "chrome_launched": True,
+        },
     )
-    monkeypatch.setattr("xhs.bridge.BridgePage", FakeBridgePage)
 
     args = argparse.Namespace(
         account="existing-a",
@@ -460,8 +462,9 @@ def test_account_start_blocks_when_user_hot_session_is_not_connected(
     report = json.loads(capsys.readouterr().out)
     assert report["success"] is False
     assert report["status"] == "BLOCKED"
-    assert report["error_code"] == "HOT_SESSION_NOT_READY"
-    assert "不会自动启动 Chrome" in report["message"]
+    assert report["error_code"] == "EXTENSION_NOT_CONNECTED"
+    assert report["chrome_launched"] is True
+    assert "已打开绑定的 Chrome Profile" in report["message"]
 
 
 def test_account_start_bridge_only_does_not_require_chrome(monkeypatch, capsys):

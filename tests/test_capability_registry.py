@@ -36,13 +36,26 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     assert all(policy.retry_policy is RetryPolicy.NONE for policy in output_policies)
     assert {
         policy.command for policy in output_policies if policy.enabled_in_v1
-    } == {"post-comment", "random-comment", "reply-comment"}
+    } == {
+        "post-comment",
+        "random-comment",
+        "reply-comment",
+        "fill-publish",
+        "fill-publish-video",
+        "click-publish",
+        "save-draft",
+        "long-article",
+        "select-template",
+        "next-step",
+    }
     assert get_capability_policy("post-comment").requires_confirmation is True
     assert get_capability_policy("reply-comment").requires_confirmation is True
     assert get_capability_policy("random-comment").requires_confirmation is False
     assert get_capability_policy("random-comment").supports_scheduling is False
     assert get_capability_policy("publish").enabled_in_v1 is False
     assert get_capability_policy("publish-video").enabled_in_v1 is False
+    assert get_capability_policy("fill-publish").supports_scheduling is True
+    assert get_capability_policy("fill-publish-video").supports_scheduling is True
 
 
 def test_security_configuration_always_requires_confirmation():

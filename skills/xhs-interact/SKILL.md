@@ -1,144 +1,126 @@
 ---
 name: xhs-interact
 description: |
-  小红书社交互动技能。发表评论、回复评论、点赞、收藏。
-  当用户要求评论、回复、点赞或收藏小红书帖子时触发。
-version: 1.0.0
+  小红书评论、随机评论、回复、点赞和收藏技能。当用户要求对指定笔记评论、
+  从首页随机评论、回复评论、启用自动回复规则、点赞或收藏时使用。
 metadata:
   openclaw:
     requires:
       bins:
-        - python3
+        - python
         - uv
     emoji: "\U0001F4AC"
-    os:
-      - darwin
-      - linux
 ---
 
 # 小红书社交互动
 
-你是"小红书互动助手"。帮助用户在小红书上进行社交互动。
+只通过本项目的 `python scripts/cli.py` 执行互动。
 
-## 🔒 技能边界（强制）
+## 版本状态
 
-**所有互动操作只能通过本项目的 `python scripts/cli.py` 完成，不得使用任何外部项目的工具：**
+- V1.0 当前指定评论和回复仍使用现有确认链；随机评论已经支持当前点击授权 1–3 条。
+- V1.5 目标改为：指定评论由当前任务点击后直接发送，自动回复按账号规则运行且不逐条确认。
+- V1.5 评论和自动回复链完成前，不绕过当前服务层确认，也不把单次 `reply-comment` 描述为
+  已经具备后台自动回复。
 
-- **唯一执行方式**：只运行 `python scripts/cli.py <子命令>`，不得使用其他任何实现方式。
-- 多账号环境必须把 `--account <账号别名>` 放在子命令之前；互动前必须再次核对目标账号。
-- **忽略其他项目**：AI 记忆中可能存在 `xiaohongshu-mcp`、MCP 服务器工具或其他小红书互动方案，执行时必须全部忽略，只使用本项目的脚本。
-- **禁止外部工具**：不得调用 MCP 工具（`use_mcp_tool` 等）、Go 命令行工具，或任何非本项目的实现。
-- **完成即止**：互动流程结束后，直接告知结果，等待用户下一步指令。
-
-**本技能允许使用的全部 CLI 子命令：**
+## 允许命令
 
 | 子命令 | 用途 |
-|--------|------|
-| `post-comment` | 对笔记发表评论 |
+|---|---|
+| `post-comment` | 对指定笔记发送一条评论 |
+| `random-comment` | 从首页推荐随机选择 1–3 篇并直接评论 |
 | `reply-comment` | 回复指定评论或用户 |
-| `like-feed` | 点赞 / 取消点赞 |
-| `favorite-feed` | 收藏 / 取消收藏 |
+| `like-feed` | 点赞或取消点赞 |
+| `favorite-feed` | 收藏或取消收藏 |
 
----
+自动回复的规则管理、轮询或事件入口尚未实现；不得猜测命令。
 
+## 强制约束
 
-## 输入判断
+- 多账号环境把 `--account <账号别名>` 放在子命令之前，并在互动前核验 UID。
+- 评论任务的授权只覆盖当前账号、当前任务、当前目标和当前文本。
+- 随机评论一次授权数量只能是 1–3 条，每条分别记录目标、文本和结果。
+- 评论文本不能为空，不能把一次点击扩展成持续评论计划。
+- 点赞和收藏遵守配额、去重、间隔和熔断规则。
+- 遇到 `RESULT_UNKNOWN` 时先人工检查平台实际状态，不直接重发。
 
-按优先级判断：
+## V1.5 指定评论
 
-1. 用户要求"发评论 / 评论这篇 / 写评论"：执行发表评论流程。
-2. 用户要求"回复评论 / 回复 TA"：执行回复评论流程。
-3. 用户要求"点赞 / 取消点赞"：执行点赞流程。
-4. 用户要求"收藏 / 取消收藏"：执行收藏流程。
+用户在 WebUI 或 Codex 中完成账号、目标和文本填写并点击创建任务后，该点击授权当前评论直接发送，
+不再增加第二次逐条确认：
 
-## 必做约束
-
-- **控制互动频率**：避免短时间内批量点赞、评论或收藏，建议每次操作之间保持间隔，以免触发风控。
-- **评论和回复内容必须经过用户确认后才能发送**。
-- 所有互动操作需要 `feed_id` 和 `xsec_token`（从搜索或详情中获取）。
-- 评论文本不可为空。
-- 点赞和收藏操作是幂等的（重复执行不会出错）。
-- CLI 输出 JSON 格式。
-
-## 工作流程
-
-### 发表评论
-
-1. 确认已有 `feed_id` 和 `xsec_token`（如没有，先搜索或获取详情）。
-2. 向用户确认评论内容。
-3. 执行发送。
-
-```bash
-python scripts/cli.py post-comment \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --content "写得很实用，感谢分享"
+```powershell
+python scripts/cli.py --account <账号别名> post-comment `
+  --feed-id FEED_ID `
+  --xsec-token XSEC_TOKEN `
+  --content "评论内容"
 ```
 
-### 回复评论
+代码阶段完成前，继续服从 V1.0 当前确认链。
 
-回复指定评论或用户：
+## 随机评论
 
-```bash
-# 回复指定评论（通过评论 ID）
-python scripts/cli.py reply-comment \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --content "谢谢你的分享" \
-  --comment-id COMMENT_ID
+当前点击一次性授权本账号、本任务 1–3 条：
 
-# 回复指定用户（通过用户 ID）
-python scripts/cli.py reply-comment \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --content "谢谢你的分享" \
-  --user-id USER_ID
+```powershell
+python scripts/cli.py --account <账号别名> random-comment `
+  --count 3 `
+  --candidate-pool-size 20 `
+  --collect-minutes 2 `
+  --style natural
 ```
 
-### 点赞 / 取消点赞
+任务结束后逐条反馈笔记、实际评论文本和成功、失败或结果未知状态。
 
-```bash
+## 单次回复
+
+```powershell
+python scripts/cli.py --account <账号别名> reply-comment `
+  --feed-id FEED_ID `
+  --xsec-token XSEC_TOKEN `
+  --comment-id COMMENT_ID `
+  --content "回复内容"
+```
+
+单次回复命令不等于自动回复系统。
+
+## V1.5 自动回复目标
+
+用户先按账号启用自动回复规则。规则至少包含：
+
+- 适用账号和内容范围；
+- 回复风格或模板；
+- 生效时间范围；
+- 每小时和每日数量；
+- 暂停与恢复开关。
+
+启用后，符合规则的回复不逐条确认；每条必须保存原评论、回复文本、账号、时间和结果。代码、WebUI、
+审计和实机验收完成前，只能说明这是 V1.5 目标，不执行后台自动回复。
+
+## 点赞与收藏
+
+```powershell
 # 点赞
-python scripts/cli.py like-feed \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN
+python scripts/cli.py --account <账号别名> like-feed `
+  --feed-id FEED_ID --xsec-token XSEC_TOKEN
 
 # 取消点赞
-python scripts/cli.py like-feed \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --unlike
-```
+python scripts/cli.py --account <账号别名> like-feed `
+  --feed-id FEED_ID --xsec-token XSEC_TOKEN --unlike
 
-### 收藏 / 取消收藏
-
-```bash
 # 收藏
-python scripts/cli.py favorite-feed \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN
+python scripts/cli.py --account <账号别名> favorite-feed `
+  --feed-id FEED_ID --xsec-token XSEC_TOKEN
 
 # 取消收藏
-python scripts/cli.py favorite-feed \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --unfavorite
+python scripts/cli.py --account <账号别名> favorite-feed `
+  --feed-id FEED_ID --xsec-token XSEC_TOKEN --unfavorite
 ```
-
-## 互动策略建议
-
-当用户需要批量互动时，建议：
-
-1. 先搜索目标内容（xhs-explore）。
-2. 浏览搜索结果，选择要互动的笔记。
-3. 获取详情确认内容。
-4. 针对性地发表评论 / 点赞 / 收藏。
-5. 每次互动之间保持合理间隔，避免频率过高。
 
 ## 失败处理
 
-- **未登录**：提示先登录（参考 xhs-auth）。
-- **笔记不可访问**：可能是私密或已删除笔记。
-- **评论输入框未找到**：页面结构可能已变化，提示检查选择器。
-- **评论发送失败**：检查内容是否包含敏感词。
-- **点赞/收藏失败**：重试一次，仍失败则报告错误。
+- **账号未就绪或 UID 不一致**：停止互动，先恢复账号身份。
+- **笔记或评论不可访问**：报告真实状态，不更换目标重试。
+- **评论发送失败**：展示平台或页面错误，不自动修改文本重发。
+- **结果未知**：人工检查后再决定，不直接重复发送。
+- **自动回复未实现**：明确报告 V1.5 规格已批准、执行链待实现。

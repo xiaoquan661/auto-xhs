@@ -113,31 +113,23 @@ def fill_publish_form(page: Page, content: PublishImageContent) -> None:
     )
 
 
-def click_publish_button(page: Page) -> None:
-    """触发发布。
+def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
+    """点击 closed-shadow 发布按钮，并用平台正向证据确认结果。
 
-    XHS 把发布/暂存按钮包成 <xhs-publish-btn> Vue web component + closed shadow DOM。
-    host 上挂着 'publish' 自定义事件 ——直接 dispatchEvent 比坐标点击 + CDP 真鼠标
-    更可靠：不依赖坐标、不依赖 chrome.debugger、不会被反爬的鼠标事件指纹检测。
-
-    流程：
-      1. 注入 3 层响应捕获（XHR/fetch 内容匹配 + console hook + DOM toast 观察器）
-      2. host.dispatchEvent(new CustomEvent('publish')) 触发发布
-      3. 轮询任一层捕获到的结果，识别业务错误码（-9136 = 账号风控）
-
-    Raises:
-        PublishError: 未找到 host 或按钮被禁用。
-        AccountRiskControlError: 账号被风控（如 code=-9136）。
+    成功只接受三类证据：发布接口成功响应、点击后出现的成功提示，或跳转到
+    创作中心笔记管理页后回读到本次标题。按钮消失或页面跳转本身不算成功。
     """
-    # 1) 注入多层响应捕获
-    #    XHS 自家有多层 XHR 拦截嵌套（s1-main / interceptor.js / axios），URL pattern
-    #    无法可靠匹配；用"响应内容标志"判定 + console.error hook + DOM toast 观察器三管齐下。
+    initial_url = str(page.evaluate("location.href") or "")
+
+    # 1) 注入多层响应捕获。结果同时写入 sessionStorage，确保同源跳转后仍可回读。
     page.evaluate(
         """
         (() => {
+            const STORAGE_KEY = '__xhs_publish_result_v1';
+            try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
+            if (window.__xhsPublishObs) window.__xhsPublishObs.disconnect();
             window.__xhsPublishResult = null;
 
-            // 内容标志：成功响应含 note_id；失败响应含 HTTPBizError 或 -913x 风控码或"禁止发笔记"
             function looksLikePublishResp(body) {
                 if (!body) return false;
                 return body.includes('HTTPBizError')
@@ -148,7 +140,9 @@ def click_publish_button(page: Page) -> None:
 
             function capture(source, info) {
                 if (window.__xhsPublishResult) return;  // first-wins
-                window.__xhsPublishResult = {source, ...info};
+                const result = {source, captured_at: Date.now(), ...info};
+                window.__xhsPublishResult = result;
+                try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(result)); } catch (e) {}
             }
 
             function captureFromBody(source, url, status, body) {
@@ -222,7 +216,8 @@ def click_publish_button(page: Page) -> None:
                 };
             });
 
-            // Layer 4: DOM MutationObserver — toast 出现"违反/违规/禁止发笔记"等关键词
+            // Layer 4: DOM MutationObserver — 只采集点击后新增的明确成功或失败提示。
+            const SUCCESS_KW = /笔记发布成功|发布成功|发布完成/;
             const RISK_KW = /违反|违规|禁止发笔记|审核未通过|账号异常|无法发布/;
             const obs = new MutationObserver((muts) => {
                 if (window.__xhsPublishResult) return;
@@ -231,12 +226,19 @@ def click_publish_button(page: Page) -> None:
                         if (n.nodeType !== 1) return;
                         const txt = (n.textContent || '').trim();
                         if (txt.length === 0 || txt.length > 300) return;
-                        if (!RISK_KW.test(txt)) return;
-                        capture('toast', {
-                            code: -9136,  // 默认风控码
-                            msg: txt,
-                            cls: (n.className || '').toString().slice(0, 80),
-                        });
+                        if (SUCCESS_KW.test(txt)) {
+                            capture('toast_success', {
+                                success: true,
+                                msg: txt,
+                                cls: (n.className || '').toString().slice(0, 80),
+                            });
+                        } else if (RISK_KW.test(txt)) {
+                            capture('toast_error', {
+                                code: -9136,
+                                msg: txt,
+                                cls: (n.className || '').toString().slice(0, 80),
+                            });
+                        }
                     });
                 });
             });
@@ -246,60 +248,182 @@ def click_publish_button(page: Page) -> None:
         """
     )
 
-    # 2) dispatchEvent 触发发布
-    fire_result = page.evaluate(
+    # 2) closed shadow DOM 无法从页面脚本查询内部 button。
+    #    根据 host 的公开布局计算红色发布按钮中心，再发送浏览器原生鼠标点击。
+    click_target = page.evaluate(
         """
         (() => {
             const host = document.querySelector('xhs-publish-btn[is-publish="true"]');
-            if (!host) return 'not_found';
-            if (host.getAttribute('submit-disabled') === 'true') return 'disabled';
-            host.dispatchEvent(new CustomEvent('publish', {bubbles: true, cancelable: true}));
-            return 'fired';
+            if (!host) return {status: 'not_found'};
+            if (host.getAttribute('submit-disabled') === 'true') return {status: 'disabled'};
+            const rect = host.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return {status: 'not_visible'};
+            return {
+                status: 'ready',
+                x: rect.left + rect.width / 2 + 72,
+                y: rect.top + rect.height / 2,
+            };
         })()
         """
     )
-    if fire_result == "not_found":
+    click_status = (click_target or {}).get("status")
+    if click_status == "not_found":
         raise PublishError("未找到 <xhs-publish-btn> 发布按钮容器")
-    if fire_result == "disabled":
+    if click_status == "disabled":
         raise PublishError("发布按钮 submit-disabled=true，不可发布")
+    if click_status != "ready":
+        raise PublishError("发布按钮当前不可见")
+    page.mouse_click(float(click_target["x"]), float(click_target["y"]))
 
-    # 3) 轮询等待 publish API 响应（15s 超时）
+    # 3) 轮询等待平台成功响应、成功提示或笔记管理页回读（15s 超时）。
     deadline = time.monotonic() + 15
-    result = None
+    observation = None
     while time.monotonic() < deadline:
-        result = page.evaluate("window.__xhsPublishResult")
-        if result:
-            break
+        observation = _read_publish_observation(
+            page,
+            expected_title=expected_title,
+            initial_url=initial_url,
+        )
+        verified = _interpret_publish_observation(observation)
+        if verified:
+            logger.info(
+                "发布成功，验证证据=%s 来源=%s",
+                verified["evidence"],
+                verified["source"],
+            )
+            time.sleep(2)
+            return verified
         time.sleep(0.3)
 
-    if not result:
-        logger.warning("15s 内未捕获到任何发布反馈（XHR/console/toast 都没匹配）")
-        time.sleep(2)
-        return
+    logger.warning("15s 内未取得可验证的发布成功证据")
+    return {
+        "verified": False,
+        "status": "result_unknown",
+        "evidence": "none",
+        "message": "未取得发布接口成功响应、成功提示或笔记管理页回读",
+        "final_url": str((observation or {}).get("url") or initial_url),
+    }
 
-    # 4) 解析业务码
-    source = result.get("source", "unknown")
-    code = result.get("code")
-    msg = result.get("msg", "")
-    success = result.get("success")
-    logger.info("捕获发布响应（来源=%s code=%s msg=%r）", source, code, msg)
 
-    if code == 0 or success is True:
-        logger.info("发布成功")
-        time.sleep(2)
-        return
+def _read_publish_observation(
+    page: Page,
+    *,
+    expected_title: str,
+    initial_url: str,
+) -> dict:
+    script = r"""
+        (() => {
+            const STORAGE_KEY = '__xhs_publish_result_v1';
+            let feedback = window.__xhsPublishResult || null;
+            if (!feedback) {
+                try {
+                    const raw = sessionStorage.getItem(STORAGE_KEY);
+                    feedback = raw ? JSON.parse(raw) : null;
+                } catch (e) {}
+            }
+            const url = String(location.href || '');
+            const text = (document.body && document.body.innerText) || '';
+            const hostPresent = Boolean(
+                document.querySelector('xhs-publish-btn[is-publish="true"]')
+            );
+            const expectedTitle = __EXPECTED_TITLE__;
+            const initialUrl = __INITIAL_URL__;
+            const onNoteManager = /\/new\/note-manager(?:[/?#]|$)/.test(url);
+            return {
+                feedback,
+                url,
+                url_changed: Boolean(initialUrl && url !== initialUrl),
+                host_present: hostPresent,
+                success_marker: /笔记发布成功|发布成功|发布完成/.test(text),
+                note_manager_title_match: Boolean(
+                    onNoteManager && expectedTitle && text.includes(expectedTitle)
+                ),
+            };
+        })()
+    """
+    script = script.replace("__EXPECTED_TITLE__", json.dumps(expected_title, ensure_ascii=False))
+    script = script.replace("__INITIAL_URL__", json.dumps(initial_url, ensure_ascii=False))
+    result = page.evaluate(script)
+    return result if isinstance(result, dict) else {}
 
-    # XHS 风控类业务码（-913x 段）+ 关键词兜底
-    is_risk_control = (
-        (code is not None and -9140 <= code <= -9130)
-        or "违反" in (msg or "")
-        or "禁止发笔记" in (msg or "")
-        or "违规" in (msg or "")
-    )
-    if is_risk_control:
-        raise AccountRiskControlError(code or -9136, msg or "账号被风控")
 
-    raise PublishError(f"发布失败：code={code} msg={msg!r}")
+def _interpret_publish_observation(observation: dict) -> dict | None:
+    feedback = observation.get("feedback")
+    if isinstance(feedback, dict):
+        source = str(feedback.get("source") or "platform")
+        code = feedback.get("code")
+        msg = str(feedback.get("msg") or "")
+        success = feedback.get("success")
+        if code == 0 or success is True:
+            evidence = "success_toast" if source == "toast_success" else "platform_response"
+            return {
+                "verified": True,
+                "status": "success",
+                "evidence": evidence,
+                "source": source,
+                "code": code,
+                "message": msg or "发布成功",
+                "note_id": _find_nested_value(feedback, "note_id", "noteId"),
+                "final_url": str(observation.get("url") or ""),
+            }
+
+        is_risk_control = (
+            (isinstance(code, int) and -9140 <= code <= -9130)
+            or "违反" in msg
+            or "禁止发笔记" in msg
+            or "违规" in msg
+        )
+        if is_risk_control:
+            raise AccountRiskControlError(code or -9136, msg or "账号被风控")
+        if code is not None:
+            raise PublishError(f"发布失败：code={code} msg={msg!r}")
+
+    if observation.get("note_manager_title_match"):
+        return {
+            "verified": True,
+            "status": "success",
+            "evidence": "note_manager_readback",
+            "source": "note_manager",
+            "code": None,
+            "message": "已在创作中心笔记管理页回读到本次标题",
+            "note_id": None,
+            "final_url": str(observation.get("url") or ""),
+        }
+
+    if (
+        observation.get("success_marker")
+        and observation.get("url_changed")
+        and not observation.get("host_present")
+    ):
+        return {
+            "verified": True,
+            "status": "success",
+            "evidence": "success_page",
+            "source": "success_page",
+            "code": None,
+            "message": "发布后页面显示明确成功提示",
+            "note_id": None,
+            "final_url": str(observation.get("url") or ""),
+        }
+    return None
+
+
+def _find_nested_value(payload: object, *keys: str) -> object | None:
+    if isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if value not in (None, ""):
+                return value
+        for value in payload.values():
+            found = _find_nested_value(value, *keys)
+            if found not in (None, ""):
+                return found
+    elif isinstance(payload, list):
+        for value in payload:
+            found = _find_nested_value(value, *keys)
+            if found not in (None, ""):
+                return found
+    return None
 
 
 def save_as_draft(page: Page) -> None:

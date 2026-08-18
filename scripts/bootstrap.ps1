@@ -98,10 +98,18 @@ function Find-CompatiblePython {
     return $null
 }
 
-function Test-CliReady {
+function Test-ProjectReady {
     param([string]$PythonExecutable)
 
     $null = & $PythonExecutable (Join-Path $ProjectRoot "scripts\cli.py") --help 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    # WebUI imports the Bridge client during startup. Checking this entry point
+    # catches missing runtime packages such as websockets before the detached
+    # server process hides the import error behind a health-check timeout.
+    $null = & $PythonExecutable (Join-Path $ProjectRoot "scripts\web_server.py") --help 2>&1
     return $LASTEXITCODE -eq 0
 }
 
@@ -189,7 +197,7 @@ if (-not $Python) {
     }
 }
 
-if (Test-CliReady -PythonExecutable $Python.executable) {
+if (Test-ProjectReady -PythonExecutable $Python.executable) {
     Write-BootstrapResult -Status "ready" -Message "Python and project dependencies are ready" `
         -PythonExecutable $Python.executable -PythonVersionValue $Python.version `
         -Source $Python.source
@@ -213,8 +221,8 @@ try {
     Invoke-Checked -Executable $VenvPython -Description "Install project dependencies" `
         -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "-e", "${ProjectRoot}[dev]")
     $Python = Get-PythonProbe -Executable $VenvPython -Source "project_venv"
-    if (-not $Python -or -not (Test-CliReady -PythonExecutable $Python.executable)) {
-        throw "The environment was prepared but the CLI self-check failed"
+    if (-not $Python -or -not (Test-ProjectReady -PythonExecutable $Python.executable)) {
+        throw "The environment was prepared but the CLI or WebUI self-check failed"
     }
     Write-BootstrapResult -Status "ready" -Message "Project virtual environment and dependencies are ready" `
         -PythonExecutable $Python.executable -PythonVersionValue $Python.version `

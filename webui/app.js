@@ -7,6 +7,7 @@ let accountTaskActivityByName = new Map();
 const pendingSubmissionByAccount = new Map();
 const taskMessageByAccount = new Map();
 let taskActivityPollTimer = null;
+let taskSnapshotKey = "";
 document.documentElement.classList.add("js-ready");
 
 const taskCapabilities = {
@@ -94,7 +95,12 @@ const taskCapabilities = {
     tokenRequired: false,
     commentSettings: true,
   },
+  "fill-publish": { label: "图文发布" },
+  "fill-publish-video": { label: "视频发布" },
+  "long-article": { label: "长文发布" },
 };
+
+const publishMonitorCapabilities = new Set(["fill-publish", "fill-publish-video", "long-article"]);
 
 const taskTemplates = {
   browse: ["browse-feeds"],
@@ -363,12 +369,14 @@ function accountCard(account, status) {
   const bridgeButton = document.createElement("button");
   bridgeButton.type = "button";
   bridgeButton.className = "secondary-button";
-  bridgeButton.textContent = status?.server_running ? "重启 Bridge" : "启动 Bridge";
-  bridgeButton.addEventListener("click", () => updateBridge(account.name, status?.server_running ? "restart" : "start", next));
+  const accountRuntimeReady = Boolean(status?.connection_ready);
+  bridgeButton.textContent = accountRuntimeReady ? "重启账号连接" : "启动账号";
+  bridgeButton.title = "启动 Bridge；扩展未连接时自动打开该槽位绑定的 Chrome Profile";
+  bridgeButton.addEventListener("click", () => updateBridge(account.name, accountRuntimeReady ? "restart" : "start", next));
   const autostartButton = document.createElement("button");
   autostartButton.type = "button";
   autostartButton.className = "secondary-button";
-  autostartButton.textContent = "Bridge 自启动";
+  autostartButton.textContent = "账号自启动";
   autostartButton.addEventListener("click", () => updateAutostart(account.name, next));
   actions.append(bridgeButton, autostartButton);
   card.append(actions);
@@ -440,10 +448,13 @@ async function removeAccountSlot() {
 }
 
 async function updateBridge(account, action, messageNode) {
-  if (!window.confirm(`${action === "start" ? "启动" : "重启"}槽位 ${account} 的 Bridge？此操作不会打开或关闭 Chrome。`)) return;
+  if (!window.confirm(`${action === "start" ? "启动" : "重启"}槽位 ${account} 的账号连接？\n\n系统会启动 Bridge；扩展未连接时会自动打开绑定的 Chrome Profile，但不会关闭 Chrome。`)) return;
   try {
-    await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/bridge/${action}`, "POST", {});
-    messageNode.textContent = "Bridge 操作已完成，正在刷新账号状态。";
+    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/bridge/${action}`, "POST", {});
+    const lifecycle = result.lifecycle || {};
+    messageNode.textContent = lifecycle.ready
+      ? lifecycle.message || "账号连接已恢复，正在刷新状态。"
+      : `账号尚未就绪：${lifecycle.message || "请检查 Bridge、扩展和 Profile 状态"}`;
     await loadDashboard();
   } catch (error) { messageNode.textContent = error.message; }
 }
@@ -452,9 +463,9 @@ async function updateAutostart(account, messageNode) {
   try {
     const current = await fetchJson(`${api}/accounts/${encodeURIComponent(account)}/autostart`);
     const enabled = !current.autostart.enabled;
-    if (!window.confirm(`${enabled ? "启用" : "关闭"} ${account} 的 Windows 登录 Bridge 自启动？不会自动启动 Chrome。`)) return;
+    if (!window.confirm(`${enabled ? "启用" : "关闭"} ${account} 的 Windows 登录账号自启动？\n\n启用后会在登录 Windows 时启动 Bridge，并按需打开该槽位绑定的 Chrome Profile。`)) return;
     await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/autostart/update`, "POST", { enabled, confirmed: true });
-    messageNode.textContent = `Bridge 自启动已${enabled ? "启用" : "关闭"}。`;
+    messageNode.textContent = `账号自启动已${enabled ? "启用" : "关闭"}。`;
   } catch (error) { messageNode.textContent = error.message; }
 }
 
@@ -1028,6 +1039,36 @@ function appendTaskResult(card, item, { interactive = false } = {}) {
   card.append(details);
 }
 
+function appendPublishTaskPreview(card, item) {
+  if (!publishMonitorCapabilities.has(item.capability)) return;
+  const parameters = item.parameters || {};
+  const preview = parameters.preview || {};
+  const details = document.createElement("dl");
+  details.className = "result-facts publish-monitor-facts";
+  const values = [
+    ["发布标题", preview.title],
+    ["发布类型", { image: "图文", video: "视频", long_article: "长文" }[preview.kind] || preview.kind],
+    ["素材数量", preview.asset_count !== undefined ? `${preview.asset_count} 个` : ""],
+    ["可见范围", preview.visibility],
+    ["计划时间", preview.schedule_at || "立即发布"],
+    ["当前阶段", {
+      preparing: "准备浏览器预览",
+      template_selection: "选择长文模板",
+      next_step: "进入长文发布页",
+      preview_ready: "等待 Agent 侧确认",
+    }[parameters.stage] || parameters.stage],
+  ];
+  values.forEach(([label, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = String(value);
+    details.append(term, description);
+  });
+  if (details.childElementCount) card.append(details);
+}
+
 async function updateTask(task, action, button) {
   const label = action === "retry" ? "重试" : "取消";
   const prompt = action === "retry"
@@ -1073,8 +1114,9 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
     meta.textContent = metaParts.filter(Boolean).join(" · ");
     card.append(state, title, summary);
     if (meta.textContent) card.append(meta);
+    appendPublishTaskPreview(card, item);
     appendTaskResult(card, item, { interactive });
-    if (interactive && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
+    if (interactive && !publishMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
       const actions = document.createElement("div");
       actions.className = "task-actions";
       if (item.state === "BLOCKED") {
@@ -1157,17 +1199,24 @@ function updateTaskAvailability() {
 }
 
 function taskActivityNeedsPolling() {
-  if (pendingSubmissionByAccount.size) return true;
-  return Array.from(accountTaskActivityByName.values()).some((activity) =>
-    activity.state === "RUNNING"
-  );
+  return true;
+}
+
+function taskSnapshot(tasks) {
+  return JSON.stringify(tasks.map((task) => [
+    task.task_id,
+    task.state,
+    task.result_summary,
+    task.error_code,
+    task.parameters?.stage || "",
+  ]));
 }
 
 function scheduleTaskActivityPoll() {
   if (taskActivityPollTimer) clearTimeout(taskActivityPollTimer);
   taskActivityPollTimer = null;
   if (!taskActivityNeedsPolling()) return;
-  taskActivityPollTimer = setTimeout(pollTaskActivity, 2000);
+  taskActivityPollTimer = setTimeout(pollTaskActivity, 3000);
 }
 
 async function pollTaskActivity() {
@@ -1177,6 +1226,12 @@ async function pollTaskActivity() {
   );
   try {
     const payload = await fetchJson(`${api}/tasks`);
+    const nextSnapshotKey = taskSnapshot(payload.tasks);
+    if (nextSnapshotKey !== taskSnapshotKey) {
+      taskSnapshotKey = nextSnapshotKey;
+      await loadDashboard();
+      return;
+    }
     rebuildAccountTaskActivity(payload.tasks);
     syncAccountActivityUI();
     const hasBackendActivity = Array.from(accountTaskActivityByName.values()).some(
@@ -1196,6 +1251,7 @@ async function loadWorkData(accountData, statuses) {
   const [tasks, records, drafts] = await Promise.all([fetchJson(`${api}/tasks`), fetchJson(`${api}/records`), fetchJson(`${api}/drafts`)]);
   const resultByTask = new Map(records.records.filter((record) => record.result && Object.keys(record.result).length).map((record) => [record.task_id, record.result]));
   const tasksWithResults = tasks.tasks.map((task) => ({ ...task, result: resultByTask.get(task.task_id) || task.result || {} }));
+  taskSnapshotKey = taskSnapshot(tasks.tasks);
   rebuildAccountTaskActivity(tasksWithResults);
   renderTaskItems(tasksWithResults, "#task-list", "暂无任务", { interactive: true });
   renderTaskItems(records.records, "#record-list", "暂无执行记录");

@@ -37,6 +37,13 @@ _IDENTITY_GUARDED_COMMANDS = {
     "keyword-engagement",
     "publish",
     "publish-video",
+    "fill-publish",
+    "fill-publish-video",
+    "click-publish",
+    "save-draft",
+    "long-article",
+    "select-template",
+    "next-step",
 }
 
 
@@ -132,30 +139,30 @@ def _ensure_bridge_ready(
     return {"bridge_running": lifecycle["bridge_running"]}
 
 
-def _connect(args: argparse.Namespace):
-    """返回 (browser, page)，browser 为空对象，page 通过 Extension Bridge 操作浏览器。"""
+def _connect_runtime(args: argparse.Namespace):
+    """连接已绑定的 Extension Bridge，并核验槽位对应的 Profile。"""
+    from account_lifecycle import start_account_runtime
     from account_manager import load_account
     from xhs.bridge import BridgePage
 
     account_name = getattr(args, "account", "default")
     account_config = load_account(account_name)
     bridge_url = getattr(args, "bridge_url", None) or account_config.bridge_url
-    startup = _ensure_bridge_ready(bridge_url, account_config)
-    if not startup["bridge_running"]:
-        raise RuntimeError("BLOCKED: Bridge 启动失败，请先在 WebUI 运行诊断")
+    startup = start_account_runtime(account_config, bridge_url=bridge_url)
+    if not startup["ready"]:
+        raise RuntimeError(f"BLOCKED: {startup['message']}")
     page = BridgePage(
         bridge_url,
         account=account_name,
         account_id=account_config.account_id,
         bridge_token=account_config.bridge_token,
     )
-    if not page.is_extension_connected():
-        profile = account_config.chrome_profile_directory or "Default"
-        raise RuntimeError(
-            "BLOCKED: 热登录浏览器未连接。请手动打开账号 "
-            f"{account_name!r} 对应的 Chrome Profile {profile!r}，"
-            "保持小红书页面和 XHS Bridge 扩展开启后重试"
-        )
+    return account_name, page
+
+
+def _connect(args: argparse.Namespace):
+    """返回 (browser, page)，并为高风险命令执行实时登录身份核验。"""
+    account_name, page = _connect_runtime(args)
     if getattr(args, "command", None) in _IDENTITY_GUARDED_COMMANDS:
         from account_identity import assert_live_identity
         from xhs.login import get_current_user_identity
@@ -164,9 +171,28 @@ def _connect(args: argparse.Namespace):
     return _DummyBrowser(), page
 
 
-# _connect_saved_tab / _connect_existing 在 bridge 模式下与 _connect 等价
+# Bridge 总是复用绑定 Profile 中现有的小红书标签页。
 _connect_saved_tab = _connect
-_connect_existing = _connect
+
+
+def _connect_existing(args: argparse.Namespace):
+    """复用分步任务的现有页面，不通过导航破坏已填写的发布预览。"""
+    from account_identity import assert_live_identity
+
+    account_name, page = _connect_runtime(args)
+    observed = getattr(args, "_runtime_identity", None) or {}
+    user_id = str(observed.get("user_id") or "").strip()
+    assert_live_identity(
+        account_name,
+        {
+            "logged_in": bool(user_id),
+            "user_id": user_id,
+            "nickname": str(observed.get("nickname") or ""),
+            "profile_url": "",
+            "observed_at": str(observed.get("observed_at") or ""),
+        },
+    )
+    return _DummyBrowser(), page
 
 
 # ─── 子命令实现 ───────────────────────────────────────────────────────────────
@@ -621,42 +647,21 @@ def cmd_favorite_feed(args: argparse.Namespace) -> None:
 
 
 def cmd_publish(args: argparse.Namespace) -> None:
-    """发布图文内容。"""
-    from image_downloader import process_images
-    from xhs.publish import publish_image_content
-    from xhs.types import PublishImageContent
-
-    with open(args.title_file, encoding="utf-8") as f:
-        title = f.read().strip()
-    with open(args.content_file, encoding="utf-8") as f:
-        content = f.read().strip()
-
-    image_paths = process_images(args.images) if args.images else []
-    if not image_paths:
-        _output({"success": False, "error": "没有有效的图片"}, exit_code=2)
-
-    browser, page = _connect(args)
-    try:
-        publish_image_content(
-            page,
-            PublishImageContent(
-                title=title,
-                content=content,
-                tags=args.tags or [],
-                image_paths=image_paths,
-                schedule_time=args.schedule_at,
-                is_original=args.original,
-                visibility=args.visibility or "",
-            ),
-        )
-        _output({"success": True, "title": title, "images": len(image_paths), "status": "发布完成"})
-    finally:
-        browser.close()
+    """Reject the legacy one-step image publishing command."""
+    _output(
+        {
+            "success": False,
+            "error_code": "ONE_STEP_PUBLISH_DISABLED",
+            "error": "禁止一步直发，请先运行 fill-publish 生成预览任务",
+        },
+        exit_code=2,
+    )
 
 
 def cmd_fill_publish(args: argparse.Namespace) -> None:
     """只填写图文表单，不发布。"""
     from image_downloader import process_images
+    from publish_workflow import PublishWorkflowService
     from xhs.publish import fill_publish_form
     from xhs.types import PublishImageContent
 
@@ -669,8 +674,27 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
     if not image_paths:
         _output({"success": False, "error": "没有有效的图片"}, exit_code=2)
 
-    browser, page = _connect(args)
+    preview = {
+        "kind": "image",
+        "title": title,
+        "content": content,
+        "assets": image_paths,
+        "asset_count": len(image_paths),
+        "tags": args.tags or [],
+        "schedule_at": args.schedule_at,
+        "original": bool(args.original),
+        "visibility": args.visibility or "公开可见",
+    }
+    workflow = PublishWorkflowService()
+    task = workflow.begin(
+        account=args.account,
+        capability="fill-publish",
+        request_summary=f"图文发布预览：{title}",
+        preview=preview,
+    )
+    browser = None
     try:
+        browser, page = _connect(args)
         fill_publish_form(
             page,
             PublishImageContent(
@@ -683,20 +707,36 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
                 visibility=args.visibility or "",
             ),
         )
+        task = workflow.wait_for_confirmation(
+            task["task_id"],
+            summary="图文已填写到浏览器，等待用户确认真实预览",
+        )
         _output(
             {
                 "success": True,
-                "title": title,
-                "images": len(image_paths),
+                "task_id": task["task_id"],
+                "task": task,
+                "preview": preview,
                 "status": "表单已填写，等待确认发布",
+                "next_command": (
+                    f"python scripts/cli.py --account {args.account} click-publish "
+                    f"--task-id {task['task_id']} --confirm"
+                ),
             }
         )
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_fill_publish_video(args: argparse.Namespace) -> None:
     """只填写视频表单，不发布。"""
+    from pathlib import Path
+
+    from publish_workflow import PublishWorkflowService
     from xhs.publish_video import fill_publish_video_form
     from xhs.types import PublishVideoContent
 
@@ -705,57 +745,131 @@ def cmd_fill_publish_video(args: argparse.Namespace) -> None:
     with open(args.content_file, encoding="utf-8") as f:
         content = f.read().strip()
 
-    browser, page = _connect(args)
+    video_path = str(Path(args.video).expanduser().resolve())
+    if not Path(video_path).is_file():
+        _output({"success": False, "error": f"视频文件不存在: {video_path}"}, exit_code=2)
+    preview = {
+        "kind": "video",
+        "title": title,
+        "content": content,
+        "assets": [video_path],
+        "asset_count": 1,
+        "tags": args.tags or [],
+        "schedule_at": args.schedule_at,
+        "visibility": args.visibility or "公开可见",
+    }
+    workflow = PublishWorkflowService()
+    task = workflow.begin(
+        account=args.account,
+        capability="fill-publish-video",
+        request_summary=f"视频发布预览：{title}",
+        preview=preview,
+    )
+    browser = None
     try:
+        browser, page = _connect(args)
         fill_publish_video_form(
             page,
             PublishVideoContent(
                 title=title,
                 content=content,
                 tags=args.tags or [],
-                video_path=args.video,
+                video_path=video_path,
                 schedule_time=args.schedule_at,
                 visibility=args.visibility or "",
             ),
         )
+        task = workflow.wait_for_confirmation(
+            task["task_id"],
+            summary="视频已填写到浏览器，等待用户确认真实预览",
+        )
         _output(
             {
                 "success": True,
-                "title": title,
-                "video": args.video,
+                "task_id": task["task_id"],
+                "task": task,
+                "preview": preview,
                 "status": "视频表单已填写，等待确认发布",
+                "next_command": (
+                    f"python scripts/cli.py --account {args.account} click-publish "
+                    f"--task-id {task['task_id']} --confirm"
+                ),
             }
         )
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_click_publish(args: argparse.Namespace) -> None:
     """点击发布按钮（在用户确认后调用）。"""
+    from publish_workflow import PublishWorkflowService
     from xhs.publish import click_publish_button
+    from xhs.errors import PublishError
 
-    browser, page = _connect_existing(args)
+    workflow = PublishWorkflowService()
+    checks = workflow.store.get_setting("runtime_identity_checks", {})
+    args._runtime_identity = (checks or {}).get(args.account) or {}
+    task = workflow.prepare_publish(args.task_id, account=args.account, confirmed=args.confirm)
+    browser = None
+    publish_attempted = False
     try:
-        click_publish_button(page)
-        _output({"success": True, "status": "发布完成"})
+        browser, page = _connect_existing(args)
+        publish_attempted = True
+        preview = (task.get("parameters") or {}).get("preview") or {}
+        result = click_publish_button(
+            page,
+            expected_title=str(preview.get("title") or ""),
+        )
+        task = workflow.complete_publish(task["task_id"], result)
+        _output(
+            {
+                "success": task["state"] == "SUCCESS",
+                "task_id": task["task_id"],
+                "task": task,
+                "result": result,
+                "status": task["state"],
+            },
+            exit_code=0 if task["state"] == "SUCCESS" else 2,
+        )
+    except PublishError as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc, result_unknown=publish_attempted)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_save_draft(args: argparse.Namespace) -> None:
     """保存为草稿。"""
+    from publish_workflow import PublishWorkflowService
     from xhs.publish import save_as_draft
 
-    browser, page = _connect_existing(args)
+    workflow = PublishWorkflowService()
+    task = workflow.resume_preparation(args.task_id, account=args.account)
+    browser = None
     try:
+        browser, page = _connect_existing(args)
         save_as_draft(page)
-        _output({"success": True, "status": "内容已保存到草稿箱"})
+        task = workflow.complete_saved_draft(task["task_id"])
+        _output({"success": True, "task_id": task["task_id"], "task": task, "status": "内容已保存到草稿箱"})
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_long_article(args: argparse.Namespace) -> None:
     """长文模式：填写内容 + 一键排版，返回模板列表。"""
+    from publish_workflow import PublishWorkflowService
     from xhs.publish_long_article import publish_long_article
 
     with open(args.title_file, encoding="utf-8") as f:
@@ -763,47 +877,130 @@ def cmd_long_article(args: argparse.Namespace) -> None:
     with open(args.content_file, encoding="utf-8") as f:
         content = f.read().strip()
 
-    browser, page = _connect(args)
+    preview = {
+        "kind": "long_article",
+        "title": title,
+        "content": content,
+        "assets": args.images or [],
+        "asset_count": len(args.images or []),
+        "tags": [],
+        "schedule_at": None,
+        "visibility": "公开可见",
+    }
+    workflow = PublishWorkflowService()
+    task = workflow.begin(
+        account=args.account,
+        capability="long-article",
+        request_summary=f"长文发布预览：{title}",
+        preview=preview,
+    )
+    browser = None
     try:
+        browser, page = _connect(args)
         template_names = publish_long_article(
             page,
             title=title,
             content=content,
             image_paths=args.images,
         )
-        _output({"success": True, "templates": template_names, "status": "长文已填写，请选择模板"})
+        task = workflow.wait_for_confirmation(
+            task["task_id"],
+            summary="长文已填写，等待选择排版模板",
+            stage="template_selection",
+            preview_updates={"templates": template_names},
+        )
+        _output(
+            {
+                "success": True,
+                "task_id": task["task_id"],
+                "task": task,
+                "preview": task["parameters"]["preview"],
+                "templates": template_names,
+                "status": "长文已填写，请选择模板",
+            }
+        )
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_select_template(args: argparse.Namespace) -> None:
     """选择排版模板。"""
+    from publish_workflow import PublishWorkflowService
     from xhs.publish_long_article import select_template
 
-    browser, page = _connect_existing(args)
+    workflow = PublishWorkflowService()
+    task = workflow.resume_preparation(args.task_id, account=args.account)
+    browser = None
     try:
+        browser, page = _connect_existing(args)
         selected = select_template(page, args.name)
         if selected:
-            _output({"success": True, "template": args.name, "status": "模板已选择"})
-        else:
-            _output({"success": False, "error": f"未找到模板: {args.name}"}, exit_code=2)
+            task = workflow.wait_for_confirmation(
+                task["task_id"],
+                summary="长文模板已选择，等待进入发布预览",
+                stage="next_step",
+                preview_updates={"template": args.name},
+            )
+            _output(
+                {
+                    "success": True,
+                    "task_id": task["task_id"],
+                    "task": task,
+                    "template": args.name,
+                    "status": "模板已选择",
+                }
+            )
+        raise RuntimeError(f"未找到模板: {args.name}")
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_next_step(args: argparse.Namespace) -> None:
     """点击下一步 + 填写发布页描述。"""
+    from publish_workflow import PublishWorkflowService
     from xhs.publish_long_article import click_next_and_fill_description
 
     with open(args.content_file, encoding="utf-8") as f:
         description = f.read().strip()
 
-    browser, page = _connect_existing(args)
+    workflow = PublishWorkflowService()
+    task = workflow.resume_preparation(args.task_id, account=args.account)
+    browser = None
     try:
+        browser, page = _connect_existing(args)
         click_next_and_fill_description(page, description)
-        _output({"success": True, "status": "已进入发布页，等待确认发布"})
+        task = workflow.wait_for_confirmation(
+            task["task_id"],
+            summary="长文已进入浏览器发布页，等待用户确认真实预览",
+            preview_updates={"description": description},
+        )
+        _output(
+            {
+                "success": True,
+                "task_id": task["task_id"],
+                "task": task,
+                "preview": task["parameters"]["preview"],
+                "status": "已进入发布页，等待确认发布",
+                "next_command": (
+                    f"python scripts/cli.py --account {args.account} click-publish "
+                    f"--task-id {task['task_id']} --confirm"
+                ),
+            }
+        )
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc)
+        raise
     finally:
-        browser.close()
+        if browser:
+            browser.close()
 
 
 def cmd_diagnose_404(args: argparse.Namespace) -> None:
@@ -929,31 +1126,15 @@ def cmd_risk_report(args: argparse.Namespace) -> None:
 
 
 def cmd_publish_video(args: argparse.Namespace) -> None:
-    """发布视频内容。"""
-    from xhs.publish_video import publish_video_content
-    from xhs.types import PublishVideoContent
-
-    with open(args.title_file, encoding="utf-8") as f:
-        title = f.read().strip()
-    with open(args.content_file, encoding="utf-8") as f:
-        content = f.read().strip()
-
-    browser, page = _connect(args)
-    try:
-        publish_video_content(
-            page,
-            PublishVideoContent(
-                title=title,
-                content=content,
-                tags=args.tags or [],
-                video_path=args.video,
-                schedule_time=args.schedule_at,
-                visibility=args.visibility or "",
-            ),
-        )
-        _output({"success": True, "title": title, "video": args.video, "status": "发布完成"})
-    finally:
-        browser.close()
+    """Reject the legacy one-step video publishing command."""
+    _output(
+        {
+            "success": False,
+            "error_code": "ONE_STEP_PUBLISH_DISABLED",
+            "error": "禁止一步直发，请先运行 fill-publish-video 生成预览任务",
+        },
+        exit_code=2,
+    )
 
 
 # ─── 多账号管理 ────────────────────────────────────────────────────────────────
@@ -1109,14 +1290,13 @@ def cmd_account_remove(args: argparse.Namespace) -> None:
 
 
 def cmd_account_start(args: argparse.Namespace) -> None:
+    from account_lifecycle import start_account_runtime
     from account_manager import load_account, public_config
-    from account_runtime import evaluate_profile_connection
-    from xhs.bridge import BridgePage
 
     config = load_account(args.account, allow_legacy_default=False)
     bridge_url = args.bridge_url or config.bridge_url
-    startup = _ensure_bridge_ready(bridge_url, config)
     if getattr(args, "bridge_only", False):
+        startup = _ensure_bridge_ready(bridge_url, config)
         _output(
             {
                 "success": startup["bridge_running"],
@@ -1128,45 +1308,15 @@ def cmd_account_start(args: argparse.Namespace) -> None:
             },
             exit_code=0 if startup["bridge_running"] else 2,
         )
-    page = BridgePage(bridge_url, account=config.name)
-    bridge_status = page.get_server_status()
-    runtime = evaluate_profile_connection(config, bridge_status)
-    ready = bool(
-        runtime["bridge_running"]
-        and runtime["extension_connected"]
-        and runtime["profile_verified"]
-    )
+    lifecycle = start_account_runtime(config, bridge_url=bridge_url)
+    ready = lifecycle["ready"]
     result = {
+        **lifecycle,
         "success": ready,
-        "server_running": runtime["bridge_running"],
-        "extension_connected": runtime["extension_connected"],
-        "profile_verified": runtime["profile_verified"],
-        "expected_profile_directory": runtime["expected_profile_directory"],
-        "connected_profile_directory": runtime["connected_profile_directory"],
-        "profile_directory_claim_matches": runtime[
-            "profile_directory_claim_matches"
-        ],
-        "profile_verification_level": runtime["profile_verification_level"],
-        "connection_identity_verified": runtime["connection_identity_verified"],
-        "extension_instance_enrolled": runtime["extension_instance_enrolled"],
-        "status": "READY" if ready else "BLOCKED",
+        "server_running": lifecycle["bridge_running"],
         "account": public_config(config),
     }
-    if runtime["extension_connected"] and not runtime["profile_verified"]:
-        result["error_code"] = "PROFILE_MISMATCH"
-        result["message"] = (
-            "已连接扩展的 Profile 声明或已登记实例与槽位不一致，"
-            "拒绝把账号标记为启动成功"
-        )
-    elif not startup["bridge_running"]:
-        result["error_code"] = "BRIDGE_NOT_READY"
-        result["message"] = "Bridge 启动失败，请在 WebUI 运行诊断"
-    elif not runtime["extension_connected"] and config.extension_dir:
-        result["error_code"] = "HOT_SESSION_NOT_READY"
-        result["message"] = (
-            "系统不会自动启动 Chrome。请手动打开目标 Profile，"
-            "保持小红书页面和 XHS Bridge 扩展开启后重新检查"
-        )
+    if lifecycle.get("error_code") == "EXTENSION_NOT_CONNECTED" and config.extension_dir:
         result["extension_setup"] = {
             "required_once": True,
             "url": "chrome://extensions",
@@ -1599,7 +1749,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_account_remove, requires_account_lock=False)
 
     sub = subparsers.add_parser(
-        "account-start", help="启动目标账号的 Bridge 并检查热登录连接（不会启动 Chrome）"
+        "account-start", help="启动目标账号的 Bridge，按需打开绑定 Profile 并核验连接"
     )
     sub.add_argument(
         "--bridge-only",
@@ -1851,7 +2001,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_favorite_feed)
 
     # publish
-    sub = subparsers.add_parser("publish", help="发布图文")
+    sub = subparsers.add_parser("publish", help="旧版一步图文发布（已禁用）")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
     sub.add_argument("--images", nargs="+", required=True)
@@ -1862,7 +2012,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_publish)
 
     # publish-video
-    sub = subparsers.add_parser("publish-video", help="发布视频")
+    sub = subparsers.add_parser("publish-video", help="旧版一步视频发布（已禁用）")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
     sub.add_argument("--video", required=True)
@@ -1893,11 +2043,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_fill_publish_video)
 
     # click-publish
-    sub = subparsers.add_parser("click-publish", help="点击发布按钮")
+    sub = subparsers.add_parser("click-publish", help="确认预览后执行发布")
+    sub.add_argument("--task-id", required=True, help="fill/long-article 返回的发布任务 ID")
+    sub.add_argument("--confirm", action="store_true", help="确认已核对浏览器真实预览")
     sub.set_defaults(func=cmd_click_publish)
 
     # save-draft
     sub = subparsers.add_parser("save-draft", help="保存为草稿")
+    sub.add_argument("--task-id", required=True, help="待取消发布的任务 ID")
     sub.set_defaults(func=cmd_save_draft)
 
     # long-article
@@ -1909,11 +2062,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     # select-template
     sub = subparsers.add_parser("select-template", help="选择排版模板")
+    sub.add_argument("--task-id", required=True, help="long-article 返回的任务 ID")
     sub.add_argument("--name", required=True)
     sub.set_defaults(func=cmd_select_template)
 
     # next-step
     sub = subparsers.add_parser("next-step", help="点击下一步 + 填写描述")
+    sub.add_argument("--task-id", required=True, help="long-article 返回的任务 ID")
     sub.add_argument("--content-file", required=True)
     sub.set_defaults(func=cmd_next_step)
 

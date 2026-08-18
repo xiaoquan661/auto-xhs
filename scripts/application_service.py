@@ -20,6 +20,7 @@ from account_identity import (
     load_switch_state,
     record_current_identity,
 )
+from account_lifecycle import restart_account_runtime, start_account_runtime
 from account_manager import (
     AccountConfig,
     add_account,
@@ -39,8 +40,6 @@ from account_runtime import evaluate_profile_connection
 from approval_service import ApprovalService
 from bridge_lifecycle import (
     get_bridge_lifecycle,
-    restart_bridge,
-    start_bridge,
     stop_bridge,
 )
 from business_runner import BusinessRunner
@@ -90,9 +89,9 @@ class ApplicationService:
         extension_source: str | Path = DEFAULT_EXTENSION_SOURCE,
         business_runner: BusinessRunner | None = None,
         bridge_status_reader: Callable[..., dict] = get_bridge_lifecycle,
-        bridge_starter: Callable[..., dict] = start_bridge,
+        bridge_starter: Callable[..., dict] = start_account_runtime,
         bridge_stopper: Callable[..., dict] = stop_bridge,
-        bridge_restarter: Callable[..., dict] = restart_bridge,
+        bridge_restarter: Callable[..., dict] = restart_account_runtime,
         diagnostic_exporter: Callable[..., Path] = export_diagnostic_report,
         autostart_reader: Callable[[str], dict] = account_autostart_status,
         autostart_enabler: Callable[[str], dict] = enable_account_autostart,
@@ -214,7 +213,7 @@ class ApplicationService:
         return {
             "success": True,
             "account": public_config(config),
-            "next_action": "手动打开新槽位的 Chrome Profile，再完成扩展配对",
+            "next_action": "点击“启动账号”打开新 Profile，再完成扩展配对",
         }
 
     def import_account_slot(
@@ -243,7 +242,7 @@ class ApplicationService:
         return {
             "success": True,
             "account": public_config(config),
-            "next_action": "手动打开该 Chrome Profile，再完成扩展配对",
+            "next_action": "点击“启动账号”打开该 Profile，再完成扩展配对",
         }
 
     def remove_account_slot(
@@ -575,7 +574,7 @@ class ApplicationService:
 
     def set_account_autostart(self, account: str, *, enabled: bool, confirmed: bool) -> dict:
         if not confirmed:
-            raise ServiceError("CONFIRMATION_REQUIRED", "修改 Bridge 自启动需要明确确认", 409)
+            raise ServiceError("CONFIRMATION_REQUIRED", "修改账号自启动需要明确确认", 409)
         command = "account-autostart-enable" if enabled else "account-autostart-disable"
         self.require_enabled_capability(command)
         self._load_account(account)
@@ -778,25 +777,7 @@ class ApplicationService:
         return {"success": True, "records": records}
 
     def _record_task_event(self, task: dict, target_key: str, *, result=None) -> None:
-        import uuid
-
-        event_id = uuid.uuid4().hex
-        event = {
-            "event_id": event_id,
-            "task_id": task["task_id"],
-            "account_slot": task["account_slot"],
-            "capability": task["capability"],
-            "risk_level": task["risk_level"],
-            "target_key": target_key,
-            "state": task["state"],
-            "started_at": task["started_at"],
-            "finished_at": task["finished_at"],
-            "result_summary": task["result_summary"],
-            "error_code": task["error_code"],
-            "recommended_action": task["recommended_action"],
-            "result": result or {},
-        }
-        self._store.put("events", event_id, event)
+        self.tasks.record_event(task, target_key, result=result)
 
     @staticmethod
     def _task_target_key(task: dict) -> str:
@@ -810,6 +791,12 @@ class ApplicationService:
 
     @staticmethod
     def _validate_task_parameters(capability: str, parameters: dict) -> None:
+        if capability in {"fill-publish", "fill-publish-video", "long-article"}:
+            raise ServiceError(
+                "AGENT_CLI_ONLY",
+                "发布任务只能由 Agent 通过 Python CLI 的预览流程创建",
+                409,
+            )
         if capability == "browse-feeds":
             try:
                 duration_minutes = int(parameters.get("duration_minutes"))
@@ -1105,9 +1092,9 @@ class ApplicationService:
 
 def _account_state(runtime: dict, identity: dict) -> tuple[str, str | None]:
     if not runtime["bridge_running"]:
-        return "BLOCKED", "启动或检查该账号的 Bridge"
+        return "BLOCKED", "点击“启动账号”恢复 Bridge 和绑定的 Chrome Profile"
     if not runtime["extension_connected"]:
-        return "BLOCKED", "手动打开对应 Chrome Profile 并保持扩展在线"
+        return "BLOCKED", "点击“启动账号”，再检查扩展是否已加载和配对"
     if not runtime["profile_verified"]:
         return "BLOCKED", "检查 Profile 绑定和扩展配对"
     if identity["switch_pending"]:

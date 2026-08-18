@@ -24,7 +24,15 @@ FINAL_STATES = {"SUCCESS", "PARTIAL_SUCCESS", "FAILED", "CANCELLED", "RESULT_UNK
 _TRANSITIONS = {
     "QUEUED": {"RUNNING", "BLOCKED", "CANCELLED"},
     "WAITING_APPROVAL": {"QUEUED", "BLOCKED", "CANCELLED"},
-    "RUNNING": {"SUCCESS", "PARTIAL_SUCCESS", "FAILED", "BLOCKED", "CANCELLED", "RESULT_UNKNOWN"},
+    "RUNNING": {
+        "WAITING_APPROVAL",
+        "SUCCESS",
+        "PARTIAL_SUCCESS",
+        "FAILED",
+        "BLOCKED",
+        "CANCELLED",
+        "RESULT_UNKNOWN",
+    },
     "BLOCKED": {"QUEUED", "CANCELLED"},
 }
 
@@ -80,6 +88,31 @@ class TaskService:
         }
         return self.store.put("tasks", task_id, task)
 
+    def create_workflow(
+        self,
+        *,
+        source: str,
+        account_slot: str,
+        capability: str,
+        request_summary: str,
+        parameters: dict | None = None,
+    ) -> dict:
+        """Create a queued multi-step task whose confirmation happens mid-workflow."""
+        task = self.create(
+            source=source,
+            account_slot=account_slot,
+            capability=capability,
+            request_summary=request_summary,
+            parameters=parameters,
+        )
+        if task["state"] == "WAITING_APPROVAL":
+            task = self.store.update(
+                "tasks",
+                task["task_id"],
+                lambda current: {**current, "state": "QUEUED"},
+            )
+        return task
+
     def get(self, task_id: str) -> dict:
         task = self.store.get("tasks", task_id)
         if task is None:
@@ -121,6 +154,8 @@ class TaskService:
             if state == "RUNNING":
                 task["started_at"] = now
                 task["finished_at"] = None
+            if state == "WAITING_APPROVAL":
+                task["finished_at"] = None
             if state in FINAL_STATES or state == "BLOCKED":
                 task["finished_at"] = now
             task["result_summary"] = result_summary
@@ -132,6 +167,35 @@ class TaskService:
         if updated is None:
             raise ServiceError("NOT_FOUND", "任务不存在", 404)
         return updated
+
+    def update_parameters(self, task_id: str, **changes) -> dict:
+        def mutate(task: dict) -> dict:
+            task["parameters"] = {**(task.get("parameters") or {}), **changes}
+            return task
+
+        updated = self.store.update("tasks", task_id, mutate)
+        if updated is None:
+            raise ServiceError("NOT_FOUND", "任务不存在", 404)
+        return updated
+
+    def record_event(self, task: dict, target_key: str, *, result=None) -> dict:
+        event_id = uuid.uuid4().hex
+        event = {
+            "event_id": event_id,
+            "task_id": task["task_id"],
+            "account_slot": task["account_slot"],
+            "capability": task["capability"],
+            "risk_level": task["risk_level"],
+            "target_key": target_key,
+            "state": task["state"],
+            "started_at": task["started_at"],
+            "finished_at": task["finished_at"],
+            "result_summary": task["result_summary"],
+            "error_code": task["error_code"],
+            "recommended_action": task["recommended_action"],
+            "result": result or {},
+        }
+        return self.store.put("events", event_id, event)
 
     def claim_for_execution(self, task_id: str) -> dict:
         """Atomically mark a queued task running when its account is idle."""

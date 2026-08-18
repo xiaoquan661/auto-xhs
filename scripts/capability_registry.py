@@ -203,8 +203,8 @@ _POLICIES = [
         requires_result_verification=True,
         enabled_in_v1=True,
     ),
-    # Publishing operations remain registered for compatibility but are
-    # disabled in the first product release.
+    # One-step publishing remains disabled. V1.5 enables only the split
+    # prepare/preview/confirm workflow used by the Agent CLI.
     _policy(
         "publish",
         RiskLevel.EXTERNAL_OUTPUT,
@@ -217,22 +217,54 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
     ),
-    _policy("fill-publish", RiskLevel.EXTERNAL_OUTPUT, requires_identity_check=True),
+    _policy(
+        "fill-publish",
+        RiskLevel.EXTERNAL_OUTPUT,
+        supports_scheduling=True,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        enabled_in_v1=True,
+    ),
     _policy(
         "fill-publish-video",
         RiskLevel.EXTERNAL_OUTPUT,
+        supports_scheduling=True,
         requires_identity_check=True,
+        requires_result_verification=True,
+        enabled_in_v1=True,
     ),
     _policy(
         "click-publish",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,
+        enabled_in_v1=True,
     ),
-    _policy("save-draft", RiskLevel.EXTERNAL_OUTPUT, requires_identity_check=True),
-    _policy("long-article", RiskLevel.EXTERNAL_OUTPUT, requires_identity_check=True),
-    _policy("select-template", RiskLevel.EXTERNAL_OUTPUT, requires_identity_check=True),
-    _policy("next-step", RiskLevel.EXTERNAL_OUTPUT, requires_identity_check=True),
+    _policy(
+        "save-draft",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        enabled_in_v1=True,
+    ),
+    _policy(
+        "long-article",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        enabled_in_v1=True,
+    ),
+    _policy(
+        "select-template",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        enabled_in_v1=True,
+    ),
+    _policy(
+        "next-step",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        enabled_in_v1=True,
+    ),
 ]
 
 CAPABILITY_POLICIES: dict[str, CapabilityPolicy] = {item.command: item for item in _POLICIES}

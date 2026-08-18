@@ -1,4 +1,4 @@
-"""Windows logon autostart registration for account-scoped Bridge runtimes."""
+"""Windows logon autostart registration for account-scoped runtimes."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def enable_account_autostart(account: str) -> dict:
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "unknown error").strip()
-        raise RuntimeError(f"Failed to register Bridge autostart task: {detail}")
+        raise RuntimeError(f"Failed to register account autostart task: {detail}")
     return {
         "account": account,
         "task_name": name,
@@ -86,10 +86,10 @@ def disable_account_autostart(account: str) -> dict:
     )
     if result.returncode not in {0, 1}:
         detail = (result.stderr or result.stdout or "unknown error").strip()
-        raise RuntimeError(f"Failed to remove Bridge autostart task: {detail}")
+        raise RuntimeError(f"Failed to remove account autostart task: {detail}")
     return {"account": account, "task_name": name, "enabled": False}
 
 
 def _require_windows() -> None:
     if os.name != "nt":
-        raise RuntimeError("Bridge logon autostart is currently supported only on Windows")
+        raise RuntimeError("Account logon autostart is currently supported only on Windows")

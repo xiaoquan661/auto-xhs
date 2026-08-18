@@ -1,14 +1,32 @@
-# auto-xhs V1 故障恢复指南
+# auto-xhs V1.0 故障恢复与 V1.5 目标说明
+
+本文以当前工作区实现为准。V1.5 的账号联合启动和 Agent/Python CLI 分步发布已经完成自动化测试，
+仍需真实设备验收；自动回复、私信和资料修改仍属于待实现规格。
 
 ## WebUI 打不开
 
 再次双击 `start-auto-xhs.cmd`。启动器会优先复用已有服务；若端口被其他程序占用，会显示明确
 错误。不要同时重复打开多个启动窗口。
 
+如果错误中包含 `ModuleNotFoundError: No module named 'websockets'`，表示 Web 控制台所需的
+运行依赖没有安装到项目虚拟环境。在项目根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+完成后重新运行 `start-auto-xhs.cmd`。`websockets` 已在项目的 `pyproject.toml` 中声明，正常首次
+启动会由 `scripts/bootstrap.ps1 -Prepare` 自动安装；更新代码或复制了不完整的 `.venv` 时可以用
+上述命令修复。
+
 ## 账号一直是“需处理”
 
-按账号卡片的“下一步”处理，常见顺序是：启动 Bridge、手动打开正确 Chrome Profile、完成扩展
+按账号卡片的“下一步”处理，常见顺序是：点击“启动账号”恢复 Bridge 和绑定 Profile、完成扩展
 配对、检查当前 UID。仅 Bridge 在线不等于账号就绪。
+
+V1.5 联合启动完成后，“启动账号”会先恢复 Bridge，再在扩展未连接时打开绑定 Profile。若出现
+`PROFILE_MISMATCH`，说明实际连接的 Profile 或扩展实例与槽位不一致；系统不得改用其他已打开
+窗口，也不得误报 READY。
 
 ## Profile 或 UID 不一致
 
@@ -24,6 +42,10 @@
 ## 任务进入 BLOCKED
 
 查看任务的 `recommended_action`。恢复账号 READY 后创建新任务；系统不会自动补跑离线期间的任务。
+
+如果请求的是发布、定时发布、私信、资料修改或自动回复，而错误为 `CAPABILITY_DISABLED` 或
+“能力未实现”，表示当前仍运行 V1.0 执行链。V1.5 文档批准不等于代码已经启用，不要直接调用
+底层兼容命令或外部工具绕过。
 
 ## 任务是 RESULT_UNKNOWN
 

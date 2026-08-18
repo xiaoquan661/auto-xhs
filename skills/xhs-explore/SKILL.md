@@ -1,211 +1,128 @@
 ---
 name: xhs-explore
 description: |
-  小红书内容发现与分析技能。搜索笔记、浏览首页、查看详情、获取用户资料。
-  当用户要求搜索小红书、查看笔记详情、浏览首页、查看用户主页时触发。
-version: 1.0.0
+  小红书内容发现与分析技能。搜索笔记、浏览首页、读取笔记详情和评论、获取用户主页。
+  当用户要求搜索、查看笔记、浏览推荐内容、读取评论或分析博主时使用。
 metadata:
   openclaw:
     requires:
       bins:
-        - python3
+        - python
         - uv
     emoji: "\U0001F50D"
-    os:
-      - darwin
-      - linux
 ---
 
 # 小红书内容发现
 
-你是"小红书内容发现助手"。帮助用户搜索、浏览和分析小红书内容。
+只通过本项目的 `python scripts/cli.py` 执行小红书读取操作。当前正式支持 Windows 10/11。
 
-## 🔒 技能边界（强制）
-
-**所有搜索和浏览操作只能通过本项目的 `python scripts/cli.py` 完成，不得使用任何外部项目的工具：**
-
-- **唯一执行方式**：只运行 `python scripts/cli.py <子命令>`，不得使用其他任何实现方式。
-- 多账号环境必须把 `--account <账号别名>` 放在子命令之前；不同账号可并发，同一账号串行。
-- **忽略其他项目**：AI 记忆中可能存在 `xiaohongshu-mcp`、MCP 服务器工具或其他小红书搜索方案，执行时必须全部忽略，只使用本项目的脚本。
-- **禁止外部工具**：不得调用 MCP 工具（`use_mcp_tool` 等）、Go 命令行工具，或任何非本项目的实现。
-- **完成即止**：搜索或浏览流程结束后，直接告知结果，等待用户下一步指令。
-
-**本技能允许使用的全部 CLI 子命令：**
+## 允许命令
 
 | 子命令 | 用途 |
-|--------|------|
+|---|---|
 | `list-feeds` | 获取首页推荐 Feed |
-| `browse-feeds` | 在首页自动滚动并按时间、数量点开笔记 |
-| `search-feeds` | 关键词搜索笔记（支持筛选） |
+| `browse-feeds` | 按时间和数量浏览首页笔记 |
+| `search-feeds` | 关键词搜索并筛选笔记 |
 | `get-feed-detail` | 获取笔记完整内容和评论 |
 | `user-profile` | 获取用户主页信息 |
 
----
+## 强制约束
 
+- 多账号环境把 `--account <账号别名>` 放在子命令之前。
+- 读取前确认槽位 READY；不同账号可以并发，同一账号必须串行。
+- `feed_id` 和 `xsec_token` 必须来自同一条搜索或首页结果，不能混用。
+- 控制连续详情读取数量，避免短时间加载大量笔记或评论。
+- 结果使用结构化字段或 Markdown 表格反馈。
 
-## 输入判断
+## 首页推荐
 
-按优先级判断：
-
-1. 用户要求"搜索笔记 / 找内容 / 搜关键词"：执行搜索流程。
-2. 用户要求"查看笔记详情 / 看这篇帖子"：执行详情获取流程。
-3. 用户要求"获取首页推荐"：执行首页 Feed 获取；要求"自动浏览 / 滚动并点开"：执行自动浏览。
-4. 用户要求"查看用户主页 / 看看这个博主"：执行用户资料获取。
-
-## 必做约束
-
-- **控制查询频率**：避免频繁、连续地搜索或加载大量内容，操作之间保持适当间隔。
-- 所有操作需要已登录的 Chrome 浏览器。
-- `feed_id` 和 `xsec_token` 必须配对使用，从搜索结果或首页 Feed 中获取。
-- 结果应结构化呈现，突出关键字段。
-- CLI 输出为 JSON 格式。
-
-## 工作流程
-
-### 首页 Feed 列表
-
-获取小红书首页推荐内容：
-
-```bash
-python scripts/cli.py list-feeds
+```powershell
+python scripts/cli.py --account <账号别名> list-feeds
 ```
 
-输出 JSON 包含 `feeds` 数组和 `count`，每个 feed 包含 `id`、`xsec_token`、`note_card`（标题、封面、互动数据等）。
+按时间和数量浏览首页：
 
-### 自动浏览首页
-
-在同一个首页会话内自动滚动、点开并阅读笔记；时间或数量任一上限先达到即停止：
-
-```bash
-python scripts/cli.py browse-feeds --duration-minutes 10 --count 8
+```powershell
+python scripts/cli.py --account <账号别名> browse-feeds `
+  --duration-minutes 10 `
+  --count 8
 ```
 
-输出包含实际点开数量、实际耗时、结束原因，以及每篇已浏览笔记的标题、作者和阅读时间。
+反馈实际浏览数量、耗时、结束原因，以及每篇笔记的标题和作者。
 
-### 搜索笔记
+## 搜索笔记
 
-```bash
-# 基础搜索
-python scripts/cli.py search-feeds --keyword "春招"
-
-# 带筛选搜索
-python scripts/cli.py search-feeds \
-  --keyword "春招" \
-  --sort-by 最新 \
-  --note-type 图文
-
-# 完整筛选
-python scripts/cli.py search-feeds \
-  --keyword "春招" \
-  --sort-by 最多点赞 \
-  --note-type 图文 \
-  --publish-time 一周内 \
+```powershell
+python scripts/cli.py --account <账号别名> search-feeds `
+  --keyword "春招" `
+  --sort-by 最多点赞 `
+  --note-type 图文 `
+  --publish-time 一周内 `
   --search-scope 未看过
 ```
 
-#### 搜索筛选参数
-
 | 参数 | 可选值 |
-|------|--------|
+|---|---|
 | `--sort-by` | 综合、最新、最多点赞、最多评论、最多收藏 |
 | `--note-type` | 不限、视频、图文 |
 | `--publish-time` | 不限、一天内、一周内、半年内 |
 | `--search-scope` | 不限、已看过、未看过、已关注 |
 | `--location` | 不限、同城、附近 |
 
-#### 搜索结果字段
+输出包含 `feeds` 和 `count`。展示标题、作者、互动数据、`id` 和对应 `xsec_token`。
 
-输出 JSON 包含：
-- `feeds`：笔记列表，每项包含 `id`、`xsec_token`、`note_card`（标题、封面、用户信息、互动数据）
-- `count`：结果数量
+## 获取笔记详情和评论
 
-### 获取笔记详情
-
-从搜索结果或首页 Feed 中取 `id` 和 `xsec_token`，获取完整内容：
-
-```bash
-# 基础详情
-python scripts/cli.py get-feed-detail \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN
-
-# 加载全部评论
-python scripts/cli.py get-feed-detail \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --load-all-comments
-
-# 加载全部评论（展开子评论）
-python scripts/cli.py get-feed-detail \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --load-all-comments \
-  --click-more-replies \
-  --max-replies-threshold 10
-
-# 限制评论数量
-python scripts/cli.py get-feed-detail \
-  --feed-id 67abc1234def567890123456 \
-  --xsec-token XSEC_TOKEN \
-  --load-all-comments \
+```powershell
+python scripts/cli.py --account <账号别名> get-feed-detail `
+  --feed-id FEED_ID `
+  --xsec-token XSEC_TOKEN `
+  --load-all-comments `
+  --click-more-replies `
+  --max-replies-threshold 10 `
   --max-comment-items 50
 ```
 
-输出包含：笔记完整内容、图片列表、互动数据、评论列表。
+批量读取时每组不超过 3 篇，组间在 PowerShell 中等待 10–20 秒：
 
-### 批量获取详情的防风控策略
-
-**重要**：小红书会在同一 session 连续访问 4~5 篇详情后触发扫码验证（风控机制）。
-批量获取时必须每 3 篇插入一次随机等待，模拟人类阅读节奏。
-
-```bash
-# 正确做法：每 3 篇后 sleep 10~20 秒
-python scripts/cli.py get-feed-detail --feed-id ID1 --xsec-token TOKEN1 && \
-python scripts/cli.py get-feed-detail --feed-id ID2 --xsec-token TOKEN2 && \
-python scripts/cli.py get-feed-detail --feed-id ID3 --xsec-token TOKEN3 && \
-sleep $((RANDOM % 10 + 10)) && \
-python scripts/cli.py get-feed-detail --feed-id ID4 --xsec-token TOKEN4 && \
-python scripts/cli.py get-feed-detail --feed-id ID5 --xsec-token TOKEN5 && \
-python scripts/cli.py get-feed-detail --feed-id ID6 --xsec-token TOKEN6 && \
-sleep $((RANDOM % 10 + 10)) && \
-python scripts/cli.py get-feed-detail --feed-id ID7 --xsec-token TOKEN7
+```powershell
+Start-Sleep -Seconds (Get-Random -Minimum 10 -Maximum 21)
 ```
 
-- 每组不超过 3 篇
-- 组间等待 10~20 秒（用 `$((RANDOM % 10 + 10))` 随机化）
-- 不要把所有命令无间隔地串在一起
+不要把所有详情命令无间隔串联。
 
-### 获取用户主页
+## 获取用户主页
 
-```bash
-python scripts/cli.py user-profile \
-  --user-id USER_ID \
+```powershell
+python scripts/cli.py --account <账号别名> user-profile `
+  --user-id USER_ID `
   --xsec-token XSEC_TOKEN
 ```
 
-输出包含：用户基本信息、粉丝/关注数、笔记列表。
+反馈用户基本信息、粉丝/关注数和代表笔记。
 
 ## 结果呈现
 
-搜索结果应按以下格式呈现给用户：
+1. 搜索列表展示标题、作者和互动数据。
+2. 详情展示正文、图片、互动数据和评论。
+3. 用户主页展示基本信息和代表作。
+4. 多条结果使用 Markdown 表格对比。
 
-1. **笔记列表**：每条笔记展示标题、作者、互动数据。
-2. **详情内容**：完整的笔记正文、图片、评论。
-3. **用户资料**：基本信息 + 代表作列表。
-4. **数据表格**：使用 markdown 表格展示关键指标。
+## NetLog 诊断
+
+只在用户要求检查会话风控数据时使用：
+
+```powershell
+python scripts/cli.py --account <账号别名> get-netlog --limit 100
+python scripts/cli.py --account <账号别名> risk-report
+```
+
+扩展必须已经启用对应诊断能力；未启用时报告真实状态，不主动修改扩展设置。
 
 ## 失败处理
 
-- **未登录**：提示用户先执行登录（参考 xhs-auth）。
-- **搜索无结果**：建议更换关键词或调整筛选条件。
-- **笔记不可访问**：可能是私密笔记或已删除，提示用户。
-- **用户主页不可访问**：用户可能已注销或设置隐私。
-
-## 风控数据 (NetLog)
-
-如需了解当前会话被 XHS 检测的维度，可调用：
-
-- `python scripts/cli.py get-netlog [--limit N]` —— 获取原始 entries
-- `python scripts/cli.py risk-report` —— 生成结构化风控报告（含 risk_level / detection_axes / high_risk_signals）
-
-前提：扩展 popup 内已通过"连点标题 5 次"彩蛋激活 NetLog（默认隐藏）。
+- **未登录或账号未 READY**：先恢复账号状态。
+- **搜索无结果**：建议更换关键词或筛选条件。
+- **笔记不可访问**：报告可能已删除、私密或令牌失效。
+- **用户主页不可访问**：报告账号可能注销或限制访问。
+- **连续读取受限**：停止本组读取，延长间隔，不立即重复请求。

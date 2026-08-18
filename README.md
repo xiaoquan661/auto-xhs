@@ -1,39 +1,45 @@
 # xiaohongshu-skills
 
-面向个人运营者的本地多账号小红书运营系统。系统使用用户已打开并登录的 Chrome Profile，通过
-WebUI、Codex 和统一 Python CLI 完成配置、任务、确认和结果反馈。
+面向个人运营者的本地多账号小红书运营系统。系统通过 Chrome Profile、WebUI、Codex 和统一
+Python CLI 完成配置、任务、确认和结果反馈。V1.0 是当前实现基线，V1.5 是已经批准但仍待完成
+代码和实机验收的下一阶段版本。
 
-支持 [OpenClaw](https://github.com/anthropics/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台（如 Claude Code）。
+支持 [OpenClaw](https://github.com/anthropics/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台。
 
 > **⚠️ 使用建议**：虽然本项目使用真实的用户浏览器和账号环境，但仍建议**控制使用频率**，避免短时间内大量操作。频繁的自动化行为可能触发小红书的风控机制，导致账号受限。
 
 ## 功能概览
 
+| 技能                | 说明     | 核心能力                                 |
+| ------------------- | -------- | ---------------------------------------- |
+| **xhs-auth**        | 认证管理 | 登录检查                                 |
+| **xhs-publish**     | V1.5目标 | 图文 / 视频 / 长文 / 草稿 / 定时发布     |
+| **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐 |
+| **xhs-interact**    | 社交互动 | 评论、回复、点赞、收藏                   |
+| **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作   |
 
-| 技能                | 说明     | 核心能力                                   |
-| ------------------- | -------- | ------------------------------------------ |
-| **xhs-auth**        | 认证管理 | 登录检查、扫码登录、手机验证码登录         |
-| **xhs-publish**     | 后续能力 | 发布相关 CLI 仅保留工程兼容，V1 产品入口禁用 |
-| **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐   |
-| **xhs-interact**    | 社交互动 | 评论、回复、点赞、收藏                     |
-| **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作     |
+### 版本与开放范围
 
-### V1 产品开放范围
+| 范围 | V1.0 当前实现 | V1.5 已批准目标 |
+|---|---|---|
+| 登录 | 检查、退出、半自动换号；历史登录命令仍在代码中 | 只保留检查、自动退出、用户手动登录和新 UID 核验 |
+| Chrome | 用户手动打开绑定 Profile | 扩展未连接时自动打开绑定 Profile；不自动关闭 |
+| 发布 | 产品入口禁用 | 开放图文、视频、长文、草稿和定时发布；必须预览确认 |
+| 评论 | 指定评论使用当前确认链；随机评论一次授权 1–3 条 | 所有评论由当前任务点击后直接发送 |
+| 回复 | 指定回复使用当前确认链 | 按账号启用规则后允许自动回复 |
+| 私信和资料修改 | 禁用 | 开放；执行链仍待实现 |
 
-- L0：登录/状态检查、首页 Feed、搜索、笔记详情和用户主页；
-- L1：点赞与收藏，已接入配额、去重、熔断和执行记录；
-- L2：评论和回复；指定目标仍经过最终草稿确认，WebUI 随机评论以“创建并直接发送”的当前点击作为一次性批量授权；
-- L3：账号、配对、登录、身份和系统配置，必须显式确认；
-- 发布、定时发布、私信和公开资料修改不属于 V1 产品开放能力。
-
-底层 CLI 中仍存在发布命令，供后续版本开发和兼容性测试使用，不代表普通用户现在可以通过
-WebUI 或 Codex 执行发布。
+V1.5 目标能力在能力注册表、CLI/WebUI、自动化测试和真实设备验收完成前不可视为当前可用，
+不得绕过 V1.0 的服务层限制。
 
 ## 普通用户快速开始
 
 Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动器会检查环境、复用已经运行的
-本地服务并打开 `http://127.0.0.1:8765`；它不会自动打开、关闭或切换 Chrome。首次进入后按
+本地服务并打开 `http://127.0.0.1:8765`。V1.0 不会自动打开、关闭或切换 Chrome；首次进入后按
 “添加账号 → 手动打开目标 Profile → 配对扩展 → 检查并确认 UID”的顺序完成账号准备。
+
+V1.5 已把“启动 Bridge”升级为“启动账号”：先启动 Bridge，扩展未连接时再自动打开绑定
+Profile，并在核对扩展实例和 Profile 后恢复连接。该链已通过自动化测试，真实 Windows 环境仍待验收。
 
 WebUI 当前包含账号槽位、Bridge 启停、随机评论、评论/回复草稿确认、执行记录、全局暂停、L1 配额、
 并发设置和脱敏诊断导出。详细步骤见 [普通用户操作手册](docs/USER-GUIDE.md)，常见故障见
@@ -86,6 +92,18 @@ powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1 -Prepare
 再执行 `scripts/bootstrap.ps1 -Prepare -InstallMissingPython`。此时才会通过官方 uv 为项目准备
 托管 Python。脚本输出的 `python_executable` 是后续 CLI 应使用的解释器；下文的 `python` 是其简写。
 
+本地 Web 控制台和 Bridge 不仅需要 Python，还需要项目运行依赖。其中 `websockets` 用于 WebUI、
+CLI 与 Bridge 的连接，`requests` 用于页面和资源请求。这些依赖已声明在 `pyproject.toml` 中，正常
+情况下会由上述 `bootstrap.ps1 -Prepare` 自动安装。若从 GitHub 更新代码后出现
+`ModuleNotFoundError: No module named 'websockets'`，在项目根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+然后重新运行 `start-auto-xhs.cmd`。不要只用系统 Python 单独启动 `web_server.py`，否则可能绕过
+项目虚拟环境中已经安装的依赖。
+
 ### 第二步：安装浏览器扩展
 
 扩展让 AI 能够在你的浏览器中以你的身份操作小红书，使用的是你真实的登录状态和账号信息。
@@ -132,17 +150,17 @@ python scripts/cli.py account-doctor --name brand-a --require-ready
 粘贴剪贴板内容并确认。这是浏览器侧的安全确认，不能跨 Profile 自动代替。剪贴板不可用时，
 命令会在 JSON 中回退显示短期配对包。
 
-Bridge 默认以独立后台进程启动，关闭 Agent 或 PowerShell 不应终止它。若希望电脑重新登录后
-自动恢复 Bridge，需由用户明确确认后为每个槽位注册 Windows 登录任务：
+V1.0 的 Bridge 默认以独立后台进程启动，关闭 Agent 或 PowerShell 不应终止它。若希望电脑重新
+登录后自动恢复 Bridge，需由用户明确确认后为每个槽位注册 Windows 登录任务：
 
 ```bash
 python scripts/cli.py --account brand-a account-autostart-enable --confirm
 python scripts/cli.py --account brand-b account-autostart-enable --confirm
 ```
 
-可分别使用 `account-autostart-status` 和 `account-autostart-disable --confirm` 检查或撤销；计划任务
-中不保存账号连接令牌、Cookie 或小红书登录信息，也不会启动 Chrome。Chrome Profile 和
-小红书页面始终由用户手动打开并保持在线。
+可分别使用 `account-autostart-status` 和 `account-autostart-disable --confirm` 检查或撤销。V1.0
+计划任务不会启动 Chrome。V1.5 目标将只为明确启用自启动的槽位按“Bridge → 绑定 Profile”恢复
+账号；联合启动代码完成前仍由用户手动打开并保持 Chrome Profile 在线。
 
 之后给所有业务命令加上目标账号：
 
@@ -153,8 +171,9 @@ python scripts/cli.py --account brand-a random-comment --count 1 --style natural
 ```
 
 不同账号的命令可由两个终端或 Agent 并发执行。同一账号的命令由账号锁串行执行，避免两个
-任务同时抢占同一个页面。指定目标的评论仍逐条确认；随机评论命令或 WebUI 的直接发送按钮代表
-对当前账号和本次 1–3 条评论的明确授权，不会创建持续或定时评论计划。
+任务同时抢占同一个页面。V1.0 指定评论仍走当前确认链；随机评论命令或 WebUI 的直接发送按钮
+代表对当前账号和本次 1–3 条评论的明确授权。V1.5 目标将指定评论也改为当前任务点击后直发，
+自动回复则必须先按账号启用规则。
 
 项目扩展代码升级后，运行下面的命令部署或刷新通用扩展。旧账号执行后会自动迁移为
 `extension_mode=universal`：
@@ -249,7 +268,7 @@ python scripts/cli.py account-import `
 导入操作不会修改或复制原 Profile，原 Cookie 和登录状态会继续使用。每个 Profile 只能绑定
 一个账号别名。用户首次手动打开后，在该 Profile 的 `chrome://extensions` 中加载通用扩展目录并完成
 一次性配对。多个 Profile 应共用这一目录，但每个 Profile 只能保留一个 XHS Bridge 实例；若已加载
-旧版账号专属扩展，先禁用或移除旧副本。`account-start` 不会启动 Chrome；只有 Bridge 服务和
+旧版账号专属扩展，先禁用或移除旧副本。V1.0 的 `account-start` 不会启动 Chrome；只有 Bridge 服务和
 已配对扩展都连接时才返回 `success: true`。
 
 #### 本地 WebUI 开发预览
@@ -272,15 +291,18 @@ Chrome。当前页面不提供账号新增、配对或登录写操作，这些�
 
 **认证登录：**
 
-> "登录小红书" / "检查登录状态"
+> "检查登录状态" / "退出当前账号，我手动登录后再核验新 UID"
 
 **搜索浏览：**
 
 > "搜索关于露营的笔记" / "查看这条笔记的详情"
 
-**发布内容（V1 不开放）：**
+**发布内容（V1.5 Agent 流程）：**
 
-> 发布相关底层 CLI 暂时只保留工程兼容，WebUI 和 Codex 的 V1 产品入口应拒绝执行。
+> "为 brand-a 填写这篇图文，打开浏览器预览，等我确认后再发布"
+
+图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步执行并预览确认。WebUI 只读
+监测发布状态；私信、资料修改和自动回复尚未形成完整执行链。
 
 **社交互动：**
 
@@ -294,101 +316,88 @@ Chrome。当前页面不提供账号新增、配对或登录写操作，这些�
 
 所有功能也可以通过命令行直接调用，输出 JSON 格式，便于脚本集成。
 
-```bash
+```powershell
 # 检查登录状态
-python scripts/cli.py check-login
-
-# 扫码登录
-python scripts/cli.py login
+python scripts/cli.py --account brand-a check-login
 
 # 搜索笔记
-python scripts/cli.py search-feeds --keyword "关键词"
+python scripts/cli.py --account brand-a search-feeds --keyword "关键词"
 
 # 带筛选条件
-python scripts/cli.py search-feeds \
-  --keyword "关键词" \
-  --sort-by "最多点赞" \
+python scripts/cli.py --account brand-a search-feeds `
+  --keyword "关键词" `
+  --sort-by "最多点赞" `
   --note-type "图文"
 
 # 查看笔记详情
-python scripts/cli.py get-feed-detail \
+python scripts/cli.py --account brand-a get-feed-detail `
   --feed-id FEED_ID --xsec-token XSEC_TOKEN
 
-# 以下发布命令仅供后续版本开发和兼容性测试，V1 产品入口禁用
-# 图文发布（分步：填写 → 预览 → 确认）
-python scripts/cli.py fill-publish \
-  --title-file title.txt \
-  --content-file content.txt \
-  --images "/abs/path/pic1.jpg" "/abs/path/pic2.jpg"
-python scripts/cli.py click-publish
-
-# 一步发布图文
-python scripts/cli.py publish \
-  --title-file title.txt \
-  --content-file content.txt \
-  --images "/abs/path/pic1.jpg" \
-  --tags "标签1" "标签2"
-
-# 视频发布
-python scripts/cli.py publish-video \
-  --title-file title.txt \
-  --content-file content.txt \
-  --video "/abs/path/video.mp4"
+# V1.5 Agent 分步发布流程
+python scripts/cli.py --account brand-a fill-publish `
+  --title-file "C:\Temp\title.txt" `
+  --content-file "C:\Temp\content.txt" `
+  --images "C:\Media\pic1.jpg"
+# 命令返回 TASK_ID；用户核对浏览器真实预览并确认后：
+python scripts/cli.py --account brand-a click-publish --task-id TASK_ID --confirm
 
 # 点赞 / 收藏 / 评论
-python scripts/cli.py like-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
-python scripts/cli.py favorite-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
-python scripts/cli.py post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --content "评论内容"
+python scripts/cli.py --account brand-a like-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
+python scripts/cli.py --account brand-a favorite-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
+python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --content "评论内容"
 ```
 
-> 第一次运行时，若 Chrome 未打开，CLI 会自动启动它。
+> V1.0 不会自动打开 Chrome。V1.5 联合启动完成后，`account-start` 才会在扩展未连接时自动
+> 打开槽位绑定 Profile；在此之前继续按页面提示手动打开。
 
 ## CLI 命令参考
 
-
-| 子命令                      | 说明                                                |
-| --------------------------- | --------------------------------------------------- |
-| `account-add`               | 创建独立 Chrome Profile、Bridge 与账号槽位          |
-| `account-discover`          | 列出已有 Chrome Profile 及绑定状态                  |
-| `account-import`            | 绑定已有 Chrome Profile，保留登录状态               |
-| `account-list`              | 列出所有已配置账号                                  |
-| `account-remove`            | 将槽位移入本机归档，保留 Profile、登录数据与共享扩展 |
-| `account-start`             | 启动目标账号的 Bridge 并检查热登录连接，不启动 Chrome |
-| `account-status`            | 检查目标账号的服务和扩展连接状态                    |
-| `account-sync`              | 让账号槽位指向当前项目中所有 Profile 共用的扩展目录 |
-| `account-doctor`            | 只读诊断账号配置、Profile、扩展路由、端口和连接状态 |
-| `account-pair-begin`        | 生成目标账号的一次性 Profile 配对包                 |
-| `account-pair-status`       | 查看 Profile 配对与扩展连接状态                     |
-| `account-unpair`            | 撤销 Profile 配对并轮换长期连接令牌                 |
-| `account-connection-enroll` | 仅供旧版账号专属扩展迁移使用                        |
-| `account-identity`          | 读取当前小红书 UID，并与账号槽位的身份记录比较      |
-| `account-switch-begin`      | 暂停业务任务并退出当前登录，开始安全换号            |
-| `account-switch-complete`   | 核验并绑定新登录身份，恢复业务任务                  |
-| `account-switch-cancel`     | 取消尚未完成的换号流程                              |
-| `account-switch-history`    | 查看本机保存的换号记录                              |
-| `check-login`               | 检查登录状态，返回用户昵称和小红书号                |
-| `login`                     | 获取登录二维码，等待扫码，登录后返回用户信息        |
-| `delete-cookies`            | 结束当前登录会话并回读页面核验退出结果              |
-| `list-feeds`                | 获取首页推荐 Feed                                   |
-| `browse-feeds`              | 按时间和数量自动滚动首页并点开笔记                  |
-| `search-feeds`              | 关键词搜索笔记（支持排序/类型/时间/范围/位置筛选）  |
-| `get-feed-detail`           | 获取笔记完整内容和评论                              |
-| `user-profile`              | 获取用户主页信息和帖子列表                          |
-| `post-comment`              | 对笔记发表评论                                      |
-| `reply-comment`             | 回复指定评论                                        |
-| `like-feed`                 | 点赞 / 取消点赞                                     |
-| `favorite-feed`             | 收藏 / 取消收藏                                     |
-| `publish`                   | 后续版本：一步发布图文，V1 产品入口禁用             |
-| `publish-video`             | 后续版本：一步发布视频，V1 产品入口禁用             |
-| `fill-publish`              | 后续版本：填写图文表单，V1 产品入口禁用             |
-| `fill-publish-video`        | 后续版本：填写视频表单，V1 产品入口禁用             |
-| `click-publish`             | 后续版本：点击发布按钮，V1 产品入口禁用             |
-| `save-draft`                | 后续版本：保存平台草稿，V1 产品入口禁用             |
-| `long-article`              | 后续版本：长文模式，V1 产品入口禁用                 |
-| `select-template`           | 后续版本：选择长文模板，V1 产品入口禁用             |
-| `next-step`                 | 后续版本：长文下一步，V1 产品入口禁用               |
+| 子命令                      | 说明                                                  |
+| --------------------------- | ----------------------------------------------------- |
+| `account-add`               | 创建独立 Chrome Profile、Bridge 与账号槽位            |
+| `account-discover`          | 列出已有 Chrome Profile 及绑定状态                    |
+| `account-import`            | 绑定已有 Chrome Profile，保留登录状态                 |
+| `account-list`              | 列出所有已配置账号                                    |
+| `account-remove`            | 将槽位移入本机归档，保留 Profile、登录数据与共享扩展  |
+| `account-start`             | V1.0 仅启动 Bridge；V1.5 目标为 Bridge 与绑定 Profile 联合启动 |
+| `account-status`            | 检查目标账号的服务和扩展连接状态                      |
+| `account-sync`              | 让账号槽位指向当前项目中所有 Profile 共用的扩展目录   |
+| `account-doctor`            | 只读诊断账号配置、Profile、扩展路由、端口和连接状态   |
+| `account-pair-begin`        | 生成目标账号的一次性 Profile 配对包                   |
+| `account-pair-status`       | 查看 Profile 配对与扩展连接状态                       |
+| `account-unpair`            | 撤销 Profile 配对并轮换长期连接令牌                   |
+| `account-connection-enroll` | 仅供旧版账号专属扩展迁移使用                          |
+| `account-identity`          | 读取当前小红书 UID，并与账号槽位的身份记录比较        |
+| `account-switch-begin`      | 暂停业务任务并退出当前登录，开始安全换号              |
+| `account-switch-complete`   | 核验并绑定新登录身份，恢复业务任务                    |
+| `account-switch-cancel`     | 取消尚未完成的换号流程                                |
+| `account-switch-history`    | 查看本机保存的换号记录                                |
+| `check-login`               | 检查登录状态，返回用户昵称和小红书号                  |
+| `login`                     | 历史兼容命令；V1.5 产品流程不再引导使用               |
+| `delete-cookies`            | 结束当前登录会话并回读页面核验退出结果                |
+| `list-feeds`                | 获取首页推荐 Feed                                     |
+| `browse-feeds`              | 按时间和数量自动滚动首页并点开笔记                    |
+| `search-feeds`              | 关键词搜索笔记（支持排序/类型/时间/范围/位置筛选）    |
+| `get-feed-detail`           | 获取笔记完整内容和评论                                |
+| `user-profile`              | 获取用户主页信息和帖子列表                            |
+| `post-comment`              | V1.0 使用当前确认链；V1.5 目标为当前任务点击后直发    |
+| `random-comment`            | 当前任务点击一次性授权 1–3 条随机评论                 |
+| `reply-comment`             | 单次回复；V1.5 自动回复规则链尚待实现                 |
+| `like-feed`                 | 点赞 / 取消点赞                                       |
+| `favorite-feed`             | 收藏 / 取消收藏                                       |
+| `publish` / `publish-video` | 旧版一步发布命令；已明确禁用                           |
+| `fill-publish`              | Agent 填写图文并创建待确认发布任务                     |
+| `fill-publish-video`        | Agent 填写视频并创建待确认发布任务                     |
+| `click-publish`             | 携带任务 ID；用户确认真实预览后执行发布                |
+| `save-draft`                | 携带任务 ID；用户取消发布时保存草稿                    |
+| `long-article`              | Agent 填写长文、创建任务并返回排版模板                 |
+| `select-template`           | 携带任务 ID 选择长文模板                               |
+| `next-step`                 | 携带任务 ID进入长文最终发布预览                        |
 
 退出码：`0` 成功 · `1` 未登录 · `2` 错误
+
+私信、公开资料修改和自动回复目前没有完整 CLI 命令与服务链。它们是 V1.5 已批准目标，不是当前
+可调用命令。
 
 ## 项目结构
 

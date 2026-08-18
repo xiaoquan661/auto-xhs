@@ -20,7 +20,7 @@ if ($Report.status -ne "ready" -or -not $Report.python_executable) {
 
 Push-Location $ProjectRoot
 try {
-    & $Report.python_executable $Cli --account $Account account-start --bridge-only *> $null
+    & $Report.python_executable $Cli --account $Account account-start *> $null
     exit $LASTEXITCODE
 } finally {
     Pop-Location
