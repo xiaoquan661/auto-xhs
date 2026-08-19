@@ -125,12 +125,21 @@ def _simulate_reading(page, duration_seconds: float, deadline: float) -> float:
     return round(max(0.0, time.monotonic() - started), 2)
 
 
-def browse_feed_cycle(page, *, duration_seconds: int = 300, count: int = 5) -> dict:
+def browse_feed_cycle(
+    page,
+    *,
+    duration_seconds: int = 300,
+    count: int = 5,
+    min_read_seconds: float = 8.0,
+    max_read_seconds: float = 15.0,
+) -> dict:
     """Scroll the home feed and open notes until the time or count limit is reached."""
     if duration_seconds < 1:
         raise ValueError("浏览时间必须大于 0")
     if count < 1:
         raise ValueError("点开数量必须大于 0")
+    if min_read_seconds < 0 or max_read_seconds < min_read_seconds:
+        raise ValueError("单篇阅读时间参数无效")
 
     started = time.monotonic()
     deadline = started + duration_seconds
@@ -141,6 +150,7 @@ def browse_feed_cycle(page, *, duration_seconds: int = 300, count: int = 5) -> d
     completed: list[dict] = []
     seen: set[str] = set()
     empty_scrolls = 0
+    skipped: list[dict] = []
 
     while len(completed) < count and time.monotonic() < deadline:
         candidates = _browse_candidates(page, seen)
@@ -156,12 +166,17 @@ def browse_feed_cycle(page, *, duration_seconds: int = 300, count: int = 5) -> d
         empty_scrolls = 0
         feed = random.choice(candidates)
         seen.add(feed.id)
-        _open_from_feed(page, feed)
+        try:
+            _open_from_feed(page, feed)
+        except XHSError as exc:
+            skipped.append({"feed_id": feed.id, "status": "skipped", "message": str(exc)})
+            continue
 
-        remaining_seconds = max(0.0, deadline - time.monotonic())
-        remaining_items = max(1, count - len(completed))
-        allocated_seconds = remaining_seconds / remaining_items
-        read_seconds = _simulate_reading(page, allocated_seconds, deadline)
+        read_seconds = _simulate_reading(
+            page,
+            random.uniform(min_read_seconds, max_read_seconds),
+            deadline,
+        )
         close_method = _close_detail(page, feed.id)
         completed.append(
             {
@@ -197,9 +212,13 @@ def browse_feed_cycle(page, *, duration_seconds: int = 300, count: int = 5) -> d
         "requested_count": count,
         "duration_seconds": duration_seconds,
         "elapsed_seconds": elapsed,
+        "min_read_seconds": min_read_seconds,
+        "max_read_seconds": max_read_seconds,
         "stop_reason": stop_reason,
         "refreshed_between_items": False,
         "items": completed,
+        "skipped_count": len(skipped),
+        "skipped_items": skipped,
     }
 
 

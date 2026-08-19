@@ -39,6 +39,11 @@ def post_comment(page: Page, feed_id: str, xsec_token: str, content: str) -> Non
     page.wait_dom_stable()
     sleep_random(800, 1500)
 
+    post_comment_current(page, content, feed_id=feed_id)
+
+
+def post_comment_current(page: Page, content: str, *, feed_id: str = "") -> None:
+    """Post a comment on the detail page that is already open."""
     _check_page_accessible(page)
 
     # 点击评论输入触发区域

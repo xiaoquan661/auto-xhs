@@ -24,6 +24,8 @@ class ApprovalService:
         target_id: str,
         target_summary: str,
         content: str,
+        source_event_id: str | None = None,
+        task_id: str | None = None,
     ) -> dict:
         policy = self._output_policy(action_type)
         if not account_slot.strip() or not verified_uid.strip() or not target_id.strip():
@@ -41,6 +43,8 @@ class ApprovalService:
             "target_id": target_id.strip(),
             "target_summary": target_summary.strip(),
             "content": content.strip(),
+            "source_event_id": source_event_id,
+            "task_id": task_id,
             "status": "DRAFT",
             "created_at": now,
             "updated_at": now,

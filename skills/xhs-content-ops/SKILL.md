@@ -32,6 +32,7 @@ metadata:
 | `user-profile` | 获取用户主页 |
 | `post-comment` | 对指定笔记评论 |
 | `random-comment` | 当前点击授权 1–3 条随机评论 |
+| `home-engagement` | 单次首页会话完成浏览、点赞、评论并输出逐篇记录 |
 | `reply-comment` | 单次回复 |
 | `like-feed` | 点赞笔记 |
 | `favorite-feed` | 收藏笔记 |
@@ -39,6 +40,8 @@ metadata:
 | `long-article` / `select-template` / `next-step` | V1.5 长文预览流程 |
 | `click-publish` | V1.5 用户确认真实预览后发布 |
 | `save-draft` | V1.5 用户取消发布时保存草稿 |
+| `collect-note-comments` | 自动发现自己最近笔记并回收新评论事件 |
+| `collect-operations-metrics` | 保存账号和自己笔记的运营指标时间快照 |
 
 一步发布命令不属于 V1.5 产品流程。私信、资料修改和自动回复尚无完整命令时不得猜测。
 
@@ -103,6 +106,21 @@ python scripts/cli.py --account <账号别名> search-feeds `
 
 ## 互动管理
 
+明确要求“首页点开若干篇，其中点赞若干篇并评论若干篇”时，使用一次复合命令：
+
+```powershell
+python scripts/cli.py --account <账号别名> home-engagement `
+  --browse-count 6 `
+  --like-count 2 `
+  --comment-count 1 `
+  --duration-minutes 3 `
+  --min-read-seconds 8 `
+  --max-read-seconds 15
+```
+
+该流程只打开首页一次，互动对象必须来自本次成功点开的笔记；卡片临时消失时记录跳过并继续，
+不会重新搜集一批目标。结果按篇保留阅读秒数、点赞状态、评论文本与失败原因。
+
 ```text
 确认账号和互动目标
 → 搜索并读取笔记
@@ -114,6 +132,14 @@ python scripts/cli.py --account <账号别名> search-feeds `
 
 随机评论仍限定当前账号和本次 1–3 条。自动回复必须先启用账号规则，并受时间、配额、暂停和
 执行记录约束；代码完成前不执行后台自动回复。
+
+## 数据回收
+
+`collect-note-comments` 只读取当前账号自己笔记的评论，使用平台评论 ID 去重，并把新增评论保存为
+被动事件。事件可以生成唯一的回复任务和草稿，确认后复用该任务执行单次回复。
+
+`collect-operations-metrics` 保存账号及自己笔记的指标快照。历史和相邻快照增量保存在本地
+SQLite；缺失指标保持为空。真实页面采集尚未验收时，必须明确标记为待验收。
 
 ## 失败处理
 

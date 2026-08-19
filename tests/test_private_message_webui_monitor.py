@@ -3,13 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_webui_monitors_publish_tasks_without_action_controls() -> None:
+def test_webui_only_monitors_private_message_tasks_without_action_controls() -> None:
     root = Path(__file__).parents[1]
     script = (root / "webui" / "app.js").read_text(encoding="utf-8")
-    page = (root / "webui" / "index.html").read_text(encoding="utf-8")
 
-    assert '"fill-publish": { label: "图文发布" }' in script
-    assert "appendPublishTaskPreview(card, item)" in script
+    assert '"send-private-messages": { label: "个性化私信" }' in script
     assert 'agentMonitorCapabilities = new Set([...publishMonitorCapabilities, "send-private-messages"])' in script
     assert "!agentMonitorCapabilities.has(item.capability)" in script
-    assert "WebUI 会只读监测由 Agent" in page
+    assert 'result.result_type === "private_message_batch"' in script
+    assert "appendPrivateMessageResults(content, result)" in script

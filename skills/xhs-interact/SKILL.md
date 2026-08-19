@@ -1,8 +1,8 @@
 ---
 name: xhs-interact
 description: |
-  小红书评论、随机评论、回复、点赞和收藏技能。当用户要求对指定笔记评论、
-  从首页随机评论、回复评论、启用自动回复规则、点赞或收藏时使用。
+  小红书私信、主加、评论、随机评论、回复、点赞和收藏技能。当用户要求发送首次私信、
+  继续已有私信会话、主动关注博主、评论、回复、点赞或收藏时使用。
 metadata:
   openclaw:
     requires:
@@ -32,8 +32,17 @@ metadata:
 | `reply-comment` | 回复指定评论或用户 |
 | `like-feed` | 点赞或取消点赞 |
 | `favorite-feed` | 收藏或取消收藏 |
+| `follow-user-preview` | 可选的只读目标状态诊断，不执行关注 |
+| `follow-user` | 在当前 Agent 任务内预览、关注一次并回读状态 |
+| `private-message-context` | 只读检查首次私信入口或读取已有会话近期文本 |
+| `prepare-private-messages` | 保存 Agent 生成的个性化文本并返回整批确认预览 |
+| `send-private-messages` | 发送明确文本，或发送已经整批确认的 Agent 生成文本 |
+| `collect-note-comments` | 只读回收自己最近笔记的新评论事件 |
 
 自动回复的规则管理、轮询或事件入口尚未实现；不得猜测命令。
+
+当前工作区已实现评论事件收件箱、唯一被动任务、回复草稿和账号规则的本地底座；规则自动执行、
+WebUI 收件箱和真实页面验收尚未完成，因此仍不得描述为后台自动回复已经可用。
 
 ## 强制约束
 
@@ -43,6 +52,68 @@ metadata:
 - 评论文本不能为空，不能把一次点击扩展成持续评论计划。
 - 点赞和收藏遵守配额、去重、间隔和熔断规则。
 - 遇到 `RESULT_UNKNOWN` 时先人工检查平台实际状态，不直接重发。
+- 主加属于单向操作，默认直接执行、不需要审批；只有用户特别说明时才在执行前等待确认。
+- 主加只由 Agent/Python CLI 下发；WebUI 只展示任务和结果，不创建、确认或执行主加任务。
+- 私信只由 Agent/Python CLI 下发；WebUI 只展示整批任务与逐人结果，不创建、确认、执行或重试。
+- 私信单批 1–10 人，多人批次每人文本必须不同；某人失败不阻断其余收件人。
+- 用户给出明确收件人和完整最终文本时直接发送；文本由 Agent 生成或修改时，先展示全部收件人和
+  全文，用户确认整批一次后才能发送。
+- 私信点击后未回读成功记为 `RESULT_UNKNOWN`，不自动重发；恢复批次也不重发成功或结果未知项。
+
+## 私信
+
+先读取上下文以判断是首次私信还是已有会话，并用于个性化写作：
+
+```powershell
+python scripts/cli.py --account <账号别名> private-message-context `
+  --user-id USER_ID --xsec-token XSEC_TOKEN --limit 10
+```
+
+用户已经逐人提供最终文本时，准备 UTF-8 JSON 数组并直接发送：
+
+```json
+[
+  {"user_id":"USER_A","nickname":"甲","xsec_token":"TOKEN_A","content":"给甲的最终文本"},
+  {"user_id":"USER_B","nickname":"乙","xsec_token":"TOKEN_B","content":"给乙的不同文本"}
+]
+```
+
+```powershell
+python scripts/cli.py --account <账号别名> send-private-messages `
+  --recipients-file "C:\Temp\private-messages.json"
+```
+
+文本由 Agent 生成或修改时，先准备并展示整批，再使用返回的任务 ID 和修订 ID确认一次：
+
+```powershell
+python scripts/cli.py --account <账号别名> prepare-private-messages `
+  --recipients-file "C:\Temp\private-messages.json"
+
+python scripts/cli.py --account <账号别名> send-private-messages `
+  --task-id TASK_ID --batch-revision-id REVISION_ID --confirm
+```
+
+首次私信入口是否可用取决于目标主页是否向当前账号展示“私信/发消息”入口。不可用时报告真实状态，
+不改用评论等其他联系方式。当前页面适配器已完成只读结构检查，真实发送仍需用户明确授权后验收。
+
+## 主加（主动关注博主）
+
+Agent 对每个目标读取主页和当前状态、关注一次并回读结果：
+
+```powershell
+python scripts/cli.py --account <账号别名> follow-user `
+  --user-id USER_ID --xsec-token XSEC_TOKEN
+```
+
+需要单独排查目标状态时，可以使用只读命令：
+
+```powershell
+python scripts/cli.py --account <账号别名> follow-user-preview `
+  --user-id USER_ID --xsec-token XSEC_TOKEN
+```
+
+如果检查时已经关注，执行阶段不会重复点击。点击后只有回读为“已关注”或“互相关注”才记为成功；
+无法确认实际结果时返回 `RESULT_UNKNOWN`，不得自动重试。取消关注是独立能力，不在本流程中执行。
 
 ## V1.5 指定评论
 

@@ -95,6 +95,19 @@ class BusinessRunner:
                 style=str(parameters.get("style") or "natural"),
                 excluded_feed_ids=parameters.get("excluded_feed_ids") or [],
             )
+        if capability == "home-engagement":
+            from xhs.home_engagement import home_engagement
+
+            return home_engagement(
+                page,
+                browse_count=int(parameters.get("browse_count") or 6),
+                like_count=int(parameters.get("like_count") or 0),
+                comment_count=int(parameters.get("comment_count") or 0),
+                duration_seconds=int(parameters.get("duration_minutes") or 3) * 60,
+                min_read_seconds=float(parameters.get("min_read_seconds") or 8),
+                max_read_seconds=float(parameters.get("max_read_seconds") or 15),
+                style=str(parameters.get("style") or "natural"),
+            )
         if capability == "get-feed-detail":
             from xhs.feed_detail import get_feed_detail
 
@@ -114,6 +127,59 @@ class BusinessRunner:
                     str(parameters.get("user_id") or ""),
                     str(parameters.get("xsec_token") or ""),
                 )
+            )
+        if capability in {"follow-user-preview", "follow-user"}:
+            from xhs.follow import follow_user, inspect_follow_target
+
+            user_id = str(parameters.get("user_id") or "")
+            xsec_token = str(parameters.get("xsec_token") or "")
+            if capability == "follow-user-preview":
+                return inspect_follow_target(page, user_id, xsec_token)
+            return follow_user(page, user_id, xsec_token)
+        if capability == "private-message-context":
+            from xhs.direct_message import inspect_private_message_context
+
+            return inspect_private_message_context(
+                page,
+                str(parameters.get("user_id") or ""),
+                str(parameters.get("xsec_token") or ""),
+                limit=int(parameters.get("limit") or 10),
+            )
+        if capability == "send-private-messages":
+            from xhs.direct_message import send_private_message
+
+            return send_private_message(
+                page,
+                str(parameters.get("user_id") or ""),
+                str(parameters.get("xsec_token") or ""),
+                str(parameters.get("content") or ""),
+                expected_nickname=str(parameters.get("nickname") or ""),
+            )
+        if capability == "collect-note-comments":
+            from xhs.comment_monitor import collect_note_comments, collect_own_note_comments
+
+            tracked_notes = list(parameters.get("tracked_notes") or [])
+            owner_user_id = str(parameters.get("owner_user_id") or "")
+            if tracked_notes:
+                return collect_note_comments(
+                    page,
+                    tracked_notes,
+                    owner_user_id=owner_user_id,
+                )
+            return collect_own_note_comments(
+                page,
+                owner_user_id=owner_user_id,
+                owner_xsec_token=str(parameters.get("owner_xsec_token") or ""),
+                max_notes=int(parameters.get("max_notes") or 20),
+            )
+        if capability == "collect-operations-metrics":
+            from xhs.metrics_collector import collect_operations_metrics
+
+            return collect_operations_metrics(
+                page,
+                owner_user_id=str(parameters.get("owner_user_id") or ""),
+                owner_xsec_token=str(parameters.get("owner_xsec_token") or ""),
+                max_notes=int(parameters.get("max_notes") or 50),
             )
         if capability in {"like-feed", "favorite-feed"}:
             from xhs.like_favorite import (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from account_autostart import (
     disable_account_autostart,
     enable_account_autostart,
 )
+from action_workflow_service import ActionWorkflowService
 from account_doctor import diagnose_accounts
 from account_identity import (
     begin_login_switch,
@@ -50,8 +52,20 @@ from capability_registry import (
     list_capability_policies,
 )
 from diagnostic_export import export_diagnostic_report
+from collector_service import CollectorService
+from comment_collector import CommentCollector
+from inbound_event_service import InboundEventService
+from metric_service import MetricService
+from operations_db import OperationsDatabase
+from operation_event_service import OperationEventService
+from passive_reply_service import PassiveReplyService
+from private_message_batch import (
+    normalize_private_message_recipients,
+    private_message_preview,
+)
 from product_store import ProductStore
 from quota_service import QuotaService
+from reply_rule_service import ReplyRuleService
 from service_errors import ServiceError
 from task_service import TaskService
 from xhs.bridge import BridgePage
@@ -87,6 +101,7 @@ class ApplicationService:
         switch_canceller: Callable[..., dict] = cancel_login_switch,
         account_logout: Callable[[object], bool] = logout,
         product_store: ProductStore | None = None,
+        operations_database: OperationsDatabase | None = None,
         extension_source: str | Path = DEFAULT_EXTENSION_SOURCE,
         business_runner: BusinessRunner | None = None,
         bridge_status_reader: Callable[..., dict] = get_bridge_lifecycle,
@@ -133,9 +148,22 @@ class ApplicationService:
         self._pairing_status_reader = pairing_status_reader
         self._pairing_revoker = pairing_revoker
         self._store = product_store or ProductStore()
+        self.operations_database = operations_database or OperationsDatabase(root=self._store.root)
+        self.inbound_events = InboundEventService(self.operations_database)
+        self.collectors = CollectorService(self.operations_database)
+        self.comment_collector = CommentCollector(self.inbound_events, self.collectors)
+        self.metrics = MetricService(self.operations_database)
+        self.operation_events = OperationEventService(self.operations_database)
+        self.reply_rules = ReplyRuleService(self.operations_database)
+        self.action_workflows = ActionWorkflowService(self.operations_database)
         self.tasks = TaskService(self._store)
         self.tasks.recover_interrupted()
         self.approvals = ApprovalService(self._store)
+        self.passive_replies = PassiveReplyService(
+            self.inbound_events,
+            self.tasks,
+            self.approvals,
+        )
         self.quota = QuotaService(self._store)
         self._runner_is_managed = business_runner is None
         self.runner = business_runner or BusinessRunner(
@@ -728,6 +756,15 @@ class ApplicationService:
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
         task = self.tasks.get(task_id)
+        if (
+            task["capability"] == "send-private-messages"
+            and task.get("operation") != "recipient"
+        ):
+            raise ServiceError(
+                "AGENT_CLI_ONLY",
+                "私信批次只能由 Agent 通过 Python CLI 执行",
+                409,
+            )
         if task["state"] != "QUEUED":
             raise ServiceError("INVALID_TASK_STATE", "只有排队中的任务可以执行", 409)
         target_key = self._task_target_key(task)
@@ -742,6 +779,11 @@ class ApplicationService:
             self._record_task_event(task, target_key)
             return {"success": True, "task": task}
         parameters = dict(task.get("parameters") or {})
+        if task["capability"] in {
+            "collect-note-comments",
+            "collect-operations-metrics",
+        } and not parameters.get("owner_user_id"):
+            parameters["owner_user_id"] = status["identity"].get("live_user_id") or ""
         if task["risk_level"] == "L1":
             try:
                 if task["capability"] == "keyword-engagement":
@@ -788,7 +830,8 @@ class ApplicationService:
                 task["account_slot"], task["capability"], parameters
             )
         except Exception as exc:
-            final = "RESULT_UNKNOWN" if task["risk_level"] == "L1" else "FAILED"
+            result_unknown = getattr(exc, "result_unknown", task["risk_level"] == "L1")
+            final = "RESULT_UNKNOWN" if result_unknown else "FAILED"
             code = exc.code if isinstance(exc, ServiceError) else "EXECUTION_ERROR"
             message = exc.message if isinstance(exc, ServiceError) else str(exc)
             completed = self.tasks.transition(
@@ -804,6 +847,17 @@ class ApplicationService:
             )
             self._record_task_event(completed, target_key)
             return {"success": True, "task": completed}
+        if task["capability"] == "collect-note-comments":
+            collected = self.comment_collector.ingest(
+                account_slot=task["account_slot"],
+                comments=list(result.get("comments") or []),
+                cursor_value=str(result.get("cursor") or ""),
+                last_seen_time=result.get("last_seen_time"),
+            )
+            result = {**result, "inbound_events": collected}
+        if task["capability"] == "collect-operations-metrics":
+            snapshots = self._record_metric_collection(task["account_slot"], result)
+            result = {**result, "snapshots": snapshots}
         completed = self.tasks.transition(
             task_id,
             "PARTIAL_SUCCESS" if result.get("partial") else "SUCCESS",
@@ -816,6 +870,12 @@ class ApplicationService:
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
         task = self.tasks.get(task_id)
+        if task["capability"] == "send-private-messages":
+            raise ServiceError(
+                "AGENT_CLI_ONLY",
+                "私信批次不能从 WebUI 重试，请由 Agent 查看逐条结果",
+                409,
+            )
         if task["state"] != "BLOCKED":
             raise ServiceError("INVALID_TASK_STATE", "只有需处理的任务可以重试", 409)
         self.tasks.transition(task_id, "QUEUED")
@@ -845,14 +905,496 @@ class ApplicationService:
         )
         return {"success": True, "records": records}
 
+    def list_inbound_events(self, **filters) -> dict:
+        return {"success": True, "events": self.inbound_events.list(**filters)}
+
+    def get_inbound_event(self, event_id: str) -> dict:
+        return {"success": True, "event": self.inbound_events.get(event_id)}
+
+    def create_passive_reply_draft(
+        self,
+        event_id: str,
+        *,
+        verified_uid: str,
+        content: str,
+    ) -> dict:
+        result = self.passive_replies.create_draft(
+            event_id,
+            verified_uid=verified_uid,
+            content=content,
+        )
+        return {"success": True, **result}
+
+    def list_operation_events(self, **filters) -> dict:
+        return {"success": True, "events": self.operation_events.list(**filters)}
+
+    def get_metric_history(
+        self,
+        account_slot: str,
+        entity_type: str,
+        entity_id: str,
+        *,
+        limit: int = 100,
+    ) -> dict:
+        return {
+            "success": True,
+            "snapshots": self.metrics.history(
+                account_slot=account_slot,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                limit=limit,
+            ),
+        }
+
+    def get_metric_delta(
+        self,
+        account_slot: str,
+        entity_type: str,
+        entity_id: str,
+    ) -> dict:
+        return {
+            "success": True,
+            "delta": self.metrics.latest_delta(
+                account_slot=account_slot,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            ),
+        }
+
+    def list_reply_rules(self, *, account_slot: str | None = None) -> dict:
+        return {
+            "success": True,
+            "rules": self.reply_rules.list(account_slot=account_slot),
+        }
+
+    def create_reply_rule(self, **values) -> dict:
+        return {"success": True, "rule": self.reply_rules.create(**values)}
+
+    def update_reply_rule(self, rule_id: str, **changes) -> dict:
+        return {"success": True, "rule": self.reply_rules.update(rule_id, **changes)}
+
+    def set_reply_rule_enabled(self, rule_id: str, *, enabled: bool) -> dict:
+        return {
+            "success": True,
+            "rule": self.reply_rules.set_enabled(rule_id, enabled),
+        }
+
+    def list_action_drafts(self, *, account_slot: str | None = None) -> dict:
+        return {
+            "success": True,
+            "drafts": self.action_workflows.list_drafts(account_slot=account_slot),
+        }
+
+    def create_action_draft(self, **values) -> dict:
+        if values.get("action_type") in {"follow-user", "send-private-message"}:
+            raise ServiceError(
+                "AGENT_CLI_ONLY",
+                "该动作只能由 Agent 通过 Python CLI 创建",
+                409,
+            )
+        return {"success": True, "draft": self.action_workflows.create_draft(**values)}
+
+    def update_action_draft(self, draft_id: str, **changes) -> dict:
+        return {
+            "success": True,
+            "draft": self.action_workflows.update_draft(draft_id, **changes),
+        }
+
+    def confirm_action_draft(self, draft_id: str, *, ttl_seconds: int = 300) -> dict:
+        return {
+            "success": True,
+            "approval": self.action_workflows.confirm(
+                draft_id,
+                ttl_seconds=ttl_seconds,
+            ),
+        }
+
+    def prepare_follow_user(
+        self,
+        account_slot: str,
+        *,
+        user_id: str,
+        xsec_token: str,
+    ) -> dict:
+        """Read one explicit target and create an Agent-owned confirmation draft."""
+
+        self.require_enabled_capability("follow-user-preview")
+        user_id = str(user_id or "").strip()
+        xsec_token = str(xsec_token or "").strip()
+        if not user_id or not xsec_token:
+            raise ServiceError("INVALID_REQUEST", "主加预览必须包含用户 ID 和 XSEC Token")
+        task = self.tasks.create(
+            source="agent",
+            account_slot=account_slot,
+            capability="follow-user-preview",
+            request_summary=f"读取主加目标：{user_id}",
+            target_type="user",
+            target_id=user_id,
+            parameters={"user_id": user_id, "xsec_token": xsec_token},
+        )
+        preview_result = self.execute_task(task["task_id"])
+        if preview_result["task"]["state"] != "SUCCESS":
+            raise ServiceError(
+                "FOLLOW_PREVIEW_FAILED",
+                preview_result["task"].get("result_summary") or "无法读取目标博主主页",
+                409,
+            )
+        target = preview_result.get("result") or {}
+        status = self.get_account_status(account_slot)
+        live_uid = str(
+            (status.get("identity") or {}).get("live_user_id")
+            or (status.get("identity") or {}).get("user_id")
+            or ""
+        )
+        if not status.get("ready") or not live_uid:
+            raise ServiceError(
+                "ACCOUNT_NOT_READY",
+                status.get("next_action") or "目标账号尚未完成身份核验",
+                409,
+            )
+        draft = self.action_workflows.create_draft(
+            account_slot=account_slot,
+            verified_uid=live_uid,
+            action_type="follow-user",
+            target_id=user_id,
+            payload={
+                "target_nickname": target.get("nickname") or "",
+                "target_red_id": target.get("red_id") or "",
+                "target_description": target.get("description") or "",
+                "current_button_text": target.get("button_text") or "",
+                "already_following": bool(target.get("following")),
+            },
+        )
+        return {
+            "success": True,
+            "task": preview_result["task"],
+            "draft": draft,
+            "preview": draft["preview"],
+            "message": (
+                "目标已经关注，无需重复执行"
+                if draft["preview"]["already_following"]
+                else "目标已读取，可由 Agent 直接执行关注"
+            ),
+        }
+
+    def follow_user_direct(
+        self,
+        account_slot: str,
+        *,
+        user_id: str,
+        xsec_token: str,
+    ) -> dict:
+        """Preview and follow one target directly without user approval."""
+
+        prepared = self.prepare_follow_user(
+            account_slot,
+            user_id=user_id,
+            xsec_token=xsec_token,
+        )
+        execution = self.execute_follow_user(
+            account_slot,
+            draft_id=prepared["draft"]["draft_id"],
+            xsec_token=xsec_token,
+            confirmed=True,
+        )
+        return {**execution, "preview": prepared["preview"]}
+
+    def execute_follow_user(
+        self,
+        account_slot: str,
+        *,
+        draft_id: str,
+        xsec_token: str,
+        confirmed: bool,
+    ) -> dict:
+        """Consume one target preview and execute one idempotent follow action."""
+
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "主加必须明确确认目标博主", 409)
+        self.require_enabled_capability("follow-user")
+        if self._store.get_setting("global_paused", False):
+            raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
+        draft = self.action_workflows.get_draft(str(draft_id or "").strip())
+        if draft["action_type"] != "follow-user" or draft["account_slot"] != account_slot:
+            raise ServiceError("CONFIRMATION_MISMATCH", "主加草稿与目标账号不匹配", 409)
+        if draft["state"] != "DRAFT":
+            raise ServiceError("CONFIRMATION_CONSUMED", "该主加草稿已经确认或执行", 409)
+        xsec_token = str(xsec_token or "").strip()
+        if not xsec_token:
+            raise ServiceError("INVALID_REQUEST", "执行主加必须包含 XSEC Token")
+
+        status = self.get_account_status(account_slot)
+        identity = status.get("identity") or {}
+        live_uid = str(identity.get("live_user_id") or identity.get("user_id") or "")
+        if not status.get("ready") or live_uid != draft["verified_uid"]:
+            raise ServiceError(
+                "IDENTITY_MISMATCH",
+                "当前登录账号与主加预览时核验的账号不一致",
+                409,
+            )
+        approval = self.action_workflows.confirm(draft["draft_id"])
+        self.action_workflows.consume(approval["approval_id"])
+        task = self.tasks.create(
+            source="agent",
+            account_slot=account_slot,
+            capability="follow-user",
+            operation="execute",
+            request_summary=(
+                f"关注博主：{draft['preview'].get('target_nickname') or draft['target_id']}"
+            ),
+            target_type="user",
+            target_id=draft["target_id"],
+            parameters={
+                "user_id": draft["target_id"],
+                "xsec_token": xsec_token,
+                "expected_nickname": draft["preview"].get("target_nickname") or "",
+            },
+        )
+        execution = self.execute_task(task["task_id"])
+        final_draft = self.action_workflows.mark_execution_result(
+            draft["draft_id"], execution["task"]["state"]
+        )
+        return {**execution, "draft": final_draft}
+
+    def get_private_message_context(
+        self,
+        account_slot: str,
+        *,
+        user_id: str,
+        xsec_token: str = "",
+        limit: int = 10,
+    ) -> dict:
+        """Read one recipient profile/conversation for Agent personalization."""
+
+        self.require_enabled_capability("private-message-context")
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            raise ServiceError("INVALID_REQUEST", "私信上下文必须包含收件人 ID")
+        task = self.tasks.create(
+            source="agent",
+            account_slot=account_slot,
+            capability="private-message-context",
+            request_summary=f"读取私信上下文：{user_id}",
+            target_type="user",
+            target_id=user_id,
+            parameters={
+                "user_id": user_id,
+                "xsec_token": str(xsec_token or "").strip(),
+                "limit": max(1, min(int(limit), 20)),
+            },
+        )
+        return self.execute_task(task["task_id"])
+
+    def prepare_private_messages(
+        self,
+        account_slot: str,
+        *,
+        recipients: list[dict],
+    ) -> dict:
+        """Persist Agent-generated personalized texts for one batch confirmation."""
+
+        self.require_enabled_capability("prepare-private-messages")
+        normalized = normalize_private_message_recipients(recipients)
+        verified_uid = self._private_message_verified_uid(account_slot)
+        revision_id = uuid.uuid4().hex
+        task = self.tasks.create_workflow(
+            source="agent",
+            account_slot=account_slot,
+            capability="send-private-messages",
+            request_summary=f"待确认个性化私信：{len(normalized)} 人",
+            target_type="user_batch",
+            parameters={
+                "workflow_type": "private_message_batch",
+                "stage": "preparing",
+                "generated": True,
+                "batch_revision_id": revision_id,
+                "verified_uid": verified_uid,
+                "recipients": normalized,
+                "recipient_results": [],
+            },
+        )
+        running = self.tasks.transition(task["task_id"], "RUNNING")
+        self.tasks.update_parameters(running["task_id"], stage="preview_ready")
+        waiting = self.tasks.transition(
+            running["task_id"],
+            "WAITING_APPROVAL",
+            result_summary="个性化私信已生成，等待整批确认",
+        )
+        return {
+            "success": True,
+            "task": waiting,
+            "task_id": waiting["task_id"],
+            "batch_revision_id": revision_id,
+            "preview": private_message_preview(normalized),
+        }
+
+    def send_private_messages(
+        self,
+        account_slot: str,
+        *,
+        recipients: list[dict] | None = None,
+        task_id: str = "",
+        batch_revision_id: str = "",
+        confirmed: bool = False,
+    ) -> dict:
+        """Send explicit texts directly or execute one confirmed generated batch."""
+
+        self.require_enabled_capability("send-private-messages")
+        if task_id:
+            if not confirmed:
+                raise ServiceError(
+                    "CONFIRMATION_REQUIRED",
+                    "Agent 生成的个性化私信必须在整批确认后发送",
+                    409,
+                )
+            task = self.tasks.get(task_id)
+            parameters = task.get("parameters") or {}
+            if task["account_slot"] != account_slot:
+                raise ServiceError("CONFIRMATION_MISMATCH", "私信任务账号不匹配", 409)
+            if task["capability"] != "send-private-messages" or not parameters.get(
+                "generated"
+            ):
+                raise ServiceError("INVALID_REQUEST", "该任务不是待确认私信批次", 409)
+            if task["state"] != "WAITING_APPROVAL":
+                raise ServiceError("INVALID_TASK_STATE", "私信批次不在待确认状态", 409)
+            if str(parameters.get("batch_revision_id") or "") != str(
+                batch_revision_id or ""
+            ):
+                raise ServiceError("DRAFT_CHANGED", "私信预览版本已变化，需要重新确认", 409)
+            live_uid = self._private_message_verified_uid(account_slot)
+            if live_uid != str(parameters.get("verified_uid") or ""):
+                raise ServiceError("IDENTITY_MISMATCH", "当前登录账号与私信预览账号不一致", 409)
+            self.tasks.transition(task_id, "QUEUED")
+            return self._execute_private_message_batch(task_id)
+
+        normalized = normalize_private_message_recipients(list(recipients or []))
+        verified_uid = self._private_message_verified_uid(account_slot)
+        task = self.tasks.create(
+            source="agent",
+            account_slot=account_slot,
+            capability="send-private-messages",
+            request_summary=f"发送个性化私信：{len(normalized)} 人",
+            target_type="user_batch",
+            parameters={
+                "workflow_type": "private_message_batch",
+                "stage": "ready",
+                "generated": False,
+                "batch_revision_id": uuid.uuid4().hex,
+                "verified_uid": verified_uid,
+                "recipients": normalized,
+                "recipient_results": [],
+            },
+        )
+        return self._execute_private_message_batch(task["task_id"])
+
+    def _execute_private_message_batch(self, task_id: str) -> dict:
+        parent = self.tasks.get(task_id)
+        if parent["state"] != "QUEUED":
+            raise ServiceError("INVALID_TASK_STATE", "私信批次尚未进入可执行状态", 409)
+        claimed = self.tasks.claim_for_execution(task_id)
+        if claimed["state"] == "BLOCKED":
+            self._record_task_event(claimed, task_id)
+            return {"success": True, "task": claimed, "items": []}
+
+        parameters = claimed.get("parameters") or {}
+        recipients = normalize_private_message_recipients(parameters.get("recipients") or [])
+        previous = {
+            str(item.get("user_id") or ""): dict(item)
+            for item in list(parameters.get("recipient_results") or [])
+        }
+        for recipient in recipients:
+            old = previous.get(recipient["user_id"])
+            if old and old.get("state") in {"SUCCESS", "RESULT_UNKNOWN"}:
+                continue
+            child = self.tasks.create(
+                source="agent",
+                account_slot=claimed["account_slot"],
+                capability="send-private-messages",
+                operation="recipient",
+                request_summary=(
+                    f"发送私信：{recipient.get('nickname') or recipient['user_id']}"
+                ),
+                parent_task_id=task_id,
+                target_type="user",
+                target_id=recipient["user_id"],
+                parameters=recipient,
+            )
+            execution = self.execute_task(child["task_id"])
+            child_task = execution["task"]
+            previous[recipient["user_id"]] = {
+                "user_id": recipient["user_id"],
+                "nickname": recipient.get("nickname") or "",
+                "content": recipient["content"],
+                "task_id": child_task["task_id"],
+                "state": child_task["state"],
+                "result_summary": child_task.get("result_summary") or "",
+                "error_code": child_task.get("error_code") or "",
+                "readback": (execution.get("result") or {}).get("readback") or {},
+            }
+            ordered = [previous[item["user_id"]] for item in recipients if item["user_id"] in previous]
+            self.tasks.update_parameters(task_id, recipient_results=ordered, stage="sending")
+
+        items = [previous[item["user_id"]] for item in recipients if item["user_id"] in previous]
+        states = [item["state"] for item in items]
+        success_count = states.count("SUCCESS")
+        if success_count == len(recipients):
+            final_state = "SUCCESS"
+        elif success_count:
+            final_state = "PARTIAL_SUCCESS"
+        elif "RESULT_UNKNOWN" in states:
+            final_state = "RESULT_UNKNOWN"
+        elif states and all(state == "BLOCKED" for state in states):
+            final_state = "BLOCKED"
+        else:
+            final_state = "FAILED"
+        summary = f"私信批次完成：{success_count}/{len(recipients)} 条确认发送成功"
+        completed = self.tasks.transition(
+            task_id,
+            final_state,
+            result_summary=summary,
+            error_code=("" if final_state in {"SUCCESS", "PARTIAL_SUCCESS"} else "PRIVATE_MESSAGE_BATCH_FAILED"),
+            recommended_action=(
+                "先人工检查结果未知的会话，不要直接重发"
+                if "RESULT_UNKNOWN" in states
+                else "查看逐条结果"
+            ),
+        )
+        result = {
+            "result_type": "private_message_batch",
+            "items": items,
+            "count": len(recipients),
+            "success_count": success_count,
+            "partial": final_state == "PARTIAL_SUCCESS",
+        }
+        self._record_task_event(completed, task_id, result=result)
+        return {"success": True, "task": completed, **result}
+
+    def _private_message_verified_uid(self, account_slot: str) -> str:
+        status = self.get_account_status(account_slot)
+        identity = status.get("identity") or {}
+        live_uid = str(identity.get("live_user_id") or identity.get("user_id") or "")
+        if not status.get("ready") or not live_uid:
+            raise ServiceError(
+                "ACCOUNT_NOT_READY",
+                status.get("next_action") or "目标账号尚未完成身份核验",
+                409,
+            )
+        return live_uid
+
     def _record_task_event(self, task: dict, target_key: str, *, result=None) -> None:
         self.tasks.record_event(task, target_key, result=result)
+        self.operation_events.record(
+            task,
+            result=result,
+            readback=(result or {}).get("readback") or {},
+        )
 
     @staticmethod
     def _task_target_key(task: dict) -> str:
         parameters = task.get("parameters") or {}
         return str(
-            parameters.get("feed_id")
+            task.get("target_id")
+            or parameters.get("feed_id")
             or parameters.get("user_id")
             or parameters.get("keyword")
             or ""
@@ -860,10 +1402,19 @@ class ApplicationService:
 
     @staticmethod
     def _validate_task_parameters(capability: str, parameters: dict) -> None:
-        if capability in {"fill-publish", "fill-publish-video", "long-article"}:
+        if capability in {
+            "fill-publish",
+            "fill-publish-video",
+            "long-article",
+            "follow-user-preview",
+            "follow-user",
+            "private-message-context",
+            "prepare-private-messages",
+            "send-private-messages",
+        }:
             raise ServiceError(
                 "AGENT_CLI_ONLY",
-                "发布任务只能由 Agent 通过 Python CLI 的预览流程创建",
+                "该任务只能由 Agent 通过 Python CLI 的预览流程创建",
                 409,
             )
         if capability == "browse-feeds":
@@ -920,6 +1471,38 @@ class ApplicationService:
                 raise ServiceError("INVALID_REQUEST", "候选池数量必须不少于评论数量，且不超过 100 篇")
             if not 1 <= collection_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
+        if capability == "home-engagement":
+            if parameters.get("direct_send_authorized") is not True:
+                raise ServiceError(
+                    "CONFIRMATION_REQUIRED",
+                    "首页互动包含直接评论，必须确认本次任务授权",
+                    409,
+                )
+            if str(parameters.get("style") or "natural") not in {
+                "natural",
+                "praise",
+                "question",
+            }:
+                raise ServiceError("INVALID_REQUEST", "请选择有效的评论风格")
+            try:
+                browse_count = int(parameters.get("browse_count"))
+                like_count = int(parameters.get("like_count"))
+                comment_count = int(parameters.get("comment_count"))
+                duration_minutes = int(parameters.get("duration_minutes"))
+                min_read_seconds = float(parameters.get("min_read_seconds", 8))
+                max_read_seconds = float(parameters.get("max_read_seconds", 15))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "首页互动参数必须是有效数字") from exc
+            if not 1 <= browse_count <= 50:
+                raise ServiceError("INVALID_REQUEST", "浏览数量必须在 1 到 50 篇之间")
+            if not 0 <= like_count <= browse_count:
+                raise ServiceError("INVALID_REQUEST", "点赞数量不能超过浏览数量")
+            if not 0 <= comment_count <= min(3, browse_count):
+                raise ServiceError("INVALID_REQUEST", "评论数量必须在 0 到 3 篇之间，且不能超过浏览数量")
+            if not 1 <= duration_minutes <= 10:
+                raise ServiceError("INVALID_REQUEST", "最长执行时间必须在 1 到 10 分钟之间")
+            if min_read_seconds < 0 or max_read_seconds < min_read_seconds or max_read_seconds > 60:
+                raise ServiceError("INVALID_REQUEST", "单篇阅读时间必须在 0 到 60 秒内且最短不大于最长")
         if capability == "get-feed-detail":
             if not str(parameters.get("feed_id") or "").strip():
                 raise ServiceError("INVALID_REQUEST", "查看笔记详情必须填写笔记 ID")
@@ -930,6 +1513,28 @@ class ApplicationService:
                 raise ServiceError("INVALID_REQUEST", "查看用户主页必须填写用户 ID")
             if not str(parameters.get("xsec_token") or "").strip():
                 raise ServiceError("INVALID_REQUEST", "查看用户主页必须填写 XSEC Token")
+        if capability == "collect-note-comments":
+            tracked_notes = parameters.get("tracked_notes")
+            if tracked_notes is not None and not isinstance(tracked_notes, list):
+                raise ServiceError("INVALID_REQUEST", "待跟踪笔记必须是列表")
+            if tracked_notes and any(
+                not isinstance(item, dict) or not str(item.get("feed_id") or "").strip()
+                for item in tracked_notes
+            ):
+                raise ServiceError("INVALID_REQUEST", "每篇待跟踪笔记必须包含 Feed ID")
+            try:
+                max_notes = int(parameters.get("max_notes", 20))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "监测笔记数量必须是整数") from exc
+            if not 1 <= max_notes <= 100:
+                raise ServiceError("INVALID_REQUEST", "监测笔记数量必须在 1 到 100 篇之间")
+        if capability == "collect-operations-metrics":
+            try:
+                max_notes = int(parameters.get("max_notes", 50))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "指标采集笔记数量必须是整数") from exc
+            if not 1 <= max_notes <= 200:
+                raise ServiceError("INVALID_REQUEST", "指标采集笔记数量必须在 1 到 200 篇之间")
         if capability in {"like-feed", "favorite-feed"}:
             if not str(parameters.get("feed_id") or "").strip():
                 raise ServiceError("INVALID_REQUEST", "点赞或收藏任务必须填写笔记 ID")
@@ -943,6 +1548,38 @@ class ApplicationService:
         if "count" in result:
             return f"完成，共 {result['count']} 条结果"
         return "任务执行成功"
+
+    def _record_metric_collection(self, account_slot: str, result: dict) -> dict:
+        captured_at = str(result.get("captured_at") or "")
+        source = str(result.get("source") or "user_profile")
+        account = result.get("account") or {}
+        account_snapshot = self.metrics.record_snapshot(
+            account_slot=account_slot,
+            entity_type="account",
+            entity_id=str(account.get("entity_id") or account_slot),
+            captured_at=captured_at,
+            source=source,
+            metrics=account.get("metrics") or {},
+            extra=account.get("extra") or {},
+        )
+        note_snapshots = [
+            self.metrics.record_snapshot(
+                account_slot=account_slot,
+                entity_type="note",
+                entity_id=str(note.get("entity_id") or ""),
+                captured_at=captured_at,
+                source=source,
+                metrics=note.get("metrics") or {},
+                extra={"title": note.get("title") or "", **(note.get("extra") or {})},
+            )
+            for note in result.get("notes") or []
+            if note.get("entity_id")
+        ]
+        return {
+            "account": account_snapshot,
+            "notes": note_snapshots,
+            "note_count": len(note_snapshots),
+        }
 
     def create_draft(self, **values) -> dict:
         return {"success": True, "draft": self.approvals.create_draft(**values)}
@@ -998,20 +1635,32 @@ class ApplicationService:
             action_type=draft["action_type"],
             target_id=draft["target_id"],
         )
-        task = self.tasks.create(
-            source="webui",
-            account_slot=draft["account_slot"],
-            capability=draft["action_type"],
-            request_summary=f"确认后执行 {draft['action_type']}",
-            parameters={
-                "feed_id": feed_id,
-                "xsec_token": xsec_token,
-                "comment_id": comment_id,
-                "user_id": user_id,
-                "content": draft["content"],
-            },
-        )
-        self.tasks.transition(task["task_id"], "QUEUED")
+        task_parameters = {
+            "feed_id": feed_id,
+            "xsec_token": xsec_token,
+            "comment_id": comment_id,
+            "user_id": user_id,
+            "content": draft["content"],
+        }
+        if draft.get("task_id"):
+            task = self.tasks.get(draft["task_id"])
+            if task["state"] != "WAITING_APPROVAL":
+                raise ServiceError(
+                    "INVALID_TASK_STATE",
+                    "被动回复任务已经离开待确认状态",
+                    409,
+                )
+            self.tasks.update_parameters(task["task_id"], **task_parameters)
+            task = self.tasks.transition(task["task_id"], "QUEUED")
+        else:
+            task = self.tasks.create(
+                source="webui",
+                account_slot=draft["account_slot"],
+                capability=draft["action_type"],
+                request_summary=f"确认后执行 {draft['action_type']}",
+                parameters=task_parameters,
+            )
+            task = self.tasks.transition(task["task_id"], "QUEUED")
         claimed = self.tasks.claim_for_execution(task["task_id"])
         if claimed["state"] == "BLOCKED":
             self._record_task_event(claimed, draft["target_id"])
@@ -1042,6 +1691,8 @@ class ApplicationService:
         )
         self.approvals.mark_execution(draft_id, "EXECUTED")
         self._record_task_event(completed, draft["target_id"], result=result)
+        if draft.get("source_event_id"):
+            self.inbound_events.mark_handled(draft["source_event_id"])
         return {
             "success": True,
             "task": completed,

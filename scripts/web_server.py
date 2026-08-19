@@ -184,6 +184,14 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
         return service.list_drafts()
     if path == f"{API_PREFIX}/records":
         return service.list_records()
+    if path == f"{API_PREFIX}/inbound-events":
+        return service.list_inbound_events()
+    if path == f"{API_PREFIX}/operation-events":
+        return service.list_operation_events()
+    if path == f"{API_PREFIX}/reply-rules":
+        return service.list_reply_rules()
+    if path == f"{API_PREFIX}/action-drafts":
+        return service.list_action_drafts()
 
     parts = [unquote(part) for part in path.split("/") if part]
     if len(parts) == 5 and parts[:3] == ["api", "v1", "accounts"]:
@@ -202,6 +210,16 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
             return service.get_account_switch(account)
     if len(parts) == 4 and parts[:3] == ["api", "v1", "tasks"]:
         return service.get_task(parts[3])
+    if len(parts) == 4 and parts[:3] == ["api", "v1", "inbound-events"]:
+        return service.get_inbound_event(parts[3])
+    if len(parts) == 6 and parts[:3] == ["api", "v1", "metrics"]:
+        return service.get_metric_history(parts[3], parts[4], parts[5])
+    if (
+        len(parts) == 7
+        and parts[:3] == ["api", "v1", "metrics"]
+        and parts[6] == "delta"
+    ):
+        return service.get_metric_delta(parts[3], parts[4], parts[5])
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
 
 
@@ -223,6 +241,10 @@ def _dispatch_mutation(
         return service.create_task(**body)
     if method == "POST" and path == f"{API_PREFIX}/drafts":
         return service.create_draft(**body)
+    if method == "POST" and path == f"{API_PREFIX}/reply-rules":
+        return service.create_reply_rule(**body)
+    if method == "POST" and path == f"{API_PREFIX}/action-drafts":
+        return service.create_action_draft(**body)
     if method == "POST" and path == f"{API_PREFIX}/accounts":
         return service.create_account_slot(**body)
     if method == "POST" and path == f"{API_PREFIX}/accounts/import":
@@ -231,6 +253,42 @@ def _dispatch_mutation(
         return service.discover_profiles(body.get("user_data_dir"))
 
     parts = [unquote(part) for part in path.split("/") if part]
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "inbound-events"]
+        and method == "POST"
+        and parts[4] == "reply-draft"
+    ):
+        return service.create_passive_reply_draft(parts[3], **body)
+    if (
+        len(parts) == 4
+        and parts[:3] == ["api", "v1", "reply-rules"]
+        and method == "PATCH"
+    ):
+        return service.update_reply_rule(parts[3], **body)
+    if (
+        len(parts) == 4
+        and parts[:3] == ["api", "v1", "action-drafts"]
+        and method == "PATCH"
+    ):
+        return service.update_action_draft(parts[3], **body)
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "action-drafts"]
+        and parts[4] == "confirm"
+        and method == "POST"
+    ):
+        return service.confirm_action_draft(
+            parts[3],
+            ttl_seconds=int(body.get("ttl_seconds", 300)),
+        )
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "reply-rules"]
+        and parts[4] == "enabled"
+        and method == "POST"
+    ):
+        return service.set_reply_rule_enabled(parts[3], **body)
     if (
         len(parts) == 4
         and parts[:3] == ["api", "v1", "accounts"]

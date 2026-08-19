@@ -29,6 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger("xhs-cli")
 
 _IDENTITY_GUARDED_COMMANDS = {
+    "home-engagement",
     "random-comment",
     "post-comment",
     "reply-comment",
@@ -529,6 +530,27 @@ def cmd_random_comment(args: argparse.Namespace) -> None:
         browser.close()
 
 
+def cmd_home_engagement(args: argparse.Namespace) -> None:
+    """在同一个首页会话中完成浏览、点赞和评论。"""
+    from xhs.home_engagement import home_engagement
+
+    browser, page = _connect(args)
+    try:
+        result = home_engagement(
+            page,
+            browse_count=args.browse_count,
+            like_count=args.like_count,
+            comment_count=args.comment_count,
+            duration_seconds=args.duration_minutes * 60,
+            min_read_seconds=args.min_read_seconds,
+            max_read_seconds=args.max_read_seconds,
+            style=args.style,
+        )
+        _output(result, exit_code=0 if result.get("success") else 2)
+    finally:
+        browser.close()
+
+
 def cmd_get_feed_detail(args: argparse.Namespace) -> None:
     """获取 Feed 详情。"""
     from xhs.feed_detail import get_feed_detail
@@ -583,6 +605,137 @@ def cmd_user_profile(args: argparse.Namespace) -> None:
         _output(profile.to_dict())
     finally:
         browser.close()
+
+
+def cmd_collect_note_comments(args: argparse.Namespace) -> None:
+    """Collect new comments from the signed-in account's own notes."""
+    from application_service import ApplicationService
+
+    service = ApplicationService()
+    task = service.create_task(
+        source="codex",
+        account_slot=args.account,
+        capability="collect-note-comments",
+        request_summary=f"检查最近 {args.max_notes} 篇笔记的新评论",
+        parameters={
+            "owner_user_id": args.owner_user_id or "",
+            "max_notes": args.max_notes,
+        },
+    )["task"]
+    _output(service.execute_task(task["task_id"]))
+
+
+def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
+    """Collect account and own-note metrics into local snapshots."""
+    from application_service import ApplicationService
+
+    service = ApplicationService()
+    task = service.create_task(
+        source="codex",
+        account_slot=args.account,
+        capability="collect-operations-metrics",
+        request_summary=f"回收账号和最近 {args.max_notes} 篇笔记的运营数据",
+        parameters={
+            "owner_user_id": args.owner_user_id or "",
+            "max_notes": args.max_notes,
+        },
+    )["task"]
+    _output(service.execute_task(task["task_id"]))
+
+
+def cmd_follow_user_preview(args: argparse.Namespace) -> None:
+    """Read one explicit blogger for diagnostics without following."""
+
+    from application_service import ApplicationService
+
+    result = ApplicationService().prepare_follow_user(
+        args.account,
+        user_id=args.user_id,
+        xsec_token=args.xsec_token,
+    )
+    _output(result)
+
+
+def cmd_follow_user(args: argparse.Namespace) -> None:
+    """Preview, follow and read back one blogger in one Agent task."""
+
+    from application_service import ApplicationService
+
+    result = ApplicationService().follow_user_direct(
+        args.account,
+        user_id=args.user_id,
+        xsec_token=args.xsec_token,
+    )
+    state = result["task"]["state"]
+    _output(result, exit_code=0 if state == "SUCCESS" else 2)
+
+
+def _load_private_message_recipients(path: str) -> list[dict]:
+    from pathlib import Path
+
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise ValueError(f"私信收件人文件不存在: {source}")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("私信收件人文件必须是 JSON 数组") from exc
+    if not isinstance(data, list):
+        raise ValueError("私信收件人文件必须是 JSON 数组")
+    return [dict(item) for item in data]
+
+
+def cmd_private_message_context(args: argparse.Namespace) -> None:
+    """Read recent conversation text for personalized Agent drafting."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().get_private_message_context(
+            args.account,
+            user_id=args.user_id,
+            xsec_token=args.xsec_token or "",
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_prepare_private_messages(args: argparse.Namespace) -> None:
+    """Persist Agent-generated personalized texts for one batch confirmation."""
+
+    from application_service import ApplicationService
+
+    result = ApplicationService().prepare_private_messages(
+        args.account,
+        recipients=_load_private_message_recipients(args.recipients_file),
+    )
+    result["next_command"] = (
+        f"python scripts/cli.py --account {args.account} send-private-messages "
+        f"--task-id {result['task_id']} --batch-revision-id "
+        f"{result['batch_revision_id']} --confirm"
+    )
+    _output(result)
+
+
+def cmd_send_private_messages(args: argparse.Namespace) -> None:
+    """Send explicit personalized texts or one confirmed generated batch."""
+
+    from application_service import ApplicationService
+
+    service = ApplicationService()
+    if args.recipients_file:
+        result = service.send_private_messages(
+            args.account,
+            recipients=_load_private_message_recipients(args.recipients_file),
+        )
+    else:
+        result = service.send_private_messages(
+            args.account,
+            task_id=args.task_id,
+            batch_revision_id=args.batch_revision_id or "",
+            confirmed=args.confirm,
+        )
+    _output(result, exit_code=0 if result["task"]["state"] == "SUCCESS" else 2)
 
 
 def cmd_post_comment(args: argparse.Namespace) -> None:
@@ -1952,6 +2105,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.set_defaults(func=cmd_random_comment)
 
+    # home-engagement
+    sub = subparsers.add_parser(
+        "home-engagement",
+        help="在一次首页会话中完成浏览、点赞和评论",
+    )
+    sub.add_argument("--browse-count", type=int, default=6, help="点开笔记数量")
+    sub.add_argument("--like-count", type=int, default=2, help="点赞数量")
+    sub.add_argument("--comment-count", type=int, default=1, choices=range(0, 4), help="评论数量")
+    sub.add_argument("--duration-minutes", type=int, default=3, help="最长执行分钟数")
+    sub.add_argument("--min-read-seconds", type=float, default=8, help="单篇最短阅读秒数")
+    sub.add_argument("--max-read-seconds", type=float, default=15, help="单篇最长阅读秒数")
+    sub.add_argument(
+        "--style",
+        choices=("natural", "praise", "question"),
+        default="natural",
+        help="评论风格",
+    )
+    sub.set_defaults(func=cmd_home_engagement)
+
     # get-feed-detail
     sub = subparsers.add_parser("get-feed-detail", help="获取 Feed 详情")
     sub.add_argument("--feed-id", required=True, help="Feed ID")
@@ -1969,6 +2141,67 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--user-id", required=True)
     sub.add_argument("--xsec-token", required=True)
     sub.set_defaults(func=cmd_user_profile)
+
+    sub = subparsers.add_parser(
+        "follow-user-preview",
+        help="只读检查一个明确博主的当前关注状态（Agent CLI）",
+    )
+    sub.add_argument("--user-id", required=True)
+    sub.add_argument("--xsec-token", required=True)
+    sub.set_defaults(func=cmd_follow_user_preview, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "follow-user",
+        help="无需审批地预览、关注并回读一个明确博主（Agent CLI）",
+    )
+    sub.add_argument("--user-id", required=True, help="当前 Agent 任务直接关注的目标用户 ID")
+    sub.add_argument("--xsec-token", required=True)
+    sub.set_defaults(func=cmd_follow_user, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "private-message-context",
+        help="读取首次或已有私信会话的近期文本，供 Agent 个性化生成",
+    )
+    sub.add_argument("--user-id", required=True)
+    sub.add_argument("--xsec-token")
+    sub.add_argument("--limit", type=int, default=10)
+    sub.set_defaults(func=cmd_private_message_context, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "prepare-private-messages",
+        help="保存 Agent 生成的个性化私信并等待整批确认",
+    )
+    sub.add_argument("--recipients-file", required=True)
+    sub.set_defaults(func=cmd_prepare_private_messages, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "send-private-messages",
+        help="直接发送明确文本，或发送已整批确认的 Agent 生成文本",
+    )
+    source = sub.add_mutually_exclusive_group(required=True)
+    source.add_argument("--recipients-file")
+    source.add_argument("--task-id")
+    sub.add_argument("--batch-revision-id")
+    sub.add_argument("--confirm", action="store_true")
+    sub.set_defaults(func=cmd_send_private_messages, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "collect-note-comments",
+        help="检查当前账号自己笔记下的新评论并写入事件收件箱",
+    )
+    sub.add_argument("--owner-user-id", help="当前账号 UID；省略时从已核验身份读取")
+    sub.add_argument("--max-notes", type=int, default=20, help="最多检查的最近笔记数")
+    # ApplicationService/BusinessRunner owns the per-account lock for service tasks.
+    # Keeping the CLI wrapper lock here would make the process wait on its own lock.
+    sub.set_defaults(func=cmd_collect_note_comments, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "collect-operations-metrics",
+        help="回收当前账号及自己笔记的运营指标快照",
+    )
+    sub.add_argument("--owner-user-id", help="当前账号 UID；省略时从已核验身份读取")
+    sub.add_argument("--max-notes", type=int, default=50, help="最多采集的最近笔记数")
+    sub.set_defaults(func=cmd_collect_operations_metrics, requires_account_lock=False)
 
     # post-comment
     sub = subparsers.add_parser("post-comment", help="发表评论")

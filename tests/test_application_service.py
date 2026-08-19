@@ -115,6 +115,102 @@ def test_service_global_pause_blocks_new_tasks(tmp_path) -> None:
     assert exc_info.value.code == "GLOBAL_PAUSED"
 
 
+def test_comment_monitor_task_persists_new_inbound_events(tmp_path) -> None:
+    def executor(_account, capability, _parameters):
+        assert capability == "collect-note-comments"
+        return {
+            "comments": [
+                {
+                    "comment_id": "comment-1",
+                    "feed_id": "note-1",
+                    "xsec_token": "token-1",
+                    "user_id": "visitor-1",
+                    "nickname": "访客",
+                    "content": "请问怎么报名？",
+                    "occurred_at": "2026-08-19T10:00:00+00:00",
+                }
+            ],
+            "count": 1,
+            "cursor": "1:comment-1",
+            "last_seen_time": "2026-08-19T10:00:00+00:00",
+            "partial": False,
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+    task = service.create_task(
+        source="schedule",
+        account_slot="alpha",
+        capability="collect-note-comments",
+        request_summary="检查新评论",
+        parameters={"tracked_notes": [{"feed_id": "note-1", "xsec_token": "token-1"}]},
+    )["task"]
+
+    executed = service.execute_task(task["task_id"])
+
+    assert executed["task"]["state"] == "SUCCESS"
+    assert executed["result"]["inbound_events"]["created_count"] == 1
+    assert service.list_inbound_events()["events"][0]["platform_event_id"] == "comment-1"
+
+
+def test_metrics_collection_task_persists_account_and_note_snapshots(tmp_path) -> None:
+    def executor(_account, capability, parameters):
+        assert capability == "collect-operations-metrics"
+        assert parameters["owner_user_id"] == "owner-1"
+        return {
+            "captured_at": "2026-08-19T10:00:00+00:00",
+            "source": "user_profile",
+            "account": {
+                "entity_id": "owner-1",
+                "metrics": {"followers": 100, "following": 20, "notes": 1},
+                "extra": {"nickname": "品牌号"},
+            },
+            "notes": [
+                {
+                    "entity_id": "note-1",
+                    "title": "第一篇",
+                    "metrics": {"likes": 10, "favorites": 3, "comments": 2},
+                }
+            ],
+            "count": 1,
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+    task = service.create_task(
+        source="schedule",
+        account_slot="alpha",
+        capability="collect-operations-metrics",
+        request_summary="回收运营数据",
+        parameters={"max_notes": 50},
+    )["task"]
+
+    result = service.execute_task(task["task_id"])
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["result"]["snapshots"]["note_count"] == 1
+    history = service.metrics.history(
+        account_slot="alpha",
+        entity_type="note",
+        entity_id="note-1",
+    )
+    assert history[0]["likes"] == 10
+
+
 def test_service_updates_runtime_settings_after_confirmation(tmp_path) -> None:
     service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
 
@@ -132,6 +228,342 @@ def test_service_updates_runtime_settings_after_confirmation(tmp_path) -> None:
     assert result["global_concurrency"] == 2
     assert result["l1_limits"]["hourly"] == 8
     assert service.runner.max_concurrency == 2
+
+
+def test_service_exposes_local_action_preview_workflow(tmp_path) -> None:
+    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
+
+    draft = service.create_action_draft(
+        account_slot="alpha",
+        verified_uid="owner-1",
+        action_type="create-group",
+        payload={"group_name": "学习群", "member_user_ids": ["user-1"]},
+    )["draft"]
+    approval = service.confirm_action_draft(draft["draft_id"])["approval"]
+
+    assert draft["preview"]["group_name"] == "学习群"
+    assert approval["state"] == "CONFIRMED"
+    assert service.list_action_drafts()["drafts"][0]["draft_id"] == draft["draft_id"]
+
+
+def test_follow_user_is_agent_cli_only_and_executes_one_confirmed_target(tmp_path) -> None:
+    calls = []
+
+    def executor(_account, capability, parameters):
+        calls.append((capability, parameters["user_id"]))
+        if capability == "follow-user-preview":
+            return {
+                "user_id": "user-1",
+                "nickname": "目标博主",
+                "red_id": "red-1",
+                "description": "主页简介",
+                "button_text": "关注",
+                "following": False,
+                "can_follow": True,
+            }
+        assert capability == "follow-user"
+        return {
+            "success": True,
+            "message": "已关注 目标博主",
+            "changed": True,
+            "readback": {
+                "user_id": "user-1",
+                "nickname": "目标博主",
+                "button_text": "已关注",
+                "following": True,
+            },
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+
+    with pytest.raises(ServiceError) as web_task:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="follow-user",
+            request_summary="关注目标",
+            parameters={"user_id": "user-1", "xsec_token": "token-1"},
+        )
+    assert web_task.value.code == "AGENT_CLI_ONLY"
+
+    with pytest.raises(ServiceError) as generic_draft:
+        service.create_action_draft(
+            account_slot="alpha",
+            verified_uid="owner-1",
+            action_type="follow-user",
+            target_id="user-1",
+            payload={},
+        )
+    assert generic_draft.value.code == "AGENT_CLI_ONLY"
+
+    prepared = service.prepare_follow_user(
+        "alpha", user_id="user-1", xsec_token="token-1"
+    )
+    assert prepared["draft"]["state"] == "DRAFT"
+    assert prepared["preview"]["target_nickname"] == "目标博主"
+
+    with pytest.raises(ServiceError) as confirmation:
+        service.execute_follow_user(
+            "alpha",
+            draft_id=prepared["draft"]["draft_id"],
+            xsec_token="token-1",
+            confirmed=False,
+        )
+    assert confirmation.value.code == "CONFIRMATION_REQUIRED"
+
+    executed = service.execute_follow_user(
+        "alpha",
+        draft_id=prepared["draft"]["draft_id"],
+        xsec_token="token-1",
+        confirmed=True,
+    )
+    assert executed["task"]["state"] == "SUCCESS"
+    assert executed["draft"]["state"] == "EXECUTED"
+    assert calls == [("follow-user-preview", "user-1"), ("follow-user", "user-1")]
+    operation = service.list_operation_events(capability="follow-user")["events"][0]
+    assert operation["readback"]["following"] is True
+
+    with pytest.raises(ServiceError) as repeated:
+        service.execute_follow_user(
+            "alpha",
+            draft_id=prepared["draft"]["draft_id"],
+            xsec_token="token-1",
+            confirmed=True,
+        )
+    assert repeated.value.code == "CONFIRMATION_CONSUMED"
+
+
+def test_follow_user_direct_previews_and_executes_without_user_approval(tmp_path) -> None:
+    calls = []
+
+    def executor(_account, capability, parameters):
+        calls.append(capability)
+        if capability == "follow-user-preview":
+            return {
+                "user_id": parameters["user_id"],
+                "nickname": "目标博主",
+                "red_id": "red-1",
+                "description": "主页简介",
+                "button_text": "关注",
+                "following": False,
+                "can_follow": True,
+            }
+        return {
+            "success": True,
+            "message": "已关注 目标博主",
+            "changed": True,
+            "readback": {
+                "user_id": parameters["user_id"],
+                "nickname": "目标博主",
+                "button_text": "已关注",
+                "following": True,
+            },
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+
+    result = service.follow_user_direct(
+        "alpha", user_id="user-1", xsec_token="token-1"
+    )
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["draft"]["state"] == "EXECUTED"
+    assert result["preview"]["target_nickname"] == "目标博主"
+    assert calls == ["follow-user-preview", "follow-user"]
+
+
+def _private_recipient(index: int) -> dict:
+    return {
+        "user_id": f"user-{index}",
+        "nickname": f"用户{index}",
+        "xsec_token": f"token-{index}",
+        "content": f"为用户{index}准备的个性化私信",
+    }
+
+
+def _ready_private_message_service(tmp_path, executor) -> ApplicationService:
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+    return service
+
+
+def test_explicit_personalized_private_messages_send_without_approval(tmp_path) -> None:
+    calls = []
+
+    def executor(_account, capability, parameters):
+        assert capability == "send-private-messages"
+        calls.append(parameters["user_id"])
+        return {
+            "success": True,
+            "message": f"已向 {parameters['nickname']} 发送私信",
+            "readback": {
+                "user_id": parameters["user_id"],
+                "content": parameters["content"],
+                "outgoing_message_present": True,
+            },
+        }
+
+    service = _ready_private_message_service(tmp_path, executor)
+    result = service.send_private_messages(
+        "alpha", recipients=[_private_recipient(1), _private_recipient(2)]
+    )
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["success_count"] == 2
+    assert calls == ["user-1", "user-2"]
+    children = [
+        task for task in service.list_tasks()["tasks"] if task.get("parent_task_id")
+    ]
+    assert len(children) == 2
+    assert all(task["state"] == "SUCCESS" for task in children)
+
+
+def test_agent_generated_private_messages_require_one_batch_confirmation(tmp_path) -> None:
+    calls = []
+
+    def executor(_account, _capability, parameters):
+        calls.append(parameters["user_id"])
+        return {
+            "success": True,
+            "message": "发送成功",
+            "readback": {
+                "user_id": parameters["user_id"],
+                "content": parameters["content"],
+                "outgoing_message_present": True,
+            },
+        }
+
+    service = _ready_private_message_service(tmp_path, executor)
+    prepared = service.prepare_private_messages(
+        "alpha", recipients=[_private_recipient(1), _private_recipient(2)]
+    )
+
+    assert prepared["task"]["state"] == "WAITING_APPROVAL"
+    assert len(prepared["preview"]) == 2
+    assert calls == []
+    with pytest.raises(ServiceError) as missing:
+        service.send_private_messages(
+            "alpha",
+            task_id=prepared["task_id"],
+            batch_revision_id=prepared["batch_revision_id"],
+            confirmed=False,
+        )
+    assert missing.value.code == "CONFIRMATION_REQUIRED"
+
+    result = service.send_private_messages(
+        "alpha",
+        task_id=prepared["task_id"],
+        batch_revision_id=prepared["batch_revision_id"],
+        confirmed=True,
+    )
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert calls == ["user-1", "user-2"]
+
+
+def test_private_message_batch_continues_after_one_pre_send_failure(tmp_path) -> None:
+    from scripts.xhs.direct_message import PrivateMessageUnavailableError
+
+    calls = []
+
+    def executor(_account, _capability, parameters):
+        calls.append(parameters["user_id"])
+        if parameters["user_id"] == "user-2":
+            raise PrivateMessageUnavailableError("没有私信入口")
+        return {
+            "success": True,
+            "message": "发送成功",
+            "readback": {
+                "user_id": parameters["user_id"],
+                "content": parameters["content"],
+                "outgoing_message_present": True,
+            },
+        }
+
+    service = _ready_private_message_service(tmp_path, executor)
+    result = service.send_private_messages(
+        "alpha",
+        recipients=[
+            _private_recipient(1),
+            _private_recipient(2),
+            _private_recipient(3),
+        ],
+    )
+
+    assert result["task"]["state"] == "PARTIAL_SUCCESS"
+    assert result["success_count"] == 2
+    assert calls == ["user-1", "user-2", "user-3"]
+    assert [item["state"] for item in result["items"]] == [
+        "SUCCESS",
+        "FAILED",
+        "SUCCESS",
+    ]
+
+
+def test_private_message_post_send_unknown_is_not_retried(tmp_path) -> None:
+    from scripts.xhs.direct_message import PrivateMessageResultUnknownError
+
+    calls = []
+
+    def executor(_account, _capability, parameters):
+        calls.append(parameters["user_id"])
+        raise PrivateMessageResultUnknownError()
+
+    service = _ready_private_message_service(tmp_path, executor)
+    result = service.send_private_messages(
+        "alpha", recipients=[_private_recipient(1)]
+    )
+
+    assert result["task"]["state"] == "RESULT_UNKNOWN"
+    assert result["items"][0]["state"] == "RESULT_UNKNOWN"
+    assert calls == ["user-1"]
+
+
+def test_private_message_tasks_cannot_be_created_or_executed_from_webui(tmp_path) -> None:
+    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
+
+    with pytest.raises(ServiceError) as task_error:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="send-private-messages",
+            request_summary="WebUI 私信",
+            parameters={"recipients": [_private_recipient(1)]},
+        )
+    assert task_error.value.code == "AGENT_CLI_ONLY"
+
+    with pytest.raises(ServiceError) as draft_error:
+        service.create_action_draft(
+            account_slot="alpha",
+            verified_uid="owner-1",
+            action_type="send-private-message",
+            target_id="user-1",
+            payload={"content": "你好"},
+        )
+    assert draft_error.value.code == "AGENT_CLI_ONLY"
 
 
 def test_service_bridge_lifecycle_uses_registered_manager(tmp_path) -> None:
@@ -1015,6 +1447,67 @@ def test_random_comment_executes_immediately_and_preserves_item_results(tmp_path
     assert received["parameters"]["direct_send_authorized"] is True
 
 
+def test_home_engagement_requires_authorization_and_preserves_behavior_record(tmp_path, monkeypatch) -> None:
+    received: dict = {}
+
+    def execute(account, capability, parameters):
+        received.update(account=account, capability=capability, parameters=parameters)
+        return {
+            "success": True,
+            "partial": False,
+            "result_type": "home_engagement",
+            "message": "首页互动完成",
+            "counts": {"browsed": 6, "liked": 2, "commented": 1, "skipped": 0},
+            "items": [{"feed_id": "feed-1", "read_seconds": 9, "like": {"status": "success"}}],
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(execute),
+    )
+    with pytest.raises(ServiceError) as missing_authorization:
+        service.create_task(
+            source="webui",
+            account_slot="alpha",
+            capability="home-engagement",
+            request_summary="首页综合互动",
+            parameters={
+                "browse_count": 6,
+                "like_count": 2,
+                "comment_count": 1,
+                "duration_minutes": 3,
+            },
+        )
+    assert missing_authorization.value.code == "CONFIRMATION_REQUIRED"
+
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability="home-engagement",
+        request_summary="首页综合互动：浏览 6 / 点赞 2 / 评论 1",
+        parameters={
+            "browse_count": 6,
+            "like_count": 2,
+            "comment_count": 1,
+            "duration_minutes": 3,
+            "min_read_seconds": 8,
+            "max_read_seconds": 15,
+            "style": "natural",
+            "direct_send_authorized": True,
+        },
+    )["task"]
+    result = service.execute_task(task["task_id"])
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["result"]["counts"]["browsed"] == 6
+    assert received["capability"] == "home-engagement"
+
+
 def test_unexpected_l0_failure_reaches_failed_terminal_state(tmp_path, monkeypatch) -> None:
     service = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
@@ -1239,6 +1732,52 @@ def test_confirmed_comment_executes_once_and_records_result(tmp_path) -> None:
             xsec_token="token",
         )
     assert consumed.value.code == "CONFIRMATION_CONSUMED"
+
+
+def test_passive_comment_reply_reuses_task_and_marks_event_handled(tmp_path) -> None:
+    calls = []
+
+    def executor(account, capability, parameters):
+        calls.append((account, capability, parameters))
+        return {"success": True, "message": "回复发送成功"}
+
+    service = _ready_output_service(tmp_path, executor)
+    event = service.inbound_events.record(
+        account_slot="alpha",
+        event_type="note_comment",
+        platform_event_id="comment-1",
+        occurred_at="2026-08-19T10:00:00+00:00",
+        object_type="note",
+        object_id="feed-1",
+        actor_user_id="user-1",
+        payload={
+            "comment_id": "comment-1",
+            "feed_id": "feed-1",
+            "xsec_token": "token",
+            "user_id": "user-1",
+            "content": "请问怎么报名？",
+        },
+    )["event"]
+    prepared = service.create_passive_reply_draft(
+        event["event_id"],
+        verified_uid="uid-alpha",
+        content="你好，请查看主页报名说明。",
+    )
+    approval = service.confirm_draft(prepared["draft"]["draft_id"])["approval"]
+
+    result = service.execute_draft(
+        prepared["draft"]["draft_id"],
+        approval_id=approval["approval_id"],
+        feed_id="feed-1",
+        comment_id="comment-1",
+        user_id="user-1",
+        xsec_token="token",
+    )
+
+    assert result["task"]["task_id"] == prepared["task"]["task_id"]
+    assert result["task"]["state"] == "SUCCESS"
+    assert calls[0][1] == "reply-comment"
+    assert service.get_inbound_event(event["event_id"])["event"]["handling_state"] == "HANDLED"
 
 
 def test_comment_execution_rejects_changed_target_or_uid(tmp_path) -> None:

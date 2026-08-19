@@ -102,18 +102,30 @@ const taskCapabilities = {
     tokenRequired: false,
     commentSettings: true,
   },
+  "home-engagement": {
+    label: "首页浏览 + 点赞 + 评论",
+    help: "一次会话点开推荐笔记，并只在这些已浏览笔记中完成点赞和评论；单篇失败会记录后继续。",
+    targetLabel: "",
+    placeholder: "",
+    targetRequired: false,
+    targetVisible: false,
+    tokenRequired: false,
+    homeEngagementSettings: true,
+  },
   "fill-publish": { label: "图文发布" },
   "fill-publish-video": { label: "视频发布" },
   "long-article": { label: "长文发布" },
+  "send-private-messages": { label: "个性化私信" },
 };
 
 const publishMonitorCapabilities = new Set(["fill-publish", "fill-publish-video", "long-article"]);
+const agentMonitorCapabilities = new Set([...publishMonitorCapabilities, "send-private-messages"]);
 
 const taskTemplates = {
   browse: ["browse-feeds"],
   search: ["search-feeds"],
   analysis: ["get-feed-detail", "user-profile"],
-  engagement: ["keyword-engagement"],
+  engagement: ["home-engagement", "keyword-engagement"],
   comment: ["random-comment"],
 };
 
@@ -1326,6 +1338,80 @@ function appendRandomCommentResults(container, result) {
   container.append(list);
 }
 
+function appendHomeEngagementResults(container, result) {
+  const overview = document.createElement("div");
+  overview.className = "browse-result-overview";
+  addResultMetric(overview, "浏览", `${result.counts?.browsed ?? 0} 篇`);
+  addResultMetric(overview, "点赞", `${result.counts?.liked ?? 0} 篇`);
+  addResultMetric(overview, "评论", `${result.counts?.commented ?? 0} 篇`);
+  addResultMetric(overview, "跳过", `${result.counts?.skipped ?? 0} 篇`);
+  addResultMetric(overview, "总用时", `${Math.round(result.elapsed_seconds ?? 0)} 秒`);
+  container.append(overview);
+
+  const list = document.createElement("ol");
+  list.className = "browse-result-list engagement-result-list";
+  result.items.forEach((item) => {
+    const row = document.createElement("li");
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = item.title || "未命名笔记";
+    const meta = document.createElement("span");
+    const actions = [];
+    if (item.like) actions.push(`点赞：${item.like.status === "success" ? "成功" : "失败"}`);
+    if (item.comment) actions.push(`评论：${item.comment.status === "success" ? "成功" : "失败"}`);
+    meta.textContent = [`阅读 ${Math.round(item.read_seconds || 0)} 秒`, ...actions].join(" · ");
+    body.append(title, meta);
+    if (item.comment?.content) {
+      const comment = document.createElement("p");
+      comment.className = "random-comment-content";
+      comment.textContent = item.comment.content;
+      body.append(comment);
+    }
+    const identifier = document.createElement("small");
+    identifier.textContent = `笔记 ID：${item.feed_id || "—"}`;
+    body.append(identifier);
+    row.append(body);
+    list.append(row);
+  });
+  container.append(list);
+}
+
+function appendPrivateMessageResults(container, result) {
+  const overview = document.createElement("div");
+  overview.className = "browse-result-overview";
+  addResultMetric(overview, "收件人", `${result.count ?? result.items.length} 人`);
+  addResultMetric(overview, "确认成功", `${result.success_count ?? 0} 条`);
+  container.append(overview);
+
+  const stateLabels = {
+    SUCCESS: "已发送",
+    FAILED: "失败",
+    BLOCKED: "需处理",
+    RESULT_UNKNOWN: "结果未知",
+  };
+  const list = document.createElement("ol");
+  list.className = "browse-result-list private-message-result-list";
+  result.items.forEach((item) => {
+    const row = document.createElement("li");
+    row.dataset.state = item.state || "FAILED";
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = item.nickname || item.user_id || "未知收件人";
+    const meta = document.createElement("span");
+    meta.textContent = [
+      stateLabels[item.state] || item.state,
+      item.result_summary && item.state !== "SUCCESS" ? item.result_summary : "",
+    ].filter(Boolean).join(" · ");
+    const message = document.createElement("p");
+    message.className = "random-comment-content";
+    message.textContent = item.content || "";
+    body.append(title, meta, message);
+    row.append(body);
+    list.append(row);
+  });
+  container.append(list);
+}
+
 function appendTaskResult(card, item, { interactive = false } = {}) {
   const result = item.result;
   if (!result || typeof result !== "object" || !Object.keys(result).length) return;
@@ -1341,6 +1427,10 @@ function appendTaskResult(card, item, { interactive = false } = {}) {
     appendKeywordEngagementResults(content, result);
   } else if (result.result_type === "random_comment" && Array.isArray(result.items)) {
     appendRandomCommentResults(content, result);
+  } else if (result.result_type === "home_engagement" && Array.isArray(result.items)) {
+    appendHomeEngagementResults(content, result);
+  } else if (result.result_type === "private_message_batch" && Array.isArray(result.items)) {
+    appendPrivateMessageResults(content, result);
   } else if (Array.isArray(result.items)) {
     appendBrowseResults(content, result);
   } else if (result.note) {
@@ -1446,7 +1536,7 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
     if (meta.textContent) card.append(meta);
     appendPublishTaskPreview(card, item);
     appendTaskResult(card, item, { interactive });
-    if (interactive && !publishMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
+    if (interactive && !agentMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
       const actions = document.createElement("div");
       actions.className = "task-actions";
       if (item.state === "BLOCKED") {
@@ -1774,6 +1864,13 @@ async function submitTask(event) {
   const commentCount = Number($("#task-comment-count").value);
   const commentCandidatePool = Number($("#task-comment-candidate-pool").value);
   const commentCollectionMinutes = Number($("#task-comment-collection-minutes").value);
+  const homeBrowseCount = Number($("#task-home-browse-count").value);
+  const homeLikeCount = Number($("#task-home-like-count").value);
+  const homeCommentCount = Number($("#task-home-comment-count").value);
+  const homeDuration = Number($("#task-home-duration").value);
+  const homeMinRead = Number($("#task-home-min-read").value);
+  const homeMaxRead = Number($("#task-home-max-read").value);
+  const homeStyle = $("#task-home-style").value;
   const parameters = capability === "browse-feeds"
     ? { duration_minutes: durationMinutes, count: browseCount }
     : capability === "search-feeds"
@@ -1782,6 +1879,8 @@ async function submitTask(event) {
         ? { keyword: target, action: engagementAction, count: engagementCount, candidate_pool_size: candidatePoolSize, collection_minutes: collectionMinutes }
       : capability === "random-comment"
         ? { count: commentCount, candidate_pool_size: commentCandidatePool, collection_minutes: commentCollectionMinutes, style: commentStyle, direct_send_authorized: true }
+      : capability === "home-engagement"
+        ? { browse_count: homeBrowseCount, like_count: homeLikeCount, comment_count: homeCommentCount, duration_minutes: homeDuration, min_read_seconds: homeMinRead, max_read_seconds: homeMaxRead, style: homeStyle, direct_send_authorized: true }
       : capability === "list-feeds"
         ? {}
         : capability === "user-profile"
@@ -1794,6 +1893,8 @@ async function submitTask(event) {
       ? `${capabilityName}：${target} / 抽取 ${engagementCount} 篇 / 候选池 ${candidatePoolSize} 篇`
     : capability === "random-comment"
       ? `${capabilityName}：直接发送 ${commentCount} 条 / 候选池 ${commentCandidatePool} 篇`
+    : capability === "home-engagement"
+      ? `${capabilityName}：浏览 ${homeBrowseCount} 篇 / 点赞 ${homeLikeCount} 篇 / 评论 ${homeCommentCount} 篇`
     : target ? `${capabilityName}：${target}` : capabilityName;
   pendingSubmissionByAccount.set(account, {
     capability,
@@ -1827,7 +1928,7 @@ function setActionButtonLabel(button, label) {
 }
 
 function taskSubmitLabel() {
-  return $("#task-capability").value === "random-comment" ? "创建并直接发送" : "创建并执行";
+  return ["random-comment", "home-engagement"].includes($("#task-capability").value) ? "创建并直接发送" : "创建并执行";
 }
 
 function updateTaskFields() {
@@ -1842,6 +1943,7 @@ function updateTaskFields() {
   $("#browse-settings").hidden = !config.browseSettings;
   $("#engagement-settings").hidden = !config.engagementSettings;
   $("#random-comment-settings").hidden = !config.commentSettings;
+  $("#home-engagement-settings").hidden = !config.homeEngagementSettings;
   $("#token-field").hidden = !config.tokenRequired;
   $("#task-token").required = config.tokenRequired;
   updateTaskAvailability();

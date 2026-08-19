@@ -1113,15 +1113,14 @@ async function cmdPressKeyViaDebugger({ key }) {
   });
   const inCE = ceResult?.[0]?.result;
 
-  if (inCE) {
-    // contenteditable: execCommand 产生 isTrusted input 事件
+  if (inCE && key !== "Enter") {
+    // contenteditable editing keys can use execCommand. Enter must continue to
+    // debugger Input.dispatchKeyEvent so chat composers can treat it as send.
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
       func: (k) => {
-        if (k === "Enter") {
-          document.execCommand("insertParagraph", false, null);
-        } else if (k === "ArrowDown") {
+        if (k === "ArrowDown") {
           const active = document.activeElement;
           const sel = window.getSelection();
           if (sel && active.childNodes.length) {
@@ -1860,14 +1859,23 @@ async function riskControlAnalyzer(extraProbeUrls) {
 // ───────────────────────── Tab 管理 ─────────────────────────
 
 async function getOrOpenXhsTab() {
-  const tabs = await chrome.tabs.query({
-    url: [
-      "https://www.xiaohongshu.com/*",
-      "https://xiaohongshu.com/*",
-      "https://creator.xiaohongshu.com/*",
-    ],
+  const xhsUrls = [
+    "https://www.xiaohongshu.com/*",
+    "https://xiaohongshu.com/*",
+    "https://creator.xiaohongshu.com/*",
+  ];
+  const activeTabs = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+    url: xhsUrls,
   });
-  if (tabs.length > 0) return tabs[0];
+  if (activeTabs.length > 0) return activeTabs[0];
+  const tabs = await chrome.tabs.query({ url: xhsUrls });
+  if (tabs.length > 0) {
+    return tabs.sort((left, right) =>
+      (right.lastAccessed || 0) - (left.lastAccessed || 0)
+    )[0];
+  }
   // 没有已打开的 XHS 页面，新建一个
   const tab = await chrome.tabs.create({ url: "https://www.xiaohongshu.com/" });
   await waitForTabComplete(tab.id, null, 30000);

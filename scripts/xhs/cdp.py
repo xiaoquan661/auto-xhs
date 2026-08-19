@@ -238,6 +238,11 @@ class Page:
         time.sleep(random.uniform(0.03, 0.08))
         self.mouse_click(x, y)
 
+    def click_element_trusted(self, selector: str) -> None:
+        """Compatibility alias: CDP clicks are already trusted input events."""
+
+        self.click_element(selector)
+
     def input_text(self, selector: str, text: str) -> None:
         """向指定选择器的元素输入文本。"""
         self.evaluate(

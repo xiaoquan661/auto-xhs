@@ -54,6 +54,11 @@ class TaskService:
         request_summary: str,
         operation: str | None = None,
         parameters: dict | None = None,
+        source_type: str | None = None,
+        source_event_id: str | None = None,
+        parent_task_id: str | None = None,
+        target_type: str = "",
+        target_id: str = "",
     ) -> dict:
         try:
             policy = get_operation_policy(capability, operation)
@@ -69,12 +74,18 @@ class TaskService:
             raise ServiceError("INVALID_REQUEST", "必须明确目标账号槽位")
         task_id = uuid.uuid4().hex
         now = utc_now()
+        normalized_source = source.strip() or "unknown"
         task = {
             "task_id": task_id,
-            "source": source.strip() or "unknown",
+            "source": normalized_source,
+            "source_type": source_type or self._source_type(normalized_source),
+            "source_event_id": source_event_id,
+            "parent_task_id": parent_task_id,
             "account_slot": account_slot.strip(),
             "capability": capability,
             "operation": operation,
+            "target_type": target_type.strip(),
+            "target_id": target_id.strip(),
             "risk_level": str(policy.risk_level),
             "request_summary": request_summary.strip(),
             "parameters": dict(parameters or {}),
@@ -96,6 +107,11 @@ class TaskService:
         capability: str,
         request_summary: str,
         parameters: dict | None = None,
+        source_type: str | None = None,
+        source_event_id: str | None = None,
+        parent_task_id: str | None = None,
+        target_type: str = "",
+        target_id: str = "",
     ) -> dict:
         """Create a queued multi-step task whose confirmation happens mid-workflow."""
         task = self.create(
@@ -104,6 +120,11 @@ class TaskService:
             capability=capability,
             request_summary=request_summary,
             parameters=parameters,
+            source_type=source_type,
+            source_event_id=source_event_id,
+            parent_task_id=parent_task_id,
+            target_type=target_type,
+            target_id=target_id,
         )
         if task["state"] == "WAITING_APPROVAL":
             task = self.store.update(
@@ -185,6 +206,8 @@ class TaskService:
             "task_id": task["task_id"],
             "account_slot": task["account_slot"],
             "capability": task["capability"],
+            "source_type": task.get("source_type", self._source_type(task.get("source", ""))),
+            "source_event_id": task.get("source_event_id"),
             "risk_level": task["risk_level"],
             "target_key": target_key,
             "state": task["state"],
@@ -196,6 +219,19 @@ class TaskService:
             "result": result or {},
         }
         return self.store.put("events", event_id, event)
+
+    @staticmethod
+    def _source_type(source: str) -> str:
+        normalized = source.strip().lower()
+        if normalized in {"webui", "user"}:
+            return "user"
+        if normalized in {"codex", "agent"}:
+            return "codex"
+        if normalized in {"schedule", "scheduled"}:
+            return "schedule"
+        if normalized in {"platform_event", "passive"}:
+            return "platform_event"
+        return "user"
 
     def claim_for_execution(self, task_id: str) -> dict:
         """Atomically mark a queued task running when its account is idle."""
@@ -216,6 +252,7 @@ class TaskService:
                     item
                     for other_id, item in state["tasks"].items()
                     if other_id != task_id
+                    and other_id != task.get("parent_task_id")
                     and item.get("account_slot") == task.get("account_slot")
                     and item.get("state") == "RUNNING"
                 ),

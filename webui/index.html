@@ -188,7 +188,7 @@
                     <option value="browse">自动浏览</option>
                     <option value="search">搜索与收集</option>
                     <option value="analysis">内容与账号分析</option>
-                    <option value="engagement">点赞与收藏</option>
+                    <option value="engagement">首页互动</option>
                     <option value="comment">随机评论</option>
                     <option value="creation" disabled>内容创作（后续阶段）</option>
                     <option value="insight" disabled>数据与状态读取（后续阶段）</option>
@@ -227,6 +227,22 @@
                   <label>候选池数量<input id="task-comment-candidate-pool" type="number" min="1" max="100" value="20" /><span>篇</span></label>
                   <label>最长搜集时间<input id="task-comment-collection-minutes" type="number" min="1" max="10" value="2" /><span>分钟</span></label>
                   <p class="direct-send-note">点击下方按钮即授权当前账号完成本次随机评论，生成后将直接发送，不进入逐条确认。</p>
+                </fieldset>
+                <fieldset class="browse-settings home-engagement-settings" id="home-engagement-settings" hidden>
+                  <legend>首页综合互动</legend>
+                  <label>点开数量<input id="task-home-browse-count" type="number" min="1" max="50" value="6" /><span>篇</span></label>
+                  <label>点赞数量<input id="task-home-like-count" type="number" min="0" max="50" value="2" /><span>篇</span></label>
+                  <label>评论数量<input id="task-home-comment-count" type="number" min="0" max="3" value="1" /><span>篇</span></label>
+                  <label>最长执行时间<input id="task-home-duration" type="number" min="1" max="10" value="3" /><span>分钟</span></label>
+                  <label class="home-read-range"><span class="field-label">单篇阅读</span><span class="range-inputs"><input id="task-home-min-read" aria-label="单篇最短阅读秒数" type="number" min="0" max="60" value="8" /><span>至</span><input id="task-home-max-read" aria-label="单篇最长阅读秒数" type="number" min="0" max="60" value="15" /><span>秒</span></span></label>
+                  <label>评论风格
+                    <select id="task-home-style">
+                      <option value="natural">自然互动</option>
+                      <option value="praise">友好认可</option>
+                      <option value="question">提问互动</option>
+                    </select>
+                  </label>
+                  <p class="direct-send-note">一次提交会在同一首页会话完成浏览、点赞和评论；点击执行即授权本批评论直接发送。</p>
                 </fieldset>
                 <label id="task-target-field"><span id="task-target-label">任务目标</span><input id="task-target" /></label>
                 <label id="token-field"><span id="task-token-label">XSEC Token</span><input id="task-token" placeholder="查看详情或互动时需要" /></label>

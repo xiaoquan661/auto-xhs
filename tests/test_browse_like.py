@@ -124,3 +124,19 @@ def test_browse_feed_cycle_scrolls_opens_and_stops_at_count() -> None:
     assert result["stop_reason"] == "count_reached"
     assert result["refreshed_between_items"] is False
     assert all(item["read_seconds"] == 12.0 for item in result["items"])
+
+
+def test_browse_feed_cycle_uses_per_item_read_range_instead_of_dividing_total_time() -> None:
+    page = FakePage()
+    feeds = [_feed(index) for index in range(3)]
+
+    with (
+        patch("xhs.browse_like.extract_current_feeds", return_value=feeds),
+        patch("xhs.browse_like.random.choice", side_effect=lambda items: items[0]),
+        patch("xhs.browse_like.random.uniform", return_value=11.0),
+        patch("xhs.browse_like._simulate_reading", return_value=11.0) as reading,
+        patch("xhs.browse_like.time.sleep"),
+    ):
+        browse_feed_cycle(page, duration_seconds=480, count=3, min_read_seconds=8, max_read_seconds=15)
+
+    assert [call.args[1] for call in reading.call_args_list] == [11.0, 11.0, 11.0]

@@ -26,6 +26,32 @@ def test_task_creation_uses_policy_and_persists(tmp_path) -> None:
     assert service.get(task["task_id"])["request_summary"] == "搜索露营"
 
 
+def test_task_records_active_or_passive_source_metadata(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    active = service.create(
+        source="webui",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="主动搜索",
+    )
+    passive = service.create(
+        source="platform_event",
+        source_event_id="event-1",
+        account_slot="alpha",
+        capability="reply-comment",
+        request_summary="回复新评论",
+        target_type="comment",
+        target_id="comment-1",
+    )
+
+    assert active["source_type"] == "user"
+    assert passive["source_type"] == "platform_event"
+    assert passive["source_event_id"] == "event-1"
+    assert passive["target_type"] == "comment"
+    assert passive["target_id"] == "comment-1"
+
+
 def test_external_output_waits_for_approval(tmp_path) -> None:
     service = _service(tmp_path)
 

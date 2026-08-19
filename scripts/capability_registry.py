@@ -152,6 +152,11 @@ _POLICIES = [
     _policy("search-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("get-feed-detail", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("user-profile", RiskLevel.READ_ONLY, supports_scheduling=True),
+    _policy("collect-note-comments", RiskLevel.READ_ONLY, supports_scheduling=True),
+    _policy("collect-operations-metrics", RiskLevel.READ_ONLY, supports_scheduling=True),
+    _policy("follow-user-preview", RiskLevel.READ_ONLY),
+    _policy("private-message-context", RiskLevel.READ_ONLY),
+    _policy("prepare-private-messages", RiskLevel.READ_ONLY),
     _policy("diagnose-404", RiskLevel.READ_ONLY),
     _policy("check-risk", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("get-netlog", RiskLevel.READ_ONLY),
@@ -178,10 +183,37 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
     ),
+    # Following is a one-way operation and does not require approval by default.
+    # The command still previews one target and verifies the platform result.
+    _policy(
+        "follow-user",
+        RiskLevel.STATE_CHANGE,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    _policy(
+        "send-private-messages",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
     # A user-created random-comment task uses the WebUI submit click as the
     # one-time authorization for that account and batch size.
     _policy(
         "random-comment",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    # One WebUI submission authorizes the bounded browse/like/comment batch.
+    _policy(
+        "home-engagement",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,
@@ -285,6 +317,28 @@ SERVICE_OPERATION_POLICIES: dict[tuple[str, str], CapabilityPolicy] = {
         "account-identity",
         "record",
     ): _policy("account-identity", RiskLevel.SECURITY_CONFIG),
+    (
+        "follow-user",
+        "execute",
+    ): _policy(
+        "follow-user",
+        RiskLevel.STATE_CHANGE,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    (
+        "send-private-messages",
+        "recipient",
+    ): _policy(
+        "send-private-messages",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
 }
 
 

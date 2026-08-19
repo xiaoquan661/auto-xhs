@@ -15,7 +15,7 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是当前实现�
 | **xhs-auth**        | 认证管理 | 登录检查                                 |
 | **xhs-publish**     | V1.5目标 | 图文 / 视频 / 长文 / 草稿 / 定时发布     |
 | **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐 |
-| **xhs-interact**    | 社交互动 | 评论、回复、点赞、收藏                   |
+| **xhs-interact**    | 社交互动 | 私信、主加、评论、回复、点赞、收藏       |
 | **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作   |
 
 ### 版本与开放范围
@@ -27,7 +27,9 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是当前实现�
 | 发布 | 产品入口禁用 | 开放图文、视频、长文、草稿和定时发布；必须预览确认 |
 | 评论 | 指定评论使用当前确认链；随机评论一次授权 1–3 条 | 所有评论由当前任务点击后直接发送 |
 | 回复 | 指定回复使用当前确认链 | 按账号启用规则后允许自动回复 |
-| 私信和资料修改 | 禁用 | 开放；执行链仍待实现 |
+| 主加 | 禁用 | 单向操作；Agent/CLI 默认直接预览、关注和回读，无需审批 |
+| 私信 | 禁用 | Agent/CLI 已实现首次/续发、1–10 人个性化批次和逐人回读；真实发送待验收 |
+| 资料修改 | 禁用 | 开放；执行链仍待实现 |
 
 V1.5 目标能力在能力注册表、CLI/WebUI、自动化测试和真实设备验收完成前不可视为当前可用，
 不得绕过 V1.0 的服务层限制。
@@ -41,8 +43,9 @@ Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动
 V1.5 已把“启动 Bridge”升级为“启动账号”：先启动 Bridge，扩展未连接时再自动打开绑定
 Profile，并在核对扩展实例和 Profile 后恢复连接。该链已通过自动化测试，真实 Windows 环境仍待验收。
 
-WebUI 当前包含账号槽位、Bridge 启停、随机评论、评论/回复草稿确认、执行记录、全局暂停、L1 配额、
-并发设置和脱敏诊断导出。详细步骤见 [普通用户操作手册](docs/USER-GUIDE.md)，常见故障见
+WebUI 当前作为本地控制面板，包含账号槽位、Bridge 启停、已有直接任务、评论/回复草稿确认、
+执行记录、全局暂停、L1 配额、并发设置和脱敏诊断导出。后续新增运营能力默认由 Agent/Python CLI
+下发，除非另行明确要求，不再为其增加 WebUI 任务入口。详细步骤见 [普通用户操作手册](docs/USER-GUIDE.md)，常见故障见
 [故障恢复指南](docs/TROUBLESHOOTING.md)。
 
 支持**连贯操作** — 你可以用自然语言下达复合指令，Agent 会自动串联多个技能完成任务。例如：
@@ -168,6 +171,9 @@ python scripts/cli.py --account brand-b account-autostart-enable --confirm
 python scripts/cli.py --account brand-a search-feeds --keyword "咖啡"
 python scripts/cli.py --account brand-b search-feeds --keyword "露营"
 python scripts/cli.py --account brand-a random-comment --count 1 --style natural
+
+# 单次首页会话：浏览 6 篇，其中点赞 2 篇、评论 1 篇
+python scripts/cli.py --account brand-a home-engagement --browse-count 6 --like-count 2 --comment-count 1
 ```
 
 不同账号的命令可由两个终端或 Agent 并发执行。同一账号的命令由账号锁串行执行，避免两个
@@ -302,7 +308,22 @@ Chrome。当前页面不提供账号新增、配对或登录写操作，这些�
 > "为 brand-a 填写这篇图文，打开浏览器预览，等我确认后再发布"
 
 图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步执行并预览确认。WebUI 只读
-监测发布状态；私信、资料修改和自动回复尚未形成完整执行链。
+监测发布状态；私信也只由 Agent/CLI 下发并由 WebUI 展示结果。资料修改和自动回复尚未形成完整执行链。
+
+**个性化私信（Agent 流程）：**
+
+> “使用 brand-a 给这 3 位博主分别写一条合作私信，先给我确认全文”
+
+首次私信和已有会话续发均支持。用户已明确给出每个收件人的完整最终文本时直接发送；由 Agent
+生成或修改文本时，先展示整批收件人及全文，确认一次后发送。单批最多 10 人，每个人必须使用
+不同的个性化文本；逐人记录成功、失败或结果未知，结果未知不会自动重发。
+
+**主动关注博主（Agent 流程）：**
+
+> "使用 brand-a 关注这个博主，先给我看目标资料，不要直接点击"
+
+主加属于单向操作，Agent 默认直接读取目标主页和当前关注状态、关注一次并回读按钮状态，不需要
+审批；只有用户特别说明时才暂停等待确认。WebUI 只展示统一任务与结果，不创建或执行该任务。
 
 **社交互动：**
 
@@ -345,6 +366,21 @@ python scripts/cli.py --account brand-a click-publish --task-id TASK_ID --confir
 python scripts/cli.py --account brand-a like-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
 python scripts/cli.py --account brand-a favorite-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
 python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-token XSEC_TOKEN --content "评论内容"
+
+# 主加：默认无需审批，内部先预览再关注并回读
+python scripts/cli.py --account brand-a follow-user `
+  --user-id USER_ID --xsec-token XSEC_TOKEN
+
+# 私信：recipients.json 是 1–10 人的 UTF-8 JSON 数组，每人有 user_id、content 和可选 xsec_token
+# 用户已提供最终文本时直接发送
+python scripts/cli.py --account brand-a send-private-messages `
+  --recipients-file "C:\Temp\recipients.json"
+
+# Agent 生成文本时先返回整批预览，再按返回的 task_id/revision 确认一次
+python scripts/cli.py --account brand-a prepare-private-messages `
+  --recipients-file "C:\Temp\recipients.json"
+python scripts/cli.py --account brand-a send-private-messages `
+  --task-id TASK_ID --batch-revision-id REVISION_ID --confirm
 ```
 
 > V1.0 不会自动打开 Chrome。V1.5 联合启动完成后，`account-start` 才会在扩展未连接时自动
@@ -363,6 +399,8 @@ python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-to
 | `account-status`            | 检查目标账号的服务和扩展连接状态                      |
 | `account-sync`              | 让账号槽位指向当前项目中所有 Profile 共用的扩展目录   |
 | `account-doctor`            | 只读诊断账号配置、Profile、扩展路由、端口和连接状态   |
+| `collect-note-comments`     | 检查自己最近笔记的新评论并写入本地事件收件箱         |
+| `collect-operations-metrics` | 回收账号和自己笔记的运营指标时间快照                 |
 | `account-pair-begin`        | 生成目标账号的一次性 Profile 配对包                   |
 | `account-pair-status`       | 查看 Profile 配对与扩展连接状态                       |
 | `account-unpair`            | 撤销 Profile 配对并轮换长期连接令牌                   |
@@ -380,8 +418,14 @@ python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-to
 | `search-feeds`              | 关键词搜索笔记（支持排序/类型/时间/范围/位置筛选）    |
 | `get-feed-detail`           | 获取笔记完整内容和评论                                |
 | `user-profile`              | 获取用户主页信息和帖子列表                            |
+| `follow-user-preview`       | Agent 可选只读目标主页和当前关注状态                  |
+| `follow-user`               | Agent 无需审批地预览、关注一个目标并回读结果          |
+| `private-message-context`   | 只读识别首次私信入口或读取已有会话近期文本            |
+| `prepare-private-messages`  | 保存 Agent 生成的 1–10 人个性化私信并返回整批预览    |
+| `send-private-messages`     | 直发用户最终文本，或发送已整批确认的 Agent 文本       |
 | `post-comment`              | V1.0 使用当前确认链；V1.5 目标为当前任务点击后直发    |
 | `random-comment`            | 当前任务点击一次性授权 1–3 条随机评论                 |
+| `home-engagement`           | 单次首页会话完成浏览、点赞、评论并输出逐篇记录         |
 | `reply-comment`             | 单次回复；V1.5 自动回复规则链尚待实现                 |
 | `like-feed`                 | 点赞 / 取消点赞                                       |
 | `favorite-feed`             | 收藏 / 取消收藏                                       |
@@ -396,8 +440,8 @@ python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-to
 
 退出码：`0` 成功 · `1` 未登录 · `2` 错误
 
-私信、公开资料修改和自动回复目前没有完整 CLI 命令与服务链。它们是 V1.5 已批准目标，不是当前
-可调用命令。
+主加已完成 Agent/CLI 自动化链和真实关注验收。私信已完成 Agent/CLI 执行链、自动化测试和真实页面
+只读结构检查，但尚未发送真实私信验收。公开资料修改和自动回复仍没有完整执行链。
 
 ## 项目结构
 

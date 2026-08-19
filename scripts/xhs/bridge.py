@@ -157,6 +157,11 @@ class BridgePage:
             """
         )
 
+    def click_element_trusted(self, selector: str) -> None:
+        """Click through chrome.debugger when an entry rejects synthetic DOM clicks."""
+
+        self._call("click_element", {"selector": selector})
+
     def click_element_by_text(self, selector: str, text: str) -> None:
         self._call("click_element_by_text", {"selector": selector, "text": text})
 

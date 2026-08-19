@@ -25,6 +25,64 @@ def test_every_public_cli_command_has_exactly_one_policy():
     assert set(CAPABILITY_POLICIES) == _parser_commands()
 
 
+def test_service_backed_collectors_do_not_take_the_cli_lock_twice():
+    parser = cli.build_parser()
+
+    comments = parser.parse_args(["--account", "alpha", "collect-note-comments"])
+    metrics = parser.parse_args(["--account", "alpha", "collect-operations-metrics"])
+    follow_preview = parser.parse_args(
+        [
+            "--account",
+            "alpha",
+            "follow-user-preview",
+            "--user-id",
+            "user-1",
+            "--xsec-token",
+            "token-1",
+        ]
+    )
+    follow = parser.parse_args(
+        [
+            "--account",
+            "alpha",
+            "follow-user",
+            "--user-id",
+            "user-1",
+            "--xsec-token",
+            "token-1",
+        ]
+    )
+    context = parser.parse_args(
+        ["--account", "alpha", "private-message-context", "--user-id", "user-1"]
+    )
+    prepare = parser.parse_args(
+        [
+            "--account",
+            "alpha",
+            "prepare-private-messages",
+            "--recipients-file",
+            "messages.json",
+        ]
+    )
+    send = parser.parse_args(
+        [
+            "--account",
+            "alpha",
+            "send-private-messages",
+            "--recipients-file",
+            "messages.json",
+        ]
+    )
+
+    assert comments.requires_account_lock is False
+    assert metrics.requires_account_lock is False
+    assert follow_preview.requires_account_lock is False
+    assert follow.requires_account_lock is False
+    assert context.requires_account_lock is False
+    assert prepare.requires_account_lock is False
+    assert send.requires_account_lock is False
+
+
 def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     output_policies = [
         policy
@@ -39,6 +97,7 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     } == {
         "post-comment",
         "random-comment",
+        "home-engagement",
         "reply-comment",
         "fill-publish",
         "fill-publish-video",
@@ -47,15 +106,23 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "long-article",
         "select-template",
         "next-step",
+        "send-private-messages",
     }
     assert get_capability_policy("post-comment").requires_confirmation is True
     assert get_capability_policy("reply-comment").requires_confirmation is True
     assert get_capability_policy("random-comment").requires_confirmation is False
     assert get_capability_policy("random-comment").supports_scheduling is False
+    assert get_capability_policy("home-engagement").requires_confirmation is False
+    assert get_capability_policy("home-engagement").requires_identity_check is True
     assert get_capability_policy("publish").enabled_in_v1 is False
     assert get_capability_policy("publish-video").enabled_in_v1 is False
     assert get_capability_policy("fill-publish").supports_scheduling is True
     assert get_capability_policy("fill-publish-video").supports_scheduling is True
+    assert get_capability_policy("send-private-messages").requires_confirmation is False
+    assert get_capability_policy("send-private-messages").supports_scheduling is False
+    assert get_operation_policy(
+        "send-private-messages", "recipient"
+    ).requires_result_verification is True
 
 
 def test_security_configuration_always_requires_confirmation():
@@ -71,13 +138,16 @@ def test_security_configuration_always_requires_confirmation():
 
 
 def test_l1_social_state_changes_require_identity_and_result_verification():
-    for command in ("like-feed", "favorite-feed", "keyword-engagement"):
+    for command in ("like-feed", "favorite-feed", "keyword-engagement", "follow-user"):
         policy = get_capability_policy(command)
         assert policy.risk_level is RiskLevel.STATE_CHANGE
         assert policy.enabled_in_v1 is True
         assert policy.requires_identity_check is True
         assert policy.requires_result_verification is True
         assert policy.retry_policy is RetryPolicy.LIMITED
+    assert get_capability_policy("follow-user").requires_confirmation is False
+    assert get_capability_policy("follow-user").supports_scheduling is False
+    assert get_operation_policy("follow-user", "execute").requires_confirmation is False
 
 
 def test_policy_serialization_is_json_ready():

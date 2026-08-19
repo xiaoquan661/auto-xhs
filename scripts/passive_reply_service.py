@@ -1,0 +1,78 @@
+"""Turn a new-comment event into one reviewable reply task and draft."""
+
+from __future__ import annotations
+
+from approval_service import ApprovalService
+from inbound_event_service import InboundEventService
+from service_errors import ServiceError
+from task_service import TaskService
+
+
+class PassiveReplyService:
+    def __init__(
+        self,
+        events: InboundEventService,
+        tasks: TaskService,
+        approvals: ApprovalService,
+    ) -> None:
+        self.events = events
+        self.tasks = tasks
+        self.approvals = approvals
+
+    def create_draft(
+        self,
+        event_id: str,
+        *,
+        verified_uid: str,
+        content: str,
+    ) -> dict:
+        event = self.events.get(event_id)
+        if event["event_type"] != "note_comment":
+            raise ServiceError("INVALID_EVENT_TYPE", "只有新评论事件可以创建回复任务")
+        if event.get("created_task_id"):
+            task = self.tasks.get(event["created_task_id"])
+            draft = next(
+                (
+                    item
+                    for item in self.approvals.store.list("drafts")
+                    if item.get("task_id") == task["task_id"]
+                ),
+                None,
+            )
+            return {"created": False, "event": event, "task": task, "draft": draft}
+
+        payload = event.get("payload") or {}
+        comment_id = str(payload.get("comment_id") or event["platform_event_id"])
+        feed_id = str(payload.get("feed_id") or event.get("object_id") or "")
+        task = self.tasks.create(
+            source="platform_event",
+            source_type="platform_event",
+            source_event_id=event_id,
+            account_slot=event["account_slot"],
+            capability="reply-comment",
+            request_summary=f"回复新评论：{str(payload.get('content') or '')[:40]}",
+            target_type="comment",
+            target_id=comment_id,
+            parameters={
+                "feed_id": feed_id,
+                "xsec_token": str(payload.get("xsec_token") or ""),
+                "comment_id": comment_id,
+                "user_id": str(payload.get("user_id") or event.get("actor_user_id") or ""),
+                "content": content.strip(),
+            },
+        )
+        draft = self.approvals.create_draft(
+            account_slot=event["account_slot"],
+            verified_uid=verified_uid,
+            action_type="reply-comment",
+            target_id=comment_id,
+            target_summary=(
+                f"{payload.get('nickname') or payload.get('user_id') or '用户'}："
+                f"{str(payload.get('content') or '')[:80]}"
+            ),
+            content=content,
+            source_event_id=event_id,
+            task_id=task["task_id"],
+        )
+        linked = self.events.attach_task(event_id, task["task_id"])
+        return {"created": True, "event": linked, "task": task, "draft": draft}

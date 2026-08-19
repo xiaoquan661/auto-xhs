@@ -67,7 +67,10 @@
 | V15-PUB-001 | 开放图文、视频和长文发布，必须填写、浏览器预览、用户确认后发布 | AUTOMATED_TESTED | 一步直发已禁用；CLI 状态机、确认门槛和结果回读测试通过，真实账号待验收 |
 | V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | IMPLEMENTED | 草稿终态、预览中的定时时间和结果未知恢复已实现，真实定时发布待验收 |
 | V15-PUB-003 | 发布任务只由 Agent/Python CLI 创建和执行，WebUI 只读监测 | AUTOMATED_TESTED | CLI 写入统一任务库；WebUI 持续轮询且不为发布任务提供执行、取消或重试按钮 |
-| V15-MSG-001 | 开放单条私信，一次点击只授权当前目标和当前文本 | SPEC_APPROVED | 新增能力、身份检查、结果回读和执行记录 |
+| V15-MSG-001 | 首次私信和已有会话续发；明确最终文本直发，Agent 生成文本整批确认；每人个性化，单批最多 10 人 | AUTOMATED_TESTED | Agent/CLI、身份检查、逐人回读、独立失败和结果记录已测试；真实发送待验收 |
+| V15-MSG-002 | 私信任务只由 Agent/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建、执行和重试入口拒绝私信；控制面板无私信表单或动作按钮 |
+| V15-FOLLOW-001 | 关注属于单向操作，Agent/CLI 默认无需审批，内部预览、执行一次并回读 | REAL_DEVICE_VERIFIED | 页面执行器、身份检查、任务记录和结果回读已测试；测试账号两个随机目标均回读“已关注” |
+| V15-FOLLOW-002 | 主加任务不由 WebUI 下发，WebUI 只作为控制面板展示状态与结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建入口拒绝主加能力；Agent/CLI 使用内部统一任务服务 |
 | V15-PROFILE-001 | 开放公开资料修改，执行前展示前后差异并确认 | SPEC_APPROVED | 新增预览、确认、执行、回读和审计链 |
 | V15-AUTH-001 | 产品登录只保留状态检查、自动退出、用户手动登录和新 UID 核验 | SPEC_APPROVED | Skill、WebUI 和 CLI 主流程不再引导二维码或手机验证码登录 |
 | V15-CHROME-001 | 启动账号时先启动 Bridge，扩展未连接再自动打开绑定 Profile | SPEC_APPROVED | 正确 Profile 复用、错误 Profile 拒绝、超时和实机测试通过 |

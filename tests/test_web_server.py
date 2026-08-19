@@ -116,6 +116,46 @@ class FakeService:
     def list_records(self) -> dict:
         return {"success": True, "records": []}
 
+    def list_inbound_events(self) -> dict:
+        return {"success": True, "events": []}
+
+    def get_inbound_event(self, event_id: str) -> dict:
+        return {"success": True, "event": {"event_id": event_id}}
+
+    def create_passive_reply_draft(self, event_id: str, **body) -> dict:
+        return {
+            "success": True,
+            "event": {"event_id": event_id},
+            "draft": body,
+        }
+
+    def list_operation_events(self) -> dict:
+        return {"success": True, "events": []}
+
+    def get_metric_history(self, account: str, entity_type: str, entity_id: str) -> dict:
+        return {
+            "success": True,
+            "snapshots": [{"account": account, "type": entity_type, "id": entity_id}],
+        }
+
+    def get_metric_delta(self, account: str, entity_type: str, entity_id: str) -> dict:
+        return {
+            "success": True,
+            "delta": {"account": account, "type": entity_type, "id": entity_id},
+        }
+
+    def list_reply_rules(self) -> dict:
+        return {"success": True, "rules": []}
+
+    def create_reply_rule(self, **body) -> dict:
+        return {"success": True, "rule": body}
+
+    def update_reply_rule(self, rule_id: str, **body) -> dict:
+        return {"success": True, "rule": {"rule_id": rule_id, **body}}
+
+    def set_reply_rule_enabled(self, rule_id: str, **body) -> dict:
+        return {"success": True, "rule": {"rule_id": rule_id, **body}}
+
     def create_task(self, **body) -> dict:
         self.tasks.append(body)
         return {"success": True, "task": body}
@@ -193,6 +233,25 @@ def test_api_dispatch_routes_to_shared_service() -> None:
     assert _dispatch_api(service, "/api/v1/health")["status"] == "ok"
     assert _dispatch_api(service, "/api/v1/accounts")["accounts"][0]["name"] == "alpha"
     assert _dispatch_api(service, "/api/v1/tasks")["tasks"] == []
+    assert _dispatch_api(service, "/api/v1/inbound-events")["events"] == []
+    assert _dispatch_api(service, "/api/v1/operation-events")["events"] == []
+    assert _dispatch_api(service, "/api/v1/reply-rules")["rules"] == []
+    assert (
+        _dispatch_api(service, "/api/v1/inbound-events/event-1")["event"]["event_id"]
+        == "event-1"
+    )
+    assert (
+        _dispatch_api(service, "/api/v1/metrics/alpha/note/note-1")["snapshots"][0][
+            "id"
+        ]
+        == "note-1"
+    )
+    assert (
+        _dispatch_api(service, "/api/v1/metrics/alpha/note/note-1/delta")["delta"][
+            "id"
+        ]
+        == "note-1"
+    )
     assert (
         _dispatch_api(service, "/api/v1/accounts/alpha/status")["account"]["name"]
         == "alpha"
@@ -225,6 +284,30 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
         "/api/v1/diagnostics/export",
         {},
     )
+    passive = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/inbound-events/event-1/reply-draft",
+        {"verified_uid": "owner-1", "content": "回复文本"},
+    )
+    reply_rule = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/reply-rules",
+        {"account_slot": "alpha"},
+    )
+    updated_rule = _dispatch_mutation(
+        service,
+        "PATCH",
+        "/api/v1/reply-rules/rule-1",
+        {"reply_style": "professional"},
+    )
+    enabled_rule = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/reply-rules/rule-1/enabled",
+        {"enabled": True},
+    )
     retried = _dispatch_mutation(
         service,
         "POST",
@@ -242,6 +325,11 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
     assert task["task"]["capability"] == "search-feeds"
     assert draft["draft"]["content"] == "新文本"
     assert diagnostics["path"] == "diagnostic.json"
+    assert passive["event"]["event_id"] == "event-1"
+    assert passive["draft"]["content"] == "回复文本"
+    assert reply_rule["rule"]["account_slot"] == "alpha"
+    assert updated_rule["rule"]["reply_style"] == "professional"
+    assert enabled_rule["rule"]["enabled"] is True
     assert retried["task"]["state"] == "SUCCESS"
     assert cancelled["task"]["state"] == "CANCELLED"
 
@@ -396,7 +484,7 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "可选择其他已就绪且空闲的账号并行执行" in script
     for capability in ("browse-feeds", "search-feeds", "get-feed-detail", "user-profile", "like-feed", "favorite-feed", "keyword-engagement"):
         assert f'"{capability}"' in script
-    assert 'engagement: ["keyword-engagement"]' in script
+    assert 'engagement: ["home-engagement", "keyword-engagement"]' in script
     assert 'id="task-undo"' not in html
     assert 'id="task-engagement-action"' in html
     assert 'id="task-engagement-count"' in html
@@ -433,6 +521,7 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert 'draft.action_type === "post-comment"' in script
     assert '<option value="comment">随机评论</option>' in html
     assert 'id="random-comment-settings"' in html
+    assert 'id="home-engagement-settings"' in html
     assert 'id="task-comment-count"' in html
     assert "direct_send_authorized: true" in script
     assert "function appendRandomCommentResults" in script
