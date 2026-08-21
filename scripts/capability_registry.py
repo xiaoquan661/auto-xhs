@@ -155,6 +155,7 @@ _POLICIES = [
     _policy("collect-note-comments", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("collect-operations-metrics", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("follow-user-preview", RiskLevel.READ_ONLY),
+    _policy("collect-private-messages", RiskLevel.READ_ONLY),
     _policy("private-message-context", RiskLevel.READ_ONLY),
     _policy("prepare-private-messages", RiskLevel.READ_ONLY),
     _policy("generate-reply-draft", RiskLevel.READ_ONLY),
@@ -338,6 +339,17 @@ SERVICE_OPERATION_POLICIES: dict[tuple[str, str], CapabilityPolicy] = {
         requires_identity_check=True,
         requires_result_verification=True,
         requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    (
+        "send-private-messages",
+        "reviewed_reply",
+    ): _policy(
+        "send-private-messages",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=True,
         enabled_in_v1=True,
     ),
 }

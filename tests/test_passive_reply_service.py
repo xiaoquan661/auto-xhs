@@ -78,3 +78,28 @@ def test_same_comment_does_not_create_a_second_reply_task(tmp_path) -> None:
     assert repeated["created"] is False
     assert repeated["task"]["task_id"] == first["task"]["task_id"]
     assert repeated["draft"]["draft_id"] == first["draft"]["draft_id"]
+
+
+def test_private_message_becomes_one_reviewed_reply_task(tmp_path) -> None:
+    events, _, _, replies = _services(tmp_path)
+    event = events.record(
+        account_slot="alpha",
+        event_type="private_message",
+        platform_event_id="user-1:2:最近怎么样",
+        occurred_at="2026-08-21T10:00:00+00:00",
+        object_type="conversation",
+        object_id="user-1",
+        actor_user_id="user-1",
+        payload={"user_id": "user-1", "nickname": "小红", "content": "最近怎么样"},
+    )["event"]
+
+    result = replies.create_draft(
+        event["event_id"],
+        verified_uid="owner-1",
+        content="最近挺好的，你呢？",
+    )
+
+    assert result["task"]["capability"] == "send-private-messages"
+    assert result["task"]["operation"] == "reviewed_reply"
+    assert result["task"]["state"] == "WAITING_APPROVAL"
+    assert result["draft"]["action_type"] == "send-private-messages"

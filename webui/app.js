@@ -8,6 +8,7 @@ let accountTaskActivityByName = new Map();
 const pendingSubmissionByAccount = new Map();
 const taskMessageByAccount = new Map();
 const commentCollectionMessageByAccount = new Map();
+const privateMessageCollectionMessageByAccount = new Map();
 let taskActivityPollTimer = null;
 let taskSnapshotKey = "";
 let accountStatusPollTimer = null;
@@ -134,6 +135,11 @@ function accountHasUnfinishedTask(account) {
   return Boolean(currentAccountTaskActivity(account));
 }
 
+function accountHasActiveExecution(account) {
+  const activity = currentAccountTaskActivity(account);
+  return Boolean(activity && ["QUEUED", "RUNNING"].includes(activity.state));
+}
+
 function activityShortLabel(activity) {
   if (!activity) return "空闲";
   return {
@@ -192,6 +198,7 @@ function syncAccountActivityUI() {
   refreshTaskAccountOptions();
   updateTaskAvailability();
   updateCommentCollectionAvailability();
+  updatePrivateMessageCollectionAvailability();
 }
 
 function accountCard(account, status) {
@@ -1962,6 +1969,7 @@ async function loadWorkData(accountData, statuses) {
   $("#confirmation-count").textContent = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length + publishConfirmations;
   renderDrafts(drafts.drafts);
   renderIntelligentReplyEvents(inboundEvents.events, replyIntelligence);
+  renderIntelligentPrivateMessageEvents(inboundEvents.events, replyIntelligence);
   renderReplyModelSettings(replyIntelligence);
 }
 
@@ -2013,10 +2021,55 @@ function populateCommentCollectionAccounts(accounts, statuses) {
   updateCommentCollectionAvailability();
 }
 
+function populatePrivateMessageCollectionAccounts(accounts, statuses) {
+  const select = $("#private-message-collection-account");
+  const previous = select.value;
+  select.replaceChildren();
+  accounts.forEach((account, index) => {
+    const status = statuses[index] || { status: "ERROR", ready: false };
+    const option = document.createElement("option");
+    option.value = account.name;
+    option.disabled = !status.ready;
+    option.textContent = commentCollectionAccountLabel(account, status);
+    option.title = `槽位标识：${account.name}`;
+    select.append(option);
+  });
+  const ready = Array.from(select.options).filter((option) => !option.disabled);
+  const retained = ready.find((option) => option.value === previous);
+  if (retained) select.value = retained.value;
+  else if (ready[0]) select.value = ready[0].value;
+  if (!ready.length) {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = accounts.length ? "暂无 READY 账号" : "请先添加账号";
+    placeholder.selected = true;
+    select.prepend(placeholder);
+  }
+  updatePrivateMessageCollectionAvailability();
+}
+
+function updatePrivateMessageCollectionAvailability() {
+  const account = $("#private-message-collection-account").value;
+  const status = accountStatusByName.get(account) || {};
+  const busy = account ? accountHasActiveExecution(account) : false;
+  const button = $("#collect-private-messages");
+  const message = $("#private-message-collection-message");
+  button.disabled = !account || !status.ready || busy;
+  if (!account) {
+    message.textContent = "没有可采集的 READY 账号，请先完成连接和 UID 核验。";
+  } else if (busy) {
+    message.textContent = privateMessageCollectionMessageByAccount.get(account)
+      || `${commentCollectionAccountLabel(accountConfig(account), status)}正在执行其他任务。`;
+  } else {
+    message.textContent = privateMessageCollectionMessageByAccount.get(account)
+      || "点击后只读检查最近一对一会话，不会输入或发送内容。";
+  }
+}
+
 function updateCommentCollectionAvailability() {
   const account = $("#comment-collection-account").value;
   const status = accountStatusByName.get(account) || {};
-  const busy = account ? accountHasUnfinishedTask(account) : false;
+  const busy = account ? accountHasActiveExecution(account) : false;
   const button = $("#collect-comments");
   const message = $("#comment-collection-message");
   button.disabled = !account || !status.ready || busy;
@@ -2051,7 +2104,7 @@ async function collectNewComments(event) {
     message.textContent = "目标账号尚未 READY，评论没有采集。";
     return;
   }
-  if (accountHasUnfinishedTask(account)) {
+  if (accountHasActiveExecution(account)) {
     message.textContent = "该账号已有未完成任务，请等待任务结束后再采集。";
     updateCommentCollectionAvailability();
     return;
@@ -2085,6 +2138,65 @@ async function collectNewComments(event) {
     pendingSubmissionByAccount.delete(account);
     await loadDashboard();
     updateCommentCollectionAvailability();
+    syncAccountActivityUI();
+    scheduleTaskActivityPoll();
+  }
+}
+
+function privateMessageCollectionSummary(executed) {
+  const task = executed.task || {};
+  const result = executed.result || {};
+  const events = result.inbound_events || {};
+  if (!["SUCCESS", "PARTIAL_SUCCESS"].includes(task.state)) {
+    return task.result_summary || task.recommended_action || stateLabel(task.state || "FAILED");
+  }
+  const prefix = task.state === "PARTIAL_SUCCESS" ? "采集部分完成" : "采集完成";
+  return `${prefix}：检查 ${result.conversation_count ?? 0} 个会话；发现 ${result.count ?? 0} 条对方最新文字，新增 ${events.created_count ?? 0} 条，重复 ${events.duplicate_count ?? 0} 条。`;
+}
+
+async function collectPrivateMessages(event) {
+  event.preventDefault();
+  const account = $("#private-message-collection-account").value;
+  const maxConversations = Number($("#private-message-max-conversations").value);
+  const message = $("#private-message-collection-message");
+  if (!accountStatusByName.get(account)?.ready) {
+    message.textContent = "目标账号尚未 READY，私信没有采集。";
+    return;
+  }
+  if (accountHasActiveExecution(account)) {
+    message.textContent = "该账号已有未完成任务，请等待结束后再采集。";
+    updatePrivateMessageCollectionAvailability();
+    return;
+  }
+  pendingSubmissionByAccount.set(account, {
+    capability: "collect-private-messages",
+    request_summary: `读取最近 ${maxConversations} 个私信会话`,
+  });
+  privateMessageCollectionMessageByAccount.set(account, "正在打开小红书消息页并读取最近会话…");
+  message.textContent = privateMessageCollectionMessageByAccount.get(account);
+  updatePrivateMessageCollectionAvailability();
+  syncAccountActivityUI();
+  scheduleTaskActivityPoll();
+  try {
+    const created = await mutateJson(`${api}/tasks`, "POST", {
+      source: "webui",
+      account_slot: account,
+      capability: "collect-private-messages",
+      request_summary: `读取最近 ${maxConversations} 个私信会话`,
+      parameters: { max_conversations: maxConversations, context_limit: 10 },
+    });
+    const executed = await mutateJson(`${api}/tasks/${created.task.task_id}/execute`, "POST", {});
+    const summary = privateMessageCollectionSummary(executed);
+    privateMessageCollectionMessageByAccount.set(account, summary);
+    taskMessageByAccount.set(account, summary);
+  } catch (error) {
+    const summary = `采集失败：${error.message}`;
+    privateMessageCollectionMessageByAccount.set(account, summary);
+    taskMessageByAccount.set(account, summary);
+  } finally {
+    pendingSubmissionByAccount.delete(account);
+    await loadDashboard();
+    updatePrivateMessageCollectionAvailability();
     syncAccountActivityUI();
     scheduleTaskActivityPoll();
   }
@@ -2137,6 +2249,7 @@ function renderAccountRoster(accountData, statuses) {
   populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
   populateCommentCollectionAccounts(accountData.accounts, statuses);
+  populatePrivateMessageCollectionAccounts(accountData.accounts, statuses);
   refreshTaskAccountOptions();
   updateTaskAvailability();
 }
@@ -2210,7 +2323,7 @@ function renderIntelligentReplyEvents(events, status) {
     : `尚未配置：${(status.missing || []).join("、")}`;
   container.replaceChildren();
   const candidates = events
-    .filter((event) => event.event_type === "note_comment" && !event.created_task_id)
+    .filter((event) => event.event_type === "note_comment" && event.handling_state === "NEW" && !event.created_task_id)
     .slice(0, 20);
   if (!candidates.length) {
     const empty = emptyAccounts();
@@ -2229,6 +2342,46 @@ function renderIntelligentReplyEvents(events, status) {
     const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = payload.note_title || payload.feed_id || event.object_id || "未知笔记";
     const actions = document.createElement("div"); actions.className = "task-actions";
     const button = document.createElement("button"); button.type = "button"; button.className = "secondary-button"; button.textContent = "生成 AI 回复草稿";
+    button.disabled = !status.configured;
+    button.addEventListener("click", () => generateIntelligentReplyDraft(event, card, button));
+    actions.append(button);
+    card.append(badge, title, content, meta, actions);
+    container.append(card);
+  });
+}
+
+function renderIntelligentPrivateMessageEvents(events, status) {
+  const container = $("#intelligent-private-message-list");
+  const statusLine = $("#private-message-intelligence-status");
+  statusLine.textContent = status.configured
+    ? `模型 ${status.model} 已配置；私信回复只进入人工确认。`
+    : `尚未配置：${(status.missing || []).join("、")}`;
+  container.replaceChildren();
+  const candidates = events
+    .filter((event) => (
+      event.event_type === "private_message"
+      && event.handling_state === "NEW"
+      && !event.created_task_id
+      && !["我们已相互关注，开始聊天吧", "你们已相互关注，开始聊天吧"].includes(event.payload?.content || "")
+    ))
+    .slice(0, 20);
+  if (!candidates.length) {
+    const empty = emptyAccounts();
+    empty.querySelector("strong").textContent = "暂无待处理新私信";
+    empty.querySelector("span").textContent = "采集到对方最新文字后可在这里生成智能回复。";
+    container.append(empty);
+    return;
+  }
+  candidates.forEach((event) => {
+    const payload = event.payload || {};
+    const card = document.createElement("article");
+    card.className = "record-card";
+    const badge = document.createElement("span"); badge.className = "badge warning"; badge.textContent = "待生成";
+    const title = document.createElement("strong"); title.textContent = `${event.account_slot} · ${payload.nickname || payload.user_id || "用户"}`;
+    const content = document.createElement("p"); content.textContent = payload.content || "私信内容为空";
+    const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = payload.display_time || `会话 ${payload.message_count || "—"} 条消息`;
+    const actions = document.createElement("div"); actions.className = "task-actions";
+    const button = document.createElement("button"); button.type = "button"; button.className = "secondary-button"; button.textContent = "生成 AI 私信草稿";
     button.disabled = !status.configured;
     button.addEventListener("click", () => generateIntelligentReplyDraft(event, card, button));
     actions.append(button);
@@ -2289,9 +2442,10 @@ async function submitDraft(event) {
 
 async function confirmDraft(draft, card, button) {
   const collectedReply = draft.action_type === "reply-comment" && Boolean(draft.source_event_id);
+  const collectedPrivateMessage = draft.action_type === "send-private-messages" && Boolean(draft.source_event_id);
   let feedId = draft.action_type === "post-comment" ? draft.target_id : "";
   let token = "";
-  if (!collectedReply) {
+  if (!collectedReply && !collectedPrivateMessage) {
     if (draft.action_type === "reply-comment") {
       feedId = window.prompt("请输入这条评论所属的笔记 ID：", "");
       if (!feedId) return;
@@ -2300,7 +2454,11 @@ async function confirmDraft(draft, card, button) {
     if (!token) return;
   }
   const actionLabel = (draftModes[draft.action_type] || {}).label || draft.action_type;
-  const contextNote = collectedReply ? "\n来源：已采集评论，所属笔记信息将自动带入" : "";
+  const contextNote = collectedReply
+    ? "\n来源：已采集评论，所属笔记信息将自动带入"
+    : collectedPrivateMessage
+      ? "\n来源：已采集私信，将回到对应一对一会话发送"
+      : "";
   const accepted = window.confirm(`目标账号：${draft.account_slot}\nUID：${draft.verified_uid}\n动作：${actionLabel}\n目标：${draft.target_summary || draft.target_id}${contextNote}\n\n最终文本：\n${draft.content}\n\n确认后将立即执行，是否继续？`);
   if (!accepted) return;
   const original = button.textContent;
@@ -2310,7 +2468,7 @@ async function confirmDraft(draft, card, button) {
     const confirmed = await mutateJson(`${api}/drafts/${draft.draft_id}/confirm`, "POST", {});
     const result = await mutateJson(`${api}/drafts/${draft.draft_id}/execute`, "POST", {
       approval_id: confirmed.approval.approval_id,
-      ...(collectedReply ? {} : {
+      ...(collectedReply || collectedPrivateMessage ? {} : {
         feed_id: feedId,
         comment_id: draft.action_type === "reply-comment" ? draft.target_id : "",
         xsec_token: token,
@@ -2677,6 +2835,8 @@ $("#task-comment-count").addEventListener("input", (event) => {
 $("#draft-form").addEventListener("submit", submitDraft);
 $("#comment-collection-form").addEventListener("submit", collectNewComments);
 $("#comment-collection-account").addEventListener("change", updateCommentCollectionAvailability);
+$("#private-message-collection-form").addEventListener("submit", collectPrivateMessages);
+$("#private-message-collection-account").addEventListener("change", updatePrivateMessageCollectionAvailability);
 $("#draft-action").addEventListener("change", updateDraftFields);
 $("#draft-generate").addEventListener("click", generateCommentDraft);
 $("#account-mode").addEventListener("change", syncAccountMode);

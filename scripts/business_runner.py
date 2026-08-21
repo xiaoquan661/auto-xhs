@@ -145,6 +145,14 @@ class BusinessRunner:
                 str(parameters.get("xsec_token") or ""),
                 limit=int(parameters.get("limit") or 10),
             )
+        if capability == "collect-private-messages":
+            from xhs.private_inbox import collect_private_messages
+
+            return collect_private_messages(
+                page,
+                max_conversations=int(parameters.get("max_conversations") or 20),
+                context_limit=int(parameters.get("context_limit") or 10),
+            )
         if capability == "send-private-messages":
             from xhs.direct_message import send_private_message
 

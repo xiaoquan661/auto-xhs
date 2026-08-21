@@ -130,6 +130,16 @@
       contentPlaceholder: "结合对方原话填写最终回复",
       help: "仅在需要回应某条已有评论时使用；执行前还要填写该评论所属的笔记 ID。",
     },
+    "send-private-messages": {
+      label: "回复私信",
+      targetLabel: "目标用户 ID",
+      targetPlaceholder: "由私信收件箱自动带入",
+      summaryLabel: "对方私信",
+      summaryPlaceholder: "由私信收件箱自动带入",
+      contentLabel: "回复内容",
+      contentPlaceholder: "结合近期会话填写最终回复",
+      help: "只用于已采集的一对一私信；人工确认后回到对应会话发送并回读。",
+    },
   };
   const capabilityTemplate = Object.entries(taskTemplates).reduce((mapping, [template, capabilities]) => {
     capabilities.forEach((capability) => mapping.set(capability, template));

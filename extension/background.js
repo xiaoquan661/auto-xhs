@@ -1155,7 +1155,10 @@ async function cmdPressKeyViaDebugger({ key }) {
   await chrome.debugger.attach(target, "1.3");
   try {
     const base = { modifiers: 0, ...info };
-    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { ...base, type: "keyDown" });
+    const keyDown = key === "Enter"
+      ? { ...base, type: "keyDown", text: "\r", unmodifiedText: "\r" }
+      : { ...base, type: "keyDown" };
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", keyDown);
     await sleep(30);
     await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { ...base, type: "keyUp" });
   } finally {

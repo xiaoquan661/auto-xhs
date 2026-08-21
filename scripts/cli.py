@@ -726,6 +726,19 @@ def cmd_private_message_context(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_private_message_inbox(args: argparse.Namespace) -> None:
+    """Collect latest incoming private messages without sending."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().collect_private_message_inbox(
+            args.account,
+            max_conversations=args.max_conversations,
+        )
+    )
+
+
 def cmd_prepare_private_messages(args: argparse.Namespace) -> None:
     """Persist Agent-generated personalized texts for one batch confirmation."""
 
@@ -2183,6 +2196,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--user-id", required=True, help="当前 Agent 任务直接关注的目标用户 ID")
     sub.add_argument("--xsec-token", required=True)
     sub.set_defaults(func=cmd_follow_user, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "collect-private-messages",
+        help="只读采集最近私信会话中的对方最新文本",
+    )
+    sub.add_argument("--max-conversations", type=int, default=20)
+    sub.set_defaults(func=cmd_private_message_inbox, requires_account_lock=False)
 
     sub = subparsers.add_parser(
         "private-message-context",

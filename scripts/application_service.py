@@ -61,6 +61,7 @@ from metric_service import MetricService
 from operations_db import OperationsDatabase
 from operation_event_service import OperationEventService
 from passive_reply_service import PassiveReplyService
+from private_message_collector import PrivateMessageCollector
 from private_message_batch import (
     normalize_private_message_recipients,
     private_message_preview,
@@ -160,6 +161,10 @@ class ApplicationService:
         self.inbound_events = InboundEventService(self.operations_database)
         self.collectors = CollectorService(self.operations_database)
         self.comment_collector = CommentCollector(self.inbound_events, self.collectors)
+        self.private_message_collector = PrivateMessageCollector(
+            self.inbound_events,
+            self.collectors,
+        )
         self.metrics = MetricService(self.operations_database)
         self.operation_events = OperationEventService(self.operations_database)
         self.reply_rules = ReplyRuleService(self.operations_database)
@@ -918,6 +923,7 @@ class ApplicationService:
         parameters = dict(task.get("parameters") or {})
         if task["capability"] in {
             "collect-note-comments",
+            "collect-private-messages",
             "collect-operations-metrics",
         } and not parameters.get("owner_user_id"):
             parameters["owner_user_id"] = status["identity"].get("live_user_id") or ""
@@ -988,6 +994,14 @@ class ApplicationService:
             collected = self.comment_collector.ingest(
                 account_slot=task["account_slot"],
                 comments=list(result.get("comments") or []),
+                cursor_value=str(result.get("cursor") or ""),
+                last_seen_time=result.get("last_seen_time"),
+            )
+            result = {**result, "inbound_events": collected}
+        if task["capability"] == "collect-private-messages":
+            collected = self.private_message_collector.ingest(
+                account_slot=task["account_slot"],
+                messages=list(result.get("messages") or []),
                 cursor_value=str(result.get("cursor") or ""),
                 last_seen_time=result.get("last_seen_time"),
             )
@@ -1134,7 +1148,7 @@ class ApplicationService:
     ) -> dict:
         event = self.inbound_events.get(event_id)
         if event["account_slot"] != account_slot:
-            raise ServiceError("ACCOUNT_MISMATCH", "评论事件不属于当前账号槽位", 409)
+            raise ServiceError("ACCOUNT_MISMATCH", "入站事件不属于当前账号槽位", 409)
         if not verified_uid.strip():
             raise ServiceError("INVALID_REQUEST", "生成回复草稿必须包含已核验 UID")
         if event.get("created_task_id"):
@@ -1147,6 +1161,11 @@ class ApplicationService:
                 "intelligent_reply"
             )
             return {"success": True, "generation": generation, **existing}
+        reply_action = (
+            "send-private-messages"
+            if event.get("event_type") == "private_message"
+            else "reply-comment"
+        )
         recent_replies = [
             str(draft.get("content") or "")
             for draft in sorted(
@@ -1155,7 +1174,7 @@ class ApplicationService:
                 reverse=True,
             )
             if draft.get("account_slot") == account_slot
-            and draft.get("action_type") == "reply-comment"
+            and draft.get("action_type") == reply_action
         ][:20]
         generation = self.reply_intelligence.generate_for_event(
             event,
@@ -1429,6 +1448,26 @@ class ApplicationService:
                 "xsec_token": str(xsec_token or "").strip(),
                 "limit": max(1, min(int(limit), 20)),
             },
+        )
+        return self.execute_task(task["task_id"])
+
+    def collect_private_message_inbox(
+        self,
+        account_slot: str,
+        *,
+        max_conversations: int = 20,
+    ) -> dict:
+        """Collect latest incoming text from the visible private-message inbox."""
+
+        self.require_enabled_capability("collect-private-messages")
+        task = self.tasks.create(
+            source="agent",
+            account_slot=account_slot,
+            capability="collect-private-messages",
+            request_summary=f"读取最近 {max_conversations} 个私信会话",
+            target_type="inbox",
+            target_id="private-messages",
+            parameters={"max_conversations": int(max_conversations), "context_limit": 10},
         )
         return self.execute_task(task["task_id"])
 
@@ -1777,6 +1816,13 @@ class ApplicationService:
                 raise ServiceError("INVALID_REQUEST", "监测笔记数量必须是整数") from exc
             if not 1 <= max_notes <= 100:
                 raise ServiceError("INVALID_REQUEST", "监测笔记数量必须在 1 到 100 篇之间")
+        if capability == "collect-private-messages":
+            try:
+                max_conversations = int(parameters.get("max_conversations", 20))
+            except (TypeError, ValueError) as exc:
+                raise ServiceError("INVALID_REQUEST", "私信会话数量必须是整数") from exc
+            if not 1 <= max_conversations <= 50:
+                raise ServiceError("INVALID_REQUEST", "私信会话数量必须在 1 到 50 个之间")
         if capability == "collect-operations-metrics":
             try:
                 max_notes = int(parameters.get("max_notes", 50))
@@ -1875,7 +1921,33 @@ class ApplicationService:
                 "被动回复任务已经离开待确认状态",
                 409,
             )
-        if draft["action_type"] == "reply-comment" and draft.get("source_event_id"):
+        private_message_reply = (
+            draft["action_type"] == "send-private-messages"
+            and bool(draft.get("source_event_id"))
+        )
+        if private_message_reply:
+            source_event = self.inbound_events.get(draft["source_event_id"])
+            if source_event.get("event_type") != "private_message":
+                raise ServiceError("INVALID_EVENT_TYPE", "该草稿不是私信回复事件", 409)
+            event_context = source_event.get("payload") or {}
+            task_context = (linked_task or {}).get("parameters") or {}
+            user_id = str(
+                task_context.get("user_id")
+                or event_context.get("user_id")
+                or source_event.get("actor_user_id")
+                or ""
+            )
+            nickname = str(
+                task_context.get("nickname") or event_context.get("nickname") or ""
+            )
+            original_content = str(
+                task_context.get("original_content") or event_context.get("content") or ""
+            )
+            notification_id = ""
+            feed_id = ""
+            comment_id = ""
+            xsec_token = ""
+        elif draft["action_type"] == "reply-comment" and draft.get("source_event_id"):
             source_event = self.inbound_events.get(draft["source_event_id"])
             event_context = source_event.get("payload") or {}
             task_context = (linked_task or {}).get("parameters") or {}
@@ -1910,13 +1982,19 @@ class ApplicationService:
             nickname = ""
             original_content = ""
         execution_target = (
-            feed_id
+            user_id
+            if private_message_reply
+            else feed_id
             if draft["action_type"] == "post-comment"
             else notification_id or comment_id
         )
         if execution_target != draft["target_id"]:
             raise ServiceError("CONFIRMATION_MISMATCH", "执行目标与已确认草稿不一致", 409)
-        if not notification_id and (not xsec_token.strip() or not feed_id.strip()):
+        if (
+            not private_message_reply
+            and not notification_id
+            and (not xsec_token.strip() or not feed_id.strip())
+        ):
             raise ServiceError("INVALID_REQUEST", "执行评论或回复需要笔记信息")
         status = self.get_account_status(draft["account_slot"])
         if not status["ready"]:

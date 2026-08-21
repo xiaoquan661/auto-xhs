@@ -87,6 +87,35 @@ def test_intelligent_reply_marks_ai_style_and_recent_duplicate() -> None:
     assert result["quality_flags"] == ["ai_style_phrase", "duplicate_recent_reply"]
 
 
+def test_intelligent_private_message_reply_uses_conversation_context() -> None:
+    client = FakeReplyClient(
+        '{"reply":"最近挺好的，你呢？","intent":"discussion",'
+        '"confidence":0.9,"reason":"回应对方问候"}'
+    )
+    service = ReplyIntelligenceService(client)
+    event = {
+        "event_id": "dm-1",
+        "account_slot": "alpha",
+        "event_type": "private_message",
+        "actor_user_id": "user-1",
+        "payload": {
+            "user_id": "user-1",
+            "nickname": "小红",
+            "content": "最近怎么样？",
+            "context": [
+                {"role": "self", "content": "好久不见"},
+                {"role": "peer", "content": "最近怎么样？"},
+            ],
+        },
+    }
+
+    result = service.generate_for_event(event)
+
+    assert result["context_summary"]["channel"] == "private_message"
+    assert "最近怎么样" in client.calls[0]["user_prompt"]
+    assert "一条真实私信" in client.calls[0]["system_prompt"]
+
+
 def test_intelligent_reply_rejects_invalid_model_output() -> None:
     service = ReplyIntelligenceService(FakeReplyClient("不是 JSON"))
 

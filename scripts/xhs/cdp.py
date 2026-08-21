@@ -525,9 +525,12 @@ class Page:
             "Tab": {"key": "Tab", "code": "Tab", "windowsVirtualKeyCode": 9},
         }
         info = key_map.get(key, {"key": key, "code": key})
+        key_down = {"type": "keyDown", **info}
+        if key == "Enter":
+            key_down.update({"text": "\r", "unmodifiedText": "\r"})
         self._send_session(
             "Input.dispatchKeyEvent",
-            {"type": "keyDown", **info},
+            key_down,
         )
         self._send_session(
             "Input.dispatchKeyEvent",

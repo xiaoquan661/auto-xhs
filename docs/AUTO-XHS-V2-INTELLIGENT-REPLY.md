@@ -23,7 +23,7 @@ V2.0 把现有“采集评论并执行指定文本”升级为“理解上下文
 
 ## 3. 第一阶段范围
 
-第一阶段实现：
+第一阶段实现评论回复，第二阶段扩展到私信回复：
 
 1. 评论采集时保留笔记标题、正文、标签、父评论及评论者信息；
 2. OpenAI-compatible 模型生成结构化回复候选；
@@ -34,12 +34,16 @@ V2.0 把现有“采集评论并执行指定文本”升级为“理解上下文
 7. WebUI 可以选择 READY 账号并执行一次只读评论采集；
 8. Agent/Python CLI 可以为明确事件生成草稿；
 9. 所有 AI 草稿仍需人工核对后才能调用现有回复执行器。
+10. 从 `/chat` 的真实一对一会话项读取对方 UID、昵称、时间和摘要；
+11. 逐会话读取近期消息，只采集最后一条由对方发送的文字；
+12. 私信上下文进入独立提示词，生成 `send-private-messages` 待确认草稿；
+13. WebUI 确认后回到对应会话发送，并沿用现有发送后消息气泡回读。
 
 第一阶段不实现：
 
 - 后台无人值守自动发送；
 - 自动处理投诉、争议、合作和业务承诺；
-- 私信智能回复；
+- 私信后台无人值守自动回复；
 - 用外部项目替换当前浏览器执行层；
 - 在 `RESULT_UNKNOWN` 后自动重发。
 
@@ -56,6 +60,18 @@ collect-note-comments
 → WebUI 或 Agent 人工编辑、确认
 → 现有 reply-comment 执行
 → 页面结果回读和任务终态
+```
+
+私信链路：
+
+```text
+collect-private-messages
+→ private_inbox 读取真实会话列表和近期消息
+→ private_message_collector 写入 private_message 入站事件
+→ ReplyIntelligenceService 使用私信提示词和近期上下文
+→ PassiveReplyService 创建 reviewed_reply / WAITING_APPROVAL
+→ WebUI 人工核对并确认
+→ 现有 send-private-messages 执行器发送并回读
 ```
 
 ## 5. 模型配置

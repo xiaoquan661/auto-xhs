@@ -68,7 +68,7 @@
 | V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | IMPLEMENTED | 草稿终态、预览中的定时时间和结果未知恢复已实现，真实定时发布待验收 |
 | V15-PUB-003 | 发布预览由 Agent/Python CLI 创建，WebUI 可对 `preview_ready` 单任务受控确认或保存草稿 | AUTOMATED_TESTED | WebUI 持续轮询；确认弹窗核对账号、UID、内容和素材，后端复用发布状态机并拒绝账号/UID/阶段不匹配 |
 | V15-MSG-001 | 首次私信和已有会话续发；明确最终文本直发，Agent 生成文本整批确认；每人个性化，单批最多 10 人 | AUTOMATED_TESTED | Agent/CLI、身份检查、逐人回读、独立失败和结果记录已测试；真实发送待验收 |
-| V15-MSG-002 | 私信任务只由 Agent/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建、执行和重试入口拒绝私信；控制面板无私信表单或动作按钮 |
+| V15-MSG-002 | 主动私信批次只由 Agent/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 仍不能创建或重试主动私信批次；V2.0 仅为已采集的入站私信开放逐条草稿确认 |
 | V15-FOLLOW-001 | 关注属于单向操作，Agent/CLI 默认无需审批，内部预览、执行一次并回读 | REAL_DEVICE_VERIFIED | 页面执行器、身份检查、任务记录和结果回读已测试；测试账号两个随机目标均回读“已关注” |
 | V15-FOLLOW-002 | 主加任务不由 WebUI 下发，WebUI 只作为控制面板展示状态与结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建入口拒绝主加能力；Agent/CLI 使用内部统一任务服务 |
 | V15-PROFILE-001 | 开放公开资料修改，执行前展示前后差异并确认 | SPEC_APPROVED | 新增预览、确认、执行、回读和审计链 |
@@ -86,6 +86,8 @@
 |---|---|---|---|
 | V20-CTX-001 | 评论事件保留笔记、父评论和评论者上下文 | AUTOMATED_TESTED | 采集、持久化和去重测试通过；真实评论待验收 |
 | V20-LLM-001 | 使用 OpenAI-compatible 模型生成结构化回复候选 | AUTOMATED_TESTED | 配置、请求、解析和错误分支已测试；真实模型连通待验收 |
+| V20-DM-001 | 读取一对一私信收件箱，只采集最后一条对方文字并去重 | REAL_READ_ONLY_TESTED | `hongshu1` 真实 `/chat` 页面读取 7 个会话，识别 3 条对方最后发言并跳过 4 条己方最后发言；平台提示过滤已补充 |
+| V20-DM-002 | 私信上下文生成 AI 草稿，WebUI 人工确认后发送并回读 | AUTOMATED_TESTED_PARTIAL | DeepSeek 已生成真实事件草稿；确认、身份校验、执行、回读和 `RESULT_UNKNOWN` 分支由自动化测试覆盖；WebUI 真实发送待验收 |
 | V20-DRAFT-001 | AI 结果只创建待人工确认草稿，不自动发送 | AUTOMATED_TESTED | 同事件唯一任务/草稿、质量提示和既有确认链测试通过 |
 | V20-WEB-001 | WebUI 可选择 READY 账号采集评论并为明确事件生成草稿 | AUTOMATED_TESTED | 账号状态、事件列表、模型设置和生成接口测试通过；真实页面待验收 |
 | V20-AUTO-001 | 按账号规则后台自动回复 | DEFERRED | 用户显式启用、范围、时间、配额、暂停、审计和真实账号验收完成 |

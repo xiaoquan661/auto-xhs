@@ -8,6 +8,7 @@ from scripts.xhs.direct_message import (
     CHAT_EDITOR,
     CHAT_SEND_ENTRY,
     _FOCUS_CHAT_EDITOR_JS,
+    _SYNC_CHAT_EDITOR_STATE_JS,
     PROFILE_MESSAGE_ENTRY,
     _MARK_CHAT_SEND_ENTRY_JS,
     _MARK_PROFILE_ENTRY_JS,
@@ -44,6 +45,7 @@ class FakePage:
         self.entered = ""
         self.pressed: list[str] = []
         self.focus_requested = False
+        self.state_synced = False
 
     def navigate(self, url: str) -> None:
         self.navigations.append(url)
@@ -67,6 +69,9 @@ class FakePage:
             return self.send_button
         if script == _FOCUS_CHAT_EDITOR_JS:
             self.focus_requested = True
+            return True
+        if script == _SYNC_CHAT_EDITOR_STATE_JS:
+            self.state_synced = True
             return True
         if script.startswith("String(document.querySelector"):
             return self.entered
@@ -159,7 +164,17 @@ def test_sends_once_and_requires_new_outgoing_readback() -> None:
 
     assert page.pressed == ["Enter"]
     assert page.focus_requested is True
+    assert page.state_synced is True
     assert result["success"] is True
+
+
+def test_syncs_contenteditable_input_state_before_send() -> None:
+    page = FakePage(existing=True)
+
+    result = send_private_message(page, "user-1", "", "专属私信")
+
+    assert page.state_synced is True
+    assert page.pressed == ["Enter"]
     assert result["readback"]["outgoing_message_present"] is True
     assert result["readback"]["content"] == "专属私信"
 

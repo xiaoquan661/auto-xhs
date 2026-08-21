@@ -293,6 +293,19 @@
               </form>
               <div class="record-list" id="intelligent-reply-list"><article class="empty-card"><div><strong>暂无待处理新评论</strong><span>采集到新评论后可在这里生成智能回复。</span></div></article></div>
             </div>
+            <div class="setup-card intelligent-reply-panel private-message-reply-panel">
+              <div class="section-heading compact-heading">
+                <div><p class="section-kicker">V2.0 / PRIVATE MESSAGE REPLIES</p><h3>新私信智能回复</h3></div>
+                <p id="private-message-intelligence-status">只读取一对一文字私信，只生成待确认草稿。</p>
+              </div>
+              <form class="comment-collection-bar" id="private-message-collection-form">
+                <label>采集账号<select id="private-message-collection-account" required></select></label>
+                <label>最近会话<input id="private-message-max-conversations" type="number" min="1" max="50" value="20" required /><span>个</span></label>
+                <button class="primary-button" id="collect-private-messages" type="submit">读取私信收件箱</button>
+                <p id="private-message-collection-message" role="status" aria-live="polite">选择已就绪账号后，读取最近会话中由对方发送的最新文字。</p>
+              </form>
+              <div class="record-list" id="intelligent-private-message-list"><article class="empty-card"><div><strong>暂无待处理新私信</strong><span>采集到对方最新文字后可在这里生成智能回复。</span></div></article></div>
+            </div>
           </div>
           </div>
         </section>

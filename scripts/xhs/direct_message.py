@@ -131,6 +131,22 @@ _FOCUS_CHAT_EDITOR_JS = r"""
     return document.activeElement === editor && editor.isContentEditable;
 })()
 """
+
+_SYNC_CHAT_EDITOR_STATE_JS = r"""
+(() => {
+    const editor = document.querySelector('.xhs-im-input-bar-editor[contenteditable="true"]');
+    if (!editor) return false;
+    editor.focus();
+    editor.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        composed: true,
+        inputType: 'insertText',
+        data: null
+    }));
+    editor.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
+    return document.activeElement === editor && editor.isContentEditable;
+})()
+"""
 class PrivateMessageUnavailableError(ServiceError):
     """The conversation could not be opened and no send action was attempted."""
 
@@ -213,6 +229,8 @@ def send_private_message(
     ).strip()
     if entered != content:
         raise PrivateMessageUnavailableError("私信输入框没有完整写入最终文本")
+    if page.evaluate(_SYNC_CHAT_EDITOR_STATE_JS) is not True:
+        raise PrivateMessageUnavailableError("私信输入框状态没有同步到页面")
 
     _trigger_send(page)
     deadline = time.monotonic() + 8.0
