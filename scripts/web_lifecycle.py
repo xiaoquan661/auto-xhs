@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import subprocess
 import sys
 import time
@@ -25,6 +26,22 @@ def service_is_healthy(url: str, *, timeout: float = 0.5) -> bool:
         return False
 
 
+def port_is_listening(host: str, port: int, *, timeout: float = 0.2) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _startup_log_excerpt(path: Path, *, limit: int = 1200) -> str:
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    return content[-limit:]
+
+
 def start_webui(
     *,
     python_executable: str,
@@ -33,6 +50,7 @@ def start_webui(
     open_browser: bool = False,
     process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
     health_checker: Callable[[str], bool] = service_is_healthy,
+    port_checker: Callable[[str, int], bool] = port_is_listening,
 ) -> dict:
     root = Path(project_root).resolve()
     url = f"http://127.0.0.1:{port}"
@@ -41,11 +59,24 @@ def start_webui(
             webbrowser.open(url)
         return {"success": True, "status": "already_running", "url": url}
 
+    if port_checker("127.0.0.1", port):
+        return {
+            "success": False,
+            "status": "port_in_use",
+            "message": f"端口 {port} 已被其他或异常进程占用，无法启动本地服务",
+            "url": url,
+        }
+
+    log_root = root / "tmp"
+    log_root.mkdir(parents=True, exist_ok=True)
+    startup_log = log_root / "webui-startup.log"
+    log_stream = startup_log.open("w", encoding="utf-8")
+
     kwargs: dict = {
         "cwd": str(root),
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": log_stream,
+        "stderr": subprocess.STDOUT,
         "close_fds": True,
     }
     if sys.platform == "win32":
@@ -54,17 +85,20 @@ def start_webui(
         )
     else:
         kwargs["start_new_session"] = True
-    process = process_factory(
-        [
-            python_executable,
-            str(root / "scripts" / "web_server.py"),
-            "--port",
-            str(port),
-        ],
-        **kwargs,
-    )
+    try:
+        process = process_factory(
+            [
+                python_executable,
+                str(root / "scripts" / "web_server.py"),
+                "--port",
+                str(port),
+            ],
+            **kwargs,
+        )
+    finally:
+        log_stream.close()
 
-    for _ in range(30):
+    for _ in range(50):
         time.sleep(0.1)
         if health_checker(url):
             state_root = product_root()
@@ -81,11 +115,25 @@ def start_webui(
             if open_browser:
                 webbrowser.open(url)
             return {"success": True, "status": "started", "url": url, "pid": process.pid}
+        poll = getattr(process, "poll", None)
+        if callable(poll) and poll() is not None:
+            detail = _startup_log_excerpt(startup_log)
+            result = {
+                "success": False,
+                "status": "process_exited",
+                "message": "本地服务进程启动后立即退出",
+                "url": url,
+                "log_path": str(startup_log),
+            }
+            if detail:
+                result["detail"] = detail
+            return result
     return {
         "success": False,
         "status": "start_failed",
-        "message": "本地服务未能在预期时间内启动",
+        "message": "本地服务未能在 5 秒内启动",
         "url": url,
+        "log_path": str(startup_log),
     }
 
 

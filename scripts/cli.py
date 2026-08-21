@@ -625,6 +625,32 @@ def cmd_collect_note_comments(args: argparse.Namespace) -> None:
     _output(service.execute_task(task["task_id"]))
 
 
+def _load_optional_utf8_text(path: str | None) -> str:
+    if not path:
+        return ""
+    from pathlib import Path
+
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise ValueError(f"智能回复资料文件不存在: {source}")
+    return source.read_text(encoding="utf-8").strip()
+
+
+def cmd_generate_reply_draft(args: argparse.Namespace) -> None:
+    """Generate one contextual reply and save it for manual review."""
+    from application_service import ApplicationService
+
+    result = ApplicationService().create_intelligent_reply_draft(
+        args.event_id,
+        account_slot=args.account,
+        verified_uid=args.verified_uid,
+        account_profile=_load_optional_utf8_text(args.account_profile_file),
+        knowledge=_load_optional_utf8_text(args.knowledge_file),
+        reply_style=args.reply_style,
+    )
+    _output(result)
+
+
 def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
     """Collect account and own-note metrics into local snapshots."""
     from application_service import ApplicationService
@@ -2194,6 +2220,17 @@ def build_parser() -> argparse.ArgumentParser:
     # ApplicationService/BusinessRunner owns the per-account lock for service tasks.
     # Keeping the CLI wrapper lock here would make the process wait on its own lock.
     sub.set_defaults(func=cmd_collect_note_comments, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "generate-reply-draft",
+        help="V2.0：为一个新评论事件生成智能回复并保存为待确认草稿",
+    )
+    sub.add_argument("--event-id", required=True, help="入站新评论事件 ID")
+    sub.add_argument("--verified-uid", required=True, help="当前槽位已核验的小红书 UID")
+    sub.add_argument("--account-profile-file", help="可选：UTF-8 账号表达风格文件")
+    sub.add_argument("--knowledge-file", help="可选：UTF-8 账号事实与业务知识文件")
+    sub.add_argument("--reply-style", default="natural", help="本次回复风格")
+    sub.set_defaults(func=cmd_generate_reply_draft)
 
     sub = subparsers.add_parser(
         "collect-operations-metrics",

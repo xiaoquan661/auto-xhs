@@ -157,6 +157,7 @@ _POLICIES = [
     _policy("follow-user-preview", RiskLevel.READ_ONLY),
     _policy("private-message-context", RiskLevel.READ_ONLY),
     _policy("prepare-private-messages", RiskLevel.READ_ONLY),
+    _policy("generate-reply-draft", RiskLevel.READ_ONLY),
     _policy("diagnose-404", RiskLevel.READ_ONLY),
     _policy("check-risk", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("get-netlog", RiskLevel.READ_ONLY),

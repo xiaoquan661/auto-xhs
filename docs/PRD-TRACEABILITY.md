@@ -1,6 +1,6 @@
-# auto-xhs V1.0 / V1.5 需求追踪矩阵
+# auto-xhs V1.0 / V1.5 / V2.0 需求追踪矩阵
 
-关联文档：[自动多账号小红书运营系统 PRD](PRD.md)
+关联文档：[自动多账号小红书运营系统 PRD](PRD.md)、[V2.0 智能回复](AUTO-XHS-V2-INTELLIGENT-REPLY.md)
 
 状态定义：`SPEC_APPROVED`、`PLANNED`、`IN_PROGRESS`、`IMPLEMENTED`、`AUTOMATED_TESTED`、
 `REAL_DEVICE_VERIFIED`、`BLOCKED`、`DEFERRED`。
@@ -44,7 +44,7 @@
 | ID-002 | 安全换号状态机暂停业务并保留历史 | AUTOMATED_TESTED | 换号成功、取消和中断测试 |
 | PERM-001 | 所有能力登记固定 L0-L3 权限元数据 | AUTOMATED_TESTED | 公开 CLI 命令元数据覆盖，复合命令操作级策略已测试 |
 | PERM-002 | L3 必须显式确认，不能由 UI 或 Agent 降级 | AUTOMATED_TESTED | 账号、配对、身份、自启动和设置服务/API 均校验确认 |
-| OUT-001 | 图文、视频、长文发布在 V1.0 禁用 | AUTOMATED_TESTED | 服务、任务和草稿入口均拒绝，WebUI 无发布入口 |
+| OUT-001 | 图文、视频、长文发布在 V1.0 禁用 | AUTOMATED_TESTED | V1.0 一步发布入口仍拒绝；V1.5 仅开放分步预览与受控确认 |
 | OUT-002 | 指定评论和回复使用最终草稿确认；随机评论使用当前点击的一次性批量授权 | AUTOMATED_TESTED | 草稿确认、随机目标、直接发送授权、1–3 条限制和逐项结果已测试 |
 | OUT-003 | 私信和公开资料修改在 V1.0 禁用 | AUTOMATED_TESTED | 未注册能力从服务、任务和草稿入口被拒绝 |
 | TASK-001 | 任务具有统一终态和最小执行记录 | AUTOMATED_TESTED | 任务状态、业务执行记录和服务中断恢复已测试 |
@@ -63,22 +63,32 @@
 
 | ID | 需求 | 当前状态 | 完成条件 |
 |---|---|---|---|
-| V15-VER-001 | V1.0 保留为稳定基线，新增 V1.5 规则和实现状态 | SPEC_APPROVED | PRD、Skill、README 和指南统一版本语义 |
+| V15-VER-001 | V1.0 保留为稳定基线，新增 V1.5 规则和实现状态 | IMPLEMENTED | PRD、Skill、README 和指南已区分规格、自动化测试和实机验收 |
 | V15-PUB-001 | 开放图文、视频和长文发布，必须填写、浏览器预览、用户确认后发布 | AUTOMATED_TESTED | 一步直发已禁用；CLI 状态机、确认门槛和结果回读测试通过，真实账号待验收 |
 | V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | IMPLEMENTED | 草稿终态、预览中的定时时间和结果未知恢复已实现，真实定时发布待验收 |
-| V15-PUB-003 | 发布任务只由 Agent/Python CLI 创建和执行，WebUI 只读监测 | AUTOMATED_TESTED | CLI 写入统一任务库；WebUI 持续轮询且不为发布任务提供执行、取消或重试按钮 |
+| V15-PUB-003 | 发布预览由 Agent/Python CLI 创建，WebUI 可对 `preview_ready` 单任务受控确认或保存草稿 | AUTOMATED_TESTED | WebUI 持续轮询；确认弹窗核对账号、UID、内容和素材，后端复用发布状态机并拒绝账号/UID/阶段不匹配 |
 | V15-MSG-001 | 首次私信和已有会话续发；明确最终文本直发，Agent 生成文本整批确认；每人个性化，单批最多 10 人 | AUTOMATED_TESTED | Agent/CLI、身份检查、逐人回读、独立失败和结果记录已测试；真实发送待验收 |
 | V15-MSG-002 | 私信任务只由 Agent/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建、执行和重试入口拒绝私信；控制面板无私信表单或动作按钮 |
 | V15-FOLLOW-001 | 关注属于单向操作，Agent/CLI 默认无需审批，内部预览、执行一次并回读 | REAL_DEVICE_VERIFIED | 页面执行器、身份检查、任务记录和结果回读已测试；测试账号两个随机目标均回读“已关注” |
 | V15-FOLLOW-002 | 主加任务不由 WebUI 下发，WebUI 只作为控制面板展示状态与结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建入口拒绝主加能力；Agent/CLI 使用内部统一任务服务 |
 | V15-PROFILE-001 | 开放公开资料修改，执行前展示前后差异并确认 | SPEC_APPROVED | 新增预览、确认、执行、回读和审计链 |
-| V15-AUTH-001 | 产品登录只保留状态检查、自动退出、用户手动登录和新 UID 核验 | SPEC_APPROVED | Skill、WebUI 和 CLI 主流程不再引导二维码或手机验证码登录 |
-| V15-CHROME-001 | 启动账号时先启动 Bridge，扩展未连接再自动打开绑定 Profile | SPEC_APPROVED | 正确 Profile 复用、错误 Profile 拒绝、超时和实机测试通过 |
-| V15-CHROME-002 | Windows 登录自启动按槽位恢复 Bridge 和绑定 Profile，不自动关闭 Chrome | SPEC_APPROVED | 仅启用槽位启动，重复启动和真实 Windows 登录验收通过 |
+| V15-AUTH-001 | 产品登录只保留状态检查、自动退出、用户手动登录和新 UID 核验 | AUTOMATED_TESTED | Skill、WebUI 和 CLI 主流程不再引导二维码或手机验证码登录；真实换号继续验收 |
+| V15-CHROME-001 | 启动账号时先启动 Bridge，扩展未连接再自动打开绑定 Profile | AUTOMATED_TESTED | 正确 Profile 复用、错误 Profile 拒绝和超时已测试；真实 Windows 待验收 |
+| V15-CHROME-002 | Windows 登录自启动按槽位恢复 Bridge 和绑定 Profile，不自动关闭 Chrome | AUTOMATED_TESTED | 仅启用槽位和重复启动已测试；真实 Windows 登录待验收 |
 | V15-COMMENT-001 | 指定评论和随机评论均由当前任务点击授权后直接发送 | SPEC_APPROVED | 授权范围、配额、逐项结果和防重复测试通过 |
 | V15-REPLY-001 | 按账号启用自动回复规则，符合规则的回复不逐条确认 | SPEC_APPROVED | 规则、时间范围、配额、暂停、审计和真实账号验收通过 |
 | V15-OS-001 | 正式支持 Windows 10/11，不声明 macOS/Linux 正式支持 | SPEC_APPROVED | 子 Skill 元数据和启动说明统一，完成两台 Windows 验收 |
-| V15-DOC-001 | 文档优先级固定为 PRD → 主 Skill → 子 Skill → README/用户指南 | SPEC_APPROVED | 冲突扫描无下层覆盖上层规则 |
+| V15-DOC-001 | 文档优先级固定为 PRD → 主 Skill → 子 Skill → README/用户指南 | IMPLEMENTED | 文档索引、状态口径和本地链接检查已更新 |
+
+## V2.0：2026-08-21 智能回复第一阶段
+
+| ID | 需求 | 当前状态 | 完成条件 |
+|---|---|---|---|
+| V20-CTX-001 | 评论事件保留笔记、父评论和评论者上下文 | AUTOMATED_TESTED | 采集、持久化和去重测试通过；真实评论待验收 |
+| V20-LLM-001 | 使用 OpenAI-compatible 模型生成结构化回复候选 | AUTOMATED_TESTED | 配置、请求、解析和错误分支已测试；真实模型连通待验收 |
+| V20-DRAFT-001 | AI 结果只创建待人工确认草稿，不自动发送 | AUTOMATED_TESTED | 同事件唯一任务/草稿、质量提示和既有确认链测试通过 |
+| V20-WEB-001 | WebUI 可选择 READY 账号采集评论并为明确事件生成草稿 | AUTOMATED_TESTED | 账号状态、事件列表、模型设置和生成接口测试通过；真实页面待验收 |
+| V20-AUTO-001 | 按账号规则后台自动回复 | DEFERRED | 用户显式启用、范围、时间、配额、暂停、审计和真实账号验收完成 |
 
 ## V1.0 阶段顺序
 

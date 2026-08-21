@@ -18,23 +18,26 @@ uv run pytest              # 运行测试
 
 ## 架构
 
-双层结构：`scripts/` 是 Python 自动化引擎，`skills/` 是 Claude Code Skills 定义（SKILL.md 格式）。
+项目由本地应用服务、Python 自动化引擎、Bridge/扩展、WebUI 和 Skills 组成。
 
 - `scripts/xhs/` — 核心自动化库（模块化，每个功能一个文件）
-- `scripts/cli.py` — 统一 CLI 入口，JSON 结构化输出，自动启动 bridge server 和浏览器
+- `scripts/application_service.py` — CLI、WebUI 和 Agent 共用的任务、确认与身份服务
+- `scripts/cli.py` — 统一 CLI 入口，按账号槽位输出 JSON 结构化结果
 - `scripts/bridge_server.py` — 本地通信服务（连接 CLI 与浏览器扩展）
 - `extension/` — Chrome 扩展，在用户的真实浏览器中执行操作
+- `webui/` — 仅监听本机的账号、任务、确认、记录与诊断工作台
 - `skills/*/SKILL.md` — 指导 Claude 如何调用 scripts/
 
 ### 调用方式
 
 ```bash
-python scripts/cli.py check-login
-python scripts/cli.py search-feeds --keyword "关键词"
-python scripts/cli.py publish --title-file t.txt --content-file c.txt --images pic.jpg
+python scripts/cli.py --account brand-a check-login
+python scripts/cli.py --account brand-a search-feeds --keyword "关键词"
+python scripts/cli.py --account brand-a fill-publish --title-file t.txt --content-file c.txt --images pic.jpg
 ```
 
-> CLI 会自动检测环境，若浏览器未打开也会自动启动 Chrome。
+> 只有 `account-start` 会在扩展未连接时按需打开槽位绑定的 Chrome Profile。普通业务命令不会
+> 任意启动、切换或关闭 Chrome。发布必须使用分步填写、真实预览、确认和结果回读；旧版一步发布禁用。
 
 ## 代码规范
 
@@ -51,39 +54,19 @@ python scripts/cli.py publish --title-file t.txt --content-file c.txt --images p
 - 文件路径必须使用绝对路径
 - 敏感内容通过文件传递，不内联到命令行参数
 
-## CLI 子命令对照表
+## CLI 入口
 
-| CLI 子命令 | 对应 MCP 工具 | 分类 |
-|--|--|--|
-| `check-login` | check_login_status | 认证 |
-| `login` | get_login_qrcode | 认证 |
-| `phone-login` | — | 认证 |
-| `delete-cookies` | delete_cookies | 认证 |
-| `list-feeds` | list_feeds | 浏览 |
-| `search-feeds` | search_feeds | 浏览 |
-| `get-feed-detail` | get_feed_detail | 浏览 |
-| `user-profile` | user_profile | 浏览 |
-| `post-comment` | post_comment_to_feed | 互动 |
-| `reply-comment` | reply_comment_in_feed | 互动 |
-| `like-feed` | like_feed | 互动 |
-| `favorite-feed` | favorite_feed | 互动 |
-| `account-doctor` | — | 多账号只读诊断 |
-| `account-pair-begin` | — | 生成通用扩展一次性配对包 |
-| `account-pair-status` | — | 查看通用扩展配对状态 |
-| `account-unpair` | — | 撤销配对并轮换连接令牌 |
-| `account-connection-enroll` | — | 旧版扩展实例登记（兼容） |
-| `account-identity` | — | 登录 UID 识别与绑定 |
-| `account-switch-begin` | — | 安全换号：暂停并退出 |
-| `account-switch-complete` | — | 安全换号：核验并恢复 |
-| `account-switch-cancel` | — | 取消安全换号 |
-| `account-switch-history` | — | 换号审计记录 |
-| `publish` | publish_content | 发布 |
-| `publish-video` | publish_with_video | 发布 |
-| `fill-publish` | — | 分步发布（图文填写） |
-| `fill-publish-video` | — | 分步发布（视频填写） |
-| `click-publish` | — | 分步发布（点击发布） |
-| `long-article` | — | 长文发布（填写+排版） |
-| `select-template` | — | 长文发布（选择模板） |
-| `next-step` | — | 长文发布（下一步+描述） |
-| `get-netlog` | — | 风控数据 |
-| `risk-report` | — | 风控数据 |
+完整命令以 `python scripts/cli.py --help` 为准，产品边界以 `docs/PRD-TRACEABILITY.md` 和
+`SKILL.md` 为准。常用分组：
+
+| 分类 | 主要命令 |
+|--|--|
+| 账号与连接 | `account-onboard`、`account-start`、`account-doctor`、`account-pair-*` |
+| 身份与换号 | `check-login`、`account-identity`、`account-switch-*` |
+| 浏览与互动 | `list-feeds`、`search-feeds`、`get-feed-detail`、`like-feed`、`favorite-feed` |
+| 评论与回复 | `post-comment`、`random-comment`、`reply-comment`、`collect-note-comments`、`generate-reply-draft` |
+| 分步发布 | `fill-publish`、`fill-publish-video`、`long-article`、`select-template`、`next-step`、`click-publish`、`save-draft` |
+| 私信与主加 | `private-message-context`、`prepare-private-messages`、`send-private-messages`、`follow-user` |
+| 数据与诊断 | `collect-operations-metrics`、`diagnose-404`、`check-risk`、`get-netlog`、`risk-report` |
+
+不要使用外部小红书 MCP 或其他自动化项目替代本项目执行链。

@@ -57,8 +57,18 @@ def collect_note_comments(
             failures.append({"feed_id": feed_id, "message": str(exc)})
             continue
 
+        note_context = {
+            "note_title": detail.note.title,
+            "note_content": detail.note.body or detail.note.desc,
+            "note_tags": list(detail.note.tags),
+        }
         for comment in detail.comments.list_:
-            for item in _flatten_comment(comment, feed_id, token):
+            for item in _flatten_comment(
+                comment,
+                feed_id,
+                token,
+                note_context=note_context,
+            ):
                 if owner_user_id and item["user_id"] == owner_user_id:
                     continue
                 comments.append(item)
@@ -78,7 +88,14 @@ def collect_note_comments(
     }
 
 
-def _flatten_comment(comment, feed_id: str, xsec_token: str, parent_id: str = ""):
+def _flatten_comment(
+    comment,
+    feed_id: str,
+    xsec_token: str,
+    parent_id: str = "",
+    parent_content: str = "",
+    note_context: dict | None = None,
+):
     occurred_at = _epoch_to_iso(int(comment.create_time or 0))
     yield {
         "comment_id": comment.id,
@@ -88,11 +105,20 @@ def _flatten_comment(comment, feed_id: str, xsec_token: str, parent_id: str = ""
         "user_id": comment.user_info.user_id,
         "nickname": comment.user_info.nickname or comment.user_info.nick_name,
         "content": comment.content,
+        "parent_comment_content": parent_content,
         "create_time": int(comment.create_time or 0),
         "occurred_at": occurred_at,
+        **(note_context or {}),
     }
     for child in comment.sub_comments:
-        yield from _flatten_comment(child, feed_id, xsec_token, parent_id=comment.id)
+        yield from _flatten_comment(
+            child,
+            feed_id,
+            xsec_token,
+            parent_id=comment.id,
+            parent_content=comment.content,
+            note_context=note_context,
+        )
 
 
 def _epoch_to_iso(value: int) -> str:

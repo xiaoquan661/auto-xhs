@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -21,6 +22,7 @@ from account_identity import (
     load_identity_record,
     load_switch_state,
     record_current_identity,
+    replace_current_identity,
 )
 from account_lifecycle import restart_account_runtime, start_account_runtime
 from account_manager import (
@@ -64,12 +66,15 @@ from private_message_batch import (
     private_message_preview,
 )
 from product_store import ProductStore
+from publish_workflow import PublishWorkflowService
 from quota_service import QuotaService
+from reply_intelligence_service import ReplyIntelligenceService
+from reply_llm_client import OpenAICompatibleReplyClient, ReplyModelConfig
 from reply_rule_service import ReplyRuleService
 from service_errors import ServiceError
 from task_service import TaskService
 from xhs.bridge import BridgePage
-from xhs.errors import XHSError
+from xhs.errors import PublishError, XHSError
 from xhs.login import get_current_user_identity, logout
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -96,6 +101,7 @@ class ApplicationService:
         profile_importer: Callable[..., AccountConfig] = import_existing_profile,
         profile_discoverer: Callable[..., list[dict]] = discover_chrome_profiles,
         identity_recorder: Callable[..., dict] = record_current_identity,
+        identity_replacer: Callable[..., dict] = replace_current_identity,
         switch_beginner: Callable[..., dict] = begin_login_switch,
         switch_completer: Callable[..., dict] = complete_login_switch,
         switch_canceller: Callable[..., dict] = cancel_login_switch,
@@ -116,6 +122,7 @@ class ApplicationService:
         pairing_creator: Callable[..., dict] = create_pairing_session,
         pairing_status_reader: Callable[[str], dict] = get_pairing_status,
         pairing_revoker: Callable[[str], AccountConfig] = revoke_account_pairing,
+        reply_intelligence: ReplyIntelligenceService | None = None,
     ) -> None:
         self._account_lister = account_lister
         self._account_loader = account_loader
@@ -130,6 +137,7 @@ class ApplicationService:
         self._profile_importer = profile_importer
         self._profile_discoverer = profile_discoverer
         self._identity_recorder = identity_recorder
+        self._identity_replacer = identity_replacer
         self._switch_beginner = switch_beginner
         self._switch_completer = switch_completer
         self._switch_canceller = switch_canceller
@@ -155,9 +163,11 @@ class ApplicationService:
         self.metrics = MetricService(self.operations_database)
         self.operation_events = OperationEventService(self.operations_database)
         self.reply_rules = ReplyRuleService(self.operations_database)
+        self.reply_intelligence = reply_intelligence or self._build_reply_intelligence()
         self.action_workflows = ActionWorkflowService(self.operations_database)
         self.tasks = TaskService(self._store)
         self.tasks.recover_interrupted()
+        self.publish_workflows = PublishWorkflowService(self._store)
         self.approvals = ApprovalService(self._store)
         self.passive_replies = PassiveReplyService(
             self.inbound_events,
@@ -257,6 +267,7 @@ class ApplicationService:
         name: str,
         user_data_dir: str,
         profile_directory: str,
+        profile_display_name: str = "",
         confirmed: bool,
         bridge_port: int | None = None,
     ) -> dict:
@@ -269,6 +280,7 @@ class ApplicationService:
                 name,
                 user_data_dir=user_data_dir,
                 profile_directory=profile_directory,
+                profile_display_name=profile_display_name,
                 bridge_port=bridge_port,
                 extension_source=self._extension_source,
             )
@@ -434,7 +446,12 @@ class ApplicationService:
         self.require_enabled_capability("account-identity", operation="check")
         config = self._load_account(account)
         page = self._page_for_account(config)
-        identity = self._observe_identity(page)
+        try:
+            identity = self._observe_identity(page)
+        except ServiceError as exc:
+            if exc.code in {"LOGIN_REQUIRED", "IDENTITY_UID_UNAVAILABLE"}:
+                self._clear_runtime_identity_check(account)
+            raise
         self._remember_runtime_identity(account, identity)
         return {"success": True, "account": account, "identity": identity}
 
@@ -459,6 +476,44 @@ class ApplicationService:
         except ValueError as exc:
             raise ServiceError("IDENTITY_RECORD_FAILED", str(exc), 409) from exc
         return {"success": True, "identity": record}
+
+    def replace_account_identity(
+        self,
+        account: str,
+        *,
+        confirmed: bool,
+        expected_recorded_user_id: str,
+        expected_observed_user_id: str,
+        label: str = "",
+    ) -> dict:
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "覆盖槽位 UID 需要明确确认", 409)
+        self.require_enabled_capability("account-identity", operation="record")
+        if self._switch_loader(account):
+            raise ServiceError(
+                "ACCOUNT_SWITCH_PENDING",
+                "账号正在换号，不能覆盖 UID；请先完成或取消当前换号流程",
+                409,
+            )
+        observed = self.check_account_identity(account)["identity"]
+        try:
+            event = self._identity_replacer(
+                account,
+                observed,
+                expected_recorded_user_id=expected_recorded_user_id,
+                expected_observed_user_id=expected_observed_user_id,
+                source="webui-identity-replace",
+                label=label,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ServiceError("IDENTITY_REPLACE_FAILED", str(exc), 409) from exc
+        self._remember_runtime_identity(account, observed)
+        return {
+            "success": True,
+            "account": account,
+            "identity": event,
+            "message": "槽位已改用当前登录账号；Profile 和槽位绑定保持不变",
+        }
 
     def get_account_switch(self, account: str) -> dict:
         self._load_account(account)
@@ -752,6 +807,88 @@ class ApplicationService:
     def get_task(self, task_id: str) -> dict:
         return {"success": True, "task": self.tasks.get(task_id)}
 
+    def confirm_publish_task(
+        self,
+        task_id: str,
+        *,
+        account_slot: str,
+        verified_uid: str,
+        confirmed: bool,
+        preview_confirmed: bool,
+    ) -> dict:
+        """Execute one prepared publish task after an explicit WebUI preview check."""
+
+        if self._store.get_setting("global_paused", False):
+            raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
+        if not confirmed or not preview_confirmed:
+            raise ServiceError(
+                "CONFIRMATION_REQUIRED",
+                "请先确认已在绑定的 Chrome Profile 中核对真实发布预览",
+                409,
+            )
+        self.require_enabled_capability("click-publish")
+        waiting = self.publish_workflows.get(task_id, account=account_slot)
+        if waiting["state"] != "WAITING_APPROVAL":
+            raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以继续", 409)
+        if (waiting.get("parameters") or {}).get("stage") != "preview_ready":
+            raise ServiceError("PREVIEW_NOT_READY", "发布任务尚未进入最终预览确认阶段", 409)
+        self._validate_publish_confirmation_identity(account_slot, verified_uid)
+        task = self.publish_workflows.prepare_publish(
+            task_id,
+            account=account_slot,
+            confirmed=True,
+        )
+        preview = (task.get("parameters") or {}).get("preview") or {}
+        try:
+            result = self.runner.execute(
+                account_slot,
+                "click-publish",
+                {"expected_title": str(preview.get("title") or "")},
+            )
+        except PublishError as exc:
+            failed = self.publish_workflows.fail(task_id, exc)
+            return {"success": True, "task": failed}
+        except Exception as exc:
+            failed = self.publish_workflows.fail(task_id, exc, result_unknown=True)
+            return {"success": True, "task": failed}
+        completed = self.publish_workflows.complete_publish(task_id, result)
+        return {
+            "success": True,
+            "task": completed,
+            "result": result,
+            "status": completed["state"],
+        }
+
+    def save_publish_task_as_draft(
+        self,
+        task_id: str,
+        *,
+        account_slot: str,
+        verified_uid: str,
+        confirmed: bool,
+    ) -> dict:
+        """Save a prepared publish form to the platform draft box."""
+
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "保存为草稿需要明确确认", 409)
+        self.require_enabled_capability("save-draft")
+        waiting = self.publish_workflows.get(task_id, account=account_slot)
+        if waiting["state"] != "WAITING_APPROVAL":
+            raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以保存为草稿", 409)
+        self._validate_publish_confirmation_identity(account_slot, verified_uid)
+        task = self.publish_workflows.resume_preparation(task_id, account=account_slot)
+        try:
+            self.runner.execute(account_slot, "save-draft", {})
+        except Exception as exc:
+            failed = self.publish_workflows.fail(task_id, exc)
+            return {"success": True, "task": failed}
+        completed = self.publish_workflows.complete_saved_draft(task_id)
+        return {
+            "success": True,
+            "task": completed,
+            "status": completed["state"],
+        }
+
     def execute_task(self, task_id: str) -> dict:
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
@@ -924,6 +1061,116 @@ class ApplicationService:
             content=content,
         )
         return {"success": True, **result}
+
+    def intelligent_reply_status(self) -> dict:
+        status = self.reply_intelligence.status()
+        saved = self._store.get_setting("reply_model", {}) or {}
+        return {
+            "success": True,
+            **status,
+            "api_key_saved": bool(saved.get("api_key")),
+            "configuration_source": (
+                "webui" if saved else "environment" if status.get("configured") else "none"
+            ),
+        }
+
+    def update_reply_model_settings(
+        self,
+        *,
+        confirmed: bool,
+        api_key: str = "",
+        base_url: str,
+        model: str,
+        timeout_seconds: float = 60,
+    ) -> dict:
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "保存模型配置需要明确确认", 409)
+        normalized_url = base_url.strip().rstrip("/")
+        normalized_model = model.strip()
+        if not normalized_url.startswith(("https://", "http://")):
+            raise ServiceError("INVALID_REQUEST", "模型 API 地址必须以 http:// 或 https:// 开头")
+        if not normalized_model:
+            raise ServiceError("INVALID_REQUEST", "模型名称不能为空")
+        try:
+            normalized_timeout = float(timeout_seconds)
+        except (TypeError, ValueError) as exc:
+            raise ServiceError("INVALID_REQUEST", "模型超时时间必须是数字") from exc
+        if not 1 <= normalized_timeout <= 300:
+            raise ServiceError("INVALID_REQUEST", "模型超时时间必须在 1 到 300 秒之间")
+
+        previous = self._store.get_setting("reply_model", {}) or {}
+        normalized_key = api_key.strip() or str(previous.get("api_key") or "").strip()
+        if not normalized_key and not os.getenv("XHS_REPLY_LLM_API_KEY", "").strip():
+            raise ServiceError("INVALID_REQUEST", "首次保存必须填写 API Key")
+        self._store.set_setting(
+            "reply_model",
+            {
+                "api_key": normalized_key,
+                "base_url": normalized_url,
+                "model": normalized_model,
+                "timeout_seconds": normalized_timeout,
+            },
+        )
+        self.reply_intelligence = self._build_reply_intelligence()
+        return self.intelligent_reply_status()
+
+    def test_reply_model_connection(self) -> dict:
+        return self.reply_intelligence.test_connection()
+
+    def _build_reply_intelligence(self) -> ReplyIntelligenceService:
+        saved = self._store.get_setting("reply_model", {}) or {}
+        config = ReplyModelConfig.from_sources(saved)
+        return ReplyIntelligenceService(OpenAICompatibleReplyClient(config))
+
+    def create_intelligent_reply_draft(
+        self,
+        event_id: str,
+        *,
+        account_slot: str,
+        verified_uid: str,
+        account_profile: str = "",
+        knowledge: str = "",
+        reply_style: str = "natural",
+    ) -> dict:
+        event = self.inbound_events.get(event_id)
+        if event["account_slot"] != account_slot:
+            raise ServiceError("ACCOUNT_MISMATCH", "评论事件不属于当前账号槽位", 409)
+        if not verified_uid.strip():
+            raise ServiceError("INVALID_REQUEST", "生成回复草稿必须包含已核验 UID")
+        if event.get("created_task_id"):
+            existing = self.passive_replies.create_draft(
+                event_id,
+                verified_uid=verified_uid,
+                content="",
+            )
+            generation = ((existing.get("draft") or {}).get("metadata") or {}).get(
+                "intelligent_reply"
+            )
+            return {"success": True, "generation": generation, **existing}
+        recent_replies = [
+            str(draft.get("content") or "")
+            for draft in sorted(
+                self._store.list("drafts"),
+                key=lambda item: item.get("updated_at") or "",
+                reverse=True,
+            )
+            if draft.get("account_slot") == account_slot
+            and draft.get("action_type") == "reply-comment"
+        ][:20]
+        generation = self.reply_intelligence.generate_for_event(
+            event,
+            account_profile=account_profile,
+            knowledge=knowledge,
+            reply_style=reply_style,
+            recent_replies=recent_replies,
+        )
+        result = self.passive_replies.create_draft(
+            event_id,
+            verified_uid=verified_uid,
+            content=generation["reply"],
+            generation=generation,
+        )
+        return {"success": True, "generation": generation, **result}
 
     def list_operation_events(self, **filters) -> dict:
         return {"success": True, "events": self.operation_events.list(**filters)}
@@ -1406,6 +1653,8 @@ class ApplicationService:
             "fill-publish",
             "fill-publish-video",
             "long-article",
+            "click-publish",
+            "save-draft",
             "follow-user-preview",
             "follow-user",
             "private-message-context",
@@ -1609,8 +1858,8 @@ class ApplicationService:
         draft_id: str,
         *,
         approval_id: str,
-        xsec_token: str,
-        feed_id: str,
+        xsec_token: str = "",
+        feed_id: str = "",
         comment_id: str = "",
         user_id: str = "",
     ) -> dict:
@@ -1619,10 +1868,55 @@ class ApplicationService:
         draft = self._store.get("drafts", draft_id)
         if draft is None:
             raise ServiceError("NOT_FOUND", "草稿不存在", 404)
-        execution_target = feed_id if draft["action_type"] == "post-comment" else comment_id
+        linked_task = self.tasks.get(draft["task_id"]) if draft.get("task_id") else None
+        if linked_task and linked_task["state"] != "WAITING_APPROVAL":
+            raise ServiceError(
+                "INVALID_TASK_STATE",
+                "被动回复任务已经离开待确认状态",
+                409,
+            )
+        if draft["action_type"] == "reply-comment" and draft.get("source_event_id"):
+            source_event = self.inbound_events.get(draft["source_event_id"])
+            event_context = source_event.get("payload") or {}
+            task_context = (linked_task or {}).get("parameters") or {}
+            notification_id = str(
+                task_context.get("notification_id")
+                or event_context.get("notification_id")
+                or ""
+            )
+            feed_id = str(task_context.get("feed_id") or event_context.get("feed_id") or "")
+            xsec_token = str(
+                task_context.get("xsec_token") or event_context.get("xsec_token") or ""
+            )
+            comment_id = str(
+                task_context.get("comment_id")
+                or event_context.get("comment_id")
+                or draft["target_id"]
+            )
+            user_id = str(
+                task_context.get("user_id")
+                or event_context.get("user_id")
+                or source_event.get("actor_user_id")
+                or ""
+            )
+            nickname = str(
+                task_context.get("nickname") or event_context.get("nickname") or ""
+            )
+            original_content = str(
+                task_context.get("original_content") or event_context.get("content") or ""
+            )
+        else:
+            notification_id = ""
+            nickname = ""
+            original_content = ""
+        execution_target = (
+            feed_id
+            if draft["action_type"] == "post-comment"
+            else notification_id or comment_id
+        )
         if execution_target != draft["target_id"]:
             raise ServiceError("CONFIRMATION_MISMATCH", "执行目标与已确认草稿不一致", 409)
-        if not xsec_token.strip() or not feed_id.strip():
+        if not notification_id and (not xsec_token.strip() or not feed_id.strip()):
             raise ServiceError("INVALID_REQUEST", "执行评论或回复需要笔记信息")
         status = self.get_account_status(draft["account_slot"])
         if not status["ready"]:
@@ -1639,17 +1933,14 @@ class ApplicationService:
             "feed_id": feed_id,
             "xsec_token": xsec_token,
             "comment_id": comment_id,
+            "notification_id": notification_id,
             "user_id": user_id,
+            "nickname": nickname,
+            "original_content": original_content,
             "content": draft["content"],
         }
-        if draft.get("task_id"):
-            task = self.tasks.get(draft["task_id"])
-            if task["state"] != "WAITING_APPROVAL":
-                raise ServiceError(
-                    "INVALID_TASK_STATE",
-                    "被动回复任务已经离开待确认状态",
-                    409,
-                )
+        if linked_task:
+            task = linked_task
             self.tasks.update_parameters(task["task_id"], **task_parameters)
             task = self.tasks.transition(task["task_id"], "QUEUED")
         else:
@@ -1676,14 +1967,20 @@ class ApplicationService:
         except Exception as exc:
             code = exc.code if isinstance(exc, ServiceError) else "EXECUTION_ERROR"
             message = exc.message if isinstance(exc, ServiceError) else str(exc)
+            result_unknown = bool(getattr(exc, "result_unknown", True))
+            final_state = "RESULT_UNKNOWN" if result_unknown else "FAILED"
             completed = self.tasks.transition(
                 task["task_id"],
-                "RESULT_UNKNOWN",
+                final_state,
                 result_summary=message,
                 error_code=code,
-                recommended_action="请先在小红书页面人工检查结果，不要直接重发",
+                recommended_action=(
+                    "请先在小红书页面人工检查结果，不要直接重发"
+                    if result_unknown
+                    else "本次未点击发送；请刷新通知后重新生成草稿"
+                ),
             )
-            self.approvals.mark_execution(draft_id, "RESULT_UNKNOWN")
+            self.approvals.mark_execution(draft_id, final_state)
             self._record_task_event(completed, draft["target_id"])
             return {"success": True, "task": completed, "approval": consumed["approval"]}
         completed = self.tasks.transition(
@@ -1748,6 +2045,30 @@ class ApplicationService:
             account_id=config.account_id,
             bridge_token=config.bridge_token,
         )
+
+    def _validate_publish_confirmation_identity(
+        self,
+        account_slot: str,
+        verified_uid: str,
+    ) -> dict:
+        status = self.get_account_status(account_slot)
+        if not status["ready"]:
+            raise ServiceError(
+                "ACCOUNT_NOT_READY",
+                status.get("next_action") or "发布账号尚未就绪",
+                409,
+            )
+        identity = status.get("identity") or {}
+        recorded_uid = str(identity.get("user_id") or "").strip()
+        live_uid = str(identity.get("live_user_id") or "").strip()
+        expected_uid = str(verified_uid or "").strip()
+        if not expected_uid or expected_uid != recorded_uid or expected_uid != live_uid:
+            raise ServiceError(
+                "CONFIRMATION_MISMATCH",
+                "确认页面中的 UID 与当前槽位身份不一致，请刷新后重新核对",
+                409,
+            )
+        return status
 
     def _ensure_slot_capacity(self) -> None:
         if len(self._account_lister()) >= 6:

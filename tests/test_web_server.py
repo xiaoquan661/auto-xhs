@@ -11,12 +11,18 @@ import pytest
 
 from scripts.application_service import ServiceError
 from scripts.web_server import (
+    LocalThreadingHTTPServer,
     _dispatch_api,
     _dispatch_mutation,
     _validate_bind_host,
     make_handler,
 )
 from scripts.web_session import SESSION_HEADER
+
+
+def test_web_server_uses_exclusive_local_port() -> None:
+    assert LocalThreadingHTTPServer.allow_reuse_address is False
+    assert LocalThreadingHTTPServer.allow_reuse_port is False
 
 
 class FakeService:
@@ -113,6 +119,12 @@ class FakeService:
     def cancel_task(self, task_id: str) -> dict:
         return {"success": True, "task": {"task_id": task_id, "state": "CANCELLED"}}
 
+    def confirm_publish_task(self, task_id: str, **body) -> dict:
+        return {"success": True, "task": {"task_id": task_id, "state": "SUCCESS", **body}}
+
+    def save_publish_task_as_draft(self, task_id: str, **body) -> dict:
+        return {"success": True, "task": {"task_id": task_id, "state": "CANCELLED", **body}}
+
     def list_records(self) -> dict:
         return {"success": True, "records": []}
 
@@ -126,6 +138,39 @@ class FakeService:
         return {
             "success": True,
             "event": {"event_id": event_id},
+            "draft": body,
+        }
+
+    def intelligent_reply_status(self) -> dict:
+        return {
+            "success": True,
+            "configured": True,
+            "model": "fake-reply-model",
+            "missing": [],
+            "mode": "review_only",
+        }
+
+    def update_reply_model_settings(self, **body) -> dict:
+        return {
+            "success": True,
+            "configured": True,
+            "model": body["model"],
+            "base_url": body["base_url"],
+            "api_key_saved": bool(body.get("api_key")),
+        }
+
+    def test_reply_model_connection(self) -> dict:
+        return {
+            "success": True,
+            "model": "fake-reply-model",
+            "message": "模型连接成功",
+        }
+
+    def create_intelligent_reply_draft(self, event_id: str, **body) -> dict:
+        return {
+            "success": True,
+            "event": {"event_id": event_id},
+            "generation": {"reply": "AI 回复草稿", "mode": "review_only"},
             "draft": body,
         }
 
@@ -205,6 +250,9 @@ class FakeService:
     def record_account_identity(self, account: str, **body) -> dict:
         return {"success": True, "identity": {"account": account, **body}}
 
+    def replace_account_identity(self, account: str, **body) -> dict:
+        return {"success": True, "identity": {"account": account, "event": "identity-replaced", **body}}
+
     def get_account_switch(self, account: str) -> dict:
         return {"success": True, "account": account, "pending": None, "history": []}
 
@@ -236,6 +284,10 @@ def test_api_dispatch_routes_to_shared_service() -> None:
     assert _dispatch_api(service, "/api/v1/inbound-events")["events"] == []
     assert _dispatch_api(service, "/api/v1/operation-events")["events"] == []
     assert _dispatch_api(service, "/api/v1/reply-rules")["rules"] == []
+    assert (
+        _dispatch_api(service, "/api/v1/reply-intelligence/status")["mode"]
+        == "review_only"
+    )
     assert (
         _dispatch_api(service, "/api/v1/inbound-events/event-1")["event"]["event_id"]
         == "event-1"
@@ -290,6 +342,29 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
         "/api/v1/inbound-events/event-1/reply-draft",
         {"verified_uid": "owner-1", "content": "回复文本"},
     )
+    intelligent = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/inbound-events/event-2/intelligent-reply-draft",
+        {"account_slot": "alpha", "verified_uid": "owner-1"},
+    )
+    model_settings = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/reply-intelligence/settings",
+        {
+            "confirmed": True,
+            "api_key": "test-key",
+            "base_url": "https://llm.example/v1",
+            "model": "reply-model",
+        },
+    )
+    model_test = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/reply-intelligence/test",
+        {},
+    )
     reply_rule = _dispatch_mutation(
         service,
         "POST",
@@ -320,6 +395,23 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
         "/api/v1/tasks/task-2/cancel",
         {},
     )
+    published = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/tasks/publish-1/publish-confirm",
+        {
+            "account_slot": "alpha",
+            "verified_uid": "owner-1",
+            "confirmed": True,
+            "preview_confirmed": True,
+        },
+    )
+    saved_draft = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/tasks/publish-2/save-draft",
+        {"account_slot": "alpha", "verified_uid": "owner-1", "confirmed": True},
+    )
 
     assert paused["global_paused"] is True
     assert task["task"]["capability"] == "search-feeds"
@@ -327,11 +419,18 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
     assert diagnostics["path"] == "diagnostic.json"
     assert passive["event"]["event_id"] == "event-1"
     assert passive["draft"]["content"] == "回复文本"
+    assert intelligent["generation"]["reply"] == "AI 回复草稿"
+    assert model_settings["configured"] is True
+    assert model_settings["model"] == "reply-model"
+    assert model_test["message"] == "模型连接成功"
     assert reply_rule["rule"]["account_slot"] == "alpha"
     assert updated_rule["rule"]["reply_style"] == "professional"
     assert enabled_rule["rule"]["enabled"] is True
     assert retried["task"]["state"] == "SUCCESS"
     assert cancelled["task"]["state"] == "CANCELLED"
+    assert published["task"]["state"] == "SUCCESS"
+    assert published["task"]["preview_confirmed"] is True
+    assert saved_draft["task"]["state"] == "CANCELLED"
 
 
 def test_account_setup_api_routes_to_shared_service() -> None:
@@ -366,6 +465,16 @@ def test_account_setup_api_routes_to_shared_service() -> None:
         "POST",
         "/api/v1/accounts/alpha/identity/check",
         {},
+    )
+    identity_replaced = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/accounts/alpha/identity/replace",
+        {
+            "confirmed": True,
+            "expected_recorded_user_id": "old-uid",
+            "expected_observed_user_id": "new-uid",
+        },
     )
     switch_begin = _dispatch_mutation(
         service,
@@ -415,6 +524,7 @@ def test_account_setup_api_routes_to_shared_service() -> None:
     assert pairing["pairing"]["account"] == "alpha"
     assert setup["setup"]["phase"] == "WAITING_PAIRING"
     assert identity["identity"]["user_id"] == "uid"
+    assert identity_replaced["identity"]["event"] == "identity-replaced"
     assert switch_begin["switch"]["status"] == "awaiting_login"
     assert switch_complete["switch"]["event"] == "login-switched"
     assert switch_cancel["switch"]["cancelled"] is True
@@ -443,10 +553,20 @@ def test_draft_execute_api_routes_to_shared_service() -> None:
 def test_webui_contains_account_setup_and_product_navigation() -> None:
     web_root = Path(__file__).resolve().parents[1] / "webui"
     html = (web_root / "index.html").read_text(encoding="utf-8")
-    script = (web_root / "app.js").read_text(encoding="utf-8")
+    controller_script = (web_root / "app.js").read_text(encoding="utf-8")
+    catalog_script = (web_root / "task-catalog.js").read_text(encoding="utf-8")
+    script = f"{catalog_script}\n{controller_script}"
+    workspace_script = (web_root / "workspace.js").read_text(encoding="utf-8")
 
-    for label in ("总览", "账号状态", "任务与确认", "执行记录", "诊断设置"):
+    for label in ("今日总览", "账号", "任务", "确认中心", "执行记录", "系统"):
         assert label in html
+    for workspace in ("overview", "accounts", "tasks", "approvals", "records", "system"):
+        assert f'data-workspace="{workspace}"' in html
+        assert f'data-workspace-link="{workspace}"' in html
+    assert "hashchange" in workspace_script
+    assert "window.AutoXhsWorkspace" in workspace_script
+    assert 'id="account-create-panel" hidden' in html
+    assert 'id="open-account-create"' in html
     assert 'id="account-form"' in html
     assert 'id="account-setup-dialog"' in html
     assert "accounts/import" in script
@@ -459,7 +579,12 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "重新生成配对信息" in script
     assert "我已在扩展确认，立即检测" in script
     assert "我已登录，立即检测" in script
-    assert "进入切换账号流程" in script
+    assert "系统已停止自动检测" in script
+    assert "处理账号不一致" in script
+    assert 'id="identity-mismatch-dialog"' in html
+    assert "identity/replace" in script
+    assert "我登错了，退出当前账号" in html
+    assert "确认覆盖槽位 UID" in html
     assert "pairing/begin" in script
     assert "identity/check" in script
     assert "switch/begin" in script
@@ -495,8 +620,8 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
         assert f'value="{template}"' in html
     assert 'id="task-duration"' in html
     assert 'id="task-count"' in html
-    assert 'id="task-tab-immediate"' in html
-    assert 'id="task-tab-confirmation"' in html
+    assert 'id="task-tab-immediate"' not in html
+    assert 'id="task-tab-confirmation"' not in html
     assert 'id="task-template"' in html
     assert "renderTaskTemplateActions" in script
     assert "showTaskPanel" in script
@@ -504,10 +629,16 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "appendTaskResult" in script
     assert "resultByTask" in script
     assert "立即任务" in html
+    assert 'data-workspace="approvals"' in html
     assert 'id="task-tab-plan"' not in html
     assert 'id="task-panel-plan"' not in html
     assert "批量／定时计划" not in html
     assert "评论／回复确认" in html
+    assert "新评论智能回复" in html
+    assert 'id="intelligent-reply-list"' in html
+    assert 'id="comment-collection-form"' in html
+    assert 'id="comment-collection-account"' in html
+    assert 'id="collect-comments"' in html
     assert 'id="record-list"' in html
     assert 'id="draft-form"' in html
     assert html.index('value="post-comment"') < html.index('value="reply-comment"')
@@ -516,6 +647,12 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert 'id="draft-target-label">目标笔记 ID' in html
     assert "function updateDraftFields" in script
     assert "function generateCommentDraft" in script
+    assert "function generateIntelligentReplyDraft" in script
+    assert "function collectNewComments" in script
+    assert 'capability: "collect-note-comments"' in script
+    assert "commentCollectionSummary" in script
+    assert "reply-intelligence/status" in script
+    assert "intelligent-reply-draft" in script
     assert "function useResultAsComment" not in script
     assert '$("#draft-action").value = "post-comment"' in script
     assert 'draft.action_type === "post-comment"' in script
@@ -529,9 +666,31 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "drafts/${draft.draft_id}/execute" in script
     assert 'id="global-pause"' in html
     assert 'id="settings-form"' in html
+    assert 'id="reply-model-form"' in html
+    assert 'id="reply-model-api-key"' in html
+    assert "reply-intelligence/settings" in script
+    assert "reply-intelligence/test" in script
     assert "diagnostics/export" in script
     assert "bridge/${action}" in script
     assert "account.extension_dir" in script
+
+
+def test_webui_stops_guided_uid_polling_when_profile_is_logged_out() -> None:
+    script = (
+        Path(__file__).resolve().parents[1] / "webui" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    login_required_branch = script.split(
+        'if (error.code === "LOGIN_REQUIRED") {', 1
+    )[1].split('if (error.code === "IDENTITY_UID_UNAVAILABLE") {', 1)[0]
+    uid_unavailable_branch = script.split(
+        'if (error.code === "IDENTITY_UID_UNAVAILABLE") {', 1
+    )[1].split('$("#account-setup-stage").textContent = "身份检测失败";', 1)[0]
+
+    assert "accountSetupPollTimer = null" in login_required_branch
+    assert "scheduleAccountSetupPoll" not in login_required_branch
+    assert "系统已停止自动检测" in login_required_branch
+    assert "scheduleAccountSetupPoll(inspectGuidedIdentity, 2000)" in uid_unavailable_branch
 
 
 def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
@@ -550,7 +709,7 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
             assert payload["status"] == "ok"
 
         with urlopen(f"{base_url}/", timeout=3) as response:
-            assert "先处理需要关注的账号" in response.read().decode("utf-8")
+            assert "先清理阻塞" in response.read().decode("utf-8")
             assert response.headers[SESSION_HEADER] == token
 
         with urlopen(f"{base_url}/styles.css", timeout=3) as response:
@@ -558,6 +717,18 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
 
         with urlopen(f"{base_url}/app.js", timeout=3) as response:
             assert "loadDashboard" in response.read().decode("utf-8")
+
+        with urlopen(f"{base_url}/workspace.js", timeout=3) as response:
+            assert "AutoXhsWorkspace" in response.read().decode("utf-8")
+
+        with urlopen(f"{base_url}/api-client.js", timeout=3) as response:
+            assert "AutoXhsApi" in response.read().decode("utf-8")
+
+        with urlopen(f"{base_url}/task-catalog.js", timeout=3) as response:
+            assert "AutoXhsTaskCatalog" in response.read().decode("utf-8")
+
+        with urlopen(f"{base_url}/workspace.css", timeout=3) as response:
+            assert ".workspace-view" in response.read().decode("utf-8")
 
         request = Request(f"{base_url}/api/v1/accounts", method="POST")
         with pytest.raises(HTTPError) as exc_info:

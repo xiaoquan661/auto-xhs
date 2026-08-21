@@ -16,6 +16,7 @@ from scripts.account_manager import (
     initialize_connection_identity,
     list_accounts,
     load_account,
+    public_config,
     sync_account_extension,
     universal_extension_dir,
 )
@@ -226,6 +227,45 @@ def test_import_existing_profile_without_copying_it(tmp_path, monkeypatch):
     assert config.chrome_profile_directory == "Profile 2"
     assert marker.read_text("utf-8") == "keep"
     assert Path(config.extension_dir).parent != profile
+
+
+def test_import_existing_profile_preserves_chrome_display_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    source = _make_extension(tmp_path / "extension-source")
+    user_data = tmp_path / "User Data"
+    _make_chrome_profile(user_data, "Profile 2")
+
+    config = import_existing_profile(
+        "profile-2",
+        user_data_dir=user_data,
+        profile_directory="Profile 2",
+        profile_display_name="运营主账号",
+        bridge_port=19421,
+        extension_source=source,
+    )
+
+    assert config.profile_display_name == "运营主账号"
+    assert public_config(load_account("profile-2"))["profile_display_name"] == "运营主账号"
+
+
+def test_public_config_tracks_current_chrome_profile_name(tmp_path):
+    user_data = tmp_path / "User Data"
+    (user_data / "Profile 2").mkdir(parents=True)
+    (user_data / "Local State").write_text(
+        json.dumps({"profile": {"info_cache": {"Profile 2": {"name": "最新运营名称"}}}}),
+        encoding="utf-8",
+    )
+    config = AccountConfig(
+        name="profile-2",
+        bridge_port=19422,
+        chrome_user_data_dir=str(user_data),
+        extension_dir=None,
+        chrome_profile_directory="Profile 2",
+        profile_display_name="旧名称",
+        profile_mode="existing",
+    )
+
+    assert public_config(config)["profile_display_name"] == "最新运营名称"
 
 
 def test_existing_profile_cannot_be_bound_twice(tmp_path, monkeypatch):

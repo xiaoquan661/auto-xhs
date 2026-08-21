@@ -1,10 +1,11 @@
 # xiaohongshu-skills
 
 面向个人运营者的本地多账号小红书运营系统。系统通过 Chrome Profile、WebUI、Codex 和统一
-Python CLI 完成配置、任务、确认和结果反馈。V1.0 是当前实现基线，V1.5 是已经批准但仍待完成
-代码和实机验收的下一阶段版本。
+Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线；V1.5 能力正在分批交付，其中
+账号联合启动、分步发布、主加和私信已具备自动化测试证据；V2.0 第一阶段已接入新评论智能回复草稿。
+凡涉及真实浏览器写操作的能力，仍按各自文档标注区分“已测试”和“已实机验收”。
 
-支持 [OpenClaw](https://github.com/anthropics/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台。
+支持 [OpenClaw](https://github.com/openclaw/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台。
 
 > **⚠️ 使用建议**：虽然本项目使用真实的用户浏览器和账号环境，但仍建议**控制使用频率**，避免短时间内大量操作。频繁的自动化行为可能触发小红书的风控机制，导致账号受限。
 
@@ -20,30 +21,30 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是当前实现�
 
 ### 版本与开放范围
 
-| 范围 | V1.0 当前实现 | V1.5 已批准目标 |
+| 范围 | 冻结基线 / 产品规则 | 当前交付状态 |
 |---|---|---|
-| 登录 | 检查、退出、半自动换号；历史登录命令仍在代码中 | 只保留检查、自动退出、用户手动登录和新 UID 核验 |
-| Chrome | 用户手动打开绑定 Profile | 扩展未连接时自动打开绑定 Profile；不自动关闭 |
-| 发布 | 产品入口禁用 | 开放图文、视频、长文、草稿和定时发布；必须预览确认 |
-| 评论 | 指定评论使用当前确认链；随机评论一次授权 1–3 条 | 所有评论由当前任务点击后直接发送 |
-| 回复 | 指定回复使用当前确认链 | 按账号启用规则后允许自动回复 |
-| 主加 | 禁用 | 单向操作；Agent/CLI 默认直接预览、关注和回读，无需审批 |
-| 私信 | 禁用 | Agent/CLI 已实现首次/续发、1–10 人个性化批次和逐人回读；真实发送待验收 |
-| 资料修改 | 禁用 | 开放；执行链仍待实现 |
+| 登录 | 检查、退出、用户手动登录和新 UID 核验 | 半自动换号链已测试；历史二维码和手机登录命令仅兼容保留 |
+| Chrome | 绑定固定 Profile，不自动关闭或切换账号 | 联合启动已测试：扩展离线时可打开绑定 Profile；真实 Windows 待验收 |
+| 发布 | 禁止一步直发，必须填写、真实预览、单任务确认和结果回读 | Agent/CLI 填写及 WebUI/Agent 受控确认已测试；真实发布待验收 |
+| 评论 | 指定评论/回复保留最终文本确认；随机评论一次授权 1–3 条 | 当前确认链可用；“所有指定评论点击即直发”仍是 V1.5 规格 |
+| 智能回复 | AI 只生成待人工确认草稿，不自动发送 | V2.0 第一阶段代码和测试已完成；模型连通与真实账号待验收 |
+| 主加 | 单向关注，Agent/CLI 内部预览后执行并回读 | 已完成自动化测试和测试账号实机回读 |
+| 私信 | 明确最终文本直发；Agent 文本整批确认；单批最多 10 人 | Agent/CLI 执行链已测试；真实发送待验收 |
+| 资料修改 | 展示前后差异并确认后执行 | 尚无完整执行链 |
 
-V1.5 目标能力在能力注册表、CLI/WebUI、自动化测试和真实设备验收完成前不可视为当前可用，
-不得绕过 V1.0 的服务层限制。
+实现状态以 [需求追踪矩阵](docs/PRD-TRACEABILITY.md) 为准；文档导航和历史/现行边界见
+[文档索引](docs/README.md)。规格批准、自动化测试和真实设备验收不是同一状态。
 
 ## 普通用户快速开始
 
 Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动器会检查环境、复用已经运行的
-本地服务并打开 `http://127.0.0.1:8765`。V1.0 不会自动打开、关闭或切换 Chrome；首次进入后按
+本地服务并打开 `http://127.0.0.1:8765`。首次进入后按
 “添加账号 → 手动打开目标 Profile → 配对扩展 → 检查并确认 UID”的顺序完成账号准备。
 
 V1.5 已把“启动 Bridge”升级为“启动账号”：先启动 Bridge，扩展未连接时再自动打开绑定
 Profile，并在核对扩展实例和 Profile 后恢复连接。该链已通过自动化测试，真实 Windows 环境仍待验收。
 
-WebUI 当前作为本地控制面板，包含账号槽位、Bridge 启停、已有直接任务、评论/回复草稿确认、
+WebUI 当前作为本地控制面板，包含账号槽位、Bridge 启停、已有直接任务、评论采集、评论/回复草稿确认、
 执行记录、全局暂停、L1 配额、并发设置和脱敏诊断导出。后续新增运营能力默认由 Agent/Python CLI
 下发，除非另行明确要求，不再为其增加 WebUI 任务入口。详细步骤见 [普通用户操作手册](docs/USER-GUIDE.md)，常见故障见
 [故障恢复指南](docs/TROUBLESHOOTING.md)。
@@ -279,15 +280,16 @@ python scripts/cli.py account-import `
 
 #### 本地 WebUI 开发预览
 
-当前工作区已提供只读 WebUI 骨架，用于检查本地服务、能力清单、账号配置和热登录连接状态：
+当前工作区提供完整的本地 WebUI 工作台，用于账号配置、任务下发、确认处理、执行记录和系统诊断：
 
 ```powershell
 $env:PYTHONPATH = "scripts"
 python scripts/web_server.py
 ```
 
-然后在浏览器访问 `http://127.0.0.1:8765`。服务固定监听本机回环地址，不会启动、重启或关闭
-Chrome。当前页面不提供账号新增、配对或登录写操作，这些将在后续配置向导增量接入。
+然后在浏览器访问 `http://127.0.0.1:8765`。服务固定监听本机回环地址。页面可新增或导入账号槽位、
+完成配对和身份核验；“启动账号”只会按槽位启动 Bridge，并在扩展未连接时打开已绑定 Profile，
+不会自动关闭 Chrome，也不会代替用户登录或切换小红书账号。
 
 ## 使用方式
 
@@ -307,8 +309,11 @@ Chrome。当前页面不提供账号新增、配对或登录写操作，这些�
 
 > "为 brand-a 填写这篇图文，打开浏览器预览，等我确认后再发布"
 
-图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步执行并预览确认。WebUI 只读
-监测发布状态；私信也只由 Agent/CLI 下发并由 WebUI 展示结果。资料修改和自动回复尚未形成完整执行链。
+图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步填写并形成真实预览。进入
+`preview_ready` 后，用户可在 Agent 对话或 WebUI 中逐任务核对并确认发布或保存草稿；WebUI 不创建
+或填写发布内容。私信也只由 Agent/CLI 下发并由 WebUI 展示结果。V2.0 已开始接入新评论的
+上下文智能回复草稿，当前仍需人工确认，后台自动发送尚未开放。详见
+[`docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md`](docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md)。
 
 **个性化私信（Agent 流程）：**
 
@@ -390,12 +395,13 @@ python scripts/cli.py --account brand-a send-private-messages `
 
 | 子命令                      | 说明                                                  |
 | --------------------------- | ----------------------------------------------------- |
+| `account-onboard`           | 创建槽位、启动 Bridge 并生成一次性配对包              |
 | `account-add`               | 创建独立 Chrome Profile、Bridge 与账号槽位            |
 | `account-discover`          | 列出已有 Chrome Profile 及绑定状态                    |
 | `account-import`            | 绑定已有 Chrome Profile，保留登录状态                 |
 | `account-list`              | 列出所有已配置账号                                    |
 | `account-remove`            | 将槽位移入本机归档，保留 Profile、登录数据与共享扩展  |
-| `account-start`             | V1.0 仅启动 Bridge；V1.5 目标为 Bridge 与绑定 Profile 联合启动 |
+| `account-start`             | 启动或复用 Bridge；扩展离线时按需打开绑定 Profile     |
 | `account-status`            | 检查目标账号的服务和扩展连接状态                      |
 | `account-sync`              | 让账号槽位指向当前项目中所有 Profile 共用的扩展目录   |
 | `account-doctor`            | 只读诊断账号配置、Profile、扩展路由、端口和连接状态   |
@@ -404,6 +410,7 @@ python scripts/cli.py --account brand-a send-private-messages `
 | `account-pair-begin`        | 生成目标账号的一次性 Profile 配对包                   |
 | `account-pair-status`       | 查看 Profile 配对与扩展连接状态                       |
 | `account-unpair`            | 撤销 Profile 配对并轮换长期连接令牌                   |
+| `account-autostart-enable` / `account-autostart-status` / `account-autostart-disable` | 管理该槽位的 Windows 登录自启动 |
 | `account-connection-enroll` | 仅供旧版账号专属扩展迁移使用                          |
 | `account-identity`          | 读取当前小红书 UID，并与账号槽位的身份记录比较        |
 | `account-switch-begin`      | 暂停业务任务并退出当前登录，开始安全换号              |
@@ -412,10 +419,13 @@ python scripts/cli.py --account brand-a send-private-messages `
 | `account-switch-history`    | 查看本机保存的换号记录                                |
 | `check-login`               | 检查登录状态，返回用户昵称和小红书号                  |
 | `login`                     | 历史兼容命令；V1.5 产品流程不再引导使用               |
+| `get-qrcode` / `wait-login` | 历史兼容的分步扫码登录命令                            |
+| `phone-login` / `send-code` / `verify-code` | 历史兼容的手机号登录命令；产品流程不再引导 |
 | `delete-cookies`            | 结束当前登录会话并回读页面核验退出结果                |
 | `list-feeds`                | 获取首页推荐 Feed                                     |
 | `browse-feeds`              | 按时间和数量自动滚动首页并点开笔记                    |
 | `search-feeds`              | 关键词搜索笔记（支持排序/类型/时间/范围/位置筛选）    |
+| `keyword-engagement`        | 按关键词收集候选并随机点赞或收藏                      |
 | `get-feed-detail`           | 获取笔记完整内容和评论                                |
 | `user-profile`              | 获取用户主页信息和帖子列表                            |
 | `follow-user-preview`       | Agent 可选只读目标主页和当前关注状态                  |
@@ -423,6 +433,7 @@ python scripts/cli.py --account brand-a send-private-messages `
 | `private-message-context`   | 只读识别首次私信入口或读取已有会话近期文本            |
 | `prepare-private-messages`  | 保存 Agent 生成的 1–10 人个性化私信并返回整批预览    |
 | `send-private-messages`     | 直发用户最终文本，或发送已整批确认的 Agent 文本       |
+| `generate-reply-draft`      | 为新评论事件生成上下文智能回复并保存为待确认草稿      |
 | `post-comment`              | V1.0 使用当前确认链；V1.5 目标为当前任务点击后直发    |
 | `random-comment`            | 当前任务点击一次性授权 1–3 条随机评论                 |
 | `home-engagement`           | 单次首页会话完成浏览、点赞、评论并输出逐篇记录         |
@@ -437,11 +448,15 @@ python scripts/cli.py --account brand-a send-private-messages `
 | `long-article`              | Agent 填写长文、创建任务并返回排版模板                 |
 | `select-template`           | 携带任务 ID 选择长文模板                               |
 | `next-step`                 | 携带任务 ID进入长文最终发布预览                        |
+| `diagnose-404`              | 读取扩展拦截器捕获的 404 诊断信息                     |
+| `check-risk`                | 汇总当前页面与接口的风险状态                          |
+| `get-netlog` / `risk-report` | 读取已启用的 NetLog 并生成诊断报告                   |
 
 退出码：`0` 成功 · `1` 未登录 · `2` 错误
 
 主加已完成 Agent/CLI 自动化链和真实关注验收。私信已完成 Agent/CLI 执行链、自动化测试和真实页面
-只读结构检查，但尚未发送真实私信验收。公开资料修改和自动回复仍没有完整执行链。
+只读结构检查，但尚未发送真实私信验收。智能回复已能生成待人工确认草稿，但后台规则化自动发送和
+公开资料修改仍没有完整执行链。
 
 ## 项目结构
 
@@ -457,6 +472,8 @@ xiaohongshu-skills/
 │   ├── account_doctor.py           # 多账号配置和运行状态只读诊断
 │   ├── account_identity.py         # 登录身份记录、安全换号和任务保护
 │   ├── application_service.py      # CLI、WebUI 和 Agent 共用的应用服务层
+│   ├── reply_intelligence_service.py # 智能回复上下文、生成和质量标记
+│   ├── operations_db.py            # 任务、事件和指标本地存储
 │   ├── web_server.py               # 仅监听本机的 WebUI/API 服务
 │   ├── run_lock.py                 # 每账号独立的任务锁
 │   ├── xhs/                        # 核心自动化包
@@ -479,13 +496,18 @@ xiaohongshu-skills/
 │   │   └── human.py                # 行为模拟
 │   ├── cli.py                      # 统一 CLI 入口
 │   ├── bridge_server.py            # 本地通信服务
-│   ├── image_downloader.py         # 媒体下载（SHA256 缓存）
+│   ├── image_downloader.py         # 媒体下载与本地缓存
 │   ├── title_utils.py              # UTF-16 标题长度计算
 │   └── run_lock.py                 # 单实例锁
 ├── webui/                          # 本地 WebUI 静态页面
 │   ├── index.html
 │   ├── styles.css
+│   ├── workspace.css
+│   ├── api-client.js
+│   ├── task-catalog.js
+│   ├── workspace.js
 │   └── app.js
+├── docs/                            # PRD、用户指南、架构、专题和验收文档
 ├── skills/                         # Claude Code Skills 定义
 │   ├── xhs-auth/SKILL.md
 │   ├── xhs-publish/SKILL.md

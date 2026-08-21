@@ -90,6 +90,51 @@ def record_current_identity(
     return payload
 
 
+def replace_current_identity(
+    account: str,
+    identity: dict,
+    *,
+    expected_recorded_user_id: str,
+    expected_observed_user_id: str,
+    source: str,
+    label: str | None = None,
+) -> dict:
+    """Explicitly replace a mismatched slot identity and retain a local audit event."""
+    account = validate_account_name(account)
+    previous_record = load_identity_record(account)
+    if not previous_record:
+        raise RuntimeError("槽位尚未记录原账号身份，请先完成首次身份确认")
+    previous = previous_record.get("current") or {}
+    previous_user_id = str(previous.get("user_id") or "")
+    current = normalize_observed_identity(identity)
+    if not current["logged_in"] or not current["user_id"]:
+        raise RuntimeError("当前 Profile 尚未登录可识别的小红书账号")
+    if previous_user_id != expected_recorded_user_id.strip():
+        raise RuntimeError("槽位原 UID 已发生变化，请刷新账号状态后重新确认")
+    if current["user_id"] != expected_observed_user_id.strip():
+        raise RuntimeError("当前登录 UID 已发生变化，请刷新账号状态后重新确认")
+    if current["user_id"] == previous_user_id:
+        raise RuntimeError("当前登录账号已经与槽位记录一致，无需覆盖")
+
+    record = record_current_identity(
+        account,
+        current,
+        source=source,
+        label=label or previous_record.get("label"),
+    )
+    event = {
+        "schema_version": IDENTITY_SCHEMA_VERSION,
+        "account": account,
+        "event": "identity-replaced",
+        "from": previous,
+        "to": record["current"],
+        "label": record["label"],
+        "completed_at": _utc_now(),
+    }
+    _append_json_line(identity_history_path(account), event)
+    return event
+
+
 def begin_login_switch(
     account: str,
     identity: dict,

@@ -5,6 +5,7 @@ from scripts.xhs.types import (
     Comment,
     CommentList,
     Feed,
+    FeedDetail,
     FeedDetailResponse,
     User,
     UserProfileResponse,
@@ -36,7 +37,14 @@ def test_monitor_normalizes_comments_and_skips_owner_replies() -> None:
     )
 
     def load(_page, _feed_id, _token):
-        return FeedDetailResponse(comments=CommentList(list_=[parent]))
+        return FeedDetailResponse(
+            note=FeedDetail(
+                title="报名说明",
+                body="周末活动报名方式",
+                tags=["活动"],
+            ),
+            comments=CommentList(list_=[parent]),
+        )
 
     result = collect_note_comments(
         object(),
@@ -50,6 +58,10 @@ def test_monitor_normalizes_comments_and_skips_owner_replies() -> None:
         "reply-1",
     ]
     assert result["comments"][1]["parent_comment_id"] == "comment-1"
+    assert result["comments"][1]["parent_comment_content"] == "怎么报名？"
+    assert result["comments"][0]["note_title"] == "报名说明"
+    assert result["comments"][0]["note_content"] == "周末活动报名方式"
+    assert result["comments"][0]["note_tags"] == ["活动"]
     assert result["comments"][0]["occurred_at"].startswith("2025-")
     assert result["cursor"].endswith(":reply-1")
 

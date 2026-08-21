@@ -729,12 +729,14 @@ def test_service_discovers_and_imports_existing_profile(tmp_path, monkeypatch) -
         name="brand-a",
         user_data_dir=str(user_data),
         profile_directory="Profile 2",
+        profile_display_name="运营主账号",
         confirmed=True,
     )
 
     assert discovered["profiles"][0]["profile_directory"] == "Profile 2"
     assert imported["account"]["profile_mode"] == "existing"
     assert imported["account"]["chrome_profile_directory"] == "Profile 2"
+    assert imported["account"]["profile_display_name"] == "运营主账号"
 
 
 def test_service_requires_explicit_confirmation_for_slot_changes(tmp_path) -> None:
@@ -820,6 +822,50 @@ def test_logged_in_identity_without_uid_has_distinct_error(tmp_path) -> None:
     assert exc_info.value.code == "IDENTITY_UID_UNAVAILABLE"
 
 
+def test_logged_out_identity_check_clears_stale_runtime_uid(tmp_path) -> None:
+    config = _config()
+    StatusPage.status = {
+        "extension_connected": True,
+        "account_id": "slot-alpha",
+        "extension": {
+            "profile_directory": "Profile 2",
+            "instance_id": "instance-alpha",
+            "instance_enrolled": True,
+            "identity_verified": True,
+        },
+    }
+    store = ProductStore(tmp_path / "product")
+    store.set_setting(
+        "runtime_identity_checks",
+        {
+            "alpha": {
+                "user_id": "user-1",
+                "nickname": "旧账号",
+                "observed_at": "2026-08-20T00:00:00Z",
+            }
+        },
+    )
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: config,
+        page_factory=StatusPage,
+        identity_loader=lambda _account: {
+            "current": {"user_id": "user-1", "nickname": "旧账号"}
+        },
+        identity_observer=lambda _page: {"logged_in": False, "user_id": ""},
+        product_store=store,
+    )
+
+    assert service.get_account_status("alpha")["status"] == "READY"
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.check_account_identity("alpha")
+
+    assert exc_info.value.code == "LOGIN_REQUIRED"
+    status = service.get_account_status("alpha")
+    assert status["status"] == "IDENTITY_CHECK_REQUIRED"
+    assert status["identity"]["live_checked"] is False
+
+
 def test_account_identity_mismatch_never_reaches_ready(tmp_path) -> None:
     config = _config()
     StatusPage.status = {
@@ -845,6 +891,45 @@ def test_account_identity_mismatch_never_reaches_ready(tmp_path) -> None:
 
     assert result["status"] == "IDENTITY_MISMATCH"
     assert result["ready"] is False
+
+
+def test_service_explicitly_replaces_mismatched_identity(tmp_path) -> None:
+    replaced = []
+
+    def replace_identity(account, observed, **values):
+        replaced.append((account, observed, values))
+        return {
+            "event": "identity-replaced",
+            "from": {"user_id": values["expected_recorded_user_id"]},
+            "to": dict(observed),
+        }
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        page_factory=StatusPage,
+        identity_observer=lambda _page: {
+            "logged_in": True,
+            "user_id": "user-new",
+            "nickname": "新账号",
+        },
+        switch_loader=lambda _account: None,
+        identity_replacer=replace_identity,
+        product_store=ProductStore(tmp_path / "product"),
+    )
+
+    result = service.replace_account_identity(
+        "alpha",
+        confirmed=True,
+        expected_recorded_user_id="user-old",
+        expected_observed_user_id="user-new",
+        label="新账号",
+    )
+
+    assert result["identity"]["event"] == "identity-replaced"
+    assert replaced[0][0] == "alpha"
+    assert replaced[0][1]["user_id"] == "user-new"
+    assert replaced[0][2]["expected_recorded_user_id"] == "user-old"
+    assert "Profile 和槽位绑定保持不变" in result["message"]
 
 
 def test_service_runs_confirmed_account_switch_flow(tmp_path) -> None:
@@ -1768,16 +1853,56 @@ def test_passive_comment_reply_reuses_task_and_marks_event_handled(tmp_path) -> 
     result = service.execute_draft(
         prepared["draft"]["draft_id"],
         approval_id=approval["approval_id"],
-        feed_id="feed-1",
-        comment_id="comment-1",
-        user_id="user-1",
-        xsec_token="token",
     )
 
     assert result["task"]["task_id"] == prepared["task"]["task_id"]
     assert result["task"]["state"] == "SUCCESS"
     assert calls[0][1] == "reply-comment"
+    assert calls[0][2]["feed_id"] == "feed-1"
+    assert calls[0][2]["comment_id"] == "comment-1"
+    assert calls[0][2]["user_id"] == "user-1"
+    assert calls[0][2]["xsec_token"] == "token"
     assert service.get_inbound_event(event["event_id"])["event"]["handling_state"] == "HANDLED"
+
+
+def test_notification_reply_uses_notification_context_without_note_prompt(tmp_path) -> None:
+    calls = []
+
+    def executor(account, capability, parameters):
+        calls.append((account, capability, parameters))
+        return {"success": True, "message": "通知页回复已提交并完成页面回读"}
+
+    service = _ready_output_service(tmp_path, executor)
+    event = service.inbound_events.record(
+        account_slot="alpha",
+        event_type="note_comment",
+        platform_event_id="notification-1",
+        occurred_at="2026-08-21T10:00:00+00:00",
+        actor_user_id="user-1",
+        payload={
+            "notification_id": "notification-1",
+            "comment_id": "comment-1",
+            "user_id": "user-1",
+            "nickname": "学远",
+            "content": "效率提升很多感谢分享",
+            "source": "notification",
+        },
+    )["event"]
+    prepared = service.create_passive_reply_draft(
+        event["event_id"], verified_uid="uid-alpha", content="有帮到你就好～"
+    )
+    approval = service.confirm_draft(prepared["draft"]["draft_id"])["approval"]
+
+    result = service.execute_draft(
+        prepared["draft"]["draft_id"], approval_id=approval["approval_id"]
+    )
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert prepared["draft"]["target_id"] == "notification-1"
+    assert calls[0][2]["notification_id"] == "notification-1"
+    assert calls[0][2]["comment_id"] == "comment-1"
+    assert calls[0][2]["nickname"] == "学远"
+    assert calls[0][2]["original_content"] == "效率提升很多感谢分享"
 
 
 def test_comment_execution_rejects_changed_target_or_uid(tmp_path) -> None:
@@ -1842,6 +1967,36 @@ def test_comment_adapter_failure_becomes_result_unknown(tmp_path) -> None:
     assert result["task"]["error_code"] == "EXECUTION_ERROR"
     assert "不要直接重发" in result["task"]["recommended_action"]
     assert service.list_drafts()["drafts"][0]["status"] == "RESULT_UNKNOWN"
+
+
+def test_comment_failure_before_submit_is_recorded_as_failed_and_not_sent(tmp_path) -> None:
+    class BeforeSubmitFailure(RuntimeError):
+        result_unknown = False
+
+    def fail(*_args):
+        raise BeforeSubmitFailure("未在通知页找到目标评论")
+
+    service = _ready_output_service(tmp_path, fail)
+    draft = service.create_draft(
+        account_slot="alpha",
+        verified_uid="uid-alpha",
+        action_type="post-comment",
+        target_id="feed-1",
+        target_summary="目标",
+        content="内容",
+    )["draft"]
+    approval = service.confirm_draft(draft["draft_id"])["approval"]
+
+    result = service.execute_draft(
+        draft["draft_id"],
+        approval_id=approval["approval_id"],
+        feed_id="feed-1",
+        xsec_token="token",
+    )
+
+    assert result["task"]["state"] == "FAILED"
+    assert "未点击发送" in result["task"]["recommended_action"]
+    assert service.list_drafts()["drafts"][0]["status"] == "FAILED"
 
 
 def test_account_status_blocks_without_user_hot_session() -> None:

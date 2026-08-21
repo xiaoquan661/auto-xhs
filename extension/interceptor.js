@@ -20,6 +20,21 @@
   const XHS_API = /xiaohongshu\.com\/api\//;
 
   const RESP_BODY_MAX = 4096;
+  const MENTIONS_API = "/api/sns/web/v1/you/mentions";
+
+  function captureMentionsResponse(url, status, body) {
+    if (!String(url || "").includes(MENTIONS_API) || status !== 200) return;
+    try {
+      const payload = typeof body === "string" ? JSON.parse(body) : body;
+      if (!payload || typeof payload !== "object") return;
+      window.__AUTO_XHS_MENTIONS__ = {
+        url: String(url),
+        status,
+        capturedAt: Date.now(),
+        payload,
+      };
+    } catch (_) {}
+  }
 
   // ── Cookie 快照 ──────────────────────────────────────────────
 
@@ -282,6 +297,7 @@
 
   function _netlogReportResp(url, status, body) {
     if (!url || !url.includes("xiaohongshu.com")) return;
+    captureMentionsResponse(url, status, body);
     let truncated = body;
     if (typeof body === "string" && body.length > RESP_BODY_MAX) {
       truncated = body.slice(0, RESP_BODY_MAX) + "…[cut]";
@@ -341,6 +357,7 @@
       try {
         const clone = resp.clone();
         const text = await clone.text();
+        captureMentionsResponse(resp.url || url, resp.status, text);
         respBody = text.length > RESP_BODY_MAX ? text.slice(0, RESP_BODY_MAX) + "…[cut]" : text;
       } catch (_) { respBody = "[unreadable]"; }
 
@@ -392,6 +409,7 @@
         let respBody = null;
         try {
           const t = this.responseText || "";
+          captureMentionsResponse(url, this.status, t);
           respBody = t.length > RESP_BODY_MAX ? t.slice(0, RESP_BODY_MAX) + "…[cut]" : t;
         } catch (_) { respBody = "[unreadable]"; }
 

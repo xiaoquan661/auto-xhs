@@ -27,28 +27,39 @@ class CommentCollector:
         created: list[dict] = []
         existing: list[dict] = []
         for comment in comments:
+            notification_id = str(comment.get("notification_id") or "").strip()
             comment_id = str(comment.get("comment_id") or comment.get("id") or "").strip()
+            platform_event_id = notification_id or comment_id
             occurred_at = str(comment.get("occurred_at") or comment.get("create_time") or "")
-            if not comment_id or not occurred_at:
+            if not platform_event_id or not occurred_at:
                 raise ServiceError(
                     "INVALID_COMMENT_EVENT",
-                    "评论事件必须包含 comment_id 和 occurred_at",
+                    "评论事件必须包含通知或评论标识以及 occurred_at",
                 )
             result = self.events.record(
                 account_slot=account_slot,
                 event_type="note_comment",
-                platform_event_id=comment_id,
+                platform_event_id=platform_event_id,
                 occurred_at=occurred_at,
                 object_type="note",
                 object_id=str(comment.get("feed_id") or ""),
                 actor_user_id=str(comment.get("user_id") or ""),
                 payload={
+                    "notification_id": notification_id,
                     "comment_id": comment_id,
                     "feed_id": str(comment.get("feed_id") or ""),
                     "xsec_token": str(comment.get("xsec_token") or ""),
                     "user_id": str(comment.get("user_id") or ""),
                     "nickname": str(comment.get("nickname") or ""),
                     "content": str(comment.get("content") or ""),
+                    "parent_comment_id": str(comment.get("parent_comment_id") or ""),
+                    "parent_comment_content": str(
+                        comment.get("parent_comment_content") or ""
+                    ),
+                    "note_title": str(comment.get("note_title") or ""),
+                    "note_content": str(comment.get("note_content") or ""),
+                    "note_tags": list(comment.get("note_tags") or []),
+                    "source": str(comment.get("source") or ""),
                 },
                 classification=str(comment.get("classification") or ""),
             )

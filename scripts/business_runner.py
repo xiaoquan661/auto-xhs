@@ -156,7 +156,8 @@ class BusinessRunner:
                 expected_nickname=str(parameters.get("nickname") or ""),
             )
         if capability == "collect-note-comments":
-            from xhs.comment_monitor import collect_note_comments, collect_own_note_comments
+            from xhs.comment_monitor import collect_note_comments
+            from xhs.notifications import collect_comment_notifications
 
             tracked_notes = list(parameters.get("tracked_notes") or [])
             owner_user_id = str(parameters.get("owner_user_id") or "")
@@ -166,11 +167,9 @@ class BusinessRunner:
                     tracked_notes,
                     owner_user_id=owner_user_id,
                 )
-            return collect_own_note_comments(
+            return collect_comment_notifications(
                 page,
-                owner_user_id=owner_user_id,
-                owner_xsec_token=str(parameters.get("owner_xsec_token") or ""),
-                max_notes=int(parameters.get("max_notes") or 20),
+                max_items=int(parameters.get("max_notes") or 20),
             )
         if capability == "collect-operations-metrics":
             from xhs.metrics_collector import collect_operations_metrics
@@ -204,6 +203,7 @@ class BusinessRunner:
             return result.to_dict()
         if capability in {"post-comment", "reply-comment"}:
             from xhs.comment import post_comment, reply_comment
+            from xhs.notifications import reply_to_comment_notification
 
             feed_id = str(parameters.get("feed_id") or "")
             token = str(parameters.get("xsec_token") or "")
@@ -211,6 +211,18 @@ class BusinessRunner:
             if capability == "post-comment":
                 post_comment(page, feed_id, token, content)
                 return {"success": True, "message": "评论发送成功"}
+            original_content = str(parameters.get("original_content") or "")
+            nickname = str(parameters.get("nickname") or "")
+            notification_id = str(parameters.get("notification_id") or "")
+            if original_content or notification_id:
+                return reply_to_comment_notification(
+                    page,
+                    content,
+                    notification_id=notification_id,
+                    comment_id=str(parameters.get("comment_id") or ""),
+                    nickname=nickname,
+                    original_content=original_content,
+                )
             reply_comment(
                 page,
                 feed_id,
@@ -220,4 +232,16 @@ class BusinessRunner:
                 user_id=str(parameters.get("user_id") or ""),
             )
             return {"success": True, "message": "回复发送成功"}
+        if capability == "click-publish":
+            from xhs.publish import click_publish_button
+
+            return click_publish_button(
+                page,
+                expected_title=str(parameters.get("expected_title") or ""),
+            )
+        if capability == "save-draft":
+            from xhs.publish import save_as_draft
+
+            save_as_draft(page)
+            return {"success": True, "message": "内容已保存到小红书草稿箱"}
         raise ServiceError("CAPABILITY_DISABLED", "该能力没有 V1 执行适配器", 409)

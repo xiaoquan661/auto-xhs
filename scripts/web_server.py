@@ -19,6 +19,13 @@ except ImportError:  # Direct execution: python scripts/web_server.py
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "webui"
+
+
+class LocalThreadingHTTPServer(ThreadingHTTPServer):
+    """Keep the local control plane exclusive to one process per port."""
+
+    allow_reuse_address = False
+    allow_reuse_port = False
 API_PREFIX = "/api/v1"
 
 
@@ -190,6 +197,8 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
         return service.list_operation_events()
     if path == f"{API_PREFIX}/reply-rules":
         return service.list_reply_rules()
+    if path == f"{API_PREFIX}/reply-intelligence/status":
+        return service.intelligent_reply_status()
     if path == f"{API_PREFIX}/action-drafts":
         return service.list_action_drafts()
 
@@ -237,6 +246,10 @@ def _dispatch_mutation(
         return service.export_diagnostics()
     if method == "POST" and path == f"{API_PREFIX}/system/settings":
         return service.update_system_settings(**body)
+    if method == "POST" and path == f"{API_PREFIX}/reply-intelligence/settings":
+        return service.update_reply_model_settings(**body)
+    if method == "POST" and path == f"{API_PREFIX}/reply-intelligence/test":
+        return service.test_reply_model_connection()
     if method == "POST" and path == f"{API_PREFIX}/tasks":
         return service.create_task(**body)
     if method == "POST" and path == f"{API_PREFIX}/drafts":
@@ -260,6 +273,13 @@ def _dispatch_mutation(
         and parts[4] == "reply-draft"
     ):
         return service.create_passive_reply_draft(parts[3], **body)
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "inbound-events"]
+        and method == "POST"
+        and parts[4] == "intelligent-reply-draft"
+    ):
+        return service.create_intelligent_reply_draft(parts[3], **body)
     if (
         len(parts) == 4
         and parts[:3] == ["api", "v1", "reply-rules"]
@@ -322,6 +342,20 @@ def _dispatch_mutation(
         len(parts) == 5
         and parts[:3] == ["api", "v1", "tasks"]
         and method == "POST"
+        and parts[4] == "publish-confirm"
+    ):
+        return service.confirm_publish_task(parts[3], **body)
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "tasks"]
+        and method == "POST"
+        and parts[4] == "save-draft"
+    ):
+        return service.save_publish_task_as_draft(parts[3], **body)
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "tasks"]
+        and method == "POST"
         and parts[4] == "execute"
     ):
         return service.execute_task(parts[3])
@@ -349,6 +383,8 @@ def _dispatch_mutation(
             return service.check_account_identity(account)
         if method == "POST" and (section, action) == ("identity", "record"):
             return service.record_account_identity(account, **body)
+        if method == "POST" and (section, action) == ("identity", "replace"):
+            return service.replace_account_identity(account, **body)
         if method == "POST" and (section, action) == ("auth", "logout"):
             return service.logout_account(account, **body)
         if method == "POST" and (section, action) == ("switch", "begin"):
@@ -372,7 +408,7 @@ def _dispatch_mutation(
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     host = _validate_bind_host(host)
-    server = ThreadingHTTPServer((host, port), make_handler(ApplicationService()))
+    server = LocalThreadingHTTPServer((host, port), make_handler(ApplicationService()))
     print(f"auto-xhs WebUI: http://{host}:{server.server_port}")
     try:
         server.serve_forever()

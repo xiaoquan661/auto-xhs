@@ -32,6 +32,7 @@ class AccountConfig:
     chrome_user_data_dir: str | None
     extension_dir: str | None
     chrome_profile_directory: str | None = None
+    profile_display_name: str | None = None
     profile_mode: str = "managed"
     account_id: str | None = None
     bridge_token: str | None = None
@@ -260,6 +261,7 @@ def import_existing_profile(
     *,
     user_data_dir: str | Path,
     profile_directory: str,
+    profile_display_name: str | None = None,
     bridge_port: int | None = None,
     extension_source: str | Path,
     replace: bool = False,
@@ -270,6 +272,7 @@ def import_existing_profile(
             name,
             user_data_dir=user_data_dir,
             profile_directory=profile_directory,
+            profile_display_name=profile_display_name,
             bridge_port=bridge_port,
             extension_source=extension_source,
             replace=replace,
@@ -281,6 +284,7 @@ def _import_existing_profile_unlocked(
     *,
     user_data_dir: str | Path,
     profile_directory: str,
+    profile_display_name: str | None,
     bridge_port: int | None,
     extension_source: str | Path,
     replace: bool,
@@ -321,6 +325,7 @@ def _import_existing_profile_unlocked(
         chrome_user_data_dir=str(root),
         extension_dir=str(extension_dir),
         chrome_profile_directory=profile_name,
+        profile_display_name=(profile_display_name or profile_name).strip() or profile_name,
         profile_mode="existing",
         account_id=current.account_id if current and current.account_id else uuid.uuid4().hex,
         bridge_token=(
@@ -502,6 +507,7 @@ def public_config(config: AccountConfig) -> dict:
         "extension_mode": config.extension_mode,
         "chrome_user_data_dir": config.chrome_user_data_dir,
         "chrome_profile_directory": config.chrome_profile_directory,
+        "profile_display_name": _current_profile_display_name(config),
         "extension_dir": config.extension_dir,
         "account_id": config.account_id,
         "connection_identity_enabled": bool(config.account_id and config.bridge_token),
@@ -515,6 +521,26 @@ def public_config(config: AccountConfig) -> dict:
     return result
 
 
+def _current_profile_display_name(config: AccountConfig) -> str:
+    """Return Chrome's current Profile name, falling back to the saved label."""
+    profile_directory = config.chrome_profile_directory or "Default"
+    if config.chrome_user_data_dir and config.profile_mode == "existing":
+        local_state = Path(config.chrome_user_data_dir) / "Local State"
+        try:
+            state = json.loads(local_state.read_text(encoding="utf-8"))
+            display_name = str(
+                state.get("profile", {})
+                .get("info_cache", {})
+                .get(profile_directory, {})
+                .get("name", "")
+            ).strip()
+            if display_name:
+                return display_name
+        except (OSError, TypeError, ValueError):
+            pass
+    return str(getattr(config, "profile_display_name", "") or profile_directory or config.name)
+
+
 def _read_config(path: Path) -> AccountConfig:
     data = json.loads(path.read_text(encoding="utf-8"))
     name = validate_account_name(str(data["name"]))
@@ -526,6 +552,7 @@ def _read_config(path: Path) -> AccountConfig:
         chrome_user_data_dir=data.get("chrome_user_data_dir"),
         extension_dir=data.get("extension_dir"),
         chrome_profile_directory=data.get("chrome_profile_directory"),
+        profile_display_name=data.get("profile_display_name"),
         profile_mode=data.get(
             "profile_mode",
             "existing" if data.get("chrome_profile_directory") else "managed",

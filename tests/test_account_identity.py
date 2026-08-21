@@ -14,6 +14,7 @@ from scripts.account_identity import (
     load_identity_history,
     load_switch_state,
     record_current_identity,
+    replace_current_identity,
 )
 from scripts.cli import _ensure_switch_allows_command
 from scripts.xhs.login import get_current_user_identity
@@ -60,6 +61,41 @@ def test_safe_switch_records_history_and_unblocks_new_identity(tmp_path, monkeyp
     assert load_switch_state("alpha") is None
     assert identity_status("alpha", _identity("user-new"))["comparison"] == "match"
     assert load_identity_history("alpha")[-1]["event"] == "login-switched"
+
+
+def test_explicit_mismatch_replacement_updates_identity_and_records_history(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    record_current_identity("alpha", _identity("user-old", "旧账号"), source="test")
+
+    event = replace_current_identity(
+        "alpha",
+        _identity("user-new", "新账号"),
+        expected_recorded_user_id="user-old",
+        expected_observed_user_id="user-new",
+        source="webui-identity-replace",
+    )
+
+    assert event["event"] == "identity-replaced"
+    assert event["from"]["user_id"] == "user-old"
+    assert event["to"]["user_id"] == "user-new"
+    assert identity_status("alpha", _identity("user-new"))["comparison"] == "match"
+    assert load_identity_history("alpha")[-1]["event"] == "identity-replaced"
+
+
+def test_mismatch_replacement_rejects_stale_confirmation(tmp_path, monkeypatch):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    record_current_identity("alpha", _identity("user-old"), source="test")
+
+    with pytest.raises(RuntimeError, match="当前登录 UID 已发生变化"):
+        replace_current_identity(
+            "alpha",
+            _identity("user-third"),
+            expected_recorded_user_id="user-old",
+            expected_observed_user_id="user-new",
+            source="webui-identity-replace",
+        )
 
 
 def test_switch_completion_rejects_wrong_or_same_user(tmp_path, monkeypatch):

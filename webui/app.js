@@ -1,11 +1,13 @@
-const api = "/api/v1";
-let sessionToken = "";
+const { api, fetchJson, mutateJson } = window.AutoXhsApi;
 let accountStatusByName = new Map();
 let activeAccountSwitch = null;
+let activeIdentityMismatch = null;
 let activeAccountRemoval = null;
+let activePublishTask = null;
 let accountTaskActivityByName = new Map();
 const pendingSubmissionByAccount = new Map();
 const taskMessageByAccount = new Map();
+const commentCollectionMessageByAccount = new Map();
 let taskActivityPollTimer = null;
 let taskSnapshotKey = "";
 let accountStatusPollTimer = null;
@@ -17,150 +19,43 @@ let accountSetupPollTimer = null;
 let accountSetupPrimaryAction = null;
 document.documentElement.classList.add("js-ready");
 
-const taskCapabilities = {
-  "browse-feeds": {
-    label: "自动浏览首页",
-    help: "在一个首页会话中自动滚动、点开并阅读笔记；达到时间或数量任一上限即停止。",
-    targetLabel: "",
-    placeholder: "",
-    targetRequired: false,
-    targetVisible: false,
-    tokenRequired: false,
-    browseSettings: true,
-  },
-  "list-feeds": {
-    label: "获取首页推荐",
-    help: "读取当前首页推荐列表一次，不会自动滚动或点开笔记。",
-    targetLabel: "任务备注（可选）",
-    placeholder: "例如：上午选题采集",
-    targetRequired: false,
-    targetVisible: false,
-    tokenRequired: false,
-  },
-  "search-feeds": {
-    label: "搜索笔记",
-    help: "按关键词搜索笔记，并返回标题、作者、互动数据和笔记 ID。",
-    targetLabel: "搜索关键词",
-    placeholder: "输入要搜索的关键词",
-    targetRequired: true,
-    targetVisible: true,
-    tokenRequired: false,
-  },
-  "get-feed-detail": {
-    label: "查看笔记详情",
-    help: "读取指定笔记的正文、作者、互动数据和评论。可从搜索结果一键带入参数。",
-    targetLabel: "笔记 ID",
-    placeholder: "输入目标笔记 ID",
-    targetRequired: true,
-    targetVisible: true,
-    tokenRequired: true,
-  },
-  "user-profile": {
-    label: "查看用户主页",
-    help: "读取指定用户的主页资料和公开笔记。可从搜索结果一键带入参数。",
-    targetLabel: "用户 ID",
-    placeholder: "输入目标用户 ID",
-    targetRequired: true,
-    targetVisible: true,
-    tokenRequired: true,
-  },
-  "like-feed": {
-    label: "点赞 / 取消点赞",
-    help: "修改指定笔记的点赞状态，执行前会核验账号身份并受操作配额限制。",
-    targetLabel: "笔记 ID",
-    placeholder: "输入目标笔记 ID",
-    targetRequired: true,
-    targetVisible: true,
-    tokenRequired: true,
-  },
-  "favorite-feed": {
-    label: "收藏 / 取消收藏",
-    help: "修改指定笔记的收藏状态，执行前会核验账号身份并受操作配额限制。",
-    targetLabel: "笔记 ID",
-    placeholder: "输入目标笔记 ID",
-    targetRequired: true,
-    targetVisible: true,
-    tokenRequired: true,
-  },
-  "keyword-engagement": {
-    label: "关键词随机点赞收藏",
-    help: "按关键词搜索后模拟向下滑动，边滑边去重搜集候选；达到候选池、时间上限或连续无新增时停止，再随机抽取执行。",
-    targetLabel: "笔记筛选关键词",
-    placeholder: "例如：露营装备、AI 视频",
-    targetRequired: true,
-    targetVisible: true,
-    tokenRequired: false,
-    engagementSettings: true,
-  },
-  "random-comment": {
-    label: "首页随机评论",
-    help: "从首页推荐中搜集候选笔记，随机抽取并读取正文，生成相关评论后直接发送。",
-    targetLabel: "",
-    placeholder: "",
-    targetRequired: false,
-    targetVisible: false,
-    tokenRequired: false,
-    commentSettings: true,
-  },
-  "home-engagement": {
-    label: "首页浏览 + 点赞 + 评论",
-    help: "一次会话点开推荐笔记，并只在这些已浏览笔记中完成点赞和评论；单篇失败会记录后继续。",
-    targetLabel: "",
-    placeholder: "",
-    targetRequired: false,
-    targetVisible: false,
-    tokenRequired: false,
-    homeEngagementSettings: true,
-  },
-  "fill-publish": { label: "图文发布" },
-  "fill-publish-video": { label: "视频发布" },
-  "long-article": { label: "长文发布" },
-  "send-private-messages": { label: "个性化私信" },
-};
-
-const publishMonitorCapabilities = new Set(["fill-publish", "fill-publish-video", "long-article"]);
-const agentMonitorCapabilities = new Set([...publishMonitorCapabilities, "send-private-messages"]);
-
-const taskTemplates = {
-  browse: ["browse-feeds"],
-  search: ["search-feeds"],
-  analysis: ["get-feed-detail", "user-profile"],
-  engagement: ["home-engagement", "keyword-engagement"],
-  comment: ["random-comment"],
-};
-
-const draftModes = {
-  "post-comment": {
-    label: "评论笔记",
-    targetLabel: "目标笔记 ID",
-    targetPlaceholder: "填写要评论的笔记 ID",
-    summaryLabel: "笔记内容说明",
-    summaryPlaceholder: "例如：露营装备清单与避坑建议",
-    contentLabel: "评论内容",
-    contentPlaceholder: "填写评论，或先补充笔记内容说明后生成草稿",
-    help: "对目标笔记发表一条新评论，不需要选择已有评论。",
-  },
-  "reply-comment": {
-    label: "回复评论",
-    targetLabel: "目标评论 ID",
-    targetPlaceholder: "填写要回复的评论 ID",
-    summaryLabel: "原评论内容说明",
-    summaryPlaceholder: "摘录对方评论，方便确认回复对象",
-    contentLabel: "回复内容",
-    contentPlaceholder: "结合对方原话填写最终回复",
-    help: "仅在需要回应某条已有评论时使用；执行前还要填写该评论所属的笔记 ID。",
-  },
-};
+const {
+  taskCapabilities,
+  publishMonitorCapabilities,
+  agentMonitorCapabilities,
+  taskTemplates,
+  draftModes,
+  capabilityTemplate,
+} = window.AutoXhsTaskCatalog;
 
 let commentSuggestionIndex = 0;
 
-const capabilityTemplate = Object.entries(taskTemplates).reduce((mapping, [template, capabilities]) => {
-  capabilities.forEach((capability) => mapping.set(capability, template));
-  return mapping;
-}, new Map());
-
 const $ = (selector) => document.querySelector(selector);
 const text = (value) => String(value ?? "");
+
+function accountConfig(accountOrName) {
+  if (typeof accountOrName === "object" && accountOrName) return accountOrName;
+  return currentAccountData.accounts.find((item) => item.name === accountOrName) || { name: text(accountOrName) };
+}
+
+function profileDisplayName(account) {
+  return account?.profile_display_name || account?.chrome_profile_directory || account?.name || "未命名 Profile";
+}
+
+function bindingRow(label, name, detail, tone = "") {
+  const row = document.createElement("div");
+  row.className = `account-binding-row ${tone}`.trim();
+  const labelNode = document.createElement("span");
+  labelNode.textContent = label;
+  const copy = document.createElement("div");
+  const strong = document.createElement("strong");
+  strong.textContent = name;
+  const small = document.createElement("small");
+  small.textContent = detail;
+  copy.append(strong, small);
+  row.append(labelNode, copy);
+  return row;
+}
 
 function signal(label, value) {
   const row = document.createElement("div");
@@ -274,6 +169,19 @@ function paintAccountActivity(node, account) {
   }
   copy.append(label, title, detail);
   node.replaceChildren(dot, copy);
+  if (
+    activity
+    && publishMonitorCapabilities.has(activity.capability)
+    && activity.state === "WAITING_APPROVAL"
+    && activity.parameters?.stage === "preview_ready"
+  ) {
+    const review = document.createElement("button");
+    review.type = "button";
+    review.className = "publish-review-button";
+    review.textContent = "查看并确认";
+    review.addEventListener("click", () => openPublishConfirmation(activity));
+    node.append(review);
+  }
 }
 
 function syncAccountActivityUI() {
@@ -283,6 +191,7 @@ function syncAccountActivityUI() {
   });
   refreshTaskAccountOptions();
   updateTaskAvailability();
+  updateCommentCollectionAvailability();
 }
 
 function accountCard(account, status) {
@@ -296,17 +205,18 @@ function accountCard(account, status) {
   identity.className = "account-identity";
   const avatar = document.createElement("span");
   avatar.className = "avatar";
-  avatar.textContent = text(account.name).slice(0, 2).toUpperCase();
+  const displayName = profileDisplayName(account);
+  avatar.textContent = text(displayName).slice(0, 2).toUpperCase();
   const titleWrap = document.createElement("div");
   const title = document.createElement("h3");
-  title.textContent = account.name;
+  title.textContent = displayName;
   const profile = document.createElement("p");
   profile.className = "profile";
-  profile.textContent = `Chrome · ${account.chrome_profile_directory || "Default"}`;
+  profile.textContent = `固定 Profile · ${account.chrome_profile_directory || "Default"}`;
   const extensionPath = document.createElement("p");
   extensionPath.className = "profile extension-path";
-  extensionPath.textContent = `扩展 · ${account.extension_dir || "未配置"}`;
-  extensionPath.title = account.extension_dir || "";
+  extensionPath.textContent = account.name === displayName ? "" : `槽位标识 · ${account.name}`;
+  extensionPath.title = account.extension_dir || account.name;
   titleWrap.append(title, profile, extensionPath);
   identity.append(avatar, titleWrap);
 
@@ -336,10 +246,25 @@ function accountCard(account, status) {
     signal("PROFILE", status?.profile_verified ? "已核验" : "待核验")
   );
 
+  const binding = document.createElement("div");
+  binding.className = "account-binding";
+  const statusIdentity = status?.identity || {};
+  binding.append(bindingRow("固定 Profile", displayName, account.chrome_profile_directory || "Default"));
+  if (state === "IDENTITY_MISMATCH") {
+    binding.append(
+      bindingRow("槽位原账号", statusIdentity.nickname || "未命名账号", `UID ${statusIdentity.user_id || "—"}`, "recorded"),
+      bindingRow("当前登录账号", statusIdentity.live_nickname || "未命名账号", `UID ${statusIdentity.live_user_id || "—"}`, "mismatch")
+    );
+  } else {
+    const currentName = statusIdentity.live_nickname || statusIdentity.nickname || statusIdentity.live_user_id || statusIdentity.user_id || "尚未登录或核验";
+    const currentUid = statusIdentity.live_user_id || statusIdentity.user_id;
+    binding.append(bindingRow("当前小红书账号", currentName, currentUid ? `UID ${currentUid}` : "完成身份核验后显示昵称与 UID"));
+  }
+
   const taskActivity = document.createElement("div");
   taskActivity.className = "account-activity";
   paintAccountActivity(taskActivity, account.name);
-  card.append(head, signals, taskActivity);
+  card.append(head, signals, binding, taskActivity);
   const next = document.createElement("p");
   next.className = "next-action";
   const identityName = status?.identity?.nickname || status?.identity?.user_id;
@@ -347,7 +272,7 @@ function accountCard(account, status) {
   if (!account.extension_instance_enrolled) guidedNextAction = "点击“继续配置”，然后在目标 Profile 的扩展中确认配对";
   else if (!status?.connection_ready) guidedNextAction = "点击“恢复连接”，系统会复用或按需打开绑定的 Profile";
   else if (["IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED"].includes(state)) guidedNextAction = "点击“完成身份核验”，系统会自动读取当前 UID";
-  else if (state === "IDENTITY_MISMATCH") guidedNextAction = "当前登录身份与槽位记录不一致，请使用切换账号流程";
+  else if (state === "IDENTITY_MISMATCH") guidedNextAction = "确认是登错账号，还是让当前账号接管这个固定 Profile";
   next.textContent = guidedNextAction ? `下一步：${guidedNextAction}` : `当前身份：${text(identityName || "已核验")}`;
   card.append(next);
   const actions = document.createElement("div");
@@ -357,7 +282,10 @@ function accountCard(account, status) {
   primaryButton.className = "primary-button account-primary-action";
   if (status?.identity?.switch_pending) {
     primaryButton.textContent = "继续切换账号";
-    primaryButton.addEventListener("click", () => openAccountSwitch(account.name, status));
+    primaryButton.addEventListener("click", () => openAccountSwitch(account, status));
+  } else if (state === "IDENTITY_MISMATCH") {
+    primaryButton.textContent = "处理账号不一致";
+    primaryButton.addEventListener("click", () => openIdentityMismatch(account, status));
   } else if (state === "READY") {
     primaryButton.textContent = "已就绪";
     primaryButton.dataset.ready = "true";
@@ -403,7 +331,7 @@ function accountCard(account, status) {
   addMoreAction("重新发起配对", () => beginPairing(account.name, next));
   addMoreAction("单独核验当前 UID", () => verifyIdentity(account.name, status?.identity?.recorded, next));
   addMoreGroup("账号管理");
-  addMoreAction(status?.identity?.switch_pending ? "继续切换账号" : "切换账号", () => openAccountSwitch(account.name, status));
+  addMoreAction(status?.identity?.switch_pending ? "继续切换账号" : "切换账号", () => openAccountSwitch(account, status));
   const logoutAction = addMoreAction("退出当前账号", (button) => logoutAccount(account.name, next, button));
   logoutAction.title = "结束当前小红书登录会话，并回读页面确认已退出";
   addMoreAction("账号自启动设置", () => updateAutostart(account.name, next));
@@ -636,22 +564,47 @@ async function inspectGuidedIdentity() {
     if (current.recordedUid !== identity.user_id) {
       $("#account-setup-stage").textContent = "身份不一致";
       $("#account-setup-message").textContent = `槽位记录 UID ${current.recordedUid}，当前登录 UID ${identity.user_id}。`;
-      setAccountSetupGuidance("当前登录账号与槽位记录不一致", "系统已停止进入 READY；请使用“切换账号”流程处理。", false);
-      setAccountSetupPrimary("进入切换账号流程", () => {
+      setAccountSetupGuidance("当前登录账号与槽位记录不一致", "系统已停止进入 READY；请确认是登错账号，还是让当前账号接管这个固定 Profile。", false);
+      setAccountSetupPrimary("处理账号不一致", () => {
         const { account, status } = current;
         closeGuidedAccountSetup();
-        openAccountSwitch(account.name, status);
+        openIdentityMismatch(account, {
+          ...status,
+          status: "IDENTITY_MISMATCH",
+          identity: {
+            ...(status.identity || {}),
+            recorded: true,
+            user_id: current.recordedUid,
+            live_user_id: identity.user_id,
+            live_nickname: identity.nickname,
+            matches_record: false,
+          },
+        });
       });
       return;
     }
     await finishGuidedAccountSetup(identity);
   } catch (error) {
-    if (error.code === "LOGIN_REQUIRED" || error.code === "IDENTITY_UID_UNAVAILABLE") {
+    if (error.code === "LOGIN_REQUIRED") {
+      if (accountSetupPollTimer) clearTimeout(accountSetupPollTimer);
+      accountSetupPollTimer = null;
       current.phase = "WAITING_LOGIN";
       $("#account-setup-stage").textContent = "等待登录";
-      $("#account-setup-message").textContent = error.message;
-      setAccountSetupGuidance("请在当前 Profile 中登录小红书", "登录完成后留在小红书页面，本页面会自动检测，不需要再点击核验 UID。", true);
+      $("#account-setup-message").textContent = `${error.message}，已停止自动核验。`;
+      setAccountSetupGuidance(
+        "请在当前 Profile 中登录小红书",
+        "系统已停止自动检测；登录完成并停留在小红书页面后，点击“我已登录，立即检测”。",
+        false
+      );
       setAccountSetupPrimary("我已登录，立即检测", inspectGuidedIdentity);
+      return;
+    }
+    if (error.code === "IDENTITY_UID_UNAVAILABLE") {
+      current.phase = "WAITING_UID";
+      $("#account-setup-stage").textContent = "等待 UID 可读";
+      $("#account-setup-message").textContent = error.message;
+      setAccountSetupGuidance("已检测到登录", "请停留在小红书首页，系统会继续尝试读取当前 UID。", true);
+      setAccountSetupPrimary("立即重新检测 UID", inspectGuidedIdentity);
       scheduleAccountSetupPoll(inspectGuidedIdentity, 2000);
       return;
     }
@@ -845,13 +798,17 @@ function setSwitchGuidance(title, body, pending = false) {
 
 function renderAccountSwitch(status) {
   const account = activeAccountSwitch?.account || "";
+  const config = activeAccountSwitch?.config || accountConfig(account);
   const identity = status?.identity || {};
   const pending = identity.switch || null;
   const isPending = Boolean(identity.switch_pending || pending);
   activeAccountSwitch.status = status;
 
-  $("#switch-account-avatar").textContent = account.slice(0, 2).toUpperCase();
-  $("#switch-account-name").textContent = account;
+  const displayName = profileDisplayName(config);
+  $("#switch-account-avatar").textContent = displayName.slice(0, 2).toUpperCase();
+  $("#switch-account-name").textContent = displayName;
+  $("#switch-profile-name").textContent = displayName;
+  $("#switch-profile-directory").textContent = config.chrome_profile_directory || "Default";
   $("#switch-current-name").textContent = identity.nickname || identity.user_id || "尚未记录";
   $("#switch-current-uid").textContent = `UID ${identity.user_id || "—"}`;
   $("#switch-stage").textContent = isPending ? "等待新登录" : "准备换号";
@@ -885,8 +842,9 @@ function renderAccountSwitch(status) {
   }
 }
 
-function openAccountSwitch(account, status) {
-  activeAccountSwitch = { account, status };
+function openAccountSwitch(accountOrName, status) {
+  const config = accountConfig(accountOrName);
+  activeAccountSwitch = { account: config.name, config, status };
   renderAccountSwitch(status);
   $("#account-switch-dialog").showModal();
 }
@@ -965,6 +923,148 @@ async function cancelAccountSwitch() {
   }
 }
 
+function setMismatchGuidance(title, body, pending = false) {
+  const guidance = $("#mismatch-guidance");
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const copy = document.createElement("p");
+  copy.textContent = body;
+  guidance.replaceChildren(heading, copy);
+  guidance.classList.toggle("pending", pending);
+}
+
+function renderIdentityMismatch() {
+  if (!activeIdentityMismatch) return;
+  const { account, status, phase } = activeIdentityMismatch;
+  const identity = status.identity || {};
+  const displayName = profileDisplayName(account);
+  $("#mismatch-avatar").textContent = displayName.slice(0, 2).toUpperCase();
+  $("#mismatch-profile-name").textContent = displayName;
+  $("#mismatch-profile-directory").textContent = account.chrome_profile_directory || "Default";
+  $("#mismatch-recorded-name").textContent = identity.nickname || "未命名账号";
+  $("#mismatch-recorded-uid").textContent = `UID ${identity.user_id || "—"}`;
+  $("#mismatch-live-name").textContent = identity.live_nickname || "未命名账号";
+  $("#mismatch-live-uid").textContent = `UID ${identity.live_user_id || "—"}`;
+  $("#mismatch-stage").textContent = phase === "restore" ? "等待原账号登录" : phase === "replace" ? "等待覆盖确认" : "等待选择";
+  $("#mismatch-message").textContent = "";
+  $("#mismatch-restore").hidden = phase !== "choose";
+  $("#mismatch-use-current").hidden = phase !== "choose";
+  $("#mismatch-confirm-replace").hidden = phase !== "replace";
+  $("#mismatch-recheck").hidden = phase === "replace";
+
+  if (phase === "restore") {
+    setMismatchGuidance(
+      "请在这个固定 Profile 中登录原账号",
+      `当前错误账号已经退出。请登录槽位原记录 UID ${identity.user_id || "—"}，然后点击“重新核验”。Profile 与槽位不会变化。`,
+      true
+    );
+  } else if (phase === "replace") {
+    setMismatchGuidance(
+      "这会替换槽位保存的账号身份",
+      `确认后，槽位记录将从 UID ${identity.user_id || "—"} 改为 UID ${identity.live_user_id || "—"}；固定 Profile、槽位标识、扩展和 Bridge 都保持不变。`
+    );
+  } else {
+    setMismatchGuidance(
+      "请选择这次登录是否正确",
+      "如果登错了，退出当前账号并登录原账号；如果以后就使用当前账号，可以明确确认覆盖槽位记录的 UID。"
+    );
+  }
+}
+
+function openIdentityMismatch(accountOrName, status) {
+  const account = accountConfig(accountOrName);
+  activeIdentityMismatch = { account, status, phase: "choose" };
+  renderIdentityMismatch();
+  $("#identity-mismatch-dialog").showModal();
+}
+
+function closeIdentityMismatch() {
+  $("#identity-mismatch-dialog").close();
+  activeIdentityMismatch = null;
+}
+
+async function restoreRecordedIdentity() {
+  if (!activeIdentityMismatch) return;
+  const { account } = activeIdentityMismatch;
+  const button = $("#mismatch-restore");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  $("#mismatch-message").textContent = "正在退出当前误登录账号…";
+  try {
+    await mutateJson(`${api}/accounts/${encodeURIComponent(account.name)}/auth/logout`, "POST", { confirmed: true });
+    activeIdentityMismatch.phase = "restore";
+    renderIdentityMismatch();
+    $("#mismatch-message").textContent = "当前账号已退出。请在这个 Profile 中登录原账号。";
+  } catch (error) {
+    $("#mismatch-message").textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+async function recheckMismatchIdentity() {
+  if (!activeIdentityMismatch) return;
+  const { account } = activeIdentityMismatch;
+  const expectedUid = activeIdentityMismatch.status.identity?.user_id || "";
+  const button = $("#mismatch-recheck");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  $("#mismatch-message").textContent = "正在重新读取当前登录账号…";
+  try {
+    const checked = await mutateJson(`${api}/accounts/${encodeURIComponent(account.name)}/identity/check`, "POST", {});
+    if (checked.identity.user_id === expectedUid) {
+      closeIdentityMismatch();
+      await loadDashboard();
+      return;
+    }
+    activeIdentityMismatch.status.identity = {
+      ...activeIdentityMismatch.status.identity,
+      live_user_id: checked.identity.user_id,
+      live_nickname: checked.identity.nickname,
+    };
+    activeIdentityMismatch.phase = "choose";
+    renderIdentityMismatch();
+    $("#mismatch-message").textContent = `当前仍是 UID ${checked.identity.user_id}，尚未恢复为槽位原账号。`;
+  } catch (error) {
+    $("#mismatch-message").textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+function prepareIdentityReplacement() {
+  if (!activeIdentityMismatch) return;
+  activeIdentityMismatch.phase = "replace";
+  renderIdentityMismatch();
+}
+
+async function confirmIdentityReplacement() {
+  if (!activeIdentityMismatch) return;
+  const { account, status } = activeIdentityMismatch;
+  const identity = status.identity || {};
+  const button = $("#mismatch-confirm-replace");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  $("#mismatch-message").textContent = "正在核对当前登录账号并更新槽位身份…";
+  try {
+    await mutateJson(`${api}/accounts/${encodeURIComponent(account.name)}/identity/replace`, "POST", {
+      confirmed: true,
+      expected_recorded_user_id: identity.user_id,
+      expected_observed_user_id: identity.live_user_id,
+      label: identity.live_nickname || "",
+    });
+    closeIdentityMismatch();
+    await loadDashboard();
+  } catch (error) {
+    $("#mismatch-message").textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
 function emptyAccounts() {
   const empty = document.createElement("article");
   empty.className = "empty-card";
@@ -972,40 +1072,57 @@ function emptyAccounts() {
   const title = document.createElement("strong");
   title.textContent = "还没有账号槽位";
   const body = document.createElement("span");
-  body.textContent = "从下方添加账号开始，系统会引导你完成 Profile、配对和 UID 核验。";
+  body.textContent = "点击右上角“添加账号”，系统会引导你完成 Profile、配对和 UID 核验。";
   copy.append(title, body);
   empty.append(copy);
   return empty;
 }
 
-async function fetchJson(path) {
-  const response = await fetch(path, { cache: "no-store" });
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    const error = new Error(payload.error?.message || "请求失败");
-    error.code = payload.error?.code || "REQUEST_FAILED";
-    throw error;
+function uniqueAccountKey(seed) {
+  const normalized = text(seed)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "profile";
+  const used = new Set(currentAccountData.accounts.map((account) => account.name));
+  let candidate = normalized.slice(0, 32);
+  let suffix = 2;
+  while (used.has(candidate)) {
+    const ending = `-${suffix}`;
+    candidate = `${normalized.slice(0, 32 - ending.length)}${ending}`;
+    suffix += 1;
   }
-  return payload;
+  return candidate;
 }
 
-async function mutateJson(path, method, body) {
-  if (!sessionToken) {
-    const session = await fetchJson(`${api}/session`);
-    sessionToken = session.session_token;
+function syncSelectedProfileName() {
+  const selected = $("#profile-select").value;
+  if (!selected) {
+    $("#account-name").value = "";
+    $("#account-key").value = "";
+    return;
   }
-  const response = await fetch(path, {
-    method,
-    headers: { "Content-Type": "application/json", "X-Auto-XHS-Session": sessionToken },
-    body: JSON.stringify(body || {}),
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    const error = new Error(payload.error?.message || "请求失败");
-    error.code = payload.error?.code || "REQUEST_FAILED";
-    throw error;
+  const profile = JSON.parse(selected);
+  $("#account-name").value = profile.display_name;
+  $("#account-key").value = uniqueAccountKey(profile.profile_directory);
+}
+
+function syncAccountMode() {
+  const existing = $("#account-mode").value === "existing";
+  $("#profile-field").hidden = !existing;
+  $("#discover-profiles").hidden = !existing;
+  $("#account-name").readOnly = existing;
+  $("#account-name").maxLength = existing ? 80 : 32;
+  $("#account-name-label").textContent = existing ? "槽位名称（跟随 Profile）" : "槽位名称";
+  $("#account-name-help").textContent = existing
+    ? "选择已有 Profile 后自动使用它的名称；内部槽位标识由系统生成。"
+    : "新建独立槽位时使用英文字母、数字、短横线或下划线。";
+  $("#account-name").placeholder = existing ? "请先扫描并选择 Profile" : "例如 brand-a";
+  if (existing) syncSelectedProfileName();
+  else {
+    $("#account-name").value = "";
+    $("#account-key").value = "";
   }
-  return payload;
 }
 
 async function discoverProfiles() {
@@ -1015,27 +1132,50 @@ async function discoverProfiles() {
     const payload = await mutateJson(`${api}/accounts/discover`, "POST", {});
     const select = $("#profile-select");
     select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "请选择一个未绑定的 Profile";
+    select.append(placeholder);
+    let firstAvailable = "";
     payload.profiles.forEach((profile) => {
       const option = document.createElement("option");
       option.value = JSON.stringify({
         user_data_dir: profile.profile_path.replace(/[\\/]?[^\\/]+$/, ""),
         profile_directory: profile.profile_directory,
+        display_name: profile.display_name || profile.profile_directory,
       });
       option.textContent = `${profile.display_name} · ${profile.profile_directory}${profile.bound_account ? `（已绑定 ${profile.bound_account}）` : ""}`;
       option.disabled = Boolean(profile.bound_account);
       select.append(option);
+      if (!option.disabled && !firstAvailable) firstAvailable = option.value;
     });
-    message.textContent = payload.profiles.length ? "请选择未绑定的 Profile。" : "没有发现可用的 Chrome Profile。";
+    if (firstAvailable) {
+      select.value = firstAvailable;
+      syncSelectedProfileName();
+      message.textContent = "已选择第一个未绑定 Profile；槽位名称已自动与 Profile 保持一致。";
+    } else {
+      message.textContent = payload.profiles.length ? "发现的 Profile 都已绑定。" : "没有发现可用的 Chrome Profile。";
+    }
   } catch (error) {
     message.textContent = error.message;
   }
 }
 
+function setAccountCreatePanel(open) {
+  const panel = $("#account-create-panel");
+  panel.hidden = !open;
+  $("#open-account-create").setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  window.AutoXhsWorkspace?.navigate("accounts");
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => ($("#account-mode").value === "existing" ? $("#profile-select") : $("#account-name")).focus(), 180);
+}
+
 async function submitAccount(event) {
   event.preventDefault();
   const message = $("#setup-message");
-  const name = $("#account-name").value.trim();
   const mode = $("#account-mode").value;
+  const name = mode === "existing" ? $("#account-key").value.trim() : $("#account-name").value.trim();
   message.textContent = "正在创建本地账号槽位…";
   try {
     let payload;
@@ -1047,6 +1187,7 @@ async function submitAccount(event) {
         name,
         user_data_dir: profile.user_data_dir,
         profile_directory: profile.profile_directory,
+        profile_display_name: profile.display_name,
         confirmed: true,
       });
     } else {
@@ -1054,7 +1195,9 @@ async function submitAccount(event) {
     }
     message.textContent = `${payload.account.name} 已添加，正在打开引导配置。`;
     event.target.reset();
+    syncAccountMode();
     await loadDashboard();
+    setAccountCreatePanel(false);
     const addedAccount = currentAccountData.accounts.find((account) => account.name === payload.account.name) || payload.account;
     await beginGuidedAccountSetup(addedAccount, accountStatusByName.get(payload.account.name) || {});
   } catch (error) {
@@ -1090,21 +1233,13 @@ function renderTaskTemplateActions(preferredCapability = "") {
 }
 
 function showTaskPanel(name) {
-  document.querySelectorAll("[data-task-panel]").forEach((button) => {
-    const active = button.dataset.taskPanel === name;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  document.querySelectorAll("[data-task-view]").forEach((panel) => {
-    const active = panel.dataset.taskView === name;
-    panel.hidden = !active;
-    panel.classList.toggle("active", active);
-  });
+  const route = name === "confirmation" ? "approvals" : "tasks";
+  window.AutoXhsWorkspace?.navigate(route);
 }
 
 function setupTaskPanels() {
-  document.querySelectorAll("[data-task-panel]").forEach((button) => {
-    button.addEventListener("click", () => showTaskPanel(button.dataset.taskPanel));
+  window.addEventListener("auto-xhs:workspace-change", (event) => {
+    if (event.detail.route === "tasks") updateTaskAvailability();
   });
 }
 
@@ -1475,7 +1610,7 @@ function appendPublishTaskPreview(card, item) {
       preparing: "准备浏览器预览",
       template_selection: "选择长文模板",
       next_step: "进入长文发布页",
-      preview_ready: "等待 Agent 侧确认",
+      preview_ready: "等待 WebUI 或 Agent 确认",
     }[parameters.stage] || parameters.stage],
   ];
   values.forEach(([label, value]) => {
@@ -1487,6 +1622,122 @@ function appendPublishTaskPreview(card, item) {
     details.append(term, description);
   });
   if (details.childElementCount) card.append(details);
+}
+
+function publishTaskReadyForConfirmation(item) {
+  return Boolean(
+    item
+    && publishMonitorCapabilities.has(item.capability)
+    && item.state === "WAITING_APPROVAL"
+    && item.parameters?.stage === "preview_ready"
+  );
+}
+
+function publishKindLabel(kind) {
+  return { image: "图文", video: "视频", long_article: "长文" }[kind] || kind || "发布内容";
+}
+
+function publishAssetName(asset) {
+  const parts = text(asset).split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || text(asset);
+}
+
+function closePublishConfirmation() {
+  activePublishTask = null;
+  const dialog = $("#publish-confirm-dialog");
+  if (dialog.open) dialog.close();
+}
+
+function openPublishConfirmation(task) {
+  if (!publishTaskReadyForConfirmation(task)) {
+    window.alert("这条发布任务尚未进入最终预览确认阶段，请刷新后重试。");
+    return;
+  }
+  activePublishTask = task;
+  const status = accountStatusByName.get(task.account_slot) || {};
+  const account = accountConfig(task.account_slot);
+  const identity = status.identity || {};
+  const preview = task.parameters?.preview || {};
+  const assets = Array.isArray(preview.assets) ? preview.assets : [];
+
+  $("#publish-confirm-avatar").textContent = text(profileDisplayName(account)).slice(0, 2).toUpperCase();
+  $("#publish-confirm-account").textContent = profileDisplayName(account);
+  $("#publish-confirm-profile").textContent = `槽位 ${task.account_slot} · ${account.chrome_profile_directory || "Default"}`;
+  $("#publish-confirm-kind").textContent = publishKindLabel(preview.kind);
+  $("#publish-confirm-title").textContent = preview.title || "（无标题）";
+  $("#publish-confirm-content").textContent = preview.description || preview.content || "（无正文）";
+  $("#publish-confirm-tags").textContent = (preview.tags || []).length ? preview.tags.map((tag) => `#${tag}`).join(" ") : "无标签";
+  $("#publish-confirm-visibility").textContent = preview.visibility || "公开可见";
+  $("#publish-confirm-schedule").textContent = preview.schedule_at || "立即发布";
+  $("#publish-confirm-identity").textContent = identity.live_nickname || identity.nickname || "未核验账号";
+  $("#publish-confirm-uid").textContent = `UID ${identity.live_user_id || identity.user_id || "—"}`;
+
+  const assetList = $("#publish-confirm-assets");
+  assetList.replaceChildren();
+  if (!assets.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "未记录素材";
+    assetList.append(empty);
+  } else {
+    assets.forEach((asset, index) => {
+      const row = document.createElement("li");
+      const order = document.createElement("span");
+      const name = document.createElement("strong");
+      order.textContent = String(index + 1).padStart(2, "0");
+      name.textContent = publishAssetName(asset);
+      name.title = text(asset);
+      row.append(order, name);
+      assetList.append(row);
+    });
+  }
+
+  const ready = Boolean(status.ready && identity.live_user_id && identity.matches_record);
+  const checkbox = $("#publish-preview-confirmed");
+  checkbox.checked = false;
+  checkbox.disabled = !ready;
+  $("#publish-confirm-submit").disabled = true;
+  $("#publish-save-draft").disabled = !ready;
+  $("#publish-confirm-message").textContent = ready
+    ? "请先在绑定的 Chrome Profile 中核对真实预览，再勾选确认。"
+    : "当前账号不是 READY 状态，请先完成连接和 UID 核验。";
+  $("#publish-confirm-dialog").showModal();
+}
+
+async function executePublishConfirmation(action) {
+  if (!activePublishTask) return;
+  const task = activePublishTask;
+  const status = accountStatusByName.get(task.account_slot) || {};
+  const identity = status.identity || {};
+  const publish = action === "publish-confirm";
+  if (publish && !$("#publish-preview-confirmed").checked) return;
+  if (!publish && !window.confirm("确认不发布，并把当前浏览器中的内容保存到小红书草稿箱？")) return;
+
+  const primary = $("#publish-confirm-submit");
+  const draft = $("#publish-save-draft");
+  primary.disabled = true;
+  draft.disabled = true;
+  primary.setAttribute("aria-busy", "true");
+  draft.setAttribute("aria-busy", "true");
+  $("#publish-confirm-message").textContent = publish ? "正在确认并等待平台回读发布结果…" : "正在保存到小红书草稿箱…";
+  try {
+    const result = await mutateJson(`${api}/tasks/${task.task_id}/${action}`, "POST", {
+      account_slot: task.account_slot,
+      verified_uid: identity.live_user_id || "",
+      confirmed: true,
+      ...(publish ? { preview_confirmed: true } : {}),
+    });
+    const finalTask = result.task || {};
+    $("#publish-confirm-message").textContent = finalTask.result_summary || stateLabel(finalTask.state);
+    await loadDashboard();
+    if (["SUCCESS", "CANCELLED"].includes(finalTask.state)) closePublishConfirmation();
+  } catch (error) {
+    $("#publish-confirm-message").textContent = error.message;
+    primary.disabled = !$("#publish-preview-confirmed").checked;
+    draft.disabled = false;
+  } finally {
+    primary.removeAttribute("aria-busy");
+    draft.removeAttribute("aria-busy");
+  }
 }
 
 async function updateTask(task, action, button) {
@@ -1536,7 +1787,17 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
     if (meta.textContent) card.append(meta);
     appendPublishTaskPreview(card, item);
     appendTaskResult(card, item, { interactive });
-    if (interactive && !agentMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
+    if (interactive && publishTaskReadyForConfirmation(item)) {
+      const actions = document.createElement("div");
+      actions.className = "task-actions";
+      const review = document.createElement("button");
+      review.type = "button";
+      review.className = "primary-button";
+      review.textContent = "查看并确认";
+      review.addEventListener("click", () => openPublishConfirmation(item));
+      actions.append(review);
+      card.append(actions);
+    } else if (interactive && !agentMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
       const actions = document.createElement("div");
       actions.className = "task-actions";
       if (item.state === "BLOCKED") {
@@ -1671,21 +1932,162 @@ async function pollTaskActivity() {
 }
 
 async function loadWorkData(accountData, statuses) {
-  const [tasks, records, drafts] = await Promise.all([fetchJson(`${api}/tasks`), fetchJson(`${api}/records`), fetchJson(`${api}/drafts`)]);
+  const [tasks, records, drafts, inboundEvents, replyIntelligence] = await Promise.all([
+    fetchJson(`${api}/tasks`),
+    fetchJson(`${api}/records`),
+    fetchJson(`${api}/drafts`),
+    fetchJson(`${api}/inbound-events`),
+    fetchJson(`${api}/reply-intelligence/status`),
+  ]);
   const resultByTask = new Map(records.records.filter((record) => record.result && Object.keys(record.result).length).map((record) => [record.task_id, record.result]));
   const tasksWithResults = tasks.tasks.map((task) => ({ ...task, result: resultByTask.get(task.task_id) || task.result || {} }));
   taskSnapshotKey = taskSnapshot(tasks.tasks);
   rebuildAccountTaskActivity(tasksWithResults);
   renderTaskItems(tasksWithResults, "#task-list", "暂无任务", { interactive: true });
+  renderTaskItems(
+    tasksWithResults.filter(publishTaskReadyForConfirmation),
+    "#publish-confirmation-list",
+    "暂无待确认发布",
+    { interactive: true }
+  );
   renderTaskItems(records.records, "#record-list", "暂无执行记录");
   accountStatusByName = new Map(accountData.accounts.map((account, index) => [account.name, statuses[index]]));
+  syncAccountActivityUI();
   populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
   refreshTaskAccountOptions();
   updateTaskAvailability();
   scheduleTaskActivityPoll();
-  $("#confirmation-count").textContent = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length;
+  const publishConfirmations = tasks.tasks.filter(publishTaskReadyForConfirmation).length;
+  $("#confirmation-count").textContent = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length + publishConfirmations;
   renderDrafts(drafts.drafts);
+  renderIntelligentReplyEvents(inboundEvents.events, replyIntelligence);
+  renderReplyModelSettings(replyIntelligence);
+}
+
+function renderReplyModelSettings(status) {
+  const badge = $("#reply-model-badge");
+  const message = $("#reply-model-message");
+  badge.textContent = status.configured ? "已配置" : "未配置";
+  badge.className = `diagnosis-badge ${status.configured ? "good" : "warn"}`;
+  $("#reply-model-base-url").value = status.base_url || "https://api.deepseek.com";
+  $("#reply-model-name").value = status.model || "deepseek-v4-flash";
+  $("#reply-model-timeout").value = status.timeout_seconds || 60;
+  $("#reply-model-api-key").value = "";
+  message.textContent = status.configured
+    ? `配置已生效 · ${status.configuration_source === "webui" ? "WebUI 本地配置" : "环境变量"} · Key 不回显`
+    : "填写兼容接口配置后保存；Key 只保存在本机。";
+}
+
+function commentCollectionAccountLabel(account, status) {
+  const identity = status?.identity || {};
+  const nickname = identity.live_nickname || identity.nickname || "昵称待核验";
+  const uid = identity.live_user_id || identity.user_id || "UID 待核验";
+  return `${profileDisplayName(account)} · ${nickname} · ${uid}（${stateLabel(status?.status || "ERROR")}）`;
+}
+
+function populateCommentCollectionAccounts(accounts, statuses) {
+  const select = $("#comment-collection-account");
+  const previous = select.value;
+  select.replaceChildren();
+  accounts.forEach((account, index) => {
+    const status = statuses[index] || { status: "ERROR", ready: false };
+    const option = document.createElement("option");
+    option.value = account.name;
+    option.disabled = !status.ready;
+    option.textContent = commentCollectionAccountLabel(account, status);
+    option.title = `槽位标识：${account.name}`;
+    select.append(option);
+  });
+  const ready = Array.from(select.options).filter((option) => !option.disabled);
+  const retained = ready.find((option) => option.value === previous);
+  if (retained) select.value = retained.value;
+  else if (ready[0]) select.value = ready[0].value;
+  if (!ready.length) {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = accounts.length ? "暂无 READY 账号" : "请先添加账号";
+    placeholder.selected = true;
+    select.prepend(placeholder);
+  }
+  updateCommentCollectionAvailability();
+}
+
+function updateCommentCollectionAvailability() {
+  const account = $("#comment-collection-account").value;
+  const status = accountStatusByName.get(account) || {};
+  const busy = account ? accountHasUnfinishedTask(account) : false;
+  const button = $("#collect-comments");
+  const message = $("#comment-collection-message");
+  button.disabled = !account || !status.ready || busy;
+  if (!account) {
+    message.textContent = "没有可采集的 READY 账号，请先到账号页完成连接和 UID 核验。";
+  } else if (busy) {
+    message.textContent = commentCollectionMessageByAccount.get(account)
+      || `${commentCollectionAccountLabel(accountConfig(account), status)}正在执行其他任务。`;
+  } else {
+    message.textContent = commentCollectionMessageByAccount.get(account)
+      || "点击后读取该账号“评论和@”通知，只写入本地事件收件箱。";
+  }
+}
+
+function commentCollectionSummary(executed) {
+  const task = executed.task || {};
+  const result = executed.result || {};
+  const events = result.inbound_events || {};
+  if (!["SUCCESS", "PARTIAL_SUCCESS"].includes(task.state)) {
+    return task.result_summary || task.recommended_action || stateLabel(task.state || "FAILED");
+  }
+  const prefix = task.state === "PARTIAL_SUCCESS" ? "采集部分完成" : "采集完成";
+  return `${prefix}：读取 ${result.count ?? events.observed_count ?? 0} 条评论通知；新增 ${events.created_count ?? 0} 条，重复 ${events.duplicate_count ?? 0} 条。`;
+}
+
+async function collectNewComments(event) {
+  event.preventDefault();
+  const account = $("#comment-collection-account").value;
+  const maxNotes = Number($("#comment-collection-max-notes").value);
+  const message = $("#comment-collection-message");
+  if (!accountStatusByName.get(account)?.ready) {
+    message.textContent = "目标账号尚未 READY，评论没有采集。";
+    return;
+  }
+  if (accountHasUnfinishedTask(account)) {
+    message.textContent = "该账号已有未完成任务，请等待任务结束后再采集。";
+    updateCommentCollectionAvailability();
+    return;
+  }
+  pendingSubmissionByAccount.set(account, {
+    capability: "collect-note-comments",
+    request_summary: `读取最新 ${maxNotes} 条评论通知`,
+  });
+  commentCollectionMessageByAccount.set(account, "正在打开小红书通知页并读取“评论和@”…");
+  message.textContent = commentCollectionMessageByAccount.get(account);
+  updateCommentCollectionAvailability();
+  syncAccountActivityUI();
+  scheduleTaskActivityPoll();
+  try {
+    const created = await mutateJson(`${api}/tasks`, "POST", {
+      source: "webui",
+      account_slot: account,
+      capability: "collect-note-comments",
+      request_summary: `读取最新 ${maxNotes} 条评论通知`,
+      parameters: { max_notes: maxNotes },
+    });
+    const executed = await mutateJson(`${api}/tasks/${created.task.task_id}/execute`, "POST", {});
+    const summary = commentCollectionSummary(executed);
+    commentCollectionMessageByAccount.set(account, summary);
+    taskMessageByAccount.set(account, summary);
+  } catch (error) {
+    const summary = `采集失败：${error.message}`;
+    commentCollectionMessageByAccount.set(account, summary);
+    taskMessageByAccount.set(account, summary);
+  } finally {
+    pendingSubmissionByAccount.delete(account);
+    await loadDashboard();
+    updateCommentCollectionAvailability();
+    syncAccountActivityUI();
+    scheduleTaskActivityPoll();
+  }
 }
 
 function accountSnapshot(accounts, statuses) {
@@ -1734,6 +2136,7 @@ function renderAccountRoster(accountData, statuses) {
   $("#ready-total").textContent = statuses.filter((item) => item.status === "READY").length;
   populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
+  populateCommentCollectionAccounts(accountData.accounts, statuses);
   refreshTaskAccountOptions();
   updateTaskAvailability();
 }
@@ -1780,6 +2183,16 @@ function renderDrafts(drafts) {
     const title = document.createElement("strong"); title.textContent = `${draft.account_slot} · ${(draftModes[draft.action_type] || {}).label || draft.action_type}`;
     const content = document.createElement("p"); content.textContent = draft.content;
     card.append(badge, title, content);
+    const intelligent = draft.metadata?.intelligent_reply;
+    if (intelligent) {
+      const meta = document.createElement("div");
+      meta.className = "task-meta";
+      const confidence = Number.isFinite(Number(intelligent.confidence))
+        ? `${Math.round(Number(intelligent.confidence) * 100)}%`
+        : "—";
+      meta.textContent = `AI 草稿 · ${intelligent.intent || "other"} · 置信度 ${confidence}${intelligent.quality_flags?.length ? ` · 需留意 ${intelligent.quality_flags.join(", ")}` : ""}`;
+      card.append(meta);
+    }
     if (["DRAFT", "CONFIRMED"].includes(draft.status)) {
       const confirm = document.createElement("button"); confirm.className = "primary-button"; confirm.type = "button"; confirm.textContent = draft.status === "CONFIRMED" ? "重新核对并执行" : "核对并确认";
       confirm.addEventListener("click", () => confirmDraft(draft, card, confirm));
@@ -1787,6 +2200,66 @@ function renderDrafts(drafts) {
     }
     container.append(card);
   });
+}
+
+function renderIntelligentReplyEvents(events, status) {
+  const container = $("#intelligent-reply-list");
+  const statusLine = $("#reply-intelligence-status");
+  statusLine.textContent = status.configured
+    ? `模型 ${status.model} 已配置；生成结果只进入人工确认。`
+    : `尚未配置：${(status.missing || []).join("、")}`;
+  container.replaceChildren();
+  const candidates = events
+    .filter((event) => event.event_type === "note_comment" && !event.created_task_id)
+    .slice(0, 20);
+  if (!candidates.length) {
+    const empty = emptyAccounts();
+    empty.querySelector("strong").textContent = "暂无待处理新评论";
+    empty.querySelector("span").textContent = "采集到新评论后可在这里生成智能回复。";
+    container.append(empty);
+    return;
+  }
+  candidates.forEach((event) => {
+    const payload = event.payload || {};
+    const card = document.createElement("article");
+    card.className = "record-card";
+    const badge = document.createElement("span"); badge.className = "badge warning"; badge.textContent = "待生成";
+    const title = document.createElement("strong"); title.textContent = `${event.account_slot} · ${payload.nickname || payload.user_id || "用户"}`;
+    const content = document.createElement("p"); content.textContent = payload.content || "评论内容为空";
+    const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = payload.note_title || payload.feed_id || event.object_id || "未知笔记";
+    const actions = document.createElement("div"); actions.className = "task-actions";
+    const button = document.createElement("button"); button.type = "button"; button.className = "secondary-button"; button.textContent = "生成 AI 回复草稿";
+    button.disabled = !status.configured;
+    button.addEventListener("click", () => generateIntelligentReplyDraft(event, card, button));
+    actions.append(button);
+    card.append(badge, title, content, meta, actions);
+    container.append(card);
+  });
+}
+
+async function generateIntelligentReplyDraft(event, card, button) {
+  const identity = accountStatusByName.get(event.account_slot)?.identity || {};
+  const verifiedUid = identity.live_user_id || identity.user_id || "";
+  if (!verifiedUid) {
+    card.querySelector("p").textContent = "该账号还没有可用的已核验 UID。";
+    return;
+  }
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "生成中…";
+  try {
+    const result = await mutateJson(`${api}/inbound-events/${encodeURIComponent(event.event_id)}/intelligent-reply-draft`, "POST", {
+      account_slot: event.account_slot,
+      verified_uid: verifiedUid,
+      reply_style: "natural",
+    });
+    card.querySelector("p").textContent = `已生成：${result.generation.reply}`;
+    await loadDashboard();
+  } catch (error) {
+    card.querySelector("p").textContent = error.message;
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 async function submitDraft(event) {
@@ -1815,21 +2288,34 @@ async function submitDraft(event) {
 }
 
 async function confirmDraft(draft, card, button) {
-  const feedId = draft.action_type === "post-comment"
-    ? draft.target_id
-    : window.prompt("请输入这条评论所属的笔记 ID：", "");
-  if (!feedId) return;
-  const token = window.prompt("请输入该笔记当前的 XSEC Token：", "");
-  if (!token) return;
+  const collectedReply = draft.action_type === "reply-comment" && Boolean(draft.source_event_id);
+  let feedId = draft.action_type === "post-comment" ? draft.target_id : "";
+  let token = "";
+  if (!collectedReply) {
+    if (draft.action_type === "reply-comment") {
+      feedId = window.prompt("请输入这条评论所属的笔记 ID：", "");
+      if (!feedId) return;
+    }
+    token = window.prompt("请输入该笔记当前的 XSEC Token：", "");
+    if (!token) return;
+  }
   const actionLabel = (draftModes[draft.action_type] || {}).label || draft.action_type;
-  const accepted = window.confirm(`目标账号：${draft.account_slot}\nUID：${draft.verified_uid}\n动作：${actionLabel}\n目标：${draft.target_summary || draft.target_id}\n\n最终文本：\n${draft.content}\n\n确认后将立即执行，是否继续？`);
+  const contextNote = collectedReply ? "\n来源：已采集评论，所属笔记信息将自动带入" : "";
+  const accepted = window.confirm(`目标账号：${draft.account_slot}\nUID：${draft.verified_uid}\n动作：${actionLabel}\n目标：${draft.target_summary || draft.target_id}${contextNote}\n\n最终文本：\n${draft.content}\n\n确认后将立即执行，是否继续？`);
   if (!accepted) return;
   const original = button.textContent;
   button.disabled = true;
   button.textContent = "执行中…";
   try {
     const confirmed = await mutateJson(`${api}/drafts/${draft.draft_id}/confirm`, "POST", {});
-    const result = await mutateJson(`${api}/drafts/${draft.draft_id}/execute`, "POST", { approval_id: confirmed.approval.approval_id, feed_id: feedId, comment_id: draft.action_type === "reply-comment" ? draft.target_id : "", xsec_token: token });
+    const result = await mutateJson(`${api}/drafts/${draft.draft_id}/execute`, "POST", {
+      approval_id: confirmed.approval.approval_id,
+      ...(collectedReply ? {} : {
+        feed_id: feedId,
+        comment_id: draft.action_type === "reply-comment" ? draft.target_id : "",
+        xsec_token: token,
+      }),
+    });
     card.querySelector("p").textContent = result.task.result_summary || result.task.state;
     await loadDashboard();
   } catch (error) {
@@ -2015,24 +2501,7 @@ async function loadDashboard() {
 }
 
 function setupNavigation() {
-  const links = Array.from(document.querySelectorAll(".nav-item[href^='#']"));
-  const sections = links
-    .map((link) => document.querySelector(link.getAttribute("href")))
-    .filter(Boolean);
-  if (!("IntersectionObserver" in window)) return;
-  const observer = new IntersectionObserver((entries) => {
-    const visible = entries
-      .filter((entry) => entry.isIntersecting)
-      .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-    if (!visible) return;
-    links.forEach((link) => {
-      const active = link.getAttribute("href") === `#${visible.target.id}`;
-      link.classList.toggle("active", active);
-      if (active) link.setAttribute("aria-current", "page");
-      else link.removeAttribute("aria-current");
-    });
-  }, { rootMargin: "-20% 0px -65%", threshold: [0, .2, .6] });
-  sections.forEach((section) => observer.observe(section));
+  window.AutoXhsWorkspace?.render(window.location.hash);
 }
 
 function renderSystem(system) {
@@ -2045,7 +2514,6 @@ function renderSystem(system) {
   $("#setting-daily").value = system.l1_limits.daily;
   $("#setting-dedup").value = system.l1_limits.dedup_minutes;
   $("#setting-failures").value = system.l1_limits.failure_threshold;
-  $("#today-task-total").textContent = system.summary.tasks_total;
   $("#waiting-draft-total").textContent = system.summary.drafts_waiting;
   $("#recent-failure-total").textContent = system.summary.recent_failures;
 }
@@ -2079,6 +2547,44 @@ async function saveSettings(event) {
   } catch (error) { $("#diagnostic-path").textContent = error.message; }
 }
 
+async function saveReplyModelSettings(event) {
+  event.preventDefault();
+  const button = $("#save-reply-model");
+  const message = $("#reply-model-message");
+  button.disabled = true;
+  message.textContent = "正在保存模型配置…";
+  try {
+    const result = await mutateJson(`${api}/reply-intelligence/settings`, "POST", {
+      confirmed: true,
+      api_key: $("#reply-model-api-key").value,
+      base_url: $("#reply-model-base-url").value,
+      model: $("#reply-model-name").value,
+      timeout_seconds: Number($("#reply-model-timeout").value),
+    });
+    renderReplyModelSettings(result);
+    message.textContent = "模型配置已保存，可以测试连接。";
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function testReplyModelConnection() {
+  const button = $("#test-reply-model");
+  const message = $("#reply-model-message");
+  button.disabled = true;
+  message.textContent = "正在调用模型检查连接…";
+  try {
+    const result = await mutateJson(`${api}/reply-intelligence/test`, "POST", {});
+    message.textContent = `${result.message} · ${result.model}`;
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function exportDiagnostics() {
   const message = $("#diagnostic-path");
   message.textContent = "正在生成报告…";
@@ -2089,6 +2595,8 @@ async function exportDiagnostics() {
 }
 
 $("#refresh").addEventListener("click", loadDashboard);
+$("#open-account-create").addEventListener("click", () => setAccountCreatePanel(true));
+$("#close-account-create").addEventListener("click", () => setAccountCreatePanel(false));
 $("#account-setup-close").addEventListener("click", closeGuidedAccountSetup);
 $("#account-setup-dismiss").addEventListener("click", closeGuidedAccountSetup);
 $("#account-setup-copy").addEventListener("click", () => copyGuidedPairingBundle(true));
@@ -2101,9 +2609,30 @@ $("#switch-dialog-close").addEventListener("click", closeAccountSwitch);
 $("#switch-dismiss").addEventListener("click", closeAccountSwitch);
 $("#switch-primary").addEventListener("click", (event) => runAccountSwitchAction(event.currentTarget.dataset.action));
 $("#switch-cancel").addEventListener("click", cancelAccountSwitch);
+$("#identity-mismatch-close").addEventListener("click", closeIdentityMismatch);
+$("#mismatch-dismiss").addEventListener("click", closeIdentityMismatch);
+$("#mismatch-restore").addEventListener("click", restoreRecordedIdentity);
+$("#mismatch-recheck").addEventListener("click", recheckMismatchIdentity);
+$("#mismatch-use-current").addEventListener("click", prepareIdentityReplacement);
+$("#mismatch-confirm-replace").addEventListener("click", confirmIdentityReplacement);
+$("#identity-mismatch-dialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeIdentityMismatch();
+});
 $("#remove-dialog-close").addEventListener("click", closeAccountRemoval);
 $("#remove-account-cancel").addEventListener("click", closeAccountRemoval);
 $("#remove-account-submit").addEventListener("click", removeAccountSlot);
+$("#publish-confirm-close").addEventListener("click", closePublishConfirmation);
+$("#publish-confirm-dismiss").addEventListener("click", closePublishConfirmation);
+$("#publish-confirm-submit").addEventListener("click", () => executePublishConfirmation("publish-confirm"));
+$("#publish-save-draft").addEventListener("click", () => executePublishConfirmation("save-draft"));
+$("#publish-preview-confirmed").addEventListener("change", (event) => {
+  $("#publish-confirm-submit").disabled = !event.target.checked;
+});
+$("#publish-confirm-dialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closePublishConfirmation();
+});
 $("#remove-confirm-name").addEventListener("input", (event) => {
   const matches = Boolean(activeAccountRemoval && event.target.value.trim() === activeAccountRemoval.name);
   $("#remove-account-submit").disabled = !matches;
@@ -2111,8 +2640,11 @@ $("#remove-confirm-name").addEventListener("input", (event) => {
 });
 $("#global-pause").addEventListener("click", toggleGlobalPause);
 $("#settings-form").addEventListener("submit", saveSettings);
+$("#reply-model-form").addEventListener("submit", saveReplyModelSettings);
+$("#test-reply-model").addEventListener("click", testReplyModelConnection);
 $("#export-diagnostics").addEventListener("click", exportDiagnostics);
 $("#discover-profiles").addEventListener("click", discoverProfiles);
+$("#profile-select").addEventListener("change", syncSelectedProfileName);
 $("#account-form").addEventListener("submit", submitAccount);
 $("#task-form").addEventListener("submit", submitTask);
 $("#task-account").addEventListener("change", updateTaskAvailability);
@@ -2143,12 +2675,12 @@ $("#task-comment-count").addEventListener("input", (event) => {
   if (Number(pool.value) < count) pool.value = String(count);
 });
 $("#draft-form").addEventListener("submit", submitDraft);
+$("#comment-collection-form").addEventListener("submit", collectNewComments);
+$("#comment-collection-account").addEventListener("change", updateCommentCollectionAvailability);
 $("#draft-action").addEventListener("change", updateDraftFields);
 $("#draft-generate").addEventListener("click", generateCommentDraft);
-$("#account-mode").addEventListener("change", (event) => {
-  $("#profile-field").hidden = event.target.value !== "existing";
-  $("#discover-profiles").hidden = event.target.value !== "existing";
-});
+$("#account-mode").addEventListener("change", syncAccountMode);
+syncAccountMode();
 renderTaskTemplateActions();
 resetDraftForm();
 setupTaskPanels();

@@ -25,6 +25,7 @@ class PassiveReplyService:
         *,
         verified_uid: str,
         content: str,
+        generation: dict | None = None,
     ) -> dict:
         event = self.events.get(event_id)
         if event["event_type"] != "note_comment":
@@ -42,7 +43,9 @@ class PassiveReplyService:
             return {"created": False, "event": event, "task": task, "draft": draft}
 
         payload = event.get("payload") or {}
-        comment_id = str(payload.get("comment_id") or event["platform_event_id"])
+        notification_id = str(payload.get("notification_id") or "")
+        comment_id = str(payload.get("comment_id") or "")
+        target_id = notification_id or comment_id or str(event["platform_event_id"])
         feed_id = str(payload.get("feed_id") or event.get("object_id") or "")
         task = self.tasks.create(
             source="platform_event",
@@ -51,13 +54,16 @@ class PassiveReplyService:
             account_slot=event["account_slot"],
             capability="reply-comment",
             request_summary=f"回复新评论：{str(payload.get('content') or '')[:40]}",
-            target_type="comment",
-            target_id=comment_id,
+            target_type="notification" if notification_id else "comment",
+            target_id=target_id,
             parameters={
                 "feed_id": feed_id,
                 "xsec_token": str(payload.get("xsec_token") or ""),
                 "comment_id": comment_id,
+                "notification_id": notification_id,
                 "user_id": str(payload.get("user_id") or event.get("actor_user_id") or ""),
+                "nickname": str(payload.get("nickname") or ""),
+                "original_content": str(payload.get("content") or ""),
                 "content": content.strip(),
             },
         )
@@ -65,7 +71,7 @@ class PassiveReplyService:
             account_slot=event["account_slot"],
             verified_uid=verified_uid,
             action_type="reply-comment",
-            target_id=comment_id,
+            target_id=target_id,
             target_summary=(
                 f"{payload.get('nickname') or payload.get('user_id') or '用户'}："
                 f"{str(payload.get('content') or '')[:80]}"
@@ -73,6 +79,7 @@ class PassiveReplyService:
             content=content,
             source_event_id=event_id,
             task_id=task["task_id"],
+            metadata={"intelligent_reply": generation} if generation else {},
         )
         linked = self.events.attach_task(event_id, task["task_id"])
         return {"created": True, "event": linked, "task": task, "draft": draft}

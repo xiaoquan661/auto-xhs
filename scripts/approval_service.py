@@ -26,6 +26,7 @@ class ApprovalService:
         content: str,
         source_event_id: str | None = None,
         task_id: str | None = None,
+        metadata: dict | None = None,
     ) -> dict:
         policy = self._output_policy(action_type)
         if not account_slot.strip() or not verified_uid.strip() or not target_id.strip():
@@ -45,6 +46,7 @@ class ApprovalService:
             "content": content.strip(),
             "source_event_id": source_event_id,
             "task_id": task_id,
+            "metadata": dict(metadata or {}),
             "status": "DRAFT",
             "created_at": now,
             "updated_at": now,
@@ -117,7 +119,7 @@ class ApprovalService:
         return self.store.mutate(mutate)
 
     def mark_execution(self, draft_id: str, status: str) -> dict:
-        if status not in {"EXECUTED", "RESULT_UNKNOWN"}:
+        if status not in {"EXECUTED", "FAILED", "RESULT_UNKNOWN"}:
             raise ServiceError("INVALID_REQUEST", "未知草稿执行状态")
 
         def mutate(state: dict) -> dict:

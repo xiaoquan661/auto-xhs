@@ -13,8 +13,8 @@ description: |
 
 - V1.0 当前代码保留部分二维码和手机验证码命令，但不再把它们作为产品主流程。
 - V1.5 产品入口只保留：检查状态、自动退出、用户手动登录、核验新 UID。
-- V1.5 联合启动目标允许扩展未连接时自动打开绑定 Profile；代码完成前仍按真实状态提示用户
-  手动打开，不得声称已经自动启动。
+- V1.5 联合启动已完成自动化测试：扩展未连接时可打开绑定 Profile；真实 Windows 环境仍按
+  Profile、扩展实例和 UID 回读判断是否 READY。
 
 ## 允许命令
 
@@ -30,7 +30,7 @@ description: |
 | `account-pair-begin --confirm` | 生成通用扩展一次性配对包 |
 | `account-pair-status` | 查看扩展配对状态 |
 | `account-unpair --confirm` | 撤销扩展实例并轮换连接令牌 |
-| `account-start` | 启动账号；V1.0 仅启动 Bridge，V1.5 目标为 Bridge 与绑定 Profile 联合启动 |
+| `account-start` | 启动或复用 Bridge；扩展离线时按需打开绑定 Profile，并核验连接 |
 
 不要从本技能引导 `get-qrcode`、`wait-login`、`send-code` 或 `verify-code`。这些历史兼容命令是否
 保留，由后续代码检查阶段决定。
@@ -103,7 +103,7 @@ python scripts/cli.py --account <账号别名> account-switch-cancel --confirm
 
 如果 Profile 已经登录另一 UID，普通取消被拒绝时，不自行添加强制参数；先向用户说明真实身份。
 
-## V1.5 联合启动目标
+## V1.5 联合启动
 
 ```text
 启动或复用 Bridge
@@ -116,7 +116,7 @@ python scripts/cli.py --account <账号别名> account-switch-cancel --confirm
 - 正确 Profile 已连接时不重复打开。
 - 错误 Profile 返回 `PROFILE_MISMATCH`。
 - 只自动打开，不自动关闭 Chrome。
-- 联合启动代码未完成前，按 V1.0 真实能力要求用户手动打开 Profile。
+- 联合启动失败或 Profile 不匹配时，按真实诊断提示用户核对绑定 Profile，不改用其他窗口。
 
 ## 失败处理
 
