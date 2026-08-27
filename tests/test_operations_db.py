@@ -25,4 +25,8 @@ def test_database_initializes_and_reopens(tmp_path) -> None:
         "metric_snapshots",
         "action_drafts",
         "action_approvals",
+        "published_posts",
+        "reply_records",
+        "reply_cycles",
+        "reply_decisions",
     } <= tables

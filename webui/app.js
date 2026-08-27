@@ -14,10 +14,14 @@ let taskSnapshotKey = "";
 let accountStatusPollTimer = null;
 let accountSnapshotKey = "";
 let currentAccountData = { accounts: [] };
+let platformCapabilityById = {};
 let currentAccountStatuses = [];
 let activeAccountSetup = null;
 let accountSetupPollTimer = null;
 let accountSetupPrimaryAction = null;
+let currentServiceInstanceId = "";
+let currentReplyRules = [];
+let currentReplyDecisions = [];
 document.documentElement.classList.add("js-ready");
 
 const {
@@ -41,6 +45,10 @@ function accountConfig(accountOrName) {
 
 function profileDisplayName(account) {
   return account?.profile_display_name || account?.chrome_profile_directory || account?.name || "未命名 Profile";
+}
+
+function accountPlatformLabel(account) {
+  return account?.platform === "rednote" ? "RedNote" : "小红书";
 }
 
 function bindingRow(label, name, detail, tone = "") {
@@ -73,7 +81,7 @@ function stateStyle(state) {
   if (state === "READY" || state === "SUCCESS" || state === "EXECUTED") return "ready";
   if (state === "PARTIAL_SUCCESS") return "blocked";
   if (state === "ERROR" || state === "FAILED" || state === "RESULT_UNKNOWN") return "error";
-  if (["IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED", "SWITCH_PENDING", "QUEUED", "RUNNING", "WAITING_APPROVAL", "DRAFT", "CONFIRMED"].includes(state)) return "pending";
+  if (["LOGIN_REQUIRED", "IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED", "SWITCH_PENDING", "QUEUED", "RUNNING", "CANCEL_REQUESTED", "WAITING_APPROVAL", "DRAFT", "CONFIRMED"].includes(state)) return "pending";
   return "blocked";
 }
 
@@ -82,12 +90,14 @@ function stateLabel(state) {
     READY: "已就绪",
     BLOCKED: "需处理",
     ERROR: "异常",
+    LOGIN_REQUIRED: "当前无账号",
     IDENTITY_REQUIRED: "待记录身份",
     IDENTITY_CHECK_REQUIRED: "待核验 UID",
     IDENTITY_MISMATCH: "身份不一致",
     SWITCH_PENDING: "换号进行中",
     QUEUED: "排队中",
     RUNNING: "执行中",
+    CANCEL_REQUESTED: "终止中",
     WAITING_APPROVAL: "待确认",
     SUCCESS: "执行成功",
     PARTIAL_SUCCESS: "部分完成",
@@ -102,6 +112,7 @@ function stateLabel(state) {
 }
 
 const taskActivityPriority = {
+  CANCEL_REQUESTED: -1,
   RUNNING: 0,
   QUEUED: 1,
   WAITING_APPROVAL: 2,
@@ -137,13 +148,14 @@ function accountHasUnfinishedTask(account) {
 
 function accountHasActiveExecution(account) {
   const activity = currentAccountTaskActivity(account);
-  return Boolean(activity && ["QUEUED", "RUNNING"].includes(activity.state));
+  return Boolean(activity && ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(activity.state));
 }
 
 function activityShortLabel(activity) {
   if (!activity) return "空闲";
   return {
     RUNNING: "执行中",
+    CANCEL_REQUESTED: "终止中",
     QUEUED: "等待执行",
     WAITING_APPROVAL: "等待确认",
     BLOCKED: "需处理",
@@ -188,6 +200,32 @@ function paintAccountActivity(node, account) {
     review.addEventListener("click", () => openPublishConfirmation(activity));
     node.append(review);
   }
+  if (activity?.task_id && !activity.locally_submitting) {
+    const controls = document.createElement("div");
+    controls.className = "account-activity-actions";
+    const view = document.createElement("button");
+    view.type = "button";
+    view.textContent = "查看任务";
+    view.addEventListener("click", () => window.AutoXhsWorkspace?.navigate("tasks", { focus: true }));
+    controls.append(view);
+    if (["QUEUED", "RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(activity.state)) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.dataset.action = activity.state === "RUNNING" ? "terminate" : "cancel";
+      cancel.textContent = activity.state === "RUNNING"
+        ? "终止当前任务"
+        : activity.state === "QUEUED" ? "取消等待" : "取消任务";
+      cancel.addEventListener("click", () => updateTask(activity, "cancel", cancel));
+      controls.append(cancel);
+    } else if (activity.state === "CANCEL_REQUESTED") {
+      const stopping = document.createElement("button");
+      stopping.type = "button";
+      stopping.disabled = true;
+      stopping.textContent = "正在终止";
+      controls.append(stopping);
+    }
+    node.append(controls);
+  }
 }
 
 function syncAccountActivityUI() {
@@ -219,7 +257,7 @@ function accountCard(account, status) {
   title.textContent = displayName;
   const profile = document.createElement("p");
   profile.className = "profile";
-  profile.textContent = `固定 Profile · ${account.chrome_profile_directory || "Default"}`;
+  profile.textContent = `${accountPlatformLabel(account)} · 固定 Profile · ${account.chrome_profile_directory || "Default"}`;
   const extensionPath = document.createElement("p");
   extensionPath.className = "profile extension-path";
   extensionPath.textContent = account.name === displayName ? "" : `槽位标识 · ${account.name}`;
@@ -262,6 +300,8 @@ function accountCard(account, status) {
       bindingRow("槽位原账号", statusIdentity.nickname || "未命名账号", `UID ${statusIdentity.user_id || "—"}`, "recorded"),
       bindingRow("当前登录账号", statusIdentity.live_nickname || "未命名账号", `UID ${statusIdentity.live_user_id || "—"}`, "mismatch")
     );
+  } else if (state === "LOGIN_REQUIRED") {
+    binding.append(bindingRow("当前小红书账号", "当前无账号", "请在该 Profile 中手动登录账号"));
   } else {
     const currentName = statusIdentity.live_nickname || statusIdentity.nickname || statusIdentity.live_user_id || statusIdentity.user_id || "尚未登录或核验";
     const currentUid = statusIdentity.live_user_id || statusIdentity.user_id;
@@ -278,9 +318,12 @@ function accountCard(account, status) {
   let guidedNextAction = "";
   if (!account.extension_instance_enrolled) guidedNextAction = "点击“继续配置”，然后在目标 Profile 的扩展中确认配对";
   else if (!status?.connection_ready) guidedNextAction = "点击“恢复连接”，系统会复用或按需打开绑定的 Profile";
+  else if (state === "LOGIN_REQUIRED") guidedNextAction = "请在绑定的 Profile 中手动登录账号，登录后点击“我已登录，完成核验”";
   else if (["IDENTITY_REQUIRED", "IDENTITY_CHECK_REQUIRED"].includes(state)) guidedNextAction = "点击“完成身份核验”，系统会自动读取当前 UID";
   else if (state === "IDENTITY_MISMATCH") guidedNextAction = "确认是登错账号，还是让当前账号接管这个固定 Profile";
-  next.textContent = guidedNextAction ? `下一步：${guidedNextAction}` : `当前身份：${text(identityName || "已核验")}`;
+  next.textContent = state === "LOGIN_REQUIRED"
+    ? `${statusIdentity.logout_confirmed ? "退出成功，" : ""}当前无账号。下一步：${guidedNextAction}`
+    : guidedNextAction ? `下一步：${guidedNextAction}` : `当前身份：${text(identityName || "已核验")}`;
   card.append(next);
   const actions = document.createElement("div");
   actions.className = "account-actions";
@@ -297,6 +340,9 @@ function accountCard(account, status) {
     primaryButton.textContent = "已就绪";
     primaryButton.dataset.ready = "true";
     primaryButton.disabled = true;
+  } else if (state === "LOGIN_REQUIRED") {
+    primaryButton.textContent = "我已登录，完成核验";
+    primaryButton.addEventListener("click", () => beginGuidedAccountSetup(account, status));
   } else {
     primaryButton.textContent = !account.extension_instance_enrolled
       ? "继续配置"
@@ -341,7 +387,6 @@ function accountCard(account, status) {
   addMoreAction(status?.identity?.switch_pending ? "继续切换账号" : "切换账号", () => openAccountSwitch(account, status));
   const logoutAction = addMoreAction("退出当前账号", (button) => logoutAccount(account.name, next, button));
   logoutAction.title = "结束当前小红书登录会话，并回读页面确认已退出";
-  addMoreAction("账号自启动设置", () => updateAutostart(account.name, next));
   const removeButton = document.createElement("button");
   removeButton.type = "button";
   removeButton.className = "account-remove-button";
@@ -549,7 +594,7 @@ async function inspectGuidedIdentity() {
   if (!activeAccountSetup) return;
   const current = activeAccountSetup;
   $("#account-setup-stage").textContent = "正在核验身份";
-  $("#account-setup-message").textContent = "正在读取当前小红书登录身份…";
+  $("#account-setup-message").textContent = `正在读取当前 ${accountPlatformLabel(current.account)} 登录身份…`;
   setAccountSetupPrimary("正在检测身份…", null, { disabled: true });
   try {
     const checked = await mutateJson(`${api}/accounts/${encodeURIComponent(current.account.name)}/identity/check`, "POST", {});
@@ -562,7 +607,7 @@ async function inspectGuidedIdentity() {
     if (!current.recorded) {
       current.phase = "WAITING_IDENTITY_CONFIRMATION";
       $("#account-setup-stage").textContent = "等待身份确认";
-      $("#account-setup-message").textContent = "请确认把这个小红书账号绑定到当前槽位。";
+      $("#account-setup-message").textContent = `请确认把这个 ${accountPlatformLabel(current.account)} 账号绑定到当前槽位。`;
       setAccountSetupPrimary("确认绑定此账号", confirmGuidedIdentity);
       paintSetupProgress("identity", ["bridge", "pairing"]);
       setAccountSetupGuidance("首次绑定需要你确认一次", "确认后系统会记录 UID；以后恢复连接时将自动核对，不再要求重复点击。", false);
@@ -650,10 +695,11 @@ async function finishGuidedAccountSetup(identity) {
 }
 
 async function logoutAccount(account, messageNode, button) {
-  if (!window.confirm(`确认退出槽位 ${account} 当前登录的小红书账号？\n\nChrome Profile、扩展和 Bridge 会保留。`)) return;
+  const config = accountConfig(account);
+  if (!window.confirm(`确认退出槽位 ${account} 当前登录的 ${accountPlatformLabel(config)} 账号？\n\nChrome Profile、扩展和 Bridge 会保留。`)) return;
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
-  messageNode.textContent = "正在结束小红书登录会话并回读登录状态…";
+  messageNode.textContent = `正在结束 ${accountPlatformLabel(config)} 登录会话并回读登录状态…`;
   try {
     const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/auth/logout`, "POST", {
       confirmed: true,
@@ -751,16 +797,6 @@ async function updateBridge(account, action, messageNode, button) {
     button.disabled = false;
     button.removeAttribute("aria-busy");
   }
-}
-
-async function updateAutostart(account, messageNode) {
-  try {
-    const current = await fetchJson(`${api}/accounts/${encodeURIComponent(account)}/autostart`);
-    const enabled = !current.autostart.enabled;
-    if (!window.confirm(`${enabled ? "启用" : "关闭"} ${account} 的 Windows 登录账号自启动？\n\n启用后会在登录 Windows 时启动 Bridge，并按需打开该槽位绑定的 Chrome Profile。`)) return;
-    await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/autostart/update`, "POST", { enabled, confirmed: true });
-    messageNode.textContent = `账号自启动已${enabled ? "启用" : "关闭"}。`;
-  } catch (error) { messageNode.textContent = error.message; }
 }
 
 async function beginPairing(account, messageNode) {
@@ -1182,6 +1218,7 @@ async function submitAccount(event) {
   event.preventDefault();
   const message = $("#setup-message");
   const mode = $("#account-mode").value;
+  const platform = $("#account-platform").value;
   const name = mode === "existing" ? $("#account-key").value.trim() : $("#account-name").value.trim();
   message.textContent = "正在创建本地账号槽位…";
   try {
@@ -1195,10 +1232,11 @@ async function submitAccount(event) {
         user_data_dir: profile.user_data_dir,
         profile_directory: profile.profile_directory,
         profile_display_name: profile.display_name,
+        platform,
         confirmed: true,
       });
     } else {
-      payload = await mutateJson(`${api}/accounts`, "POST", { name, confirmed: true });
+      payload = await mutateJson(`${api}/accounts`, "POST", { name, platform, confirmed: true });
     }
     message.textContent = `${payload.account.name} 已添加，正在打开引导配置。`;
     event.target.reset();
@@ -1485,7 +1523,6 @@ function appendHomeEngagementResults(container, result) {
   overview.className = "browse-result-overview";
   addResultMetric(overview, "浏览", `${result.counts?.browsed ?? 0} 篇`);
   addResultMetric(overview, "点赞", `${result.counts?.liked ?? 0} 篇`);
-  addResultMetric(overview, "评论", `${result.counts?.commented ?? 0} 篇`);
   addResultMetric(overview, "跳过", `${result.counts?.skipped ?? 0} 篇`);
   addResultMetric(overview, "总用时", `${Math.round(result.elapsed_seconds ?? 0)} 秒`);
   container.append(overview);
@@ -1500,15 +1537,8 @@ function appendHomeEngagementResults(container, result) {
     const meta = document.createElement("span");
     const actions = [];
     if (item.like) actions.push(`点赞：${item.like.status === "success" ? "成功" : "失败"}`);
-    if (item.comment) actions.push(`评论：${item.comment.status === "success" ? "成功" : "失败"}`);
     meta.textContent = [`阅读 ${Math.round(item.read_seconds || 0)} 秒`, ...actions].join(" · ");
     body.append(title, meta);
-    if (item.comment?.content) {
-      const comment = document.createElement("p");
-      comment.className = "random-comment-content";
-      comment.textContent = item.comment.content;
-      body.append(comment);
-    }
     const identifier = document.createElement("small");
     identifier.textContent = `笔记 ID：${item.feed_id || "—"}`;
     body.append(identifier);
@@ -1748,10 +1778,13 @@ async function executePublishConfirmation(action) {
 }
 
 async function updateTask(task, action, button) {
-  const label = action === "retry" ? "重试" : "取消";
+  const terminating = action === "cancel" && task.state === "RUNNING";
+  const label = action === "retry" ? "重试" : terminating ? "终止" : "取消";
   const prompt = action === "retry"
     ? `确认重新执行 ${task.account_slot} 的 ${task.capability} 任务？`
-    : `确认取消这条任务？取消后不会执行。`;
+    : terminating
+      ? `确认终止 ${task.account_slot} 当前执行中的任务？\n\n系统会停止该账号的自动化连接；Chrome 保持打开。`
+      : `确认取消这条任务？取消后不会执行。`;
   if (!window.confirm(prompt)) return;
   const original = button.textContent;
   button.disabled = true;
@@ -1804,7 +1837,7 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
       review.addEventListener("click", () => openPublishConfirmation(item));
       actions.append(review);
       card.append(actions);
-    } else if (interactive && !agentMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "WAITING_APPROVAL"].includes(item.state)) {
+    } else if (interactive && !agentMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "RUNNING", "CANCEL_REQUESTED", "WAITING_APPROVAL"].includes(item.state)) {
       const actions = document.createElement("div");
       actions.className = "task-actions";
       if (item.state === "BLOCKED") {
@@ -1815,12 +1848,14 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
         retry.addEventListener("click", () => updateTask(item, "retry", retry));
         actions.append(retry);
       }
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.className = "secondary-button";
-      cancel.textContent = "取消";
-      cancel.addEventListener("click", () => updateTask(item, "cancel", cancel));
-      actions.append(cancel);
+      if (item.state !== "CANCEL_REQUESTED") {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "secondary-button";
+        cancel.textContent = item.state === "RUNNING" ? "终止当前任务" : "取消";
+        cancel.addEventListener("click", () => updateTask(item, "cancel", cancel));
+        actions.append(cancel);
+      }
       card.append(actions);
     }
     container.append(card);
@@ -1869,13 +1904,25 @@ function updateTaskAvailability() {
   const status = accountStatusByName.get(account);
   const ready = Boolean(status?.ready);
   const activity = currentAccountTaskActivity(account);
-  button.disabled = !ready || Boolean(activity);
+  const config = accountConfig(account);
+  const capability = $("#task-capability").value;
+  const support = platformCapabilityById?.[config.platform || "xiaohongshu"]?.[capability] || "SUPPORTED";
+  const platformUnavailable = ["UNKNOWN", "UNSUPPORTED"].includes(support);
+  button.disabled = !ready || Boolean(activity) || platformUnavailable;
   setActionButtonLabel(
     button,
-    !ready ? "账号尚未就绪" : activity ? activityShortLabel(activity) : taskSubmitLabel()
+    !ready
+      ? "账号尚未就绪"
+      : platformUnavailable
+        ? "当前平台暂未开放"
+        : activity
+          ? activityShortLabel(activity)
+          : taskSubmitLabel()
   );
   if (!ready) {
     $("#task-message").textContent = "暂无 READY 账号，请先按账号卡片提示完成连接和 UID 核验。";
+  } else if (platformUnavailable) {
+    $("#task-message").textContent = `${accountPlatformLabel(config)} 的 ${taskCapabilityLabel(capability)} 当前状态为 ${support}，任务没有开放。`;
   } else if (activity) {
     $("#task-message").textContent = `账号 ${account} ${activityShortLabel(activity)}：${activity.request_summary || taskCapabilityLabel(activity.capability)}。可选择其他已就绪且空闲的账号并行执行。`;
   } else {
@@ -1905,7 +1952,7 @@ function scheduleTaskActivityPoll() {
   taskActivityPollTimer = null;
   if (!taskActivityNeedsPolling()) return;
   const active = pendingSubmissionByAccount.size > 0 || Array.from(accountTaskActivityByName.values()).some(
-    (activity) => ["QUEUED", "RUNNING"].includes(activity.state)
+    (activity) => ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(activity.state)
   );
   taskActivityPollTimer = setTimeout(pollTaskActivity, active ? 1000 : 3000);
 }
@@ -1913,7 +1960,7 @@ function scheduleTaskActivityPoll() {
 async function pollTaskActivity() {
   taskActivityPollTimer = null;
   const hadBackendActivity = Array.from(accountTaskActivityByName.values()).some(
-    (activity) => activity.state === "RUNNING"
+    (activity) => ["RUNNING", "CANCEL_REQUESTED"].includes(activity.state)
   );
   try {
     const payload = await fetchJson(`${api}/tasks`);
@@ -1926,7 +1973,7 @@ async function pollTaskActivity() {
     rebuildAccountTaskActivity(payload.tasks);
     syncAccountActivityUI();
     const hasBackendActivity = Array.from(accountTaskActivityByName.values()).some(
-      (activity) => activity.state === "RUNNING"
+      (activity) => ["RUNNING", "CANCEL_REQUESTED"].includes(activity.state)
     );
     if (hadBackendActivity && !hasBackendActivity && pendingSubmissionByAccount.size === 0) {
       await loadWorkData(currentAccountData, currentAccountStatuses);
@@ -1938,13 +1985,101 @@ async function pollTaskActivity() {
   scheduleTaskActivityPoll();
 }
 
+function recoveryEmpty(container, title, description) {
+  const empty = emptyAccounts();
+  empty.querySelector("strong").textContent = title;
+  empty.querySelector("span").textContent = description;
+  container.append(empty);
+}
+
+function recoveryCard({ state, title, detail, meta }) {
+  const card = document.createElement("article");
+  card.className = "record-card";
+  card.dataset.state = state || "UNKNOWN";
+
+  const badge = document.createElement("span");
+  badge.className = `badge ${stateStyle(state)}`;
+  badge.textContent = stateLabel(state);
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const body = document.createElement("p");
+  body.className = "data-record-detail";
+  body.textContent = detail;
+  const metadata = document.createElement("small");
+  metadata.className = "data-record-meta";
+  metadata.textContent = meta;
+  card.append(badge, heading, body, metadata);
+  return card;
+}
+
+function renderPublishedPosts(items) {
+  const container = $("#published-post-list");
+  container.replaceChildren();
+  if (!items.length) {
+    recoveryEmpty(container, "暂无发布记录", "发布任务结算后会显示在这里。");
+    return;
+  }
+  items.forEach((item) => {
+    const postId = item.platform_post_id || "帖子 ID 待回读";
+    const location = item.stable_url || postId;
+    container.append(recoveryCard({
+      state: item.result_state,
+      title: `${item.account_slot} · ${item.title || "未命名帖子"}`,
+      detail: `${postId} · ${item.content_type || "发布内容"} · ${item.result_summary || "已记录发布结果"}`,
+      meta: `${location} · ${taskTime(item.published_at || item.updated_at)}`,
+    }));
+  });
+}
+
+function renderReplyRecords(items) {
+  const container = $("#reply-record-list");
+  container.replaceChildren();
+  if (!items.length) {
+    recoveryEmpty(container, "暂无回复记录", "私信回复或评论回复结算后会显示在这里。");
+    return;
+  }
+  items.forEach((item) => {
+    const channel = item.channel === "PRIVATE_MESSAGE_REPLY" ? "私信回复" : "评论回复";
+    const target = item.target_user_name || item.target_user_id || "目标用户";
+    container.append(recoveryCard({
+      state: item.result_state,
+      title: `${item.account_slot} · ${channel} · ${target}`,
+      detail: `原内容：${item.original_content || "—"}\n实际回复：${item.reply_text || "—"}`,
+      meta: `${item.error_code ? `错误 ${item.error_code} · ` : ""}${taskTime(item.sent_at || item.updated_at)}`,
+    }));
+  });
+}
+
+function renderDataRecovery(summary, posts, replies) {
+  $("#data-published-total").textContent = summary.published_posts?.total || 0;
+  $("#data-reply-total").textContent = summary.reply_records?.total || 0;
+  renderPublishedPosts(posts);
+  renderReplyRecords(replies);
+}
+
 async function loadWorkData(accountData, statuses) {
-  const [tasks, records, drafts, inboundEvents, replyIntelligence] = await Promise.all([
+  const [
+    tasks,
+    records,
+    drafts,
+    inboundEvents,
+    replyIntelligence,
+    recoverySummary,
+    publishedPosts,
+    replyRecords,
+    replyRules,
+    replyDecisions,
+  ] = await Promise.all([
     fetchJson(`${api}/tasks`),
     fetchJson(`${api}/records`),
     fetchJson(`${api}/drafts`),
     fetchJson(`${api}/inbound-events`),
     fetchJson(`${api}/reply-intelligence/status`),
+    fetchJson(`${api}/data-recovery/summary`),
+    fetchJson(`${api}/data-recovery/published-posts`),
+    fetchJson(`${api}/data-recovery/reply-records`),
+    fetchJson(`${api}/reply-rules`),
+    fetchJson(`${api}/reply-decisions`),
   ]);
   const resultByTask = new Map(records.records.filter((record) => record.result && Object.keys(record.result).length).map((record) => [record.task_id, record.result]));
   const tasksWithResults = tasks.tasks.map((task) => ({ ...task, result: resultByTask.get(task.task_id) || task.result || {} }));
@@ -1962,6 +2097,7 @@ async function loadWorkData(accountData, statuses) {
   syncAccountActivityUI();
   populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
+  populateAccountSelect($("#reply-rule-account"), accountData.accounts, statuses);
   refreshTaskAccountOptions();
   updateTaskAvailability();
   scheduleTaskActivityPoll();
@@ -1971,6 +2107,146 @@ async function loadWorkData(accountData, statuses) {
   renderIntelligentReplyEvents(inboundEvents.events, replyIntelligence);
   renderIntelligentPrivateMessageEvents(inboundEvents.events, replyIntelligence);
   renderReplyModelSettings(replyIntelligence);
+  currentReplyRules = replyRules.rules;
+  currentReplyDecisions = replyDecisions.decisions;
+  renderReplyRuleForm();
+  renderReplyDecisions(currentReplyDecisions);
+  renderDataRecovery(
+    recoverySummary.summary,
+    publishedPosts.posts,
+    replyRecords.records,
+  );
+}
+
+function selectedReplyRule() {
+  const account = $("#reply-rule-account").value;
+  return currentReplyRules.find((rule) => rule.account_slot === account) || null;
+}
+
+function renderReplyRuleForm() {
+  const rule = selectedReplyRule();
+  $("#reply-rule-enabled").checked = Boolean(rule?.enabled);
+  $("#reply-rule-comment-enabled").checked = rule ? Boolean(rule.comment_enabled) : true;
+  $("#reply-rule-private-message-enabled").checked = rule ? Boolean(rule.private_message_enabled) : true;
+  $("#reply-rule-active-time").value = rule?.active_time_range || "";
+  $("#reply-rule-hourly-limit").value = rule?.hourly_limit || 0;
+  $("#reply-rule-daily-limit").value = rule?.daily_limit || 0;
+  $("#reply-rule-style").value = rule?.reply_style || "natural";
+  $("#reply-rule-profile").value = rule?.account_profile || "";
+  $("#reply-rule-knowledge").value = rule?.knowledge || "";
+}
+
+function replyDecisionCard(item) {
+  const card = document.createElement("article");
+  card.className = "record-card";
+  const badge = document.createElement("span");
+  badge.className = `badge ${stateStyle(item.result_state || (item.decision === "pending" ? "WAITING_APPROVAL" : "SUCCESS"))}`;
+  badge.textContent = item.decision === "reply" ? "已回复" : item.decision === "pending" ? "待处理" : "已跳过";
+  const title = document.createElement("strong");
+  title.textContent = `${item.account_slot} · ${item.channel === "private_message" ? "私信" : "评论"} · ${item.intent || "未分类"}`;
+  const content = document.createElement("p");
+  content.textContent = item.reply_text || "未生成回复文本";
+  const meta = document.createElement("div");
+  meta.className = "task-meta";
+  meta.textContent = `${item.reason || "—"}${item.result_state ? ` · ${stateLabel(item.result_state)}` : ""} · ${taskTime(item.updated_at)}`;
+  card.append(badge, title, content, meta);
+  return card;
+}
+
+function renderReplyDecisionList(selector, items, title, description) {
+  const container = $(selector);
+  container.replaceChildren();
+  if (!items.length) {
+    const empty = emptyAccounts();
+    empty.querySelector("strong").textContent = title;
+    empty.querySelector("span").textContent = description;
+    container.append(empty);
+    return;
+  }
+  items.slice(0, 30).forEach((item) => container.append(replyDecisionCard(item)));
+}
+
+function renderReplyDecisions(decisions) {
+  const account = $("#reply-rule-account").value;
+  const scoped = decisions.filter((item) => !account || item.account_slot === account);
+  renderReplyDecisionList(
+    "#reply-pending-list",
+    scoped.filter((item) => item.decision === "pending"),
+    "暂无待处理内容",
+    "规则无法自动回答的内容会显示在这里。",
+  );
+  renderReplyDecisionList(
+    "#reply-decision-list",
+    scoped,
+    "暂无自动回复记录",
+    "运行回复周期后会显示决策与发送结果。",
+  );
+}
+
+function replyRulePayload() {
+  return {
+    account_slot: $("#reply-rule-account").value,
+    comment_enabled: $("#reply-rule-comment-enabled").checked,
+    private_message_enabled: $("#reply-rule-private-message-enabled").checked,
+    active_time_range: $("#reply-rule-active-time").value.trim(),
+    hourly_limit: Number($("#reply-rule-hourly-limit").value),
+    daily_limit: Number($("#reply-rule-daily-limit").value),
+    reply_style: $("#reply-rule-style").value.trim() || "natural",
+    account_profile: $("#reply-rule-profile").value.trim(),
+    knowledge: $("#reply-rule-knowledge").value.trim(),
+  };
+}
+
+async function saveReplyRule(event) {
+  event.preventDefault();
+  const message = $("#reply-cycle-message");
+  const payload = replyRulePayload();
+  if (!payload.account_slot) {
+    message.textContent = "请先选择账号槽位。";
+    return;
+  }
+  try {
+    let rule = selectedReplyRule();
+    if (rule) {
+      const { account_slot: _accountSlot, ...changes } = payload;
+      rule = (await mutateJson(`${api}/reply-rules/${encodeURIComponent(rule.rule_id)}`, "PATCH", changes)).rule;
+    } else {
+      rule = (await mutateJson(`${api}/reply-rules`, "POST", payload)).rule;
+    }
+    await mutateJson(`${api}/reply-rules/${encodeURIComponent(rule.rule_id)}/enabled`, "POST", {
+      enabled: $("#reply-rule-enabled").checked,
+    });
+    message.textContent = "账号回复规则已保存。";
+    await loadDashboard();
+  } catch (error) {
+    message.textContent = error.message;
+  }
+}
+
+async function runReplyCycle() {
+  const button = $("#run-reply-cycle");
+  const message = $("#reply-cycle-message");
+  const account = $("#reply-rule-account").value;
+  if (!account) {
+    message.textContent = "请先选择账号槽位。";
+    return;
+  }
+  button.disabled = true;
+  message.textContent = "正在采集并处理本轮新评论与新私信…";
+  try {
+    const result = await mutateJson(`${api}/reply-cycle`, "POST", {
+      account_slot: account,
+      source: "manual",
+      max_events: 20,
+    });
+    const summary = result.cycle.summary || {};
+    message.textContent = `本轮完成：处理 ${summary.processed || 0} 条，回复 ${summary.reply || 0} 条，待处理 ${summary.pending || 0} 条，跳过 ${summary.skip || 0} 条。`;
+    await loadDashboard();
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderReplyModelSettings(status) {
@@ -2216,6 +2492,8 @@ function accountSnapshot(accounts, statuses) {
       status.identity?.user_id || "",
       status.identity?.live_user_id || "",
       status.identity?.nickname || "",
+      status.identity?.logged_out || false,
+      status.identity?.logout_confirmed || false,
       status.identity?.switch_pending || false,
     ];
   }));
@@ -2319,7 +2597,7 @@ function renderIntelligentReplyEvents(events, status) {
   const container = $("#intelligent-reply-list");
   const statusLine = $("#reply-intelligence-status");
   statusLine.textContent = status.configured
-    ? `模型 ${status.model} 已配置；生成结果只进入人工确认。`
+    ? `模型 ${status.model} 已配置；这里用于人工接管单条评论。`
     : `尚未配置：${(status.missing || []).join("、")}`;
   container.replaceChildren();
   const candidates = events
@@ -2354,7 +2632,7 @@ function renderIntelligentPrivateMessageEvents(events, status) {
   const container = $("#intelligent-private-message-list");
   const statusLine = $("#private-message-intelligence-status");
   statusLine.textContent = status.configured
-    ? `模型 ${status.model} 已配置；私信回复只进入人工确认。`
+    ? `模型 ${status.model} 已配置；这里用于人工接管单轮私信。`
     : `尚未配置：${(status.missing || []).join("、")}`;
   container.replaceChildren();
   const candidates = events
@@ -2510,11 +2788,9 @@ async function submitTask(event) {
   const commentCollectionMinutes = Number($("#task-comment-collection-minutes").value);
   const homeBrowseCount = Number($("#task-home-browse-count").value);
   const homeLikeCount = Number($("#task-home-like-count").value);
-  const homeCommentCount = Number($("#task-home-comment-count").value);
   const homeDuration = Number($("#task-home-duration").value);
   const homeMinRead = Number($("#task-home-min-read").value);
   const homeMaxRead = Number($("#task-home-max-read").value);
-  const homeStyle = $("#task-home-style").value;
   const parameters = capability === "browse-feeds"
     ? { duration_minutes: durationMinutes, count: browseCount }
     : capability === "search-feeds"
@@ -2524,7 +2800,7 @@ async function submitTask(event) {
       : capability === "random-comment"
         ? { count: commentCount, candidate_pool_size: commentCandidatePool, collection_minutes: commentCollectionMinutes, style: commentStyle, direct_send_authorized: true }
       : capability === "home-engagement"
-        ? { browse_count: homeBrowseCount, like_count: homeLikeCount, comment_count: homeCommentCount, duration_minutes: homeDuration, min_read_seconds: homeMinRead, max_read_seconds: homeMaxRead, style: homeStyle, direct_send_authorized: true }
+        ? { browse_count: homeBrowseCount, like_count: homeLikeCount, duration_minutes: homeDuration, min_read_seconds: homeMinRead, max_read_seconds: homeMaxRead }
       : capability === "list-feeds"
         ? {}
         : capability === "user-profile"
@@ -2538,7 +2814,7 @@ async function submitTask(event) {
     : capability === "random-comment"
       ? `${capabilityName}：直接发送 ${commentCount} 条 / 候选池 ${commentCandidatePool} 篇`
     : capability === "home-engagement"
-      ? `${capabilityName}：浏览 ${homeBrowseCount} 篇 / 点赞 ${homeLikeCount} 篇 / 评论 ${homeCommentCount} 篇`
+      ? `${capabilityName}：浏览 ${homeBrowseCount} 篇 / 点赞 ${homeLikeCount} 篇`
     : target ? `${capabilityName}：${target}` : capabilityName;
   pendingSubmissionByAccount.set(account, {
     capability,
@@ -2572,7 +2848,7 @@ function setActionButtonLabel(button, label) {
 }
 
 function taskSubmitLabel() {
-  return ["random-comment", "home-engagement"].includes($("#task-capability").value) ? "创建并直接发送" : "创建并执行";
+  return $("#task-capability").value === "random-comment" ? "创建并直接发送" : "创建并执行";
 }
 
 function updateTaskFields() {
@@ -2634,7 +2910,9 @@ async function loadDashboard() {
     ]);
     health.dataset.state = healthData.status === "ok" ? "ok" : "error";
     health.lastElementChild.textContent = healthData.status === "ok" ? "本地服务正常" : "本地服务异常";
+    currentServiceInstanceId = healthData.runtime_instance_id || "";
     $("#capability-count").textContent = capabilityData.summary.enabled_in_v1;
+    platformCapabilityById = capabilityData.platform_capabilities || {};
     renderSystem(systemData);
 
     const statuses = await fetchAccountStatuses(accountData);
@@ -2684,6 +2962,49 @@ async function toggleGlobalPause() {
     await mutateJson(`${api}/system/${shouldPause ? "pause" : "resume"}`, "POST", {});
     await loadDashboard();
   } catch (error) { window.alert(error.message); }
+}
+
+async function restartLocalService() {
+  if (!window.confirm("确认安全重启本地服务？执行中的任务会阻止重启。")) return;
+  const button = $("#restart-service");
+  const health = $("#health");
+  const previousInstanceId = currentServiceInstanceId;
+  button.disabled = true;
+  button.textContent = "正在重启";
+  health.dataset.state = "loading";
+  health.lastElementChild.textContent = "正在安全重启本地服务";
+  try {
+    await mutateJson(`${api}/system/restart`, "POST", {});
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "重启服务";
+    health.dataset.state = "error";
+    health.lastElementChild.textContent = "重启未执行";
+    window.alert(error.message);
+    return;
+  }
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    try {
+      const nextHealth = await fetchJson(`${api}/health`);
+      if (
+        nextHealth.status === "ok"
+        && nextHealth.runtime_instance_id
+        && nextHealth.runtime_instance_id !== previousInstanceId
+      ) {
+        window.location.reload();
+        return;
+      }
+    } catch (_error) {
+      // The service is expected to be briefly unavailable during restart.
+    }
+  }
+  button.disabled = false;
+  button.textContent = "重启服务";
+  health.dataset.state = "error";
+  health.lastElementChild.textContent = "重启状态待确认";
+  window.alert("本地服务未在预期时间内恢复，请运行 restart-auto-xhs.cmd 查看结果。");
 }
 
 async function saveSettings(event) {
@@ -2797,8 +3118,15 @@ $("#remove-confirm-name").addEventListener("input", (event) => {
   $("#remove-message").textContent = matches ? "名称已匹配，可以删除槽位。" : "";
 });
 $("#global-pause").addEventListener("click", toggleGlobalPause);
+$("#restart-service").addEventListener("click", restartLocalService);
 $("#settings-form").addEventListener("submit", saveSettings);
 $("#reply-model-form").addEventListener("submit", saveReplyModelSettings);
+$("#reply-rule-form").addEventListener("submit", saveReplyRule);
+$("#reply-rule-account").addEventListener("change", () => {
+  renderReplyRuleForm();
+  renderReplyDecisions(currentReplyDecisions);
+});
+$("#run-reply-cycle").addEventListener("click", runReplyCycle);
 $("#test-reply-model").addEventListener("click", testReplyModelConnection);
 $("#export-diagnostics").addEventListener("click", exportDiagnostics);
 $("#discover-profiles").addEventListener("click", discoverProfiles);

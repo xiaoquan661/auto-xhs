@@ -275,6 +275,38 @@ body { background: var(--workspace-sidebar); }
 .record-ledger { grid-template-columns: 1fr; }
 .records-section .record-card { grid-template-columns: auto minmax(0, 1fr) auto; }
 
+.recovery-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.recovery-summary article {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px;
+  background: var(--workspace-group);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+.recovery-summary span,
+.recovery-summary small { color: var(--muted); font-size: 10px; }
+.recovery-summary strong { font-size: 25px; line-height: 1.1; }
+.recovery-ledgers { display: grid; gap: 14px; }
+.recovery-panel {
+  padding: 18px;
+  background: var(--workspace-group);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+}
+.recovery-panel .lane-heading { margin-bottom: 12px; }
+.recovery-panel .lane-heading h3 { margin: 2px 0 0; font-size: 17px; }
+.recovery-panel .lane-heading > span { color: var(--muted); font-size: 10px; }
+.data-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.data-ledger .empty-card { grid-column: 1 / -1; }
+.data-record-detail { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.6; white-space: pre-line; }
+.data-record-meta { grid-column: 1 / -1; color: var(--faint); font-size: 10px; }
+
 .system-section .diagnosis-layout {
   padding-top: 0;
   grid-template-columns: 1.15fr .85fr;
@@ -344,6 +376,7 @@ summary:focus-visible {
   .task-grid,
   .draft-layout,
   .system-section .diagnosis-layout { grid-template-columns: 1fr; }
+  .data-ledger { grid-template-columns: 1fr; }
   .task-ledger,
   .draft-ledger { min-height: 0; max-height: none; }
 }
@@ -358,6 +391,7 @@ summary:focus-visible {
   .overview-copy h2 br { display: none; }
   .overview-actions { align-items: flex-start; flex-direction: column; gap: 12px; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
+  .recovery-summary { grid-template-columns: 1fr; }
   .metric-card { min-height: 76px; }
   .section-heading-actions { display: grid; }
   .account-create-panel { margin-inline: -4px; padding: 16px; }

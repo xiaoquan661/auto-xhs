@@ -61,3 +61,8 @@ def test_reviewed_private_message_draft_sends_once_and_marks_event_handled(tmp_p
     assert calls[0][1]["user_id"] == "user-1"
     assert calls[0][1]["content"] == "你好呀～"
     assert service.inbound_events.get(event["event_id"])["handling_state"] == "HANDLED"
+    reply_record = service.list_reply_records()["records"][0]
+    assert reply_record["channel"] == "PRIVATE_MESSAGE_REPLY"
+    assert reply_record["original_content"] == "你好"
+    assert reply_record["reply_text"] == "你好呀～"
+    assert reply_record["readback"]["outgoing_message_present"] is True

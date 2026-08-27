@@ -169,6 +169,19 @@ class PrivateMessageResultUnknownError(ServiceError):
         )
 
 
+class PrivateMessageContextChangedError(ServiceError):
+    """The peer sent a new turn after reply generation; nothing was sent."""
+
+    result_unknown = False
+
+    def __init__(self) -> None:
+        super().__init__(
+            "PRIVATE_MESSAGE_CONTEXT_CHANGED",
+            "对方在回复生成后又发来了新消息，本次未发送",
+            409,
+        )
+
+
 def inspect_private_message_context(
     page: Page,
     user_id: str,
@@ -201,6 +214,7 @@ def send_private_message(
     content: str,
     *,
     expected_nickname: str = "",
+    expected_peer_turn: list[str] | None = None,
 ) -> dict:
     """Send one final text once and require a new outgoing-bubble readback."""
 
@@ -214,9 +228,19 @@ def send_private_message(
         if not opened["existing"] or before["first_message_notice"]
         else "existing"
     )
-    if expected_nickname and before["target_nickname"]:
-        if before["target_nickname"] != expected_nickname.strip():
-            raise PrivateMessageUnavailableError("当前会话收件人与任务目标不一致")
+    if (
+        expected_nickname
+        and before["target_nickname"]
+        and before["target_nickname"] != expected_nickname.strip()
+    ):
+        raise PrivateMessageUnavailableError("当前会话收件人与任务目标不一致")
+    if expected_peer_turn is not None:
+        latest_peer_turn = _latest_peer_turn(before["messages"])
+        normalized_expected = [
+            str(item).strip() for item in expected_peer_turn if str(item).strip()
+        ]
+        if latest_peer_turn != normalized_expected:
+            raise PrivateMessageContextChangedError()
     before_self = _matching_count(before["messages"], content, role="self")
     before_all = _matching_count(before["messages"], content)
 
@@ -343,3 +367,15 @@ def _matching_count(messages: list[dict], content: str, role: str | None = None)
         item.get("content") == content and (role is None or item.get("role") == role)
         for item in messages
     )
+
+
+def _latest_peer_turn(messages: list[dict]) -> list[str]:
+    turn: list[str] = []
+    for item in reversed(messages):
+        if item.get("role") != "peer":
+            break
+        content = str(item.get("content") or "").strip()
+        if content:
+            turn.append(content)
+    turn.reverse()
+    return turn

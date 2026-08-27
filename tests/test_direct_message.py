@@ -5,13 +5,14 @@ import json
 import pytest
 
 from scripts.xhs.direct_message import (
-    CHAT_EDITOR,
-    CHAT_SEND_ENTRY,
     _FOCUS_CHAT_EDITOR_JS,
-    _SYNC_CHAT_EDITOR_STATE_JS,
-    PROFILE_MESSAGE_ENTRY,
     _MARK_CHAT_SEND_ENTRY_JS,
     _MARK_PROFILE_ENTRY_JS,
+    _SYNC_CHAT_EDITOR_STATE_JS,
+    CHAT_EDITOR,
+    CHAT_SEND_ENTRY,
+    PROFILE_MESSAGE_ENTRY,
+    PrivateMessageContextChangedError,
     PrivateMessageResultUnknownError,
     PrivateMessageUnavailableError,
     inspect_private_message_context,
@@ -215,3 +216,25 @@ def test_post_send_without_readback_is_result_unknown(monkeypatch) -> None:
         send_private_message(page, "user-1", "", "专属私信")
 
     assert page.pressed == ["Enter"]
+
+
+def test_send_stops_when_latest_peer_turn_changed() -> None:
+    page = FakePage(
+        existing=True,
+        messages=[
+            {"role": "self", "content": "你好"},
+            {"role": "peer", "content": "第一条"},
+            {"role": "peer", "content": "刚补充的新消息"},
+        ],
+    )
+
+    with pytest.raises(PrivateMessageContextChangedError):
+        send_private_message(
+            page,
+            "user-1",
+            "",
+            "准备回复",
+            expected_peer_turn=["第一条"],
+        )
+
+    assert page.pressed == []

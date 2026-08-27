@@ -42,13 +42,15 @@ def test_bridge_process_is_detached_from_agent(monkeypatch, tmp_path) -> None:
 
     command, kwargs = popen_calls[0]
     assert command[0] == sys.executable
-    assert command[-6:] == [
+    assert command[-8:] == [
         "--port",
         "19701",
         "--account",
         "alpha",
         "--profile-directory",
         "Default",
+        "--platform",
+        "xiaohongshu",
     ]
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert kwargs["stdout"] == subprocess.DEVNULL

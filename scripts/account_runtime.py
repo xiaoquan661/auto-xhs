@@ -18,6 +18,11 @@ def evaluate_profile_connection(config: AccountConfig, bridge_status: dict | Non
         bridge_status and bridge_status.get("extension_connected")
     )
     reported_profile = extension.get("profile_directory")
+    expected_platform = getattr(config, "platform", "xiaohongshu")
+    reported_platform = extension.get("platform") or "xiaohongshu"
+    platform_matches = bool(
+        extension_connected and reported_platform == expected_platform
+    )
     profile_directory_claim_matches = bool(
         extension_connected and reported_profile == expected_profile
     )
@@ -27,10 +32,10 @@ def evaluate_profile_connection(config: AccountConfig, bridge_status: dict | Non
         and extension.get("instance_id") == config.extension_instance_id
         and extension.get("instance_enrolled")
     )
-    if extension_instance_enrolled and profile_directory_claim_matches:
+    if extension_instance_enrolled and profile_directory_claim_matches and platform_matches:
         verification_level = "paired_instance"
         profile_verified = True
-    elif not config.extension_instance_id and profile_directory_claim_matches:
+    elif not config.extension_instance_id and profile_directory_claim_matches and platform_matches:
         # Legacy per-account extensions can only repeat their configured route.
         # Preserve compatibility while making the weaker evidence explicit.
         verification_level = "legacy_claim"
@@ -43,6 +48,9 @@ def evaluate_profile_connection(config: AccountConfig, bridge_status: dict | Non
         "extension_connected": extension_connected,
         "expected_profile_directory": expected_profile,
         "connected_profile_directory": reported_profile,
+        "expected_platform": expected_platform,
+        "connected_platform": reported_platform,
+        "platform_matches": platform_matches,
         "profile_directory_claim_matches": profile_directory_claim_matches,
         "profile_verified": profile_verified,
         "profile_verification_level": verification_level,

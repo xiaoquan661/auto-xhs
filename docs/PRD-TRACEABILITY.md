@@ -3,6 +3,7 @@
 关联文档：[自动多账号小红书运营系统 PRD](PRD.md)、[V2.0 智能回复](AUTO-XHS-V2-INTELLIGENT-REPLY.md)
 
 状态定义：`SPEC_APPROVED`、`PLANNED`、`IN_PROGRESS`、`IMPLEMENTED`、`AUTOMATED_TESTED`、
+`AUTOMATED_TESTED_PARTIAL`、`REAL_READ_ONLY_TESTED`、`REAL_MODEL_TESTED`、
 `REAL_DEVICE_VERIFIED`、`BLOCKED`、`DEFERRED`。
 
 `SPEC_APPROVED` 只表示产品规则已经批准，不表示代码可用。V1.5 需求必须依次经过实现、自动化测试和
@@ -43,7 +44,7 @@
 | ID-001 | 读取、记录并强制校验当前小红书 UID | AUTOMATED_TESTED | 真实账号身份验收 |
 | ID-002 | 安全换号状态机暂停业务并保留历史 | AUTOMATED_TESTED | 换号成功、取消和中断测试 |
 | PERM-001 | 所有能力登记固定 L0-L3 权限元数据 | AUTOMATED_TESTED | 公开 CLI 命令元数据覆盖，复合命令操作级策略已测试 |
-| PERM-002 | L3 必须显式确认，不能由 UI 或 Agent 降级 | AUTOMATED_TESTED | 账号、配对、身份、自启动和设置服务/API 均校验确认 |
+| PERM-002 | L3 必须显式确认，不能由 UI 或 Agent 降级 | AUTOMATED_TESTED | 账号、配对、身份和设置服务/API 均校验确认 |
 | OUT-001 | 图文、视频、长文发布在 V1.0 禁用 | AUTOMATED_TESTED | V1.0 一步发布入口仍拒绝；V1.5 仅开放分步预览与受控确认 |
 | OUT-002 | 指定评论和回复使用最终草稿确认；随机评论使用当前点击的一次性批量授权 | AUTOMATED_TESTED | 草稿确认、随机目标、直接发送授权、1–3 条限制和逐项结果已测试 |
 | OUT-003 | 私信和公开资料修改在 V1.0 禁用 | AUTOMATED_TESTED | 未注册能力从服务、任务和草稿入口被拒绝 |
@@ -74,23 +75,22 @@
 | V15-PROFILE-001 | 开放公开资料修改，执行前展示前后差异并确认 | SPEC_APPROVED | 新增预览、确认、执行、回读和审计链 |
 | V15-AUTH-001 | 产品登录只保留状态检查、自动退出、用户手动登录和新 UID 核验 | AUTOMATED_TESTED | Skill、WebUI 和 CLI 主流程不再引导二维码或手机验证码登录；真实换号继续验收 |
 | V15-CHROME-001 | 启动账号时先启动 Bridge，扩展未连接再自动打开绑定 Profile | AUTOMATED_TESTED | 正确 Profile 复用、错误 Profile 拒绝和超时已测试；真实 Windows 待验收 |
-| V15-CHROME-002 | Windows 登录自启动按槽位恢复 Bridge 和绑定 Profile，不自动关闭 Chrome | AUTOMATED_TESTED | 仅启用槽位和重复启动已测试；真实 Windows 登录待验收 |
 | V15-COMMENT-001 | 指定评论和随机评论均由当前任务点击授权后直接发送 | SPEC_APPROVED | 授权范围、配额、逐项结果和防重复测试通过 |
-| V15-REPLY-001 | 按账号启用自动回复规则，符合规则的回复不逐条确认 | SPEC_APPROVED | 规则、时间范围、配额、暂停、审计和真实账号验收通过 |
+| V15-REPLY-001 | 按账号启用自动回复规则，符合规则的回复不逐条确认 | AUTOMATED_TESTED | 评论/私信开关、时段、配额、暂停、决策、回读与记录已测试；真实账号周期待验收 |
 | V15-OS-001 | 正式支持 Windows 10/11，不声明 macOS/Linux 正式支持 | SPEC_APPROVED | 子 Skill 元数据和启动说明统一，完成两台 Windows 验收 |
 | V15-DOC-001 | 文档优先级固定为 PRD → 主 Skill → 子 Skill → README/用户指南 | IMPLEMENTED | 文档索引、状态口径和本地链接检查已更新 |
 
-## V2.0：2026-08-21 智能回复第一阶段
+## V2.0：2026-08-21 评论与入站私信智能回复
 
 | ID | 需求 | 当前状态 | 完成条件 |
 |---|---|---|---|
 | V20-CTX-001 | 评论事件保留笔记、父评论和评论者上下文 | AUTOMATED_TESTED | 采集、持久化和去重测试通过；真实评论待验收 |
-| V20-LLM-001 | 使用 OpenAI-compatible 模型生成结构化回复候选 | AUTOMATED_TESTED | 配置、请求、解析和错误分支已测试；真实模型连通待验收 |
-| V20-DM-001 | 读取一对一私信收件箱，只采集最后一条对方文字并去重 | REAL_READ_ONLY_TESTED | `hongshu1` 真实 `/chat` 页面读取 7 个会话，识别 3 条对方最后发言并跳过 4 条己方最后发言；平台提示过滤已补充 |
-| V20-DM-002 | 私信上下文生成 AI 草稿，WebUI 人工确认后发送并回读 | AUTOMATED_TESTED_PARTIAL | DeepSeek 已生成真实事件草稿；确认、身份校验、执行、回读和 `RESULT_UNKNOWN` 分支由自动化测试覆盖；WebUI 真实发送待验收 |
+| V20-LLM-001 | 使用 OpenAI-compatible 模型生成结构化回复候选 | REAL_MODEL_TESTED | 配置、请求、解析和错误分支已测试；DeepSeek 已为真实入站私信事件生成草稿 |
+| V20-DM-001 | 读取一对一私信收件箱，以最新连续对方消息作为回复单位并去重 | REAL_READ_ONLY_TESTED | 真实 `/chat` 页面采集基线已记录；连续消息合并、平台提示和己方最后发言过滤已测试 |
+| V20-DM-002 | 私信上下文生成规则候选，发送前校验会话版本并在发送后回读 | AUTOMATED_TESTED | 会话变化停止发送、消息气泡回读及 `RESULT_UNKNOWN` 不重发已测试；自动回复实机待验收 |
 | V20-DRAFT-001 | AI 结果只创建待人工确认草稿，不自动发送 | AUTOMATED_TESTED | 同事件唯一任务/草稿、质量提示和既有确认链测试通过 |
-| V20-WEB-001 | WebUI 可选择 READY 账号采集评论并为明确事件生成草稿 | AUTOMATED_TESTED | 账号状态、事件列表、模型设置和生成接口测试通过；真实页面待验收 |
-| V20-AUTO-001 | 按账号规则后台自动回复 | DEFERRED | 用户显式启用、范围、时间、配额、暂停、审计和真实账号验收完成 |
+| V20-WEB-001 | WebUI 可选择 READY 账号采集评论或入站私信，并为明确事件生成草稿 | AUTOMATED_TESTED_PARTIAL | 账号状态、事件列表、模型设置和生成接口测试通过；私信只读采集已有真实页面记录，确认发送待验收 |
+| V20-AUTO-001 | 按账号规则运行有界自动回复周期 | AUTOMATED_TESTED | CLI/API/WebUI、渠道开关、范围、时段、配额、`reply/pending/skip`、任务与回复记录已测试；计划调度与真实账号待验收 |
 
 ## V1.0 阶段顺序
 

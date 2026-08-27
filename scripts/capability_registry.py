@@ -108,17 +108,6 @@ _POLICIES = [
     ),
     _policy("account-pair-status", RiskLevel.READ_ONLY),
     _policy("account-unpair", RiskLevel.SECURITY_CONFIG, requires_result_verification=True),
-    _policy(
-        "account-autostart-enable",
-        RiskLevel.SECURITY_CONFIG,
-        requires_result_verification=True,
-    ),
-    _policy("account-autostart-status", RiskLevel.READ_ONLY),
-    _policy(
-        "account-autostart-disable",
-        RiskLevel.SECURITY_CONFIG,
-        requires_result_verification=True,
-    ),
     _policy("account-doctor", RiskLevel.READ_ONLY, requires_target_account=False),
     _policy(
         "account-connection-enroll",
@@ -159,6 +148,15 @@ _POLICIES = [
     _policy("private-message-context", RiskLevel.READ_ONLY),
     _policy("prepare-private-messages", RiskLevel.READ_ONLY),
     _policy("generate-reply-draft", RiskLevel.READ_ONLY),
+    _policy(
+        "reply-cycle",
+        RiskLevel.EXTERNAL_OUTPUT,
+        supports_scheduling=True,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
     _policy("diagnose-404", RiskLevel.READ_ONLY),
     _policy("check-risk", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("get-netlog", RiskLevel.READ_ONLY),
@@ -213,10 +211,10 @@ _POLICIES = [
         requires_confirmation=False,
         enabled_in_v1=True,
     ),
-    # One WebUI submission authorizes the bounded browse/like/comment batch.
+    # Home engagement is a bounded browse-and-like batch.
     _policy(
         "home-engagement",
-        RiskLevel.EXTERNAL_OUTPUT,
+        RiskLevel.STATE_CHANGE,
         requires_identity_check=True,
         requires_result_verification=True,
         requires_confirmation=False,
@@ -350,6 +348,28 @@ SERVICE_OPERATION_POLICIES: dict[tuple[str, str], CapabilityPolicy] = {
         requires_identity_check=True,
         requires_result_verification=True,
         requires_confirmation=True,
+        enabled_in_v1=True,
+    ),
+    (
+        "send-private-messages",
+        "automatic_reply",
+    ): _policy(
+        "send-private-messages",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    (
+        "reply-comment",
+        "automatic_reply",
+    ): _policy(
+        "reply-comment",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
         enabled_in_v1=True,
     ),
 }

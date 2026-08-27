@@ -97,7 +97,6 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     } == {
         "post-comment",
         "random-comment",
-        "home-engagement",
         "reply-comment",
         "fill-publish",
         "fill-publish-video",
@@ -107,6 +106,7 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "select-template",
         "next-step",
         "send-private-messages",
+        "reply-cycle",
     }
     assert get_capability_policy("post-comment").requires_confirmation is True
     assert get_capability_policy("reply-comment").requires_confirmation is True
@@ -114,10 +114,23 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     assert get_capability_policy("random-comment").supports_scheduling is False
     assert get_capability_policy("home-engagement").requires_confirmation is False
     assert get_capability_policy("home-engagement").requires_identity_check is True
+    assert get_capability_policy("home-engagement").risk_level == RiskLevel.STATE_CHANGE
     assert get_capability_policy("publish").enabled_in_v1 is False
     assert get_capability_policy("publish-video").enabled_in_v1 is False
     assert get_capability_policy("fill-publish").supports_scheduling is True
     assert get_capability_policy("fill-publish-video").supports_scheduling is True
+
+
+def test_home_engagement_cli_has_no_comment_options():
+    parser = cli.build_parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    option_dests = {action.dest for action in subparsers.choices["home-engagement"]._actions}
+    assert "comment_count" not in option_dests
+    assert "style" not in option_dests
     assert get_capability_policy("send-private-messages").requires_confirmation is False
     assert get_capability_policy("send-private-messages").supports_scheduling is False
     assert get_operation_policy(

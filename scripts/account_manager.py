@@ -16,9 +16,11 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from platforms import DEFAULT_PLATFORM, get_platform_spec, normalize_platform
+
 DEFAULT_ACCOUNT = "default"
 DEFAULT_BRIDGE_PORT = 9333
-ACCOUNT_SCHEMA_VERSION = 2
+ACCOUNT_SCHEMA_VERSION = 3
 UNIVERSAL_EXTENSION_MODE = "universal"
 LEGACY_EXTENSION_MODE = "per_account"
 _ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
@@ -31,6 +33,7 @@ class AccountConfig:
     bridge_port: int
     chrome_user_data_dir: str | None
     extension_dir: str | None
+    platform: str = DEFAULT_PLATFORM
     chrome_profile_directory: str | None = None
     profile_display_name: str | None = None
     profile_mode: str = "managed"
@@ -211,12 +214,14 @@ def load_account(name: str, *, allow_legacy_default: bool = True) -> AccountConf
 def add_account(
     name: str,
     *,
+    platform: str = DEFAULT_PLATFORM,
     bridge_port: int | None = None,
     extension_source: str | Path,
 ) -> AccountConfig:
     with account_registry_transaction():
         return _add_account_unlocked(
             name,
+            platform=platform,
             bridge_port=bridge_port,
             extension_source=extension_source,
         )
@@ -225,10 +230,12 @@ def add_account(
 def _add_account_unlocked(
     name: str,
     *,
+    platform: str,
     bridge_port: int | None,
     extension_source: str | Path,
 ) -> AccountConfig:
     name = validate_account_name(name)
+    platform = normalize_platform(platform)
     path = account_config_path(name)
     if path.exists():
         raise FileExistsError(f"账号 {name!r} 已存在")
@@ -245,6 +252,7 @@ def _add_account_unlocked(
             bridge_port=port,
             chrome_user_data_dir=str(profile_dir),
             extension_dir=str(extension_dir),
+            platform=platform,
             profile_mode="managed",
             account_id=uuid.uuid4().hex,
             bridge_token=secrets.token_urlsafe(32),
@@ -259,6 +267,7 @@ def _add_account_unlocked(
 def import_existing_profile(
     name: str,
     *,
+    platform: str = DEFAULT_PLATFORM,
     user_data_dir: str | Path,
     profile_directory: str,
     profile_display_name: str | None = None,
@@ -270,6 +279,7 @@ def import_existing_profile(
     with account_registry_transaction():
         return _import_existing_profile_unlocked(
             name,
+            platform=platform,
             user_data_dir=user_data_dir,
             profile_directory=profile_directory,
             profile_display_name=profile_display_name,
@@ -282,6 +292,7 @@ def import_existing_profile(
 def _import_existing_profile_unlocked(
     name: str,
     *,
+    platform: str,
     user_data_dir: str | Path,
     profile_directory: str,
     profile_display_name: str | None,
@@ -290,6 +301,7 @@ def _import_existing_profile_unlocked(
     replace: bool,
 ) -> AccountConfig:
     name = validate_account_name(name)
+    platform = normalize_platform(platform)
     path = account_config_path(name)
     current = _read_config(path) if path.exists() else None
     if current and not replace:
@@ -324,6 +336,7 @@ def _import_existing_profile_unlocked(
         bridge_port=port,
         chrome_user_data_dir=str(root),
         extension_dir=str(extension_dir),
+        platform=platform,
         chrome_profile_directory=profile_name,
         profile_display_name=(profile_display_name or profile_name).strip() or profile_name,
         profile_mode="existing",
@@ -498,8 +511,11 @@ def account_lock_path(name: str) -> str:
 
 
 def public_config(config: AccountConfig) -> dict:
+    platform = get_platform_spec(getattr(config, "platform", DEFAULT_PLATFORM))
     result = {
         "name": config.name,
+        "platform": platform.platform_id,
+        "platform_display_name": platform.display_name,
         "bridge_port": config.bridge_port,
         "bridge_url": config.bridge_url,
         "schema_version": config.schema_version,
@@ -551,6 +567,7 @@ def _read_config(path: Path) -> AccountConfig:
         bridge_port=port,
         chrome_user_data_dir=data.get("chrome_user_data_dir"),
         extension_dir=data.get("extension_dir"),
+        platform=normalize_platform(data.get("platform")),
         chrome_profile_directory=data.get("chrome_profile_directory"),
         profile_display_name=data.get("profile_display_name"),
         profile_mode=data.get(
@@ -618,6 +635,7 @@ def _write_extension_config(extension_dir: Path, config: AccountConfig) -> None:
             "accountId": config.account_id,
             "bridgeToken": config.bridge_token,
             "profileDirectory": config.chrome_profile_directory or "Default",
+            "platform": getattr(config, "platform", DEFAULT_PLATFORM),
         },
         ensure_ascii=False,
     )

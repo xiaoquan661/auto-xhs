@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 from operations_db import OperationsDatabase
+from platforms import normalize_platform
 from service_errors import ServiceError
 
 METRIC_FIELDS = (
@@ -35,6 +36,7 @@ class MetricService:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         entity_type: str,
         entity_id: str,
         source: str,
@@ -44,6 +46,7 @@ class MetricService:
     ) -> dict:
         if entity_type not in ENTITY_TYPES:
             raise ServiceError("INVALID_METRIC_ENTITY", "指标对象只能是 account 或 note")
+        platform = normalize_platform(platform)
         captured_at = captured_at or utc_now()
         values = {name: self._optional_int(metrics.get(name)) for name in METRIC_FIELDS}
         snapshot_id = uuid.uuid4().hex
@@ -51,13 +54,14 @@ class MetricService:
             cursor = connection.execute(
                 f"""
                 INSERT OR IGNORE INTO metric_snapshots (
-                    snapshot_id, account_slot, entity_type, entity_id,
+                    snapshot_id, account_slot, platform, entity_type, entity_id,
                     captured_at, source, {', '.join(METRIC_FIELDS)}, extra_json
-                ) VALUES ({', '.join('?' for _ in range(6 + len(METRIC_FIELDS) + 1))})
+                ) VALUES ({', '.join('?' for _ in range(7 + len(METRIC_FIELDS) + 1))})
                 """,
                 (
                     snapshot_id,
                     account_slot,
+                    platform,
                     entity_type,
                     entity_id,
                     captured_at,

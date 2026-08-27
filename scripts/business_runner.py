@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 
 from account_manager import load_account
+from platforms import CapabilitySupport, get_platform_capability, normalize_platform
 from run_lock import for_account
 from service_errors import ServiceError
 from xhs.bridge import BridgePage
@@ -47,11 +48,26 @@ class BusinessRunner:
     @staticmethod
     def _execute_existing_adapter(account: str, capability: str, parameters: dict) -> dict:
         config = load_account(account, allow_legacy_default=False)
+        requested_platform = normalize_platform(parameters.get("platform") or config.platform)
+        if requested_platform != config.platform:
+            raise ServiceError(
+                "PLATFORM_MISMATCH",
+                "任务平台与账号槽位平台不一致",
+                409,
+            )
+        support = get_platform_capability(config.platform, capability)
+        if support in {CapabilitySupport.UNKNOWN, CapabilitySupport.UNSUPPORTED}:
+            raise ServiceError(
+                "PLATFORM_CAPABILITY_UNAVAILABLE",
+                f"{capability} 在 {config.platform} 上当前状态为 {support.value}",
+                409,
+            )
         page = BridgePage(
             config.bridge_url,
             account=config.name,
             account_id=config.account_id,
             bridge_token=config.bridge_token,
+            platform=config.platform,
         )
         if capability == "list-feeds":
             from xhs.feeds import list_feeds
@@ -102,11 +118,9 @@ class BusinessRunner:
                 page,
                 browse_count=int(parameters.get("browse_count") or 6),
                 like_count=int(parameters.get("like_count") or 0),
-                comment_count=int(parameters.get("comment_count") or 0),
                 duration_seconds=int(parameters.get("duration_minutes") or 3) * 60,
                 min_read_seconds=float(parameters.get("min_read_seconds") or 8),
                 max_read_seconds=float(parameters.get("max_read_seconds") or 15),
-                style=str(parameters.get("style") or "natural"),
             )
         if capability == "get-feed-detail":
             from xhs.feed_detail import get_feed_detail
@@ -162,6 +176,11 @@ class BusinessRunner:
                 str(parameters.get("xsec_token") or ""),
                 str(parameters.get("content") or ""),
                 expected_nickname=str(parameters.get("nickname") or ""),
+                expected_peer_turn=(
+                    list(parameters.get("expected_peer_turn") or [])
+                    if "expected_peer_turn" in parameters
+                    else None
+                ),
             )
         if capability == "collect-note-comments":
             from xhs.comment_monitor import collect_note_comments

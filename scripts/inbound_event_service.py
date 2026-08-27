@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 from operations_db import OperationsDatabase
+from platforms import normalize_platform
 from service_errors import ServiceError
 
 EVENT_STATES = {"NEW", "TASK_CREATED", "IGNORED", "HANDLED"}
@@ -24,6 +25,7 @@ class InboundEventService:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         event_type: str,
         platform_event_id: str,
         occurred_at: str,
@@ -36,6 +38,7 @@ class InboundEventService:
         account_slot = account_slot.strip()
         event_type = event_type.strip()
         platform_event_id = platform_event_id.strip()
+        platform = normalize_platform(platform)
         if not account_slot or not event_type or not platform_event_id:
             raise ServiceError(
                 "INVALID_EVENT",
@@ -48,14 +51,15 @@ class InboundEventService:
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO inbound_events (
-                    event_id, account_slot, event_type, platform_event_id,
+                    event_id, account_slot, platform, event_type, platform_event_id,
                     object_type, object_id, actor_user_id, occurred_at,
                     discovered_at, payload_json, classification, handling_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW')
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW')
                 """,
                 (
                     event_id,
                     account_slot,
+                    platform,
                     event_type,
                     platform_event_id,
                     object_type.strip(),
@@ -71,9 +75,10 @@ class InboundEventService:
             row = connection.execute(
                 """
                 SELECT * FROM inbound_events
-                WHERE account_slot = ? AND event_type = ? AND platform_event_id = ?
+                WHERE account_slot = ? AND platform = ?
+                  AND event_type = ? AND platform_event_id = ?
                 """,
-                (account_slot, event_type, platform_event_id),
+                (account_slot, platform, event_type, platform_event_id),
             ).fetchone()
         return {"created": created, "event": self._decode(dict(row))}
 

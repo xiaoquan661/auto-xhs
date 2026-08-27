@@ -27,4 +27,6 @@ def test_operation_result_is_structured_and_queryable(tmp_path) -> None:
 
     assert event["platform_result"]["message"] == "回复发送成功"
     assert event["readback"]["reply_found"] is True
+    assert event["action"] == "reply-comment"
+    assert event["result_summary"] == ""
     assert service.list(account_slot="alpha")[0]["target_id"] == "comment-1"

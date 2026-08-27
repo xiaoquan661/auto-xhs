@@ -7,12 +7,6 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from account_autostart import (
-    account_autostart_status,
-    disable_account_autostart,
-    enable_account_autostart,
-)
-from action_workflow_service import ActionWorkflowService
 from account_doctor import diagnose_accounts
 from account_identity import (
     begin_login_switch,
@@ -41,6 +35,7 @@ from account_pairing import (
     revoke_account_pairing,
 )
 from account_runtime import evaluate_profile_connection
+from action_workflow_service import ActionWorkflowService
 from approval_service import ApprovalService
 from bridge_lifecycle import (
     get_bridge_lifecycle,
@@ -53,22 +48,30 @@ from capability_registry import (
     get_operation_policy,
     list_capability_policies,
 )
-from diagnostic_export import export_diagnostic_report
 from collector_service import CollectorService
 from comment_collector import CommentCollector
+from data_recovery_service import DataRecoveryService
+from diagnostic_export import export_diagnostic_report
 from inbound_event_service import InboundEventService
 from metric_service import MetricService
 from operations_db import OperationsDatabase
-from operation_event_service import OperationEventService
 from passive_reply_service import PassiveReplyService
-from private_message_collector import PrivateMessageCollector
+from platforms import (
+    CapabilitySupport,
+    get_platform_capability,
+    list_platform_capabilities,
+    list_platform_specs,
+    normalize_platform,
+)
 from private_message_batch import (
     normalize_private_message_recipients,
     private_message_preview,
 )
+from private_message_collector import PrivateMessageCollector
 from product_store import ProductStore
 from publish_workflow import PublishWorkflowService
 from quota_service import QuotaService
+from reply_cycle_service import ReplyCycleService
 from reply_intelligence_service import ReplyIntelligenceService
 from reply_llm_client import OpenAICompatibleReplyClient, ReplyModelConfig
 from reply_rule_service import ReplyRuleService
@@ -117,13 +120,11 @@ class ApplicationService:
         bridge_stopper: Callable[..., dict] = stop_bridge,
         bridge_restarter: Callable[..., dict] = restart_account_runtime,
         diagnostic_exporter: Callable[..., Path] = export_diagnostic_report,
-        autostart_reader: Callable[[str], dict] = account_autostart_status,
-        autostart_enabler: Callable[[str], dict] = enable_account_autostart,
-        autostart_disabler: Callable[[str], dict] = disable_account_autostart,
         pairing_creator: Callable[..., dict] = create_pairing_session,
         pairing_status_reader: Callable[[str], dict] = get_pairing_status,
         pairing_revoker: Callable[[str], AccountConfig] = revoke_account_pairing,
         reply_intelligence: ReplyIntelligenceService | None = None,
+        webui_restarter: Callable[[], dict] | None = None,
     ) -> None:
         self._account_lister = account_lister
         self._account_loader = account_loader
@@ -150,12 +151,11 @@ class ApplicationService:
         self._bridge_stopper = bridge_stopper
         self._bridge_restarter = bridge_restarter
         self._diagnostic_exporter = diagnostic_exporter
-        self._autostart_reader = autostart_reader
-        self._autostart_enabler = autostart_enabler
-        self._autostart_disabler = autostart_disabler
         self._pairing_creator = pairing_creator
         self._pairing_status_reader = pairing_status_reader
         self._pairing_revoker = pairing_revoker
+        self._webui_restarter = webui_restarter
+        self._runtime_instance_id = uuid.uuid4().hex
         self._store = product_store or ProductStore()
         self.operations_database = operations_database or OperationsDatabase(root=self._store.root)
         self.inbound_events = InboundEventService(self.operations_database)
@@ -166,13 +166,25 @@ class ApplicationService:
             self.collectors,
         )
         self.metrics = MetricService(self.operations_database)
-        self.operation_events = OperationEventService(self.operations_database)
+        self.data_recovery = DataRecoveryService(self.operations_database)
+        self.published_posts = self.data_recovery.published_posts
+        self.operation_events = self.data_recovery.operation_events
+        self.reply_records = self.data_recovery.reply_records
         self.reply_rules = ReplyRuleService(self.operations_database)
+        self.reply_cycles = ReplyCycleService(self.operations_database)
         self.reply_intelligence = reply_intelligence or self._build_reply_intelligence()
         self.action_workflows = ActionWorkflowService(self.operations_database)
-        self.tasks = TaskService(self._store)
+        self.tasks = TaskService(
+            self._store,
+            platform_resolver=self._resolve_account_platform,
+        )
         self.tasks.recover_interrupted()
-        self.publish_workflows = PublishWorkflowService(self._store)
+        self.publish_workflows = PublishWorkflowService(
+            self._store,
+            operations_database=self.operations_database,
+            operation_events=self.operation_events,
+            published_posts=self.published_posts,
+        )
         self.approvals = ApprovalService(self._store)
         self.passive_replies = PassiveReplyService(
             self.inbound_events,
@@ -192,13 +204,22 @@ class ApplicationService:
             "status": "ok",
             "api_version": "v1",
             "product_version": PRODUCT_VERSION,
+            "runtime_instance_id": self._runtime_instance_id,
         }
 
     def list_capabilities(self) -> dict:
         capabilities = [item.to_dict() for item in list_capability_policies()]
+        commands = [str(item["command"]) for item in capabilities]
         return {
             "success": True,
             "capabilities": capabilities,
+            "platforms": list_platform_specs(),
+            "platform_capabilities": {
+                platform["platform_id"]: list_platform_capabilities(
+                    str(platform["platform_id"]), commands
+                )
+                for platform in list_platform_specs()
+            },
             "summary": {
                 "total": len(capabilities),
                 "enabled_in_v1": sum(bool(item["enabled_in_v1"]) for item in capabilities),
@@ -246,6 +267,7 @@ class ApplicationService:
         *,
         name: str,
         confirmed: bool,
+        platform: str = "xiaohongshu",
         bridge_port: int | None = None,
     ) -> dict:
         if not confirmed:
@@ -255,6 +277,7 @@ class ApplicationService:
         try:
             config = self._account_creator(
                 name,
+                platform=normalize_platform(platform),
                 bridge_port=bridge_port,
                 extension_source=self._extension_source,
             )
@@ -274,6 +297,7 @@ class ApplicationService:
         profile_directory: str,
         profile_display_name: str = "",
         confirmed: bool,
+        platform: str = "xiaohongshu",
         bridge_port: int | None = None,
     ) -> dict:
         if not confirmed:
@@ -283,6 +307,7 @@ class ApplicationService:
         try:
             config = self._profile_importer(
                 name,
+                platform=normalize_platform(platform),
                 user_data_dir=user_data_dir,
                 profile_directory=profile_directory,
                 profile_display_name=profile_display_name,
@@ -351,7 +376,6 @@ class ApplicationService:
                     local_binding_cleared = bool(page.clear_extension_binding())
                 self._bridge_stopper(config)
                 bridge_stopped = True
-            self._autostart_disabler(account)
             self._pairing_revoker(account)
             archive = self._account_archiver(account)
         except (OSError, RuntimeError, ValueError) as exc:
@@ -365,7 +389,6 @@ class ApplicationService:
             "archive": archive,
             "cancelled_task_ids": cancelled_task_ids,
             "bridge_stopped": bridge_stopped,
-            "autostart_disabled": True,
             "local_binding_cleared": local_binding_cleared,
             "preserved": ["Chrome Profile", "小红书登录数据", "共享通用扩展"],
             "message": "账号槽位已移出列表并保存到本机归档",
@@ -454,7 +477,9 @@ class ApplicationService:
         try:
             identity = self._observe_identity(page)
         except ServiceError as exc:
-            if exc.code in {"LOGIN_REQUIRED", "IDENTITY_UID_UNAVAILABLE"}:
+            if exc.code == "LOGIN_REQUIRED":
+                self._remember_runtime_logged_out(account)
+            elif exc.code == "IDENTITY_UID_UNAVAILABLE":
                 self._clear_runtime_identity_check(account)
             raise
         self._remember_runtime_identity(account, identity)
@@ -548,14 +573,17 @@ class ApplicationService:
                 raise RuntimeError("退出后仍检测到原账号登录，操作未完成")
         except (OSError, RuntimeError, ValueError, XHSError) as exc:
             raise ServiceError("ACCOUNT_LOGOUT_FAILED", str(exc), 409) from exc
-        self._clear_runtime_identity_check(account)
+        self._remember_runtime_logged_out(account, observed_after, event="LOGOUT_CONFIRMED")
+        next_action = "请在绑定的 Chrome Profile 中手动登录账号，登录后完成身份核验"
         return {
             "success": True,
             "account": account,
             "logged_out": logged_out,
             "verified_logged_out": True,
+            "auth_state": "LOGGED_OUT",
             "identity": observed_after,
-            "message": "已退出登录" if logged_out else "当前账号未登录，无需退出",
+            "message": "退出成功，当前无账号" if logged_out else "当前无账号",
+            "next_action": next_action,
         }
 
     def begin_account_switch(
@@ -594,7 +622,7 @@ class ApplicationService:
             if pending is not None:
                 self._switch_canceller(account, observed, force=False)
             raise ServiceError("ACCOUNT_SWITCH_BEGIN_FAILED", str(exc), 409) from exc
-        self._clear_runtime_identity_check(account)
+        self._remember_runtime_logged_out(account, observed_after, event="SWITCH_LOGOUT_CONFIRMED")
         return {
             "success": True,
             "account": account,
@@ -682,6 +710,23 @@ class ApplicationService:
         settings = self._store.set_setting("global_paused", bool(paused))
         return {"success": True, "global_paused": settings["global_paused"]}
 
+    def restart_local_service(self) -> dict:
+        active = [
+            item
+            for item in self.tasks.list()
+            if item.get("state") in {"RUNNING", "CANCEL_REQUESTED"}
+        ]
+        if active:
+            raise ServiceError(
+                "ACTIVE_TASKS",
+                f"当前有 {len(active)} 个执行中任务，请先终止或等待任务结束",
+                409,
+            )
+        if self._webui_restarter is None:
+            raise ServiceError("RESTART_UNAVAILABLE", "当前启动方式不支持从 WebUI 重启服务", 409)
+        lifecycle = self._webui_restarter()
+        return {"success": True, "status": "restart_scheduled", "lifecycle": lifecycle}
+
     def update_system_settings(
         self,
         *,
@@ -710,30 +755,6 @@ class ApplicationService:
         if self._runner_is_managed:
             self.runner = BusinessRunner(max_concurrency=concurrency)
         return self.system_status()
-
-    def get_account_autostart(self, account: str) -> dict:
-        self._load_account(account)
-        try:
-            status = self._autostart_reader(account)
-        except RuntimeError as exc:
-            raise ServiceError("AUTOSTART_STATUS_FAILED", str(exc), 409) from exc
-        return {"success": True, "autostart": status}
-
-    def set_account_autostart(self, account: str, *, enabled: bool, confirmed: bool) -> dict:
-        if not confirmed:
-            raise ServiceError("CONFIRMATION_REQUIRED", "修改账号自启动需要明确确认", 409)
-        command = "account-autostart-enable" if enabled else "account-autostart-disable"
-        self.require_enabled_capability(command)
-        self._load_account(account)
-        try:
-            status = (
-                self._autostart_enabler(account)
-                if enabled
-                else self._autostart_disabler(account)
-            )
-        except RuntimeError as exc:
-            raise ServiceError("AUTOSTART_UPDATE_FAILED", str(exc), 409) from exc
-        return {"success": True, "autostart": status}
 
     def get_bridge_status(self, account: str) -> dict:
         config = self._load_account(account)
@@ -838,6 +859,10 @@ class ApplicationService:
         if (waiting.get("parameters") or {}).get("stage") != "preview_ready":
             raise ServiceError("PREVIEW_NOT_READY", "发布任务尚未进入最终预览确认阶段", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
+        self.publish_workflows.tasks.update_parameters(
+            task_id,
+            verified_uid=verified_uid,
+        )
         task = self.publish_workflows.prepare_publish(
             task_id,
             account=account_slot,
@@ -900,7 +925,7 @@ class ApplicationService:
         task = self.tasks.get(task_id)
         if (
             task["capability"] == "send-private-messages"
-            and task.get("operation") != "recipient"
+            and task.get("operation") not in {"recipient", "automatic_reply"}
         ):
             raise ServiceError(
                 "AGENT_CLI_ONLY",
@@ -909,6 +934,29 @@ class ApplicationService:
             )
         if task["state"] != "QUEUED":
             raise ServiceError("INVALID_TASK_STATE", "只有排队中的任务可以执行", 409)
+        task_platform = normalize_platform(task.get("platform"))
+        config_platform = self._resolve_account_platform(task["account_slot"])
+        if task_platform != config_platform:
+            blocked = self.tasks.transition(
+                task_id,
+                "BLOCKED",
+                error_code="PLATFORM_MISMATCH",
+                recommended_action="任务平台与账号槽位平台不一致，请重新创建任务",
+            )
+            self._record_task_event(blocked, self._task_target_key(blocked))
+            return {"success": True, "task": blocked}
+        support = get_platform_capability(task_platform, task["capability"])
+        if support in {CapabilitySupport.UNKNOWN, CapabilitySupport.UNSUPPORTED}:
+            blocked = self.tasks.transition(
+                task_id,
+                "BLOCKED",
+                error_code="PLATFORM_CAPABILITY_UNAVAILABLE",
+                recommended_action=(
+                    f"{task['capability']} 在 {task_platform} 上当前状态为 {support.value}"
+                ),
+            )
+            self._record_task_event(blocked, self._task_target_key(blocked))
+            return {"success": True, "task": blocked}
         target_key = self._task_target_key(task)
         status = self.get_account_status(task["account_slot"])
         if not status["ready"]:
@@ -921,6 +969,7 @@ class ApplicationService:
             self._record_task_event(task, target_key)
             return {"success": True, "task": task}
         parameters = dict(task.get("parameters") or {})
+        parameters["platform"] = task_platform
         if task["capability"] in {
             "collect-note-comments",
             "collect-private-messages",
@@ -973,6 +1022,9 @@ class ApplicationService:
                 task["account_slot"], task["capability"], parameters
             )
         except Exception as exc:
+            terminated = self._finalize_requested_task_termination(task_id, target_key)
+            if terminated is not None:
+                return {"success": True, "task": terminated}
             result_unknown = getattr(exc, "result_unknown", task["risk_level"] == "L1")
             final = "RESULT_UNKNOWN" if result_unknown else "FAILED"
             code = exc.code if isinstance(exc, ServiceError) else "EXECUTION_ERROR"
@@ -990,9 +1042,13 @@ class ApplicationService:
             )
             self._record_task_event(completed, target_key)
             return {"success": True, "task": completed}
+        terminated = self._finalize_requested_task_termination(task_id, target_key)
+        if terminated is not None:
+            return {"success": True, "task": terminated}
         if task["capability"] == "collect-note-comments":
             collected = self.comment_collector.ingest(
                 account_slot=task["account_slot"],
+                platform=task["platform"],
                 comments=list(result.get("comments") or []),
                 cursor_value=str(result.get("cursor") or ""),
                 last_seen_time=result.get("last_seen_time"),
@@ -1001,18 +1057,42 @@ class ApplicationService:
         if task["capability"] == "collect-private-messages":
             collected = self.private_message_collector.ingest(
                 account_slot=task["account_slot"],
+                platform=task["platform"],
                 messages=list(result.get("messages") or []),
                 cursor_value=str(result.get("cursor") or ""),
                 last_seen_time=result.get("last_seen_time"),
             )
             result = {**result, "inbound_events": collected}
         if task["capability"] == "collect-operations-metrics":
-            snapshots = self._record_metric_collection(task["account_slot"], result)
+            snapshots = self._record_metric_collection(
+                task["account_slot"],
+                result,
+                platform=task["platform"],
+            )
             result = {**result, "snapshots": snapshots}
+        missing_reply_readback = (
+            task.get("operation") == "automatic_reply" and not result.get("readback")
+        )
         completed = self.tasks.transition(
             task_id,
-            "PARTIAL_SUCCESS" if result.get("partial") else "SUCCESS",
-            result_summary=self._result_summary(result),
+            (
+                "RESULT_UNKNOWN"
+                if missing_reply_readback
+                else "PARTIAL_SUCCESS"
+                if result.get("partial")
+                else "SUCCESS"
+            ),
+            result_summary=(
+                "已触发回复发送，但没有取得页面回读"
+                if missing_reply_readback
+                else self._result_summary(result)
+            ),
+            error_code=("REPLY_READBACK_MISSING" if missing_reply_readback else ""),
+            recommended_action=(
+                "先检查平台当前会话或评论线程，不要直接重发"
+                if missing_reply_readback
+                else ""
+            ),
         )
         self._record_task_event(completed, target_key, result=result)
         return {"success": True, "task": completed, "result": result}
@@ -1034,6 +1114,33 @@ class ApplicationService:
 
     def cancel_task(self, task_id: str) -> dict:
         task = self.tasks.get(task_id)
+        if task["state"] == "RUNNING":
+            self.tasks.transition(
+                task_id,
+                "CANCEL_REQUESTED",
+                result_summary="用户已请求终止当前任务",
+                recommended_action="正在停止该账号的自动化连接",
+            )
+            bridge_stopped = False
+            bridge_stop_error = ""
+            try:
+                config = self._load_account(task["account_slot"])
+                self._bridge_stopper(config)
+                bridge_stopped = True
+            except Exception as exc:
+                bridge_stop_error = str(exc)
+            return {
+                "success": True,
+                "task": self.tasks.get(task_id),
+                "termination_requested": True,
+                "bridge_stopped": bridge_stopped,
+                "bridge_stop_error": bridge_stop_error,
+                "message": (
+                    "终止请求已发出，账号自动化连接已停止"
+                    if bridge_stopped
+                    else "终止请求已记录，正在等待当前步骤停止"
+                ),
+            }
         if task["state"] not in {"QUEUED", "WAITING_APPROVAL", "BLOCKED"}:
             raise ServiceError(
                 "INVALID_TASK_STATE",
@@ -1047,6 +1154,34 @@ class ApplicationService:
         )
         self._record_task_event(cancelled, self._task_target_key(cancelled))
         return {"success": True, "task": cancelled}
+
+    def _finalize_requested_task_termination(
+        self,
+        task_id: str,
+        target_key: str,
+    ) -> dict | None:
+        current = self.tasks.get(task_id)
+        if current["state"] != "CANCEL_REQUESTED":
+            return None
+        policy = get_operation_policy(current["capability"], current.get("operation"))
+        final_state = "RESULT_UNKNOWN" if policy.requires_result_verification else "CANCELLED"
+        completed = self.tasks.transition(
+            task_id,
+            final_state,
+            result_summary=(
+                "任务终止后，平台操作结果需要回读确认"
+                if final_state == "RESULT_UNKNOWN"
+                else "任务已由用户终止"
+            ),
+            error_code=("TASK_TERMINATED_RESULT_UNKNOWN" if final_state == "RESULT_UNKNOWN" else ""),
+            recommended_action=(
+                "先检查平台当前状态，不要直接重试"
+                if final_state == "RESULT_UNKNOWN"
+                else ""
+            ),
+        )
+        self._record_task_event(completed, target_key)
+        return completed
 
     def list_records(self) -> dict:
         records = sorted(
@@ -1194,6 +1329,30 @@ class ApplicationService:
     def list_operation_events(self, **filters) -> dict:
         return {"success": True, "events": self.operation_events.list(**filters)}
 
+    def data_recovery_summary(self) -> dict:
+        return {"success": True, "summary": self.data_recovery.summary()}
+
+    def list_published_posts(self, **filters) -> dict:
+        return {"success": True, "posts": self.published_posts.list(**filters)}
+
+    def get_published_post(self, published_post_id: str) -> dict:
+        return {
+            "success": True,
+            "post": self.published_posts.get(published_post_id),
+        }
+
+    def list_operation_records(self, **filters) -> dict:
+        return {"success": True, "records": self.operation_events.list(**filters)}
+
+    def list_reply_records(self, **filters) -> dict:
+        return {"success": True, "records": self.reply_records.list(**filters)}
+
+    def get_reply_record(self, reply_record_id: str) -> dict:
+        return {
+            "success": True,
+            "record": self.reply_records.get(reply_record_id),
+        }
+
     def get_metric_history(
         self,
         account_slot: str,
@@ -1234,6 +1393,8 @@ class ApplicationService:
         }
 
     def create_reply_rule(self, **values) -> dict:
+        if "platform" not in values and values.get("account_slot"):
+            values["platform"] = self._resolve_account_platform(values["account_slot"])
         return {"success": True, "rule": self.reply_rules.create(**values)}
 
     def update_reply_rule(self, rule_id: str, **changes) -> dict:
@@ -1244,6 +1405,338 @@ class ApplicationService:
             "success": True,
             "rule": self.reply_rules.set_enabled(rule_id, enabled),
         }
+
+    def list_reply_cycles(self, *, account_slot: str | None = None) -> dict:
+        return {
+            "success": True,
+            "cycles": self.reply_cycles.list_cycles(account_slot=account_slot),
+        }
+
+    def list_reply_decisions(
+        self,
+        *,
+        account_slot: str | None = None,
+        decision: str | None = None,
+    ) -> dict:
+        return {
+            "success": True,
+            "decisions": self.reply_cycles.list_decisions(
+                account_slot=account_slot,
+                decision=decision,
+            ),
+        }
+
+    def run_reply_cycle(
+        self,
+        *,
+        account_slot: str,
+        source: str = "manual",
+        channels: list[str] | None = None,
+        max_events: int = 20,
+        max_notes: int = 20,
+        max_conversations: int = 20,
+    ) -> dict:
+        """Collect and handle a bounded batch of new inbound reply events."""
+
+        if self._store.get_setting("global_paused", False):
+            raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
+        status = self.get_account_status(account_slot)
+        if not status["ready"]:
+            raise ServiceError(
+                "ACCOUNT_NOT_READY",
+                status.get("next_action") or "账号未就绪",
+                409,
+            )
+        verified_uid = str((status.get("identity") or {}).get("live_user_id") or "")
+        if not verified_uid:
+            raise ServiceError("IDENTITY_UID_UNAVAILABLE", "当前账号缺少已核验 UID", 409)
+        platform = self._resolve_account_platform(account_slot)
+        rule = self.reply_rules.resolve(account_slot, platform=platform)
+        if not rule["enabled"]:
+            raise ServiceError("REPLY_RULE_DISABLED", "该账号的自动回复规则尚未启用", 409)
+
+        requested_channels = set(channels or ["comment", "private_message"])
+        unknown_channels = requested_channels - {"comment", "private_message"}
+        if unknown_channels:
+            raise ServiceError(
+                "INVALID_REQUEST",
+                f"未知回复渠道: {', '.join(sorted(unknown_channels))}",
+            )
+        selected_channels = [
+            channel
+            for channel in ("comment", "private_message")
+            if channel in requested_channels and rule[f"{channel}_enabled"]
+        ]
+        if not selected_channels:
+            raise ServiceError("REPLY_CHANNEL_DISABLED", "本次选择的回复渠道均未启用", 409)
+
+        cycle = self.reply_cycles.start(
+            account_slot=account_slot,
+            platform=platform,
+            source=source,
+        )
+        collection_results: list[dict] = []
+        decisions: list[dict] = []
+        try:
+            for channel in selected_channels:
+                capability = (
+                    "collect-note-comments"
+                    if channel == "comment"
+                    else "collect-private-messages"
+                )
+                parameters = (
+                    {"max_notes": max(1, min(int(max_notes), 50))}
+                    if channel == "comment"
+                    else {
+                        "max_conversations": max(
+                            1,
+                            min(int(max_conversations), 50),
+                        ),
+                        "context_limit": 20,
+                    }
+                )
+                task = self.tasks.create(
+                    source=source,
+                    account_slot=account_slot,
+                    capability=capability,
+                    request_summary=f"自动回复周期采集：{channel}",
+                    parameters=parameters,
+                )
+                collection_results.append(self.execute_task(task["task_id"]))
+
+            allowed_event_types = {
+                "comment": "note_comment",
+                "private_message": "private_message",
+            }
+            event_types = {allowed_event_types[channel] for channel in selected_channels}
+            events = [
+                event
+                for event in self.inbound_events.list(
+                    account_slot=account_slot,
+                    handling_state="NEW",
+                    limit=max(1, min(int(max_events), 100)),
+                )
+                if event.get("event_type") in event_types
+                and not event.get("created_task_id")
+            ]
+            for event in reversed(events):
+                decisions.append(
+                    self._handle_automatic_reply_event(
+                        cycle_id=cycle["cycle_id"],
+                        event=event,
+                        rule=rule,
+                        verified_uid=verified_uid,
+                        source=source,
+                    )
+                )
+
+            counts = {
+                value: sum(item.get("decision") == value for item in decisions)
+                for value in ("reply", "pending", "skip")
+            }
+            collection_failed = any(
+                item["task"]["state"] not in {"SUCCESS", "PARTIAL_SUCCESS"}
+                for item in collection_results
+            )
+            summary = {
+                "channels": selected_channels,
+                "collected": sum(
+                    int((item.get("result") or {}).get("count") or 0)
+                    for item in collection_results
+                ),
+                "processed": len(decisions),
+                **counts,
+            }
+            finished = self.reply_cycles.finish(
+                cycle["cycle_id"],
+                result_state="PARTIAL_SUCCESS" if collection_failed else "SUCCESS",
+                summary=summary,
+            )
+            return {
+                "success": True,
+                "cycle": finished,
+                "collection_results": collection_results,
+                "decisions": decisions,
+            }
+        except Exception as exc:
+            self.reply_cycles.finish(
+                cycle["cycle_id"],
+                result_state="FAILED",
+                summary={"error": str(exc), "processed": len(decisions)},
+            )
+            raise
+
+    def _handle_automatic_reply_event(
+        self,
+        *,
+        cycle_id: str,
+        event: dict,
+        rule: dict,
+        verified_uid: str,
+        source: str,
+    ) -> dict:
+        payload = dict(event.get("payload") or {})
+        if (
+            event.get("event_type") == "note_comment"
+            and rule.get("content_scope") == "all_own_notes"
+            and not payload.get("is_own_note")
+        ):
+            decision = self.reply_cycles.record_decision(
+                cycle_id=cycle_id,
+                event=event,
+                decision="skip",
+                reason="outside_own_notes",
+            )
+            self.inbound_events.ignore(event["event_id"])
+            return decision
+        recent_replies = [
+            str(record.get("reply_text") or "")
+            for record in self.reply_records.list(
+                account_slot=event["account_slot"],
+                limit=20,
+            )
+        ]
+        try:
+            generation = self.reply_intelligence.generate_for_event(
+                event,
+                account_profile=str(rule.get("account_profile") or ""),
+                knowledge=str(rule.get("knowledge") or ""),
+                reply_style=str(rule.get("reply_style") or "natural"),
+                recent_replies=recent_replies,
+                mode="automatic",
+            )
+        except Exception as exc:
+            decision = self.reply_cycles.record_decision(
+                cycle_id=cycle_id,
+                event=event,
+                decision="pending",
+                reason=(
+                    exc.code if isinstance(exc, ServiceError) else "generation_failed"
+                ),
+            )
+            self.inbound_events.mark_handled(event["event_id"])
+            return decision
+        channel = (
+            "private_message"
+            if event.get("event_type") == "private_message"
+            else "comment"
+        )
+        rule_decision = self.reply_rules.decision(
+            rule["rule_id"],
+            classification=str(generation.get("intent") or "other"),
+            channel=channel,
+            quality_flags=list(generation.get("quality_flags") or []),
+            facts_used=list(generation.get("facts_used") or []),
+            missing_information=list(generation.get("missing_information") or []),
+        )
+        if not rule_decision["authorized"]:
+            decision = self.reply_cycles.record_decision(
+                cycle_id=cycle_id,
+                event=event,
+                decision=rule_decision["decision"],
+                reason=rule_decision["reason"],
+                generation=generation,
+            )
+            if decision["decision"] == "skip":
+                self.inbound_events.ignore(event["event_id"])
+            else:
+                self.inbound_events.mark_handled(event["event_id"])
+            return decision
+
+        execution = self._execute_automatic_reply(
+            event=event,
+            generation=generation,
+            verified_uid=verified_uid,
+            source=source,
+        )
+        task = execution["task"]
+        final_decision = (
+            "pending"
+            if task["error_code"] == "PRIVATE_MESSAGE_CONTEXT_CHANGED"
+            else "reply"
+        )
+        decision = self.reply_cycles.record_decision(
+            cycle_id=cycle_id,
+            event=event,
+            decision=final_decision,
+            reason=(
+                "conversation_changed"
+                if final_decision == "pending"
+                else "sent_with_readback"
+                if task["state"] == "SUCCESS"
+                else "send_finished"
+            ),
+            generation=generation,
+            reply_task_id=task["task_id"],
+            result_state=task["state"],
+        )
+        self.inbound_events.mark_handled(event["event_id"])
+        return decision
+
+    def _execute_automatic_reply(
+        self,
+        *,
+        event: dict,
+        generation: dict,
+        verified_uid: str,
+        source: str,
+    ) -> dict:
+        payload = dict(event.get("payload") or {})
+        private_message = event.get("event_type") == "private_message"
+        capability = "send-private-messages" if private_message else "reply-comment"
+        target_id = str(
+            payload.get("user_id")
+            if private_message
+            else payload.get("notification_id") or payload.get("comment_id")
+            or event.get("platform_event_id")
+            or ""
+        )
+        parameters = {
+            "feed_id": "" if private_message else str(payload.get("feed_id") or ""),
+            "xsec_token": "" if private_message else str(payload.get("xsec_token") or ""),
+            "comment_id": "" if private_message else str(payload.get("comment_id") or ""),
+            "notification_id": (
+                "" if private_message else str(payload.get("notification_id") or "")
+            ),
+            "user_id": str(payload.get("user_id") or event.get("actor_user_id") or ""),
+            "nickname": str(payload.get("nickname") or ""),
+            "original_content": str(payload.get("content") or ""),
+            "content": str(generation.get("reply") or ""),
+            "verified_uid": verified_uid,
+        }
+        if private_message:
+            parameters["expected_peer_turn"] = list(
+                payload.get("peer_turn") or [payload.get("content") or ""]
+            )
+        task = self.tasks.create(
+            source=source,
+            source_type="platform_event",
+            source_event_id=event["event_id"],
+            account_slot=event["account_slot"],
+            platform=event.get("platform"),
+            capability=capability,
+            operation="automatic_reply",
+            request_summary=("自动回复新私信" if private_message else "自动回复新评论"),
+            target_type="user" if private_message else "comment",
+            target_id=target_id,
+            parameters=parameters,
+        )
+        execution = self.execute_task(task["task_id"])
+        completed = execution["task"]
+        operation_event = self.operation_events.get_by_task(completed["task_id"])
+        draft = {
+            "verified_uid": verified_uid,
+            "content": generation["reply"],
+            "action_type": capability,
+        }
+        self.reply_records.record(
+            completed,
+            draft=draft,
+            source_event=event,
+            result=execution.get("result"),
+            operation_event_id=str(operation_event.get("operation_event_id") or ""),
+        )
+        return execution
 
     def list_action_drafts(self, *, account_slot: str | None = None) -> dict:
         return {
@@ -1258,6 +1751,8 @@ class ApplicationService:
                 "该动作只能由 Agent 通过 Python CLI 创建",
                 409,
             )
+        if "platform" not in values and values.get("account_slot"):
+            values["platform"] = self._resolve_account_platform(values["account_slot"])
         return {"success": True, "draft": self.action_workflows.create_draft(**values)}
 
     def update_action_draft(self, draft_id: str, **changes) -> dict:
@@ -1320,6 +1815,7 @@ class ApplicationService:
             )
         draft = self.action_workflows.create_draft(
             account_slot=account_slot,
+            platform=self._resolve_account_platform(account_slot),
             verified_uid=live_uid,
             action_type="follow-user",
             target_id=user_id,
@@ -1667,24 +2163,49 @@ class ApplicationService:
             )
         return live_uid
 
-    def _record_task_event(self, task: dict, target_key: str, *, result=None) -> None:
+    def _record_task_event(self, task: dict, target_key: str, *, result=None) -> dict:
         self.tasks.record_event(task, target_key, result=result)
-        self.operation_events.record(
+        return self.operation_events.record(
             task,
             result=result,
             readback=(result or {}).get("readback") or {},
         )
 
+    def _record_reply_execution(
+        self,
+        task: dict,
+        *,
+        draft: dict,
+        approval: dict,
+        source_event: dict | None,
+        result: dict | None,
+        operation_event: dict,
+    ) -> dict | None:
+        if not source_event or draft.get("action_type") not in {
+            "reply-comment",
+            "send-private-messages",
+        }:
+            return None
+        return self.reply_records.record(
+            task,
+            draft=draft,
+            approval=approval,
+            source_event=source_event,
+            result=result,
+            operation_event_id=str(operation_event.get("operation_event_id") or ""),
+        )
+
     @staticmethod
     def _task_target_key(task: dict) -> str:
         parameters = task.get("parameters") or {}
-        return str(
+        raw = str(
             task.get("target_id")
             or parameters.get("feed_id")
             or parameters.get("user_id")
             or parameters.get("keyword")
             or ""
         )
+        return raw
 
     @staticmethod
     def _validate_task_parameters(capability: str, parameters: dict) -> None:
@@ -1760,22 +2281,9 @@ class ApplicationService:
             if not 1 <= collection_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
         if capability == "home-engagement":
-            if parameters.get("direct_send_authorized") is not True:
-                raise ServiceError(
-                    "CONFIRMATION_REQUIRED",
-                    "首页互动包含直接评论，必须确认本次任务授权",
-                    409,
-                )
-            if str(parameters.get("style") or "natural") not in {
-                "natural",
-                "praise",
-                "question",
-            }:
-                raise ServiceError("INVALID_REQUEST", "请选择有效的评论风格")
             try:
                 browse_count = int(parameters.get("browse_count"))
                 like_count = int(parameters.get("like_count"))
-                comment_count = int(parameters.get("comment_count"))
                 duration_minutes = int(parameters.get("duration_minutes"))
                 min_read_seconds = float(parameters.get("min_read_seconds", 8))
                 max_read_seconds = float(parameters.get("max_read_seconds", 15))
@@ -1785,8 +2293,6 @@ class ApplicationService:
                 raise ServiceError("INVALID_REQUEST", "浏览数量必须在 1 到 50 篇之间")
             if not 0 <= like_count <= browse_count:
                 raise ServiceError("INVALID_REQUEST", "点赞数量不能超过浏览数量")
-            if not 0 <= comment_count <= min(3, browse_count):
-                raise ServiceError("INVALID_REQUEST", "评论数量必须在 0 到 3 篇之间，且不能超过浏览数量")
             if not 1 <= duration_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长执行时间必须在 1 到 10 分钟之间")
             if min_read_seconds < 0 or max_read_seconds < min_read_seconds or max_read_seconds > 60:
@@ -1844,12 +2350,19 @@ class ApplicationService:
             return f"完成，共 {result['count']} 条结果"
         return "任务执行成功"
 
-    def _record_metric_collection(self, account_slot: str, result: dict) -> dict:
+    def _record_metric_collection(
+        self,
+        account_slot: str,
+        result: dict,
+        *,
+        platform: str = "xiaohongshu",
+    ) -> dict:
         captured_at = str(result.get("captured_at") or "")
         source = str(result.get("source") or "user_profile")
         account = result.get("account") or {}
         account_snapshot = self.metrics.record_snapshot(
             account_slot=account_slot,
+            platform=platform,
             entity_type="account",
             entity_id=str(account.get("entity_id") or account_slot),
             captured_at=captured_at,
@@ -1860,6 +2373,7 @@ class ApplicationService:
         note_snapshots = [
             self.metrics.record_snapshot(
                 account_slot=account_slot,
+                platform=platform,
                 entity_type="note",
                 entity_id=str(note.get("entity_id") or ""),
                 captured_at=captured_at,
@@ -1915,6 +2429,7 @@ class ApplicationService:
         if draft is None:
             raise ServiceError("NOT_FOUND", "草稿不存在", 404)
         linked_task = self.tasks.get(draft["task_id"]) if draft.get("task_id") else None
+        source_event: dict | None = None
         if linked_task and linked_task["state"] != "WAITING_APPROVAL":
             raise ServiceError(
                 "INVALID_TASK_STATE",
@@ -2032,7 +2547,15 @@ class ApplicationService:
             task = self.tasks.transition(task["task_id"], "QUEUED")
         claimed = self.tasks.claim_for_execution(task["task_id"])
         if claimed["state"] == "BLOCKED":
-            self._record_task_event(claimed, draft["target_id"])
+            operation_event = self._record_task_event(claimed, draft["target_id"])
+            self._record_reply_execution(
+                claimed,
+                draft=draft,
+                approval=consumed["approval"],
+                source_event=source_event,
+                result=None,
+                operation_event=operation_event,
+            )
             return {
                 "success": True,
                 "task": claimed,
@@ -2059,13 +2582,38 @@ class ApplicationService:
                 ),
             )
             self.approvals.mark_execution(draft_id, final_state)
-            self._record_task_event(completed, draft["target_id"])
+            failure_result = {"message": message}
+            operation_event = self._record_task_event(
+                completed,
+                draft["target_id"],
+                result=failure_result,
+            )
+            self._record_reply_execution(
+                completed,
+                draft=draft,
+                approval=consumed["approval"],
+                source_event=source_event,
+                result=failure_result,
+                operation_event=operation_event,
+            )
             return {"success": True, "task": completed, "approval": consumed["approval"]}
         completed = self.tasks.transition(
             task["task_id"], "SUCCESS", result_summary=self._result_summary(result)
         )
         self.approvals.mark_execution(draft_id, "EXECUTED")
-        self._record_task_event(completed, draft["target_id"], result=result)
+        operation_event = self._record_task_event(
+            completed,
+            draft["target_id"],
+            result=result,
+        )
+        self._record_reply_execution(
+            completed,
+            draft=draft,
+            approval=consumed["approval"],
+            source_event=source_event,
+            result=result,
+            operation_event=operation_event,
+        )
         if draft.get("source_event_id"):
             self.inbound_events.mark_handled(draft["source_event_id"])
         return {
@@ -2111,18 +2659,36 @@ class ApplicationService:
         except (FileNotFoundError, ValueError) as exc:
             raise ServiceError("ACCOUNT_NOT_FOUND", str(exc), 404) from exc
 
+    def _resolve_account_platform(self, account: str) -> str:
+        try:
+            config = self._account_loader(account)
+        except (FileNotFoundError, ValueError):
+            return "xiaohongshu"
+        return normalize_platform(getattr(config, "platform", "xiaohongshu"))
+
     def _page_for_account(
         self,
         config: AccountConfig,
         *,
         bridge_url: str | None = None,
     ) -> BridgePage:
-        return self._page_factory(
-            bridge_url or config.bridge_url,
-            account=config.name,
-            account_id=config.account_id,
-            bridge_token=config.bridge_token,
-        )
+        platform = normalize_platform(getattr(config, "platform", "xiaohongshu"))
+        page_args = {
+            "account": config.name,
+            "account_id": config.account_id,
+            "bridge_token": config.bridge_token,
+            "platform": platform,
+        }
+        try:
+            page = self._page_factory(bridge_url or config.bridge_url, **page_args)
+        except TypeError as exc:
+            if "platform" not in str(exc):
+                raise
+            page_args.pop("platform")
+            page = self._page_factory(bridge_url or config.bridge_url, **page_args)
+        if not hasattr(page, "platform"):
+            setattr(page, "platform", platform)
+        return page
 
     def _validate_publish_confirmation_identity(
         self,
@@ -2153,6 +2719,7 @@ class ApplicationService:
             raise ServiceError("ACCOUNT_LIMIT_REACHED", "V1 最多支持 6 个账号槽位", 409)
 
     def _identity_summary(self, account: str) -> dict:
+        platform = self._resolve_account_platform(account)
         record = self._identity_loader(account)
         switch = self._switch_loader(account)
         current = (record or {}).get("current") or {}
@@ -2160,7 +2727,11 @@ class ApplicationService:
         live = runtime_checks.get(account) or {}
         recorded_uid = str(current.get("user_id") or "")
         live_uid = str(live.get("user_id") or "")
+        recorded_platform = normalize_platform(current.get("platform") or platform)
+        live_platform = normalize_platform(live.get("platform") or platform)
+        logged_out = bool(live) and live.get("logged_in") is False
         return {
+            "platform": platform,
             "recorded": bool(record),
             "user_id": recorded_uid,
             "nickname": str(current.get("nickname") or ""),
@@ -2168,7 +2739,14 @@ class ApplicationService:
             "live_checked": bool(live_uid),
             "live_user_id": live_uid,
             "live_nickname": str(live.get("nickname") or ""),
-            "matches_record": bool(recorded_uid and live_uid == recorded_uid),
+            "logged_out": logged_out,
+            "logout_confirmed": live.get("event") == "LOGOUT_CONFIRMED",
+            "matches_record": bool(
+                recorded_uid
+                and live_uid == recorded_uid
+                and recorded_platform == platform
+                and live_platform == platform
+            ),
             "switch_pending": bool(switch),
             "switch": switch,
         }
@@ -2184,12 +2762,14 @@ class ApplicationService:
                 f"无法读取当前登录身份：{identity['error']}",
                 409,
             )
+        platform = normalize_platform(getattr(page, "platform", None))
+        identity = {**identity, "platform": normalize_platform(identity.get("platform") or platform)}
         if require_uid and not identity.get("logged_in"):
-            raise ServiceError("LOGIN_REQUIRED", "当前 Profile 尚未登录小红书", 409)
+            raise ServiceError("LOGIN_REQUIRED", "当前 Profile 尚未登录目标平台", 409)
         if require_uid and not identity.get("user_id"):
             raise ServiceError(
                 "IDENTITY_UID_UNAVAILABLE",
-                "已检测到登录，但无法读取当前 UID，请刷新小红书首页后重试",
+                "已检测到登录，但无法读取当前 UID，请刷新目标平台首页后重试",
                 409,
             )
         return identity
@@ -2197,9 +2777,32 @@ class ApplicationService:
     def _remember_runtime_identity(self, account: str, identity: dict) -> None:
         checks = dict(self._store.get_setting("runtime_identity_checks", {}))
         checks[account] = {
+            "platform": normalize_platform(identity.get("platform")),
+            "logged_in": True,
             "user_id": str(identity.get("user_id") or ""),
             "nickname": str(identity.get("nickname") or ""),
             "observed_at": str(identity.get("observed_at") or ""),
+        }
+        self._store.set_setting("runtime_identity_checks", checks)
+
+    def _remember_runtime_logged_out(
+        self,
+        account: str,
+        identity: dict | None = None,
+        *,
+        event: str = "LOGIN_REQUIRED",
+    ) -> None:
+        observed = identity or {}
+        checks = dict(self._store.get_setting("runtime_identity_checks", {}))
+        checks[account] = {
+            "platform": normalize_platform(
+                observed.get("platform") or self._resolve_account_platform(account)
+            ),
+            "logged_in": False,
+            "user_id": "",
+            "nickname": "",
+            "observed_at": str(observed.get("observed_at") or ""),
+            "event": event,
         }
         self._store.set_setting("runtime_identity_checks", checks)
 
@@ -2214,10 +2817,14 @@ def _account_state(runtime: dict, identity: dict) -> tuple[str, str | None]:
         return "BLOCKED", "点击“启动账号”恢复 Bridge 和绑定的 Chrome Profile"
     if not runtime["extension_connected"]:
         return "BLOCKED", "点击“启动账号”，再检查扩展是否已加载和配对"
+    if not runtime.get("platform_matches", True):
+        return "PLATFORM_MISMATCH", "当前扩展页面平台与账号槽位平台不一致"
     if not runtime["profile_verified"]:
         return "BLOCKED", "检查 Profile 绑定和扩展配对"
     if identity["switch_pending"]:
         return "SWITCH_PENDING", "在对应 Chrome Profile 登录新账号，然后完成换号核验"
+    if identity["logged_out"]:
+        return "LOGIN_REQUIRED", "请在绑定的 Chrome Profile 中手动登录账号，登录后完成身份核验"
     if not identity["recorded"]:
         return "IDENTITY_REQUIRED", "在 WebUI 中完成登录身份核验"
     if not identity["live_checked"]:

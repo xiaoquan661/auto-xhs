@@ -146,7 +146,8 @@ def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> l
 
     parsed: list[dict] = []
     for raw in messages:
-        if not isinstance(raw, dict) or str(raw.get("type") or "") not in _SUPPORTED_TYPES:
+        event_type = str(raw.get("type") or "") if isinstance(raw, dict) else ""
+        if not isinstance(raw, dict) or event_type not in _SUPPORTED_TYPES:
             continue
         notification_id = str(raw.get("id") or raw.get("notificationId") or "").strip()
         comment_info = raw.get("comment_info") or raw.get("commentInfo") or {}
@@ -188,6 +189,7 @@ def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> l
                 "create_time": create_time,
                 "occurred_at": _epoch_to_iso(create_time),
                 "classification": str(raw.get("type") or ""),
+                "is_own_note": event_type == "comment/item",
                 "source": "notification",
             }
         )
@@ -205,7 +207,7 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
       }};
       const text = (el) => String(el?.innerText || el?.textContent || '').trim();
-      const relationPhrases = ['评论了你的笔记', '回复了你的评论', '在评论中提到了你'];
+        const relationPhrases = ['评论了你的笔记', '回复了你的评论', '在评论中提到了你'];
       const replyNodes = Array.from(document.querySelectorAll('button,a,[role="button"],.action-reply'))
         .filter((el) => visible(el) && text(el) === '回复');
       const rows = [];
@@ -222,6 +224,7 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         seen.add(card);
         const lines = text(card).split(/\\n+/).map((v) => v.trim()).filter(Boolean);
         const metaIndex = lines.findIndex((line) => relationPhrases.some((phrase) => line.includes(phrase)));
+        const relation = metaIndex >= 0 ? lines[metaIndex] : '';
         const ignored = (line) => ['回复', '取消', '发送', '赞', '你的好友'].includes(line) || (/\\d/.test(line) && line.endsWith('前'));
         const content = lines.slice(Math.max(0, metaIndex + 1)).find((line) => !ignored(line) && !line.startsWith('回复 ')) || '';
         const nickname = lines.slice(0, Math.max(0, metaIndex)).find((line) => !ignored(line)) || '';
@@ -257,6 +260,7 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
           create_time: Number.isFinite(rawTime) ? rawTime : 0,
           occurred_at: '',
           classification: 'notification_dom',
+          is_own_note: relation.includes('评论了你的笔记'),
           source: 'notification'
         }});
         if (rows.length >= {int(max_items)}) break;

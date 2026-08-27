@@ -1,4 +1,4 @@
-"""Generate one contextual, review-only reply draft from an inbound event."""
+"""Generate one contextual reply candidate from an inbound event."""
 
 from __future__ import annotations
 
@@ -14,7 +14,23 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROMPT_PATH = PROJECT_ROOT / "prompts" / "reply-v2.md"
 DEFAULT_PRIVATE_MESSAGE_PROMPT_PATH = PROJECT_ROOT / "prompts" / "private-message-reply-v2.md"
 DEFAULT_PROFILE_ROOT = Path.home() / ".xhs" / "auto-xhs" / "reply-profiles"
-INTENTS = {"question", "praise", "discussion", "complaint", "cooperation", "other"}
+INTENTS = {
+    "question",
+    "praise",
+    "discussion",
+    "consultation",
+    "complaint",
+    "dispute",
+    "cooperation",
+    "quote",
+    "inventory",
+    "refund",
+    "contact_details",
+    "offline_meeting",
+    "commitment",
+    "insufficient_context",
+    "other",
+}
 AI_STYLE_MARKERS = (
     "值得注意的是",
     "综上所述",
@@ -82,6 +98,7 @@ class ReplyIntelligenceService:
         knowledge: str = "",
         reply_style: str = "natural",
         recent_replies: list[str] | None = None,
+        mode: str = "review_only",
     ) -> dict:
         event_type = str(event.get("event_type") or "")
         if event_type not in {"note_comment", "private_message"}:
@@ -110,6 +127,7 @@ class ReplyIntelligenceService:
                     "recent_messages": list(payload.get("context") or [])[-20:],
                 },
                 "message": {"text": _trim(inbound_text, 2000)},
+                "latest_peer_turn": list(payload.get("peer_turn") or []),
                 "recent_replies": [_trim(item, 200) for item in (recent_replies or [])[:20]],
             }
             input_label = "私信"
@@ -151,15 +169,22 @@ class ReplyIntelligenceService:
             confidence = 0.0
         confidence = min(1.0, max(0.0, confidence))
         flags = self._quality_flags(reply, recent_replies or [])
+        facts_used = self._string_list(parsed.get("facts_used"), limit=20)
+        missing_information = self._string_list(
+            parsed.get("missing_information"),
+            limit=20,
+        )
 
         return {
             "reply": reply,
             "intent": intent,
             "confidence": confidence,
             "reason": _trim(parsed.get("reason"), 300),
+            "facts_used": facts_used,
+            "missing_information": missing_information,
             "quality_flags": flags,
-            "manual_review_required": True,
-            "mode": "review_only",
+            "manual_review_required": mode != "automatic",
+            "mode": mode,
             "model": str(response.get("model") or ""),
             "context_summary": (
                 {
@@ -241,3 +266,9 @@ class ReplyIntelligenceService:
         if normalized and normalized in {_compact(item) for item in recent_replies}:
             flags.append("duplicate_recent_reply")
         return flags
+
+    @staticmethod
+    def _string_list(value: object, *, limit: int) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value[:limit] if str(item).strip()]

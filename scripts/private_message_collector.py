@@ -16,6 +16,7 @@ class PrivateMessageCollector:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         messages: list[dict],
         cursor_value: str = "",
         last_seen_time: str | None = None,
@@ -34,6 +35,7 @@ class PrivateMessageCollector:
                 )
             result = self.events.record(
                 account_slot=account_slot,
+                platform=platform,
                 event_type="private_message",
                 platform_event_id=message_id,
                 occurred_at=occurred_at,
@@ -47,6 +49,7 @@ class PrivateMessageCollector:
                     "display_time": str(message.get("display_time") or ""),
                     "message_count": int(message.get("message_count") or 0),
                     "context": list(message.get("context") or []),
+                    "peer_turn": list(message.get("peer_turn") or [content]),
                     "source": str(message.get("source") or "chat_inbox"),
                 },
                 classification="incoming_text",
@@ -55,12 +58,14 @@ class PrivateMessageCollector:
 
         cursor = self.collectors.record_success(
             account_slot=account_slot,
+            platform=platform,
             collector_type="private_messages",
             cursor_value=cursor_value,
             last_seen_time=last_seen_time,
         )
         return {
             "account_slot": account_slot,
+            "platform": platform,
             "observed_count": len(messages),
             "created_count": len(created),
             "duplicate_count": len(existing),

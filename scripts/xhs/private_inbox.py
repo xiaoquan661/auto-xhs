@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 
 from .direct_message import CHAT_URL, _read_chat
 
-
 _READ_CONVERSATIONS_JS = r"""
 (() => Array.from(document.querySelectorAll('.xhs-im-conv-item'))
     .filter((node) => node.getAttribute('data-conv-kind') === 'c2c')
@@ -68,13 +67,23 @@ def collect_private_messages(
         if not recent or recent[-1]["role"] != "peer":
             skipped.append({"user_id": user_id, "reason": "latest_message_not_peer"})
             continue
-        content = str(recent[-1].get("content") or "").strip()
-        if content in _PLATFORM_NOTICES:
+        peer_turn: list[str] = []
+        for item in reversed(recent):
+            if item.get("role") != "peer":
+                break
+            text = str(item.get("content") or "").strip()
+            if text:
+                peer_turn.append(text)
+        peer_turn.reverse()
+        if any(content in _PLATFORM_NOTICES for content in peer_turn):
             skipped.append({"user_id": user_id, "reason": "latest_message_platform_notice"})
             continue
-        if not content or (content.startswith("[") and content.endswith("]")):
+        if not peer_turn or any(
+            content.startswith("[") and content.endswith("]") for content in peer_turn
+        ):
             skipped.append({"user_id": user_id, "reason": "latest_message_not_text"})
             continue
+        content = "\n".join(peer_turn)
         nickname = str(state.get("target_nickname") or conversation.get("nickname") or "").strip()
         messages.append(
             {
@@ -86,6 +95,7 @@ def collect_private_messages(
                 "occurred_at": observed_at,
                 "message_count": len(state["messages"]),
                 "context": recent,
+                "peer_turn": peer_turn,
                 "source": "chat_inbox",
             }
         )

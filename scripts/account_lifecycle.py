@@ -70,13 +70,18 @@ def start_account_runtime(
             message="Bridge 启动失败，请在 WebUI 运行诊断",
         )
     if runtime["extension_connected"] and not runtime["profile_verified"]:
+        platform_mismatch = not runtime.get("platform_matches", True)
         return _result(
             config,
             bridge,
             runtime,
             chrome=chrome,
-            error_code="PROFILE_MISMATCH",
-            message="已连接扩展的 Profile 或扩展实例与当前槽位不一致",
+            error_code="PLATFORM_MISMATCH" if platform_mismatch else "PROFILE_MISMATCH",
+            message=(
+                "已连接扩展的平台与当前槽位不一致"
+                if platform_mismatch
+                else "已连接扩展的 Profile 或扩展实例与当前槽位不一致"
+            ),
         )
     if not runtime["extension_connected"]:
         return _result(

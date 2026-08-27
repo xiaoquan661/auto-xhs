@@ -197,3 +197,20 @@ def test_recovery_marks_read_only_failed_and_l1_result_unknown(tmp_path) -> None
 
     assert states[read_task["task_id"]] == "FAILED"
     assert states[like_task["task_id"]] == "RESULT_UNKNOWN"
+
+
+def test_recovery_marks_never_started_queue_as_blocked(tmp_path) -> None:
+    service = _service(tmp_path)
+    task = service.create(
+        source="codex",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="搜索",
+    )
+
+    recovered = service.recover_interrupted()
+
+    assert recovered[0]["task_id"] == task["task_id"]
+    assert recovered[0]["state"] == "BLOCKED"
+    assert recovered[0]["error_code"] == "SERVICE_INTERRUPTED_BEFORE_START"
+    assert "重试或取消" in recovered[0]["recommended_action"]

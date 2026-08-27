@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -113,6 +114,42 @@ def test_service_global_pause_blocks_new_tasks(tmp_path) -> None:
             request_summary="搜索露营",
         )
     assert exc_info.value.code == "GLOBAL_PAUSED"
+
+
+def test_service_schedules_local_restart_when_no_task_is_running(tmp_path) -> None:
+    calls = []
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        webui_restarter=lambda: calls.append("restart") or {"status": "restart_scheduled"},
+    )
+
+    result = service.restart_local_service()
+
+    assert result["status"] == "restart_scheduled"
+    assert result["lifecycle"]["status"] == "restart_scheduled"
+    assert calls == ["restart"]
+
+
+def test_service_blocks_local_restart_while_task_is_running(tmp_path) -> None:
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        webui_restarter=lambda: {"status": "restart_scheduled"},
+    )
+    service.tasks.list = lambda: [{"task_id": "task-1", "state": "RUNNING"}]
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.restart_local_service()
+
+    assert exc_info.value.code == "ACTIVE_TASKS"
+    assert exc_info.value.http_status == 409
+
+
+def test_health_identifies_current_service_instance(tmp_path) -> None:
+    first = ApplicationService(product_store=ProductStore(tmp_path / "first")).health()
+    second = ApplicationService(product_store=ProductStore(tmp_path / "second")).health()
+
+    assert first["runtime_instance_id"]
+    assert first["runtime_instance_id"] != second["runtime_instance_id"]
 
 
 def test_comment_monitor_task_persists_new_inbound_events(tmp_path) -> None:
@@ -862,8 +899,9 @@ def test_logged_out_identity_check_clears_stale_runtime_uid(tmp_path) -> None:
 
     assert exc_info.value.code == "LOGIN_REQUIRED"
     status = service.get_account_status("alpha")
-    assert status["status"] == "IDENTITY_CHECK_REQUIRED"
+    assert status["status"] == "LOGIN_REQUIRED"
     assert status["identity"]["live_checked"] is False
+    assert status["identity"]["logged_out"] is True
 
 
 def test_account_identity_mismatch_never_reaches_ready(tmp_path) -> None:
@@ -1019,20 +1057,26 @@ def test_service_runs_confirmed_account_switch_flow(tmp_path) -> None:
 
 def test_service_runs_confirmed_standalone_logout(tmp_path) -> None:
     logout_calls = []
+    store = ProductStore(tmp_path / "product")
     service = ApplicationService(
         account_loader=lambda *_args, **_kwargs: _config(),
         page_factory=StatusPage,
         account_logout=lambda _page: logout_calls.append(True) or True,
         identity_observer=lambda _page: {"logged_in": False, "user_id": ""},
-        product_store=ProductStore(tmp_path / "product"),
+        product_store=store,
     )
 
     result = service.logout_account("alpha", confirmed=True)
 
     assert result["logged_out"] is True
-    assert result["message"] == "已退出登录"
+    assert result["message"] == "退出成功，当前无账号"
+    assert result["auth_state"] == "LOGGED_OUT"
+    assert result["next_action"] == "请在绑定的 Chrome Profile 中手动登录账号，登录后完成身份核验"
     assert result["verified_logged_out"] is True
     assert logout_calls == [True]
+    runtime_login = store.get_setting("runtime_identity_checks")["alpha"]
+    assert runtime_login["logged_in"] is False
+    assert runtime_login["event"] == "LOGOUT_CONFIRMED"
 
 
 def test_service_rejects_logout_when_identity_is_still_logged_in(tmp_path) -> None:
@@ -1070,7 +1114,6 @@ def test_service_archives_slot_after_stopping_local_dependencies(tmp_path) -> No
             "registered": True,
         },
         bridge_stopper=lambda _config: calls.append("bridge") or {},
-        autostart_disabler=lambda account: calls.append(f"autostart:{account}") or {},
         pairing_revoker=lambda account: calls.append(f"pairing:{account}") or _config(),
         account_archiver=lambda account: calls.append(f"archive:{account}") or {
             "archive_id": "alpha-archive",
@@ -1093,7 +1136,7 @@ def test_service_archives_slot_after_stopping_local_dependencies(tmp_path) -> No
     assert result["archived"] is True
     assert result["cancelled_task_ids"] == [queued["task_id"]]
     assert result["preserved"] == ["Chrome Profile", "小红书登录数据", "共享通用扩展"]
-    assert calls == ["binding", "bridge", "autostart:alpha", "pairing:alpha", "archive:alpha"]
+    assert calls == ["binding", "bridge", "pairing:alpha", "archive:alpha"]
     assert service.tasks.get(queued["task_id"])["state"] == "CANCELLED"
 
 
@@ -1532,7 +1575,7 @@ def test_random_comment_executes_immediately_and_preserves_item_results(tmp_path
     assert received["parameters"]["direct_send_authorized"] is True
 
 
-def test_home_engagement_requires_authorization_and_preserves_behavior_record(tmp_path, monkeypatch) -> None:
+def test_home_engagement_preserves_browse_and_like_behavior_record(tmp_path, monkeypatch) -> None:
     received: dict = {}
 
     def execute(account, capability, parameters):
@@ -1541,8 +1584,8 @@ def test_home_engagement_requires_authorization_and_preserves_behavior_record(tm
             "success": True,
             "partial": False,
             "result_type": "home_engagement",
-            "message": "首页互动完成",
-            "counts": {"browsed": 6, "liked": 2, "commented": 1, "skipped": 0},
+            "message": "首页浏览点赞完成",
+            "counts": {"browsed": 6, "liked": 2, "skipped": 0},
             "items": [{"feed_id": "feed-1", "read_seconds": 9, "like": {"status": "success"}}],
         }
 
@@ -1550,21 +1593,6 @@ def test_home_engagement_requires_authorization_and_preserves_behavior_record(tm
         product_store=ProductStore(tmp_path / "product"),
         business_runner=BusinessRunner(execute),
     )
-    with pytest.raises(ServiceError) as missing_authorization:
-        service.create_task(
-            source="webui",
-            account_slot="alpha",
-            capability="home-engagement",
-            request_summary="首页综合互动",
-            parameters={
-                "browse_count": 6,
-                "like_count": 2,
-                "comment_count": 1,
-                "duration_minutes": 3,
-            },
-        )
-    assert missing_authorization.value.code == "CONFIRMATION_REQUIRED"
-
     monkeypatch.setattr(
         service,
         "get_account_status",
@@ -1574,16 +1602,13 @@ def test_home_engagement_requires_authorization_and_preserves_behavior_record(tm
         source="webui",
         account_slot="alpha",
         capability="home-engagement",
-        request_summary="首页综合互动：浏览 6 / 点赞 2 / 评论 1",
+        request_summary="首页浏览点赞：浏览 6 / 点赞 2",
         parameters={
             "browse_count": 6,
             "like_count": 2,
-            "comment_count": 1,
             "duration_minutes": 3,
             "min_read_seconds": 8,
             "max_read_seconds": 15,
-            "style": "natural",
-            "direct_send_authorized": True,
         },
     )["task"]
     result = service.execute_task(task["task_id"])
@@ -1591,6 +1616,8 @@ def test_home_engagement_requires_authorization_and_preserves_behavior_record(tm
     assert result["task"]["state"] == "SUCCESS"
     assert result["result"]["counts"]["browsed"] == 6
     assert received["capability"] == "home-engagement"
+    assert "comment_count" not in received["parameters"]
+    assert "direct_send_authorized" not in received["parameters"]
 
 
 def test_unexpected_l0_failure_reaches_failed_terminal_state(tmp_path, monkeypatch) -> None:
@@ -1709,6 +1736,66 @@ def test_service_cancels_blocked_task_and_records_it(tmp_path, monkeypatch) -> N
 
     assert result["task"]["state"] == "CANCELLED"
     assert service.list_records()["records"][0]["state"] == "CANCELLED"
+
+
+@pytest.mark.parametrize(
+    ("capability", "expected_state"),
+    [("list-feeds", "CANCELLED"), ("like-feed", "RESULT_UNKNOWN")],
+)
+def test_service_terminates_running_task_from_account_control(
+    tmp_path,
+    monkeypatch,
+    capability,
+    expected_state,
+) -> None:
+    started = threading.Event()
+    bridge_stopped = threading.Event()
+    execution_result = []
+
+    def execute(_account, _capability, _parameters):
+        started.set()
+        assert bridge_stopped.wait(timeout=3)
+        raise RuntimeError("Bridge stopped")
+
+    service = ApplicationService(
+        account_loader=lambda *_args, **_kwargs: _config(),
+        bridge_stopper=lambda _config: bridge_stopped.set() or {"bridge_running": False},
+        business_runner=BusinessRunner(execute),
+        product_store=ProductStore(tmp_path / "product"),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {
+            "ready": True,
+            "next_action": None,
+            "identity": {"live_user_id": "user-1"},
+        },
+    )
+    task = service.create_task(
+        source="webui",
+        account_slot="alpha",
+        capability=capability,
+        request_summary="运行任务",
+        parameters={"feed_id": "feed-1", "xsec_token": "token-1"},
+    )["task"]
+    worker = threading.Thread(
+        target=lambda: execution_result.append(service.execute_task(task["task_id"])),
+        daemon=True,
+    )
+    worker.start()
+    assert started.wait(timeout=3)
+
+    requested = service.cancel_task(task["task_id"])
+    worker.join(timeout=3)
+
+    assert requested["termination_requested"] is True
+    assert requested["bridge_stopped"] is True
+    assert not worker.is_alive()
+    assert execution_result[0]["task"]["state"] == expected_state
+    assert service.tasks.get(task["task_id"])["state"] == expected_state
+    if expected_state == "RESULT_UNKNOWN":
+        assert service.tasks.get(task["task_id"])["error_code"] == "TASK_TERMINATED_RESULT_UNKNOWN"
 
 
 def test_l1_uncertain_failure_never_retries_automatically(tmp_path, monkeypatch) -> None:
@@ -1863,6 +1950,11 @@ def test_passive_comment_reply_reuses_task_and_marks_event_handled(tmp_path) -> 
     assert calls[0][2]["user_id"] == "user-1"
     assert calls[0][2]["xsec_token"] == "token"
     assert service.get_inbound_event(event["event_id"])["event"]["handling_state"] == "HANDLED"
+    reply_record = service.list_reply_records()["records"][0]
+    assert reply_record["channel"] == "COMMENT_REPLY"
+    assert reply_record["original_content"] == "请问怎么报名？"
+    assert reply_record["reply_text"] == "你好，请查看主页报名说明。"
+    assert reply_record["result_state"] == "SUCCESS"
 
 
 def test_notification_reply_uses_notification_context_without_note_prompt(tmp_path) -> None:

@@ -210,6 +210,7 @@ async def _exercise_pairing_and_cli_auth(config, pairing_payload) -> None:
             "instance_id": "instance_alpha_123",
             "extension_id": "f" * 32,
             "profile_directory": "Default",
+            "platform": pairing_payload["platform"],
         }
     )
     await server.handle(pairing_ws)

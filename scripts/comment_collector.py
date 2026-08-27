@@ -20,6 +20,7 @@ class CommentCollector:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         comments: list[dict],
         cursor_value: str = "",
         last_seen_time: str | None = None,
@@ -38,6 +39,7 @@ class CommentCollector:
                 )
             result = self.events.record(
                 account_slot=account_slot,
+                platform=platform,
                 event_type="note_comment",
                 platform_event_id=platform_event_id,
                 occurred_at=occurred_at,
@@ -59,6 +61,9 @@ class CommentCollector:
                     "note_title": str(comment.get("note_title") or ""),
                     "note_content": str(comment.get("note_content") or ""),
                     "note_tags": list(comment.get("note_tags") or []),
+                    "is_own_note": bool(
+                        comment.get("is_own_note", not notification_id)
+                    ),
                     "source": str(comment.get("source") or ""),
                 },
                 classification=str(comment.get("classification") or ""),
@@ -67,12 +72,14 @@ class CommentCollector:
 
         cursor = self.collectors.record_success(
             account_slot=account_slot,
+            platform=platform,
             collector_type="note_comments",
             cursor_value=cursor_value,
             last_seen_time=last_seen_time,
         )
         return {
             "account_slot": account_slot,
+            "platform": platform,
             "observed_count": len(comments),
             "created_count": len(created),
             "duplicate_count": len(existing),

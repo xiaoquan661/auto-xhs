@@ -1,7 +1,15 @@
+const PLATFORM_PROTOCOL_VERSION = 1;
+const STALE_BACKGROUND_MESSAGE = "扩展后台仍是旧版本，请打开 chrome://extensions 重载此扩展后再配对";
+let backgroundPlatformReady = false;
+
 function renderStatus(status = {}) {
+  backgroundPlatformReady = status.platformProtocolVersion === PLATFORM_PROTOCOL_VERSION;
   const paired = !!status.paired;
   const wsConnected = !!status.wsConnected;
-  document.getElementById("account-name").textContent = status.account || "未配对";
+  const platformLabel = status.platform === "rednote" ? "RedNote" : "小红书";
+  document.getElementById("account-name").textContent = status.account
+    ? `${status.account} · ${platformLabel}`
+    : "未配对";
   document.getElementById("bridge-url").textContent = status.bridgeUrl
     ? status.bridgeUrl.replace("ws://", "")
     : "-";
@@ -11,7 +19,10 @@ function renderStatus(status = {}) {
   document.getElementById("paired-controls").style.display = paired ? "block" : "none";
   document.getElementById("hint").textContent = paired
     ? (wsConnected ? "配对与连接正常，可以运行 Python CLI。" : "配对已保存，请启动对应账号 Bridge。")
-    : "请先用 account-pair-begin 生成一次性配对包。";
+    : (backgroundPlatformReady ? "请先用 account-pair-begin 生成一次性配对包。" : STALE_BACKGROUND_MESSAGE);
+  if (!backgroundPlatformReady) {
+    document.getElementById("pair-error").textContent = STALE_BACKGROUND_MESSAGE;
+  }
   document.getElementById("scan-btn").disabled = !paired || !wsConnected;
 }
 
@@ -51,6 +62,9 @@ function decodePairingPreview(bundleText) {
   if (payload?.v !== 1 || !payload.account || !payload.bridgeUrl) {
     throw new Error("配对包内容无效");
   }
+  if (!["xiaohongshu", "rednote"].includes(payload.platform)) {
+    throw new Error("配对包缺少或包含无效平台，请从 WebUI 重新生成");
+  }
   if (payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now()) {
     throw new Error("配对包已经过期");
   }
@@ -64,14 +78,15 @@ document.getElementById("pairing-bundle").addEventListener("input", event => {
   currentPairPreview = null;
   preview.style.display = "none";
   button.disabled = true;
-  error.textContent = "";
+  error.textContent = backgroundPlatformReady ? "" : STALE_BACKGROUND_MESSAGE;
   const value = event.target.value.trim();
   if (!value) return;
   try {
     currentPairPreview = decodePairingPreview(value);
-    preview.textContent = `将当前 Profile 配对到 ${currentPairPreview.account} / ${currentPairPreview.bridgeUrl.replace("ws://", "")}`;
+    const platformLabel = currentPairPreview.platform === "rednote" ? "RedNote" : "小红书";
+    preview.textContent = `将当前 Profile 配对到 ${currentPairPreview.account} · ${platformLabel} / ${currentPairPreview.bridgeUrl.replace("ws://", "")}`;
     preview.style.display = "block";
-    button.disabled = false;
+    button.disabled = !backgroundPlatformReady;
   } catch (e) {
     error.textContent = String(e.message || e);
   }
@@ -82,6 +97,10 @@ document.getElementById("pair-btn").addEventListener("click", () => {
   const error = document.getElementById("pair-error");
   const bundle = document.getElementById("pairing-bundle").value.trim();
   error.textContent = "";
+  if (!backgroundPlatformReady) {
+    error.textContent = STALE_BACKGROUND_MESSAGE;
+    return;
+  }
   if (!bundle || !currentPairPreview) {
     error.textContent = "请先粘贴并验证配对包";
     return;

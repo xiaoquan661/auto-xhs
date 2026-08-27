@@ -16,6 +16,7 @@ from typing import Any
 
 import websockets.sync.client as ws_client
 
+from platforms import DEFAULT_PLATFORM, normalize_platform, rewrite_platform_url
 from .errors import CDPError, ElementNotFoundError
 
 BRIDGE_URL = "ws://localhost:9333"
@@ -31,11 +32,13 @@ class BridgePage:
         *,
         account_id: str | None = None,
         bridge_token: str | None = None,
+        platform: str = DEFAULT_PLATFORM,
     ) -> None:
         self._bridge_url = bridge_url
         self._account = account
         self._account_id = account_id
         self._bridge_token = bridge_token
+        self._platform = normalize_platform(platform)
 
     # ─── 内部通信 ───────────────────────────────────────────────
 
@@ -46,6 +49,7 @@ class BridgePage:
             "account": self._account,
             "account_id": self._account_id,
             "bridge_token": self._bridge_token,
+            "platform": self._platform,
             "method": method,
         }
         if params:
@@ -65,7 +69,7 @@ class BridgePage:
     # ─── 导航 ───────────────────────────────────────────────────
 
     def navigate(self, url: str) -> None:
-        self._call("navigate", {"url": url})
+        self._call("navigate", {"url": rewrite_platform_url(url, self._platform)})
 
     def wait_for_load(self, timeout: float = 60.0) -> None:
         self._call("wait_for_load", {"timeout": int(timeout * 1000)})
@@ -304,6 +308,7 @@ class BridgePage:
                 ws.send(json.dumps({
                     "role": "cli",
                     "account": self._account,
+                    "platform": self._platform,
                     "method": "ping_server",
                 }))
                 raw = ws.recv(timeout=5)
@@ -338,6 +343,7 @@ class BridgePage:
                 ws.send(json.dumps({
                     "role": "cli",
                     "account": self._account,
+                    "platform": self._platform,
                     "method": "shutdown_server",
                     "params": {
                         "account_id": account_id,
@@ -353,3 +359,7 @@ class BridgePage:
     def target_id(self) -> str:
         """兼容旧代码对 page.target_id 的引用。"""
         return "extension-bridge"
+
+    @property
+    def platform(self) -> str:
+        return self._platform

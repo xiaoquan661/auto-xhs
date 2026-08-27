@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from capability_registry import get_operation_policy
 from product_store import ProductStore
+from platforms import DEFAULT_PLATFORM, normalize_platform
 from service_errors import ServiceError
 
 TASK_STATES = {
     "QUEUED",
     "RUNNING",
+    "CANCEL_REQUESTED",
     "WAITING_APPROVAL",
     "SUCCESS",
     "PARTIAL_SUCCESS",
@@ -25,6 +28,7 @@ _TRANSITIONS = {
     "QUEUED": {"RUNNING", "BLOCKED", "CANCELLED"},
     "WAITING_APPROVAL": {"QUEUED", "BLOCKED", "CANCELLED"},
     "RUNNING": {
+        "CANCEL_REQUESTED",
         "WAITING_APPROVAL",
         "SUCCESS",
         "PARTIAL_SUCCESS",
@@ -33,6 +37,7 @@ _TRANSITIONS = {
         "CANCELLED",
         "RESULT_UNKNOWN",
     },
+    "CANCEL_REQUESTED": {"CANCELLED", "RESULT_UNKNOWN"},
     "BLOCKED": {"QUEUED", "CANCELLED"},
 }
 
@@ -42,8 +47,14 @@ def utc_now() -> str:
 
 
 class TaskService:
-    def __init__(self, store: ProductStore) -> None:
+    def __init__(
+        self,
+        store: ProductStore,
+        *,
+        platform_resolver: Callable[[str], str] | None = None,
+    ) -> None:
         self.store = store
+        self._platform_resolver = platform_resolver
 
     def create(
         self,
@@ -59,6 +70,7 @@ class TaskService:
         parent_task_id: str | None = None,
         target_type: str = "",
         target_id: str = "",
+        platform: str | None = None,
     ) -> dict:
         try:
             policy = get_operation_policy(capability, operation)
@@ -75,6 +87,10 @@ class TaskService:
         task_id = uuid.uuid4().hex
         now = utc_now()
         normalized_source = source.strip() or "unknown"
+        resolved_platform = platform
+        if resolved_platform is None and self._platform_resolver and account_slot.strip():
+            resolved_platform = self._platform_resolver(account_slot.strip())
+        resolved_platform = normalize_platform(resolved_platform or DEFAULT_PLATFORM)
         task = {
             "task_id": task_id,
             "source": normalized_source,
@@ -82,6 +98,7 @@ class TaskService:
             "source_event_id": source_event_id,
             "parent_task_id": parent_task_id,
             "account_slot": account_slot.strip(),
+            "platform": resolved_platform,
             "capability": capability,
             "operation": operation,
             "target_type": target_type.strip(),
@@ -112,6 +129,7 @@ class TaskService:
         parent_task_id: str | None = None,
         target_type: str = "",
         target_id: str = "",
+        platform: str | None = None,
     ) -> dict:
         """Create a queued multi-step task whose confirmation happens mid-workflow."""
         task = self.create(
@@ -125,6 +143,7 @@ class TaskService:
             parent_task_id=parent_task_id,
             target_type=target_type,
             target_id=target_id,
+            platform=platform,
         )
         if task["state"] == "WAITING_APPROVAL":
             task = self.store.update(
@@ -175,6 +194,8 @@ class TaskService:
             if state == "RUNNING":
                 task["started_at"] = now
                 task["finished_at"] = None
+            if state == "CANCEL_REQUESTED":
+                task["finished_at"] = None
             if state == "WAITING_APPROVAL":
                 task["finished_at"] = None
             if state in FINAL_STATES or state == "BLOCKED":
@@ -205,6 +226,7 @@ class TaskService:
             "event_id": event_id,
             "task_id": task["task_id"],
             "account_slot": task["account_slot"],
+            "platform": normalize_platform(task.get("platform")),
             "capability": task["capability"],
             "source_type": task.get("source_type", self._source_type(task.get("source", ""))),
             "source_event_id": task.get("source_event_id"),
@@ -254,7 +276,7 @@ class TaskService:
                     if other_id != task_id
                     and other_id != task.get("parent_task_id")
                     and item.get("account_slot") == task.get("account_slot")
-                    and item.get("state") == "RUNNING"
+                    and item.get("state") in {"RUNNING", "CANCEL_REQUESTED"}
                 ),
                 None,
             )
@@ -281,20 +303,45 @@ class TaskService:
     def recover_interrupted(self) -> list[dict]:
         recovered: list[dict] = []
         for task in self.list():
-            if task["state"] != "RUNNING":
+            if task["state"] == "QUEUED":
+                recovered.append(
+                    self.transition(
+                        task["task_id"],
+                        "BLOCKED",
+                        result_summary="任务在本地服务上次运行期间未开始",
+                        error_code="SERVICE_INTERRUPTED_BEFORE_START",
+                        recommended_action="请在 WebUI 中查看后重试或取消",
+                    )
+                )
+                continue
+            if task["state"] not in {"RUNNING", "CANCEL_REQUESTED"}:
                 continue
             policy = get_operation_policy(task["capability"], task.get("operation"))
             target = "RESULT_UNKNOWN" if policy.requires_result_verification else "FAILED"
+            if task["state"] == "CANCEL_REQUESTED":
+                target = "RESULT_UNKNOWN" if policy.requires_result_verification else "CANCELLED"
             recovered.append(
                 self.transition(
                     task["task_id"],
                     target,
-                    result_summary="本地服务在任务执行期间中断",
-                    error_code="SERVICE_INTERRUPTED",
+                    result_summary=(
+                        "本地服务在终止任务期间中断"
+                        if task["state"] == "CANCEL_REQUESTED"
+                        else "本地服务在任务执行期间中断"
+                    ),
+                    error_code=(
+                        "TASK_TERMINATION_INTERRUPTED"
+                        if task["state"] == "CANCEL_REQUESTED"
+                        else "SERVICE_INTERRUPTED"
+                    ),
                     recommended_action=(
                         "先回读平台当前状态，再决定是否重新执行"
                         if target == "RESULT_UNKNOWN"
-                        else "检查账号状态后重新发起任务"
+                        else (
+                            "任务已经停止，可按需重新创建"
+                            if target == "CANCELLED"
+                            else "检查账号状态后重新发起任务"
+                        )
                     ),
                 )
             )

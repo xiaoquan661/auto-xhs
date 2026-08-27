@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from account_manager import AccountConfig
+from platforms import get_platform_spec
 
 DEFAULT_START_URL = "https://www.xiaohongshu.com/explore"
 
@@ -41,7 +42,7 @@ def launch_chrome_profile(
     *,
     executable_finder: Callable[[], Path] = find_chrome_executable,
     process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
-    start_url: str = DEFAULT_START_URL,
+    start_url: str | None = None,
 ) -> dict:
     """Open the exact User Data/Profile pair configured for one slot."""
     if not config.chrome_user_data_dir:
@@ -49,6 +50,7 @@ def launch_chrome_profile(
 
     user_data_dir = Path(config.chrome_user_data_dir).expanduser()
     profile_directory = config.chrome_profile_directory or "Default"
+    start_url = start_url or get_platform_spec(config.platform).home_url
     if not user_data_dir.is_dir():
         raise FileNotFoundError(f"Chrome User Data 目录不存在: {user_data_dir}")
     if config.profile_mode == "existing" and not (user_data_dir / profile_directory).is_dir():
