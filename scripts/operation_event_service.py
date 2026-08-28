@@ -64,6 +64,27 @@ class OperationEventService:
         )
         return self._decode(row) if row else {}
 
+    def reconcile_result_unknown(self, task_id: str, *, readback: dict) -> dict:
+        current = self.get_by_task(task_id)
+        if not current:
+            return {}
+        merged_readback = {**dict(current.get("readback") or {}), **readback}
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE operation_events
+                SET result_state = 'SUCCESS',
+                    result_summary = '延迟回读确认私信已发送',
+                    error_code = '', recommended_action = '', readback_json = ?
+                WHERE operation_event_id = ? AND result_state = 'RESULT_UNKNOWN'
+                """,
+                (
+                    json.dumps(merged_readback, ensure_ascii=False, sort_keys=True),
+                    current["operation_event_id"],
+                ),
+            )
+        return self.get(current["operation_event_id"])
+
     def list(
         self,
         *,

@@ -49,6 +49,7 @@ def collect_private_messages(
     conversations = list(raw)[:max_conversations] if isinstance(raw, list) else []
 
     messages: list[dict] = []
+    conversation_snapshots: list[dict] = []
     skipped: list[dict] = []
     observed_at = datetime.now(UTC).isoformat()
     for conversation in conversations:
@@ -64,6 +65,20 @@ def collect_private_messages(
             skipped.append({"user_id": user_id, "reason": "conversation_unavailable"})
             continue
         recent = list(state["messages"])[-context_limit:]
+        nickname = str(
+            state.get("target_nickname") or conversation.get("nickname") or ""
+        ).strip()
+        conversation_snapshots.append(
+            {
+                "user_id": user_id,
+                "nickname": nickname,
+                "display_time": str(conversation.get("display_time") or ""),
+                "observed_at": observed_at,
+                "message_count": len(state["messages"]),
+                "context": recent,
+                "latest_role": str((recent[-1] if recent else {}).get("role") or ""),
+            }
+        )
         if not recent or recent[-1]["role"] != "peer":
             skipped.append({"user_id": user_id, "reason": "latest_message_not_peer"})
             continue
@@ -84,7 +99,6 @@ def collect_private_messages(
             skipped.append({"user_id": user_id, "reason": "latest_message_not_text"})
             continue
         content = "\n".join(peer_turn)
-        nickname = str(state.get("target_nickname") or conversation.get("nickname") or "").strip()
         messages.append(
             {
                 "message_id": f"{user_id}:{len(state['messages'])}:{content}",
@@ -103,6 +117,7 @@ def collect_private_messages(
     cursor = messages[0]["message_id"] if messages else ""
     return {
         "messages": messages,
+        "conversation_snapshots": conversation_snapshots,
         "count": len(messages),
         "conversation_count": len(conversations),
         "skipped": skipped,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import UTC, datetime
 
@@ -14,6 +15,7 @@ _CARD_MARK = "data-auto-xhs-comment-notification"
 _REPLY_MARK = "data-auto-xhs-comment-notification-reply"
 _EDITOR_MARK = "data-auto-xhs-comment-notification-editor"
 _SEND_MARK = "data-auto-xhs-comment-notification-send"
+_XHS_EMOJI_TOKEN = re.compile(r"\[[^\[\]]+R\]")
 
 
 class NotificationReplyError(RuntimeError):
@@ -29,6 +31,8 @@ def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
 
     page.navigate(NOTIFICATION_URL)
     page.wait_for_load()
+    page.wait_dom_stable()
+    _reset_notification_scroll(page)
     page.wait_dom_stable()
     sleep_random(500, 900)
 
@@ -72,6 +76,8 @@ def reply_to_comment_notification(
 
     page.navigate(NOTIFICATION_URL)
     page.wait_for_load()
+    page.wait_dom_stable()
+    _reset_notification_scroll(page)
     page.wait_dom_stable()
     sleep_random(500, 900)
 
@@ -302,7 +308,7 @@ def _find_and_mark_notification(
         )
         if isinstance(result, dict) and result.get("found"):
             return result
-        page.evaluate("window.scrollBy(0, Math.max(420, window.innerHeight * 0.7))")
+        _scroll_notification_list(page)
         sleep_random(250, 450)
     return {"found": False, "reason": "未在通知页找到与评论者和原评论内容同时匹配的通知"}
 
@@ -316,6 +322,7 @@ def _mark_notification_script(
             "commentId": comment_id,
             "nickname": nickname.strip(),
             "content": original_content.strip(),
+            "visibleContent": _visible_notification_content(original_content),
         },
         ensure_ascii=False,
     )
@@ -346,7 +353,8 @@ def _mark_notification_script(
           ].filter(Boolean);
           const idMatches = !expected.notificationId && !expected.commentId ||
             ids.includes(expected.notificationId) || ids.includes(expected.commentId);
-          const contentMatches = !expected.content || cardText.includes(norm(expected.content));
+          const visibleContent = norm(expected.visibleContent);
+          const contentMatches = !visibleContent || cardText.includes(visibleContent);
           const nicknameMatches = !expected.nickname || cardText.includes(norm(expected.nickname));
           if (contentMatches && nicknameMatches && (idMatches || !ids.length)) {{
             matches.push({{card, reply}});
@@ -364,6 +372,53 @@ def _mark_notification_script(
       return {{found:true}};
     }})()
     """
+
+
+def _visible_notification_content(content: str) -> str:
+    """Return the text represented in DOM when Xiaohongshu emoji tokens become images."""
+
+    return _XHS_EMOJI_TOKEN.sub("", content).strip()
+
+
+def _reset_notification_scroll(page) -> None:
+    """Return both the notification list and its page fallback to the newest items."""
+
+    page.evaluate(
+        """
+        (() => {
+          const list = document.querySelector('.notification-page .tabs-content-container');
+          if (list) {
+            list.scrollTop = 0;
+            list.querySelectorAll('*').forEach((el) => {
+              if (el.scrollTop > 0 && el.scrollHeight > el.clientHeight) el.scrollTop = 0;
+            });
+          }
+          window.scrollTo(0, 0);
+        })()
+        """
+    )
+
+
+def _scroll_notification_list(page) -> None:
+    """Advance the notification list's own scroller, falling back to the page."""
+
+    page.evaluate(
+        """
+        (() => {
+          const root = document.querySelector('.notification-page .tabs-content-container');
+          const candidates = root ? [root, ...root.querySelectorAll('*')] : [];
+          const list = candidates.find((el) => el.scrollHeight > el.clientHeight + 20);
+          const distance = Math.max(420, (list?.clientHeight || window.innerHeight) * 0.7);
+          if (list) {
+            const before = list.scrollTop;
+            list.scrollBy(0, distance);
+            if (list.scrollTop !== before) return 'notification-list';
+          }
+          window.scrollBy(0, distance);
+          return 'page';
+        })()
+        """
+    )
 
 
 def _wait_for_editor(page, *, expected_nickname: str, timeout: float = 5.0) -> dict:

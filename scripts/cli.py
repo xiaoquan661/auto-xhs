@@ -670,6 +670,113 @@ def cmd_reply_cycle(args: argparse.Namespace) -> None:
     _output(result)
 
 
+def _reply_inbox_channels(args: argparse.Namespace) -> list[str]:
+    channels = []
+    if not getattr(args, "private_messages_only", False):
+        channels.append("comment")
+    if not getattr(args, "comments_only", False):
+        channels.append("private_message")
+    return channels
+
+
+def _load_reply_decision(path: str) -> dict:
+    from pathlib import Path
+
+    source = Path(path).expanduser()
+    if not source.is_absolute():
+        raise ValueError("Codex 回复决策文件必须使用绝对路径")
+    source = source.resolve()
+    if not source.is_file():
+        raise ValueError(f"Codex 回复决策文件不存在: {source}")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("Codex 回复决策文件必须是 JSON 对象") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Codex 回复决策文件必须是 JSON 对象")
+    return data
+
+
+def cmd_reply_inbox_collect(args: argparse.Namespace) -> None:
+    """Collect new reply events for Codex without generating text."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().collect_reply_inbox(
+            args.account,
+            channels=_reply_inbox_channels(args),
+            max_notes=args.max_notes,
+            max_conversations=args.max_conversations,
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_reply_inbox_list(args: argparse.Namespace) -> None:
+    """List compact inbound events for Codex triage."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().list_reply_inbox(
+            args.account,
+            channels=_reply_inbox_channels(args),
+            handling_state=args.state,
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_reply_inbox_context(args: argparse.Namespace) -> None:
+    """Read one event, its conversation context, and the account reply policy."""
+
+    from application_service import ApplicationService
+
+    _output(ApplicationService().get_reply_inbox_context(args.account, args.event_id))
+
+
+def cmd_reply_inbox_apply(args: argparse.Namespace) -> None:
+    """Apply one Codex-authored reply decision through the existing send chain."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().apply_codex_reply_decision(
+            args.account,
+            _load_reply_decision(args.decision_file),
+        )
+    )
+
+
+def cmd_reply_inbox_conversations(args: argparse.Namespace) -> None:
+    """List private-message conversation ownership and boundaries."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().list_private_message_conversations(
+            args.account,
+            owner_state=args.owner,
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_reply_inbox_resume(args: argparse.Namespace) -> None:
+    """Return one human-owned private-message conversation to Codex."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().resume_private_message_conversation(
+            args.account,
+            args.user_id,
+            confirmed=args.confirm,
+        )
+    )
+
+
 def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
     """Collect account and own-note metrics into local snapshots."""
     from application_service import ApplicationService
@@ -758,25 +865,8 @@ def cmd_private_message_inbox(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_prepare_private_messages(args: argparse.Namespace) -> None:
-    """Persist Agent-generated personalized texts for one batch confirmation."""
-
-    from application_service import ApplicationService
-
-    result = ApplicationService().prepare_private_messages(
-        args.account,
-        recipients=_load_private_message_recipients(args.recipients_file),
-    )
-    result["next_command"] = (
-        f"python scripts/cli.py --account {args.account} send-private-messages "
-        f"--task-id {result['task_id']} --batch-revision-id "
-        f"{result['batch_revision_id']} --confirm"
-    )
-    _output(result)
-
-
 def cmd_send_private_messages(args: argparse.Namespace) -> None:
-    """Send explicit personalized texts or one confirmed generated batch."""
+    """Send a Codex-generated batch or resume its retryable recipients."""
 
     from application_service import ApplicationService
 
@@ -789,9 +879,7 @@ def cmd_send_private_messages(args: argparse.Namespace) -> None:
     else:
         result = service.send_private_messages(
             args.account,
-            task_id=args.task_id,
-            batch_revision_id=args.batch_revision_id or "",
-            confirmed=args.confirm,
+            resume_task_id=args.resume_task_id,
         )
     _output(result, exit_code=0 if result["task"]["state"] == "SUCCESS" else 2)
 
@@ -2220,21 +2308,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_private_message_context, requires_account_lock=False)
 
     sub = subparsers.add_parser(
-        "prepare-private-messages",
-        help="保存 Agent 生成的个性化私信并等待整批确认",
-    )
-    sub.add_argument("--recipients-file", required=True)
-    sub.set_defaults(func=cmd_prepare_private_messages, requires_account_lock=False)
-
-    sub = subparsers.add_parser(
         "send-private-messages",
-        help="直接发送明确文本，或发送已整批确认的 Agent 生成文本",
+        help="直接发送 Codex 生成的个性化私信，或恢复可重试的批次项",
     )
     source = sub.add_mutually_exclusive_group(required=True)
     source.add_argument("--recipients-file")
-    source.add_argument("--task-id")
-    sub.add_argument("--batch-revision-id")
-    sub.add_argument("--confirm", action="store_true")
+    source.add_argument("--resume-task-id")
     sub.set_defaults(func=cmd_send_private_messages, requires_account_lock=False)
 
     sub = subparsers.add_parser(
@@ -2269,6 +2348,51 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--max-notes", type=int, default=20)
     sub.add_argument("--max-conversations", type=int, default=20)
     sub.set_defaults(func=cmd_reply_cycle, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "reply-inbox",
+        help="由 Codex 读取上下文、生成决策并通过现有执行链回复",
+    )
+    inbox = sub.add_subparsers(dest="reply_inbox_command", required=True)
+
+    inbox_sub = inbox.add_parser("collect", help="只读采集新评论和新私信事件")
+    channel_group = inbox_sub.add_mutually_exclusive_group()
+    channel_group.add_argument("--comments-only", action="store_true")
+    channel_group.add_argument("--private-messages-only", action="store_true")
+    inbox_sub.add_argument("--max-notes", type=int, default=20)
+    inbox_sub.add_argument("--max-conversations", type=int, default=20)
+    inbox_sub.add_argument("--limit", type=int, default=20)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_collect, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("list", help="列出供 Codex 处理的事件摘要")
+    channel_group = inbox_sub.add_mutually_exclusive_group()
+    channel_group.add_argument("--comments-only", action="store_true")
+    channel_group.add_argument("--private-messages-only", action="store_true")
+    inbox_sub.add_argument(
+        "--state",
+        choices=["NEW", "TASK_CREATED", "IGNORED", "HANDLED"],
+        default="NEW",
+    )
+    inbox_sub.add_argument("--limit", type=int, default=20)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_list, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("context", help="读取一个事件的完整回复上下文和账号规则")
+    inbox_sub.add_argument("--event-id", required=True)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_context, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("apply", help="应用 Codex 生成的 reply、pending 或 skip 决策")
+    inbox_sub.add_argument("--decision-file", required=True, help="UTF-8 JSON 决策文件绝对路径")
+    inbox_sub.set_defaults(func=cmd_reply_inbox_apply, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("conversations", help="查看私信会话所有权与处理边界")
+    inbox_sub.add_argument("--owner", choices=["CODEX", "HUMAN"])
+    inbox_sub.add_argument("--limit", type=int, default=100)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_conversations, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("resume", help="将一个人工接管会话恢复给 Codex")
+    inbox_sub.add_argument("--user-id", required=True, help="私信联系人用户 ID")
+    inbox_sub.add_argument("--confirm", action="store_true", help="确认从当前边界恢复 Codex 处理")
+    inbox_sub.set_defaults(func=cmd_reply_inbox_resume, requires_account_lock=False)
 
     sub = subparsers.add_parser(
         "collect-operations-metrics",

@@ -220,6 +220,8 @@ class BridgeServer:
             "extension_id": handshake.get("extension_id"),
             "profile_directory": handshake.get("profile_directory"),
             "platform": normalize_platform(handshake.get("platform")),
+            "extension_version": handshake.get("extension_version"),
+            "platform_protocol_version": handshake.get("platform_protocol_version"),
             "identity_verified": bool(self.account_id and self.bridge_token),
             "instance_enrolled": bool(
                 self.extension_instance_id

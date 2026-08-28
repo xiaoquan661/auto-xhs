@@ -313,6 +313,76 @@ class Page:
                 )
             time.sleep(random.uniform(0.03, 0.08))
 
+    def send_content_editable(self, selector: str, text: str) -> dict[str, Any]:
+        """Atomically replace a contenteditable value and submit it with Enter."""
+
+        focused = self.evaluate(
+            f"""
+            (() => {{
+                const el = document.querySelector({json.dumps(selector)});
+                if (!el || !el.isContentEditable) return false;
+                el.focus();
+                return document.activeElement === el;
+            }})()
+            """
+        )
+        if focused is not True:
+            raise CDPError(f"无法聚焦可编辑元素: {selector}")
+
+        self._send_session(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "rawKeyDown",
+                "key": "a",
+                "code": "KeyA",
+                "windowsVirtualKeyCode": 65,
+                "modifiers": 2,
+            },
+        )
+        self._send_session(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "keyUp",
+                "key": "a",
+                "code": "KeyA",
+                "windowsVirtualKeyCode": 65,
+                "modifiers": 2,
+            },
+        )
+        self._send_session(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "rawKeyDown",
+                "key": "Backspace",
+                "code": "Backspace",
+                "windowsVirtualKeyCode": 8,
+            },
+        )
+        self._send_session(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "keyUp",
+                "key": "Backspace",
+                "code": "Backspace",
+                "windowsVirtualKeyCode": 8,
+            },
+        )
+        self._send_session("Input.insertText", {"text": text})
+        time.sleep(0.12)
+
+        entered = str(
+            self.evaluate(
+                "String(document.querySelector("
+                + json.dumps(selector)
+                + ")?.innerText || '')"
+            )
+            or ""
+        ).strip()
+        if entered != text.strip():
+            raise CDPError("可编辑元素没有完整写入最终文本")
+        self.press_key("Enter")
+        return {"entered": entered, "submitted": True}
+
     def get_element_text(self, selector: str) -> str | None:
         """获取元素文本内容。"""
         return self.evaluate(
@@ -525,13 +595,20 @@ class Page:
             "Tab": {"key": "Tab", "code": "Tab", "windowsVirtualKeyCode": 9},
         }
         info = key_map.get(key, {"key": key, "code": key})
-        key_down = {"type": "keyDown", **info}
-        if key == "Enter":
-            key_down.update({"text": "\r", "unmodifiedText": "\r"})
         self._send_session(
             "Input.dispatchKeyEvent",
-            key_down,
+            {"type": "rawKeyDown" if key == "Enter" else "keyDown", **info},
         )
+        if key == "Enter":
+            self._send_session(
+                "Input.dispatchKeyEvent",
+                {
+                    "type": "char",
+                    **info,
+                    "text": "\r",
+                    "unmodifiedText": "\r",
+                },
+            )
         self._send_session(
             "Input.dispatchKeyEvent",
             {"type": "keyUp", **info},

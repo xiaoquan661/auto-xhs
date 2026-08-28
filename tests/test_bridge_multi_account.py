@@ -123,6 +123,8 @@ async def _exercise_extension_identity_validation() -> None:
             "instance_id": "instance-alpha",
             "extension_id": "chrome-extension-id",
             "profile_directory": "Default",
+            "extension_version": "1.3.2",
+            "platform_protocol_version": 2,
         }
     )
     task = asyncio.create_task(server.handle(extension))
@@ -138,6 +140,8 @@ async def _exercise_extension_identity_validation() -> None:
     assert status["extension_connected"] is True
     assert status["extension"]["identity_verified"] is True
     assert status["extension"]["instance_enrolled"] is True
+    assert status["extension"]["extension_version"] == "1.3.2"
+    assert status["extension"]["platform_protocol_version"] == 2
 
     unauthenticated_cli = FakeWebSocket(
         {"role": "cli", "account": "alpha", "method": "navigate"}

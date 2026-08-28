@@ -2,7 +2,8 @@
 
 面向个人运营者的本地多账号小红书运营系统。系统通过 Chrome Profile、WebUI、Codex 和统一
 Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线；V1.5 能力正在分批交付，其中
-账号联合启动、分步发布、主加和私信已具备自动化测试证据；V2.0 已接入评论和入站私信的规则化智能回复周期。
+账号联合启动、分步发布、主加和私信已具备自动化测试证据；V2.0 已接入由 Codex 生成决策的评论和
+入站私信回复收件箱。
 凡涉及真实浏览器写操作的能力，仍按各自文档标注区分“已测试”和“已实机验收”。
 
 支持 [OpenClaw](https://github.com/openclaw/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台。
@@ -17,6 +18,7 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线�
 | **xhs-publish**     | V1.5目标 | 图文 / 视频 / 长文 / 草稿 / 定时发布     |
 | **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐 |
 | **xhs-interact**    | 社交互动 | 私信、主加、评论、回复、点赞、收藏       |
+| **xhs-reply**       | 入站回复 | Codex 评论与私信上下文回复               |
 | **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作   |
 
 ### 版本与开放范围
@@ -27,7 +29,7 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线�
 | Chrome | 绑定固定 Profile，不自动关闭或切换账号 | 联合启动已测试：扩展离线时可打开绑定 Profile；真实 Windows 待验收 |
 | 发布 | 禁止一步直发，必须填写、真实预览、单任务确认和结果回读 | Agent/CLI 填写及 WebUI/Agent 受控确认已测试；真实发布待验收 |
 | 评论 | 指定评论/回复保留最终文本确认；随机评论一次授权 1–3 条 | 当前确认链可用；“所有指定评论点击即直发”仍是 V1.5 规格 |
-| 智能回复 | 按账号规则采集、判断并回复；业务判断类内容进入待处理 | 渠道开关、时段、配额、上下文生成、发送回读与待处理记录已通过自动化测试；真实账号周期待验收 |
+| Codex 回复 | Codex 读取入站上下文并提交回复决策；业务判断类内容进入待处理 | `reply-inbox`、规则复核、发送回读和专用 Skill 已通过自动化测试；真实账号周期待验收 |
 | 主加 | 单向关注，Agent/CLI 内部预览后执行并回读 | 已完成自动化测试和测试账号实机回读 |
 | 私信 | 主动私信沿用 Agent 任务；入站私信按账号规则回复或进入待处理 | 最新连续对方消息作为一次回复单位，发送前校验会话未变化 |
 | 资料修改 | 展示前后差异并确认后执行 | 尚无完整执行链 |
@@ -309,22 +311,22 @@ python scripts/web_server.py
 图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步填写并形成真实预览。进入
 `preview_ready` 后，用户可在 Agent 对话或 WebUI 中逐任务核对并确认发布或保存草稿；WebUI 不创建
 或填写发布内容。主动私信仍由 Agent/CLI 下发并由 WebUI 展示结果；收到的新私信和自己笔记下
-的新评论由 `reply-cycle` 按账号规则采集、生成、判断、发送并回读，需要业务判断的内容进入待处理。详见
+的新评论由 Codex 通过 `reply-inbox` 读取上下文、生成决策、发送并回读，需要业务判断的内容进入待处理。详见
 [`docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md`](docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md)。
 
-**个性化私信（Agent 流程）：**
+**个性化私信（Codex 流程）：**
 
-> “使用 brand-a 给这 3 位博主分别写一条合作私信，先给我确认全文”
+> “使用 brand-a 给这 3 位博主分别写一条合作私信，目的是沟通内容合作。”
 
-首次私信和已有会话续发均支持。用户已明确给出每个收件人的完整最终文本时直接发送；由 Agent
-生成或修改文本时，先展示整批收件人及全文，确认一次后发送。单批最多 10 人，每个人必须使用
-不同的个性化文本；逐人记录成功、失败或结果未知，结果未知不会自动重发。
+Codex 先识别首次私信或已有会话，结合用户给出的联系目的和真实上下文为每位联系人生成不同文本，
+随后直接发送、回读并汇总。单批最多 10 人；逐人记录 `SUCCESS`、`FAILED` 或
+`RESULT_UNKNOWN`，单人失败不阻断其余人，恢复批次不重发成功或结果未知项。
 
-**入站回复（规则周期）：**
+**入站回复（Codex 流程）：**
 
 在 WebUI“账号回复规则”中配置评论/私信开关、生效时段、数量上限、人设和知识，并显式启用。
-每次手动或计划运行 `reply-cycle` 都只处理一批新事件。普通问题、感谢、一般讨论和知识可回答咨询
-可以自动发送；投诉、合作、报价、库存、退款、联系方式、线下见面、承诺或信息不足进入待处理。
+每次手动或计划运行 `reply-inbox` 都只处理一批新事件。Codex 读取笔记、评论线程或近期私信会话，
+结合账号人设、知识和规则生成 `reply`、`pending` 或 `skip`；Python/Bridge 负责发送前核验和页面回读。
 
 **主动关注博主（Agent 流程）：**
 
@@ -379,16 +381,13 @@ python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-to
 python scripts/cli.py --account brand-a follow-user `
   --user-id USER_ID --xsec-token XSEC_TOKEN
 
-# 私信：recipients.json 是 1–10 人的 UTF-8 JSON 数组，每人有 user_id、content 和可选 xsec_token
-# 用户已提供最终文本时直接发送
+# 私信：先读取会话，再将联系目的、会话类型、上下文快照和最终文本写入 recipients.json
 python scripts/cli.py --account brand-a send-private-messages `
   --recipients-file "C:\Temp\recipients.json"
 
-# Agent 生成文本时先返回整批预览，再按返回的 task_id/revision 确认一次
-python scripts/cli.py --account brand-a prepare-private-messages `
-  --recipients-file "C:\Temp\recipients.json"
+# 恢复一个部分完成的批次，只重试 FAILED/BLOCKED 项
 python scripts/cli.py --account brand-a send-private-messages `
-  --task-id TASK_ID --batch-revision-id REVISION_ID --confirm
+  --resume-task-id TASK_ID
 
 # 只读采集最近一对一会话中由对方发送的最新文字
 python scripts/cli.py --account brand-a collect-private-messages `
@@ -438,10 +437,10 @@ python scripts/cli.py --account brand-a collect-private-messages `
 | `follow-user`               | Agent 无需审批地预览、关注一个目标并回读结果          |
 | `collect-private-messages`  | 只读采集最近一对一会话中由对方发送的最新文字          |
 | `private-message-context`   | 只读识别首次私信入口或读取已有会话近期文本            |
-| `prepare-private-messages`  | 保存 Agent 生成的 1–10 人个性化私信并返回整批预览    |
-| `send-private-messages`     | 直发用户最终文本，或发送已整批确认的 Agent 文本       |
+| `send-private-messages`     | 直接发送 Codex 个性化文本，或恢复批次可重试项         |
 | `generate-reply-draft`      | 为新评论或入站私信事件生成智能回复待确认草稿          |
 | `reply-cycle`               | 按账号规则处理一轮新评论和新私信，发送后回读并记录    |
+| `reply-inbox`               | Codex 采集、读取上下文并应用一个结构化回复决策        |
 | `post-comment`              | V1.0 使用当前确认链；V1.5 目标为当前任务点击后直发    |
 | `random-comment`            | 当前任务点击一次性授权 1–3 条随机评论                 |
 | `home-engagement`           | 单次首页会话完成浏览和点赞并输出逐篇记录               |
@@ -480,8 +479,8 @@ xiaohongshu-skills/
 │   ├── account_doctor.py           # 多账号配置和运行状态只读诊断
 │   ├── account_identity.py         # 登录身份记录、安全换号和任务保护
 │   ├── application_service.py      # CLI、WebUI 和 Agent 共用的应用服务层
-│   ├── reply_intelligence_service.py # 智能回复上下文、生成和质量标记
-│   ├── reply_llm_client.py         # OpenAI-compatible 模型客户端
+│   ├── reply_intelligence_service.py # API 模型兼容生成与确定性质量标记
+│   ├── reply_llm_client.py         # API 模型兼容客户端
 │   ├── private_message_collector.py # 入站私信事件去重与持久化
 │   ├── operations_db.py            # 任务、事件和指标本地存储
 │   ├── web_server.py               # 仅监听本机的 WebUI/API 服务
@@ -526,6 +525,7 @@ xiaohongshu-skills/
 │   ├── xhs-publish/SKILL.md
 │   ├── xhs-explore/SKILL.md
 │   ├── xhs-interact/SKILL.md
+│   ├── xhs-reply/SKILL.md
 │   └── xhs-content-ops/SKILL.md
 ├── SKILL.md                        # 技能统一入口（路由到子技能）
 ├── CLAUDE.md                       # 项目开发指南

@@ -53,6 +53,36 @@ def test_comment_reply_record_keeps_original_and_sent_content(tmp_path) -> None:
     assert record["readback_state"] == "VERIFIED"
 
 
+def test_comment_reply_record_accepts_notification_acknowledgement(tmp_path) -> None:
+    service = ReplyRecordService(
+        OperationsDatabase(path=tmp_path / "operations.db")
+    )
+    task = {
+        "task_id": "reply-task-notification",
+        "account_slot": "alpha",
+        "platform": "xiaohongshu",
+        "parameters": {"content": "谢谢喜欢～"},
+        "state": "SUCCESS",
+    }
+    event = {
+        "event_id": "event-notification",
+        "event_type": "note_comment",
+        "platform_event_id": "notification-1",
+        "account_slot": "alpha",
+        "payload": {"content": "好喜欢"},
+    }
+
+    record = service.record(
+        task,
+        draft={"verified_uid": "uid-alpha", "content": "谢谢喜欢～"},
+        source_event=event,
+        result={"readback": "editor-closed"},
+    )
+
+    assert record["readback_state"] == "VERIFIED"
+    assert record["readback"] == {"acknowledgement": "editor-closed"}
+
+
 def test_private_message_reply_is_idempotent_by_task(tmp_path) -> None:
     service = ReplyRecordService(
         OperationsDatabase(path=tmp_path / "operations.db")

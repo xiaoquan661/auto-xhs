@@ -37,7 +37,12 @@ class ReplyRecordService:
             raise ServiceError("INVALID_EVENT_TYPE", "该入站事件不是评论或私信")
 
         result = dict(result or {})
-        readback = dict(result.get("readback") or {})
+        raw_readback = result.get("readback")
+        if isinstance(raw_readback, dict):
+            readback = dict(raw_readback)
+        else:
+            acknowledgement = str(raw_readback or "").strip()
+            readback = {"acknowledgement": acknowledgement} if acknowledgement else {}
         payload = dict(source_event.get("payload") or {})
         parameters = dict(task.get("parameters") or {})
         channel = (
@@ -147,6 +152,36 @@ class ReplyRecordService:
             values,
         )
         return [self._decode(row) for row in rows]
+
+    def reconcile_result_unknown(self, reply_task_id: str, *, readback: dict) -> dict:
+        row = self.database.fetch_one(
+            "SELECT * FROM reply_records WHERE reply_task_id = ?",
+            (reply_task_id,),
+        )
+        if row is None:
+            return {}
+        current = self._decode(row)
+        merged_readback = {**dict(current.get("readback") or {}), **readback}
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE reply_records
+                SET result_state = 'SUCCESS', error_code = '',
+                    result_summary = '延迟回读确认私信已发送',
+                    readback_state = 'VERIFIED', readback_json = ?, updated_at = ?
+                WHERE reply_task_id = ? AND result_state = 'RESULT_UNKNOWN'
+                """,
+                (
+                    json.dumps(merged_readback, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                    reply_task_id,
+                ),
+            )
+        updated = self.database.fetch_one(
+            "SELECT * FROM reply_records WHERE reply_task_id = ?",
+            (reply_task_id,),
+        )
+        return self._decode(updated) if updated else {}
 
     @staticmethod
     def _decode(row: dict) -> dict:

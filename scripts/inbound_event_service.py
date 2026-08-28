@@ -132,6 +132,25 @@ class InboundEventService:
     def ignore(self, event_id: str) -> dict:
         return self._update_state(event_id, "IGNORED")
 
+    def reopen_after_failed_task(self, event_id: str, task_id: str) -> dict:
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE inbound_events
+                SET handling_state = 'NEW', created_task_id = NULL
+                WHERE event_id = ? AND handling_state = 'TASK_CREATED'
+                  AND created_task_id = ?
+                """,
+                (event_id, task_id),
+            )
+            if cursor.rowcount != 1:
+                raise ServiceError("EVENT_STATE_CHANGED", "回复事件状态已经变化", 409)
+            row = connection.execute(
+                "SELECT * FROM inbound_events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+        return self._decode(dict(row))
+
     def _update_state(
         self,
         event_id: str,

@@ -197,6 +197,79 @@ def test_comment_monitor_task_persists_new_inbound_events(tmp_path) -> None:
     assert service.list_inbound_events()["events"][0]["platform_event_id"] == "comment-1"
 
 
+def test_comment_monitor_preserves_collected_events_when_one_page_fails(tmp_path) -> None:
+    def executor(_account, capability, _parameters):
+        assert capability == "collect-note-comments"
+        return {
+            "comments": [
+                {
+                    "comment_id": "comment-kept",
+                    "feed_id": "note-ok",
+                    "user_id": "visitor-1",
+                    "content": "已采集评论",
+                    "occurred_at": "2026-08-27T10:00:00+00:00",
+                }
+            ],
+            "count": 1,
+            "cursor": "1:comment-kept",
+            "last_seen_time": "2026-08-27T10:00:00+00:00",
+            "partial": True,
+            "failed_note_count": 1,
+            "failures": [{"feed_id": "note-unavailable", "message": "笔记不可访问"}],
+        }
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+    task = service.create_task(
+        source="codex",
+        account_slot="alpha",
+        capability="collect-note-comments",
+        request_summary="采集新评论",
+        parameters={"tracked_notes": [{"feed_id": "note-ok"}]},
+    )["task"]
+
+    executed = service.execute_task(task["task_id"])
+
+    assert executed["task"]["state"] == "PARTIAL_SUCCESS"
+    assert executed["result"]["inbound_events"]["created_count"] == 1
+    assert service.list_inbound_events()["events"][0]["platform_event_id"] == "comment-kept"
+
+
+def test_collector_read_failure_does_not_create_inbound_event(tmp_path) -> None:
+    def executor(_account, capability, _parameters):
+        assert capability == "collect-private-messages"
+        raise RuntimeError("私信会话读取失败")
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(executor),
+    )
+    service.get_account_status = lambda _account: {
+        "ready": True,
+        "next_action": None,
+        "identity": {"live_user_id": "owner-1"},
+    }
+    task = service.create_task(
+        source="codex",
+        account_slot="alpha",
+        capability="collect-private-messages",
+        request_summary="采集新私信",
+        parameters={"max_conversations": 20},
+    )["task"]
+
+    executed = service.execute_task(task["task_id"])
+
+    assert executed["task"]["state"] == "FAILED"
+    assert service.list_inbound_events()["events"] == []
+
+
 def test_metrics_collection_task_persists_account_and_note_snapshots(tmp_path) -> None:
     def executor(_account, capability, parameters):
         assert capability == "collect-operations-metrics"
@@ -425,11 +498,14 @@ def test_follow_user_direct_previews_and_executes_without_user_approval(tmp_path
     assert calls == ["follow-user-preview", "follow-user"]
 
 
-def _private_recipient(index: int) -> dict:
+def _private_recipient(index: int, *, conversation_type: str = "existing") -> dict:
     return {
         "user_id": f"user-{index}",
         "nickname": f"用户{index}",
         "xsec_token": f"token-{index}",
+        "contact_purpose": f"联系用户{index}沟通内容合作",
+        "conversation_type": conversation_type,
+        "expected_peer_turn": [],
         "content": f"为用户{index}准备的个性化私信",
     }
 
@@ -478,7 +554,7 @@ def test_explicit_personalized_private_messages_send_without_approval(tmp_path) 
     assert all(task["state"] == "SUCCESS" for task in children)
 
 
-def test_agent_generated_private_messages_require_one_batch_confirmation(tmp_path) -> None:
+def test_codex_generated_private_messages_send_without_batch_confirmation(tmp_path) -> None:
     calls = []
 
     def executor(_account, _capability, parameters):
@@ -494,30 +570,12 @@ def test_agent_generated_private_messages_require_one_batch_confirmation(tmp_pat
         }
 
     service = _ready_private_message_service(tmp_path, executor)
-    prepared = service.prepare_private_messages(
+    result = service.send_private_messages(
         "alpha", recipients=[_private_recipient(1), _private_recipient(2)]
     )
 
-    assert prepared["task"]["state"] == "WAITING_APPROVAL"
-    assert len(prepared["preview"]) == 2
-    assert calls == []
-    with pytest.raises(ServiceError) as missing:
-        service.send_private_messages(
-            "alpha",
-            task_id=prepared["task_id"],
-            batch_revision_id=prepared["batch_revision_id"],
-            confirmed=False,
-        )
-    assert missing.value.code == "CONFIRMATION_REQUIRED"
-
-    result = service.send_private_messages(
-        "alpha",
-        task_id=prepared["task_id"],
-        batch_revision_id=prepared["batch_revision_id"],
-        confirmed=True,
-    )
-
     assert result["task"]["state"] == "SUCCESS"
+    assert result["conversation_counts"] == {"first_message": 0, "existing": 2}
     assert calls == ["user-1", "user-2"]
 
 
@@ -576,6 +634,119 @@ def test_private_message_post_send_unknown_is_not_retried(tmp_path) -> None:
 
     assert result["task"]["state"] == "RESULT_UNKNOWN"
     assert result["items"][0]["state"] == "RESULT_UNKNOWN"
+    assert calls == ["user-1"]
+    with pytest.raises(ServiceError) as no_retry:
+        service.send_private_messages(
+            "alpha", resume_task_id=result["task"]["task_id"]
+        )
+    assert no_retry.value.code == "NO_RETRYABLE_RECIPIENTS"
+    assert calls == ["user-1"]
+
+
+def test_private_message_resume_skips_success_and_result_unknown(tmp_path) -> None:
+    from scripts.xhs.direct_message import (
+        PrivateMessageResultUnknownError,
+        PrivateMessageUnavailableError,
+    )
+
+    calls = []
+    failed_once = False
+
+    def executor(_account, _capability, parameters):
+        nonlocal failed_once
+        user_id = parameters["user_id"]
+        calls.append(user_id)
+        if user_id == "user-2" and not failed_once:
+            failed_once = True
+            raise PrivateMessageUnavailableError("首次发送前页面不可用")
+        if user_id == "user-3":
+            raise PrivateMessageResultUnknownError()
+        return {
+            "success": True,
+            "message": "发送成功",
+            "target": {
+                "user_id": user_id,
+                "conversation_type": parameters["conversation_type"],
+            },
+            "readback": {
+                "user_id": user_id,
+                "content": parameters["content"],
+                "outgoing_message_present": True,
+            },
+        }
+
+    service = _ready_private_message_service(tmp_path, executor)
+    first = service.send_private_messages(
+        "alpha",
+        recipients=[
+            _private_recipient(1),
+            _private_recipient(2, conversation_type="first_message"),
+            _private_recipient(3),
+        ],
+    )
+
+    assert [item["state"] for item in first["items"]] == [
+        "SUCCESS",
+        "FAILED",
+        "RESULT_UNKNOWN",
+    ]
+
+    resumed = service.send_private_messages(
+        "alpha", resume_task_id=first["task"]["task_id"]
+    )
+
+    assert calls == ["user-1", "user-2", "user-3", "user-2"]
+    assert [item["state"] for item in resumed["items"]] == [
+        "SUCCESS",
+        "SUCCESS",
+        "RESULT_UNKNOWN",
+    ]
+    assert resumed["task"]["parameters"]["resume_from_task_id"] == first["task"][
+        "task_id"
+    ]
+
+
+def test_private_message_resume_runs_batch_blocked_before_first_recipient(tmp_path) -> None:
+    calls = []
+
+    def executor(_account, _capability, parameters):
+        calls.append(parameters["user_id"])
+        return {
+            "success": True,
+            "message": "发送成功",
+            "target": {
+                "user_id": parameters["user_id"],
+                "conversation_type": parameters["conversation_type"],
+            },
+            "readback": {
+                "user_id": parameters["user_id"],
+                "content": parameters["content"],
+                "outgoing_message_present": True,
+            },
+        }
+
+    service = _ready_private_message_service(tmp_path, executor)
+    blocker = service.tasks.create(
+        source="agent",
+        account_slot="alpha",
+        capability="list-feeds",
+        request_summary="占用账号执行槽位",
+    )
+    service.tasks.claim_for_execution(blocker["task_id"])
+
+    blocked = service.send_private_messages(
+        "alpha", recipients=[_private_recipient(1)]
+    )
+
+    assert blocked["task"]["state"] == "BLOCKED"
+    assert calls == []
+    service.tasks.transition(blocker["task_id"], "SUCCESS")
+
+    resumed = service.send_private_messages(
+        "alpha", resume_task_id=blocked["task"]["task_id"]
+    )
+
+    assert resumed["task"]["state"] == "SUCCESS"
     assert calls == ["user-1"]
 
 

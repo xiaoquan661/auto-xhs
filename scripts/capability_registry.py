@@ -146,10 +146,18 @@ _POLICIES = [
     _policy("follow-user-preview", RiskLevel.READ_ONLY),
     _policy("collect-private-messages", RiskLevel.READ_ONLY),
     _policy("private-message-context", RiskLevel.READ_ONLY),
-    _policy("prepare-private-messages", RiskLevel.READ_ONLY),
     _policy("generate-reply-draft", RiskLevel.READ_ONLY),
     _policy(
         "reply-cycle",
+        RiskLevel.EXTERNAL_OUTPUT,
+        supports_scheduling=True,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
+    _policy(
+        "reply-inbox",
         RiskLevel.EXTERNAL_OUTPUT,
         supports_scheduling=True,
         requires_identity_check=True,
@@ -309,6 +317,30 @@ if len(CAPABILITY_POLICIES) != len(_POLICIES):
 # command conservatively classified while allowing the shared service layer to
 # apply the exact policy for a specific operation.
 SERVICE_OPERATION_POLICIES: dict[tuple[str, str], CapabilityPolicy] = {
+    ("reply-inbox", "collect"): _policy(
+        "reply-inbox",
+        RiskLevel.READ_ONLY,
+        supports_scheduling=True,
+    ),
+    ("reply-inbox", "list"): _policy(
+        "reply-inbox",
+        RiskLevel.READ_ONLY,
+        supports_scheduling=True,
+    ),
+    ("reply-inbox", "context"): _policy(
+        "reply-inbox",
+        RiskLevel.READ_ONLY,
+        supports_scheduling=True,
+    ),
+    ("reply-inbox", "apply"): _policy(
+        "reply-inbox",
+        RiskLevel.EXTERNAL_OUTPUT,
+        supports_scheduling=True,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
+    ),
     (
         "account-identity",
         "check",

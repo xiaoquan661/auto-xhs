@@ -19,7 +19,7 @@
 | [用户指南](USER-GUIDE.md) | 安装、账号、WebUI、任务和确认流程 | 现行 |
 | [故障恢复](TROUBLESHOOTING.md) | 常见启动、账号、任务、发布和模型问题 | 现行 |
 | [闭环与数据回收架构](AUTO-XHS-CLOSED-LOOP-ARCHITECTURE.md) | 私信、主加、被动回复、指标和 WebUI 闭环 | 已批准，进度更新至 2026-08-21 |
-| [V2.0 智能回复](AUTO-XHS-V2-INTELLIGENT-REPLY.md) | 评论与入站私信上下文、模型配置、AI 草稿和验收边界 | 评论真实回复已有记录；私信只读采集和模型草稿已有记录，确认发送待验收 |
+| [V2.0 Codex 回复](AUTO-XHS-V2-INTELLIGENT-REPLY.md) | 评论与入站私信上下文、Codex 决策、规则复核和回读边界 | `reply-inbox` 已完成自动化测试；真实账号待验收 |
 | [跨电脑验收](OTHER-COMPUTER-ACCEPTANCE-TEST.md) | 在另一台 Windows 电脑验证安装、Profile 和只读链 | 现行验收模板 |
 
 ## 专题与历史材料

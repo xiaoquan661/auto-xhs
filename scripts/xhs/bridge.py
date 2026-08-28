@@ -175,6 +175,15 @@ class BridgePage:
     def input_content_editable(self, selector: str, text: str) -> None:
         self._call("input_content_editable", {"selector": selector, "text": text})
 
+    def send_content_editable(self, selector: str, text: str) -> dict[str, Any]:
+        """Fill and submit one contenteditable editor in one Bridge command."""
+
+        result = self._call(
+            "send_content_editable",
+            {"selector": selector, "text": text},
+        )
+        return result if isinstance(result, dict) else {}
+
     def get_element_text(self, selector: str) -> str | None:
         return self._call("get_element_text", {"selector": selector})
 

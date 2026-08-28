@@ -43,7 +43,6 @@ _REDNOTE_SHARED_LOCAL = {
     "account-doctor",
     "account-connection-enroll",
     "account-switch-history",
-    "prepare-private-messages",
     "generate-reply-draft",
 }
 

@@ -31,12 +31,12 @@ docs/PRD.md 的版本规则
   评论一次点击直发、规则化自动回复，以及 Bridge 与绑定 Chrome Profile 联合启动。
 - **主加**：关注属于单向操作，默认无需审批。Agent 可直接执行，并在内部完成目标预览、关注和
   结果回读；只有用户特别说明需要审批时才暂停等待确认。
-- **主动私信**：首期 Agent/CLI 执行链已实现。支持首次私信和已有会话续发；单批最多 10 人且每人
-  文本必须个性化。用户明确给出最终文本时直接发送；Agent 生成或修改文本时先展示整批全文，
-  用户确认一次后发送。真实账号发送仍需单独授权验收。
-- **V2.0 智能回复**：评论和入站私信使用统一的有界 `reply-cycle`。账号规则独立控制评论和私信、
-  生效时段、配额、人设与知识；普通问题、感谢、一般讨论和知识可回答咨询自动发送，其余内容进入
-  待处理。采集、生成、决策、发送前校验、页面回读和记录已通过自动化测试，真实账号周期待验收。
+- **主动私信**：Codex/CLI 执行链支持首次私信和已有会话续发。用户指定账号、联系人和联系目的后，
+  Codex 读取每位联系人的真实上下文，生成不同的最终文本并直接发送、回读和汇总。单批最多 10 人；
+  恢复批次只重试 `FAILED` 或 `BLOCKED` 项。真实账号发送仍需明确验收目标。
+- **V2.0 Codex 回复**：评论和入站私信使用 `reply-inbox`。Codex 读取笔记或会话上下文、账号人设、
+  知识与规则，生成并提交 `reply`、`pending` 或 `skip`；Python/Bridge 负责账号核验、发送前校验、
+  页面回读和记录。API 模型 `reply-cycle` 保留为兼容运行方式，真实账号周期待验收。
 - **执行门槛**：V1.5 规则不等于代码已经可用。在能力注册表、CLI/WebUI 执行链、测试和
   真实设备验收完成前，不得绕过 `CAPABILITY_DISABLED`，不得把不存在的命令描述为已执行。
 
@@ -60,12 +60,12 @@ docs/PRD.md 的版本规则
 1. 登录状态、退出、半自动换号、配对 → `xhs-auth`。
 2. 图文、视频、长文、草稿、定时发布 → `xhs-publish`。
 3. 首页、搜索、详情、评论读取、用户主页 → `xhs-explore`。
-4. 私信、主加、评论、随机评论、回复、点赞、收藏 → `xhs-interact`。
+4. 主动私信、主加、主动评论、随机评论、点赞、收藏 → `xhs-interact`。
 5. 竞品分析、热点追踪、内容创作、互动管理 → `xhs-content-ops`。
 6. 公开资料修改 → 识别为 V1.5 目标能力；当前没有完整 CLI 执行链时明确报告待实现，
    不猜测命令或改用外部工具。
-7. 新评论或入站私信回收、智能回复草稿、被动回复任务和运营指标快照 → `xhs-content-ops`；当前
-   只读采集、AI 待确认草稿与本地闭环已通过自动化测试，外发能力按各自验收状态处理。
+7. 新评论或入站私信的 Codex 回复 → `xhs-reply`；复合运营回收和运营指标快照 →
+   `xhs-content-ops`。
 
 ## 账号与登录规则
 
@@ -112,10 +112,11 @@ V1.5 产品登录只保留半自动流程：
 | 随机评论 | 当前点击一次性授权本账号、本任务 1–3 条，每条单独记录结果 |
 | 首页浏览点赞 | 当前点击授权本账号、本任务的浏览和点赞配额；只对本批已浏览笔记点赞并逐篇记录 |
 | 自动回复 | 用户先按账号启用规则；符合规则的回复不逐条确认，但必须受时间、配额、暂停和记录约束 |
-| 私信 | 明确的逐人最终文本直接发送；Agent 生成或改写时整批确认一次；每人个性化，单批最多 10 人 |
+| 私信 | 当前任务指定账号、联系人和联系目的后，Codex 逐人读取上下文、生成文本、直接发送并回读 |
 | 公开资料修改 | 展示修改前后差异，用户确认一次后执行 |
 
-规则化自动回复必须由账号规则显式启用，并通过 `reply-cycle` 执行。人工接管草稿继续用于单条处理。
+规则化自动回复必须由账号规则显式启用。Codex 回复通过 `reply-inbox` 执行；API 模型兼容模式通过
+`reply-cycle` 执行。人工接管草稿继续用于单条处理。
 
 ## 子技能概览
 
@@ -125,6 +126,7 @@ V1.5 产品登录只保留半自动流程：
 | `xhs-publish` | V1.5 发布预览、确认、草稿和定时发布目标流程 |
 | `xhs-explore` | 首页、搜索、详情、评论读取和用户主页 |
 | `xhs-interact` | 私信、主加、评论、随机评论、规则化回复、点赞和收藏 |
+| `xhs-reply` | Codex 读取评论或私信上下文并提交回复、待处理或跳过决策 |
 | `xhs-content-ops` | 组合研究、创作、发布和互动流程 |
 
 ## 数据回收命令
@@ -136,8 +138,9 @@ python scripts/cli.py --account <账号别名> collect-note-comments --max-notes
 # 只读扫描最近一对一会话，回收对方最后发送的文字
 python scripts/cli.py --account <账号别名> collect-private-messages --max-conversations 20
 
-# 按已启用的账号规则运行一轮评论和私信回复
-python scripts/cli.py --account <账号别名> reply-cycle --max-events 20
+# 由 Codex 采集、读取上下文并处理评论和私信回复
+python scripts/cli.py --account <账号别名> reply-inbox collect --limit 20
+python scripts/cli.py --account <账号别名> reply-inbox list --state NEW --limit 20
 
 # 回收账号与自己笔记的运营指标时间快照
 python scripts/cli.py --account <账号别名> collect-operations-metrics --max-notes 50
@@ -147,8 +150,11 @@ python scripts/cli.py --account <账号别名> generate-reply-draft `
   --event-id <事件ID> --verified-uid <当前已核验UID>
 ```
 
-上述采集命令只读，草稿生成只写本地状态。`reply-cycle` 会依据账号规则直接发送 `reply` 决策，
-并将 `pending` 保留在 WebUI。主加和主动私信具备独立的 Agent/CLI 页面执行器、任务记录和回读链。
+上述采集命令只读，草稿生成只写本地状态。Codex 对每个事件运行 `reply-inbox context`，再通过绝对
+路径决策文件调用 `reply-inbox apply`。账号规则授权的 `reply` 直接发送，`pending` 和 `skip` 分别
+记录。私信 `pending` 会将会话交给人工；人工发出新消息后从该边界自动恢复，也可使用
+`reply-inbox conversations` 查看所有权并通过带 `--confirm` 的 `reply-inbox resume` 显式恢复。
+主加和主动私信具备独立的 Agent/CLI 页面执行器、任务记录和回读链。
 
 需要同一账号完成“浏览首页 + 点赞”时，使用单会话复合命令：
 

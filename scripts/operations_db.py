@@ -10,7 +10,7 @@ from pathlib import Path
 
 from product_store import product_root
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 _MIGRATIONS = {
     1: """
@@ -276,6 +276,29 @@ _MIGRATIONS = {
 
         CREATE INDEX reply_decisions_account_decision_idx
             ON reply_decisions (account_slot, decision, updated_at DESC);
+    """,
+    6: """
+        CREATE TABLE private_message_conversations (
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            user_id TEXT NOT NULL,
+            owner_state TEXT NOT NULL DEFAULT 'CODEX',
+            handled_through_message_count INTEGER NOT NULL DEFAULT 0,
+            handoff_event_id TEXT NOT NULL DEFAULT '',
+            resume_after_message_count INTEGER NOT NULL DEFAULT 0,
+            last_observed_message_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (account_slot, platform, user_id)
+        );
+
+        CREATE INDEX private_message_conversations_owner_idx
+            ON private_message_conversations (account_slot, owner_state, updated_at DESC);
+    """,
+    7: """
+        ALTER TABLE private_message_conversations
+            ADD COLUMN resume_source TEXT NOT NULL DEFAULT '';
+        ALTER TABLE private_message_conversations
+            ADD COLUMN matched_reply_task_id TEXT NOT NULL DEFAULT '';
     """,
 }
 

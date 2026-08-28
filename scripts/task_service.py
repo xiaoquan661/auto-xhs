@@ -210,6 +210,30 @@ class TaskService:
             raise ServiceError("NOT_FOUND", "任务不存在", 404)
         return updated
 
+    def reconcile_result_unknown(self, task_id: str, *, result_summary: str) -> dict:
+        """Promote a result-unknown task after a later platform readback."""
+
+        def mutate(task: dict) -> dict:
+            if task["state"] == "SUCCESS":
+                return task
+            if task["state"] != "RESULT_UNKNOWN":
+                raise ServiceError(
+                    "INVALID_TASK_STATE",
+                    "只有结果未知的任务可以通过延迟回读改为成功",
+                    409,
+                )
+            task["state"] = "SUCCESS"
+            task["result_summary"] = result_summary
+            task["error_code"] = ""
+            task["recommended_action"] = ""
+            task["reconciled_at"] = utc_now()
+            return task
+
+        updated = self.store.update("tasks", task_id, mutate)
+        if updated is None:
+            raise ServiceError("NOT_FOUND", "任务不存在", 404)
+        return updated
+
     def update_parameters(self, task_id: str, **changes) -> dict:
         def mutate(task: dict) -> dict:
             task["parameters"] = {**(task.get("parameters") or {}), **changes}

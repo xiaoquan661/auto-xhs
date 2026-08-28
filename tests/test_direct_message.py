@@ -111,6 +111,19 @@ class FakePage:
             self.messages.append({"role": "self", "content": self.entered})
 
 
+class AtomicSendPage(FakePage):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.atomic_sends: list[tuple[str, str]] = []
+
+    def send_content_editable(self, selector: str, content: str) -> dict:
+        self.atomic_sends.append((selector, content))
+        self.entered = content
+        if self.append_after_send:
+            self.messages.append({"role": "self", "content": content})
+        return {"entered": content, "submitted": True}
+
+
 def test_reads_recent_existing_conversation_context() -> None:
     page = FakePage(
         existing=True,
@@ -169,6 +182,17 @@ def test_sends_once_and_requires_new_outgoing_readback() -> None:
     assert result["success"] is True
 
 
+def test_prefers_atomic_contenteditable_send_when_available() -> None:
+    page = AtomicSendPage(existing=True)
+
+    result = send_private_message(page, "user-1", "", "专属私信")
+
+    assert page.atomic_sends == [(CHAT_EDITOR, "专属私信")]
+    assert page.pressed == []
+    assert page.state_synced is False
+    assert result["success"] is True
+
+
 def test_syncs_contenteditable_input_state_before_send() -> None:
     page = FakePage(existing=True)
 
@@ -177,7 +201,23 @@ def test_syncs_contenteditable_input_state_before_send() -> None:
     assert page.state_synced is True
     assert page.pressed == ["Enter"]
     assert result["readback"]["outgoing_message_present"] is True
+    assert result["readback"]["conversation_type"] == "existing"
     assert result["readback"]["content"] == "专属私信"
+
+
+def test_send_stops_when_conversation_type_changed() -> None:
+    page = FakePage(existing=True)
+
+    with pytest.raises(PrivateMessageContextChangedError):
+        send_private_message(
+            page,
+            "user-1",
+            "",
+            "专属私信",
+            expected_conversation_type="first_message",
+        )
+
+    assert page.pressed == []
 
 
 def test_prefers_visible_send_button_when_chat_exposes_one() -> None:

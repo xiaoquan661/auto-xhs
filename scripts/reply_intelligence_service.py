@@ -168,7 +168,7 @@ class ReplyIntelligenceService:
         except (TypeError, ValueError):
             confidence = 0.0
         confidence = min(1.0, max(0.0, confidence))
-        flags = self._quality_flags(reply, recent_replies or [])
+        flags = self.quality_flags(reply, recent_replies or [])
         facts_used = self._string_list(parsed.get("facts_used"), limit=20)
         missing_information = self._string_list(
             parsed.get("missing_information"),
@@ -256,7 +256,9 @@ class ReplyIntelligenceService:
         return parsed
 
     @staticmethod
-    def _quality_flags(reply: str, recent_replies: list[str]) -> list[str]:
+    def quality_flags(reply: str, recent_replies: list[str]) -> list[str]:
+        """Apply deterministic reply checks without invoking a language model."""
+
         flags: list[str] = []
         if len(reply) > 120:
             flags.append("too_long")

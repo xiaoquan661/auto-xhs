@@ -44,10 +44,12 @@ metadata:
 | `collect-private-messages` | 只读回收最近一对一会话中对方最新连续发送的一轮文字 |
 | `generate-reply-draft` | 为一个明确的评论或入站私信事件生成待人工确认草稿 |
 | `reply-cycle` | 按已启用账号规则处理一轮新评论和新私信 |
+| `reply-inbox` | Codex 入站回复收件箱；具体流程路由到 `xhs-reply` |
 | `collect-operations-metrics` | 保存账号和自己笔记的运营指标时间快照 |
 
-一步发布命令不属于 V1.5 产品流程。`generate-reply-draft` 只生成草稿；规则化入站回复使用
-`reply-cycle`，主动评论和主动私信继续使用各自任务入口。
+一步发布命令不属于 V1.5 产品流程。`generate-reply-draft` 只生成草稿；Codex 规则化入站回复使用
+`reply-inbox` 并遵循 `xhs-reply`，主动评论和主动私信继续使用各自任务入口。`reply-cycle` 保留为
+API 模型兼容入口。
 
 ## 强制约束
 

@@ -1,4 +1,4 @@
-const PLATFORM_PROTOCOL_VERSION = 1;
+const PLATFORM_PROTOCOL_VERSION = 2;
 const STALE_BACKGROUND_MESSAGE = "扩展后台仍是旧版本，请打开 chrome://extensions 重载此扩展后再配对";
 let backgroundPlatformReady = false;
 

@@ -6,7 +6,6 @@ import json
 import pytest
 
 from scripts.cli import (
-    cmd_prepare_private_messages,
     cmd_private_message_context,
     cmd_send_private_messages,
 )
@@ -17,8 +16,22 @@ def _write_recipients(tmp_path):
     path.write_text(
         json.dumps(
             [
-                {"user_id": "user-a", "nickname": "甲", "content": "甲你好，想聊聊你的露营内容。"},
-                {"user_id": "user-b", "nickname": "乙", "content": "乙你好，想聊聊你的摄影内容。"},
+                {
+                    "user_id": "user-a",
+                    "nickname": "甲",
+                    "contact_purpose": "沟通露营内容合作",
+                    "conversation_type": "existing",
+                    "expected_peer_turn": ["可以具体聊聊"],
+                    "content": "甲你好，想聊聊你的露营内容。",
+                },
+                {
+                    "user_id": "user-b",
+                    "nickname": "乙",
+                    "xsec_token": "token-b",
+                    "contact_purpose": "首次沟通摄影合作",
+                    "conversation_type": "first_message",
+                    "content": "乙你好，想聊聊你的摄影内容。",
+                },
             ],
             ensure_ascii=False,
         ),
@@ -48,36 +61,7 @@ def test_private_message_context_cli_uses_application_service(monkeypatch, capsy
     assert calls == [("alpha", {"user_id": "user-a", "xsec_token": "", "limit": 3})]
 
 
-def test_prepare_cli_returns_one_batch_confirmation_command(tmp_path, monkeypatch, capsys) -> None:
-    recipients_file = _write_recipients(tmp_path)
-
-    class FakeApplicationService:
-        def prepare_private_messages(self, account, *, recipients):
-            assert account == "alpha"
-            assert [item["user_id"] for item in recipients] == ["user-a", "user-b"]
-            return {
-                "success": True,
-                "task_id": "task-1",
-                "batch_revision_id": "revision-1",
-                "preview": recipients,
-            }
-
-    monkeypatch.setattr("application_service.ApplicationService", FakeApplicationService)
-
-    with pytest.raises(SystemExit) as exited:
-        cmd_prepare_private_messages(
-            argparse.Namespace(account="alpha", recipients_file=str(recipients_file))
-        )
-
-    assert exited.value.code == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["next_command"].endswith(
-        "send-private-messages --task-id task-1 --batch-revision-id revision-1 --confirm"
-    )
-    assert "xsec_token" not in result["next_command"]
-
-
-def test_send_cli_supports_direct_and_confirmed_batches(tmp_path, monkeypatch, capsys) -> None:
+def test_send_cli_supports_direct_and_resumed_batches(tmp_path, monkeypatch, capsys) -> None:
     recipients_file = _write_recipients(tmp_path)
     calls = []
 
@@ -91,33 +75,25 @@ def test_send_cli_supports_direct_and_confirmed_batches(tmp_path, monkeypatch, c
     direct = argparse.Namespace(
         account="alpha",
         recipients_file=str(recipients_file),
-        task_id=None,
-        batch_revision_id=None,
-        confirm=False,
+        resume_task_id=None,
     )
     with pytest.raises(SystemExit) as direct_exit:
         cmd_send_private_messages(direct)
     assert direct_exit.value.code == 0
     capsys.readouterr()
 
-    confirmed = argparse.Namespace(
+    resumed = argparse.Namespace(
         account="alpha",
         recipients_file=None,
-        task_id="task-1",
-        batch_revision_id="revision-1",
-        confirm=True,
+        resume_task_id="task-1",
     )
-    with pytest.raises(SystemExit) as confirmed_exit:
-        cmd_send_private_messages(confirmed)
-    assert confirmed_exit.value.code == 0
+    with pytest.raises(SystemExit) as resumed_exit:
+        cmd_send_private_messages(resumed)
+    assert resumed_exit.value.code == 0
 
     assert [call[1] for call in calls] == [
         {
             "recipients": json.loads(recipients_file.read_text(encoding="utf-8")),
         },
-        {
-            "task_id": "task-1",
-            "batch_revision_id": "revision-1",
-            "confirmed": True,
-        },
+        {"resume_task_id": "task-1"},
     ]

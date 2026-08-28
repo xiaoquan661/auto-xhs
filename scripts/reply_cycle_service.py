@@ -194,6 +194,29 @@ class ReplyCycleService:
         )
         return [self._decode_decision(row) for row in rows]
 
+    def reconcile_result_unknown(
+        self,
+        *,
+        inbound_event_id: str,
+        reply_task_id: str,
+    ) -> dict:
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE reply_decisions
+                SET decision = 'reply', reason = 'sent_with_delayed_readback',
+                    result_state = 'SUCCESS', updated_at = ?
+                WHERE inbound_event_id = ? AND reply_task_id = ?
+                  AND result_state = 'RESULT_UNKNOWN'
+                """,
+                (utc_now(), inbound_event_id, reply_task_id),
+            )
+            row = connection.execute(
+                "SELECT * FROM reply_decisions WHERE inbound_event_id = ?",
+                (inbound_event_id,),
+            ).fetchone()
+        return self._decode_decision(dict(row)) if row else {}
+
     @staticmethod
     def _decode_cycle(row: dict) -> dict:
         decoded = dict(row)

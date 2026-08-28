@@ -50,6 +50,7 @@ from capability_registry import (
 )
 from collector_service import CollectorService
 from comment_collector import CommentCollector
+from conversation_ownership_service import ConversationOwnershipService, OWNER_HUMAN
 from data_recovery_service import DataRecoveryService
 from diagnostic_export import export_diagnostic_report
 from inbound_event_service import InboundEventService
@@ -63,10 +64,7 @@ from platforms import (
     list_platform_specs,
     normalize_platform,
 )
-from private_message_batch import (
-    normalize_private_message_recipients,
-    private_message_preview,
-)
+from private_message_batch import normalize_private_message_recipients
 from private_message_collector import PrivateMessageCollector
 from product_store import ProductStore
 from publish_workflow import PublishWorkflowService
@@ -160,10 +158,15 @@ class ApplicationService:
         self.operations_database = operations_database or OperationsDatabase(root=self._store.root)
         self.inbound_events = InboundEventService(self.operations_database)
         self.collectors = CollectorService(self.operations_database)
+        self.private_message_conversations = ConversationOwnershipService(
+            self.operations_database
+        )
+        self.private_message_conversations.backfill_latest_decisions()
         self.comment_collector = CommentCollector(self.inbound_events, self.collectors)
         self.private_message_collector = PrivateMessageCollector(
             self.inbound_events,
             self.collectors,
+            self.private_message_conversations,
         )
         self.metrics = MetricService(self.operations_database)
         self.data_recovery = DataRecoveryService(self.operations_database)
@@ -1059,9 +1062,17 @@ class ApplicationService:
                 account_slot=task["account_slot"],
                 platform=task["platform"],
                 messages=list(result.get("messages") or []),
+                conversation_snapshots=list(
+                    result.get("conversation_snapshots") or []
+                ),
                 cursor_value=str(result.get("cursor") or ""),
                 last_seen_time=result.get("last_seen_time"),
             )
+            reconciled = [
+                self._reconcile_delayed_private_message_outbound(item)
+                for item in collected.get("codex_outbound_reconciliations") or []
+            ]
+            collected["reconciled_outbound"] = reconciled
             result = {**result, "inbound_events": collected}
         if task["capability"] == "collect-operations-metrics":
             snapshots = self._record_metric_collection(
@@ -1196,6 +1207,253 @@ class ApplicationService:
 
     def get_inbound_event(self, event_id: str) -> dict:
         return {"success": True, "event": self.inbound_events.get(event_id)}
+
+    def collect_reply_inbox(
+        self,
+        account_slot: str,
+        *,
+        channels: list[str] | None = None,
+        max_notes: int = 20,
+        max_conversations: int = 20,
+        limit: int = 20,
+    ) -> dict:
+        """Collect inbound reply events without generating or sending a reply."""
+
+        self.require_enabled_capability("reply-inbox", operation="collect")
+        selected_channels = self._normalize_reply_channels(channels)
+        collection_results: list[dict] = []
+        for channel in selected_channels:
+            capability = (
+                "collect-note-comments"
+                if channel == "comment"
+                else "collect-private-messages"
+            )
+            parameters = (
+                {"max_notes": max(1, min(int(max_notes), 50))}
+                if channel == "comment"
+                else {
+                    "max_conversations": max(1, min(int(max_conversations), 50)),
+                    "context_limit": 20,
+                }
+            )
+            task = self.tasks.create(
+                source="codex",
+                account_slot=account_slot,
+                capability=capability,
+                request_summary=f"Codex 回复收件箱采集：{channel}",
+                parameters=parameters,
+            )
+            collection_results.append(self.execute_task(task["task_id"]))
+        inbox = self.list_reply_inbox(
+            account_slot,
+            channels=selected_channels,
+            handling_state="NEW",
+            limit=limit,
+        )
+        return {
+            "success": True,
+            "collection_results": collection_results,
+            "events": inbox["events"],
+            "count": inbox["count"],
+        }
+
+    def list_reply_inbox(
+        self,
+        account_slot: str,
+        *,
+        channels: list[str] | None = None,
+        handling_state: str = "NEW",
+        limit: int = 20,
+    ) -> dict:
+        """Return a compact, stable event list for Codex triage."""
+
+        self.require_enabled_capability("reply-inbox", operation="list")
+        selected_channels = self._normalize_reply_channels(channels)
+        event_types = {
+            "comment": "note_comment",
+            "private_message": "private_message",
+        }
+        allowed_types = {event_types[channel] for channel in selected_channels}
+        events = [
+            event
+            for event in self.inbound_events.list(
+                account_slot=account_slot,
+                handling_state=handling_state,
+                limit=max(1, min(int(limit), 100)),
+            )
+            if event.get("event_type") in allowed_types
+            and not (handling_state == "NEW" and event.get("created_task_id"))
+        ]
+        compact = [self._compact_reply_event(event) for event in events]
+        return {"success": True, "events": compact, "count": len(compact)}
+
+    def get_reply_inbox_context(self, account_slot: str, event_id: str) -> dict:
+        """Return the full context and account reply policy for one event."""
+
+        self.require_enabled_capability("reply-inbox", operation="context")
+        event = self._reply_event_for_account(account_slot, event_id)
+        platform = self._resolve_account_platform(account_slot)
+        rule = self.reply_rules.resolve(account_slot, platform=platform)
+        recent_replies = [
+            str(record.get("reply_text") or "")
+            for record in self.reply_records.list(account_slot=account_slot, limit=20)
+            if record.get("result_state") in {"SUCCESS", "RESULT_UNKNOWN"}
+        ]
+        payload = dict(event.get("payload") or {})
+        conversation = None
+        if event.get("event_type") == "private_message":
+            conversation = self.private_message_conversations.get(
+                account_slot,
+                platform,
+                str(event.get("object_id") or payload.get("user_id") or ""),
+            )
+        return {
+            "success": True,
+            "event": event,
+            "channel": self._reply_event_channel(event),
+            "policy": {
+                "enabled": rule["enabled"],
+                "comment_enabled": rule["comment_enabled"],
+                "private_message_enabled": rule["private_message_enabled"],
+                "content_scope": rule["content_scope"],
+                "active_time_range": rule["active_time_range"],
+                "hourly_limit": rule["hourly_limit"],
+                "daily_limit": rule["daily_limit"],
+                "auto_categories": rule["auto_categories"],
+                "manual_categories": rule["manual_categories"],
+                "reply_style": rule["reply_style"],
+                "account_profile": rule["account_profile"],
+                "knowledge": rule["knowledge"],
+            },
+            "recent_replies": recent_replies,
+            "conversation_ownership": conversation,
+            "context_guard": {
+                "event_id": event["event_id"],
+                "platform_event_id": event["platform_event_id"],
+                "occurred_at": event["occurred_at"],
+                "expected_peer_turn": list(payload.get("peer_turn") or []),
+            },
+        }
+
+    def apply_codex_reply_decision(
+        self,
+        account_slot: str,
+        decision_data: dict,
+        *,
+        source: str = "codex",
+    ) -> dict:
+        """Apply one Codex-authored reply, pending decision, or skip decision."""
+
+        self.require_enabled_capability("reply-inbox", operation="apply")
+        event_id = str(decision_data.get("event_id") or "").strip()
+        action = str(decision_data.get("action") or "").strip().lower()
+        if not event_id or action not in {"reply", "pending", "skip"}:
+            raise ServiceError(
+                "INVALID_REQUEST",
+                "Codex 回复决策必须包含 event_id 和 reply、pending 或 skip 动作",
+            )
+        event = self._reply_event_for_account(account_slot, event_id)
+        platform = self._resolve_account_platform(account_slot)
+        if event.get("event_type") == "private_message":
+            payload = dict(event.get("payload") or {})
+            conversation = self.private_message_conversations.get(
+                account_slot,
+                platform,
+                str(event.get("object_id") or payload.get("user_id") or ""),
+            )
+            if conversation and conversation.get("owner_state") == OWNER_HUMAN:
+                raise ServiceError(
+                    "CONVERSATION_OWNED_BY_HUMAN",
+                    "该私信会话已由人工接管，请先确认恢复给 Codex",
+                    409,
+                )
+        linked_task_id = str(event.get("created_task_id") or "")
+        if event.get("handling_state") == "TASK_CREATED" and linked_task_id:
+            linked_task = self.tasks.get(linked_task_id)
+            if linked_task.get("state") == "FAILED":
+                event = self.inbound_events.reopen_after_failed_task(
+                    event_id,
+                    linked_task_id,
+                )
+        if event.get("handling_state") != "NEW" or event.get("created_task_id"):
+            raise ServiceError("EVENT_ALREADY_HANDLED", "该回复事件已经处理", 409)
+        if self._store.get_setting("global_paused", False):
+            raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
+
+        rule = self.reply_rules.resolve(account_slot, platform=platform)
+        if not rule["enabled"]:
+            raise ServiceError("REPLY_RULE_DISABLED", "该账号的自动回复规则尚未启用", 409)
+        status = self.get_account_status(account_slot)
+        if not status["ready"]:
+            raise ServiceError(
+                "ACCOUNT_NOT_READY",
+                status.get("next_action") or "账号未就绪",
+                409,
+            )
+        verified_uid = str((status.get("identity") or {}).get("live_user_id") or "")
+        if not verified_uid:
+            raise ServiceError("IDENTITY_UID_UNAVAILABLE", "当前账号缺少已核验 UID", 409)
+
+        reply = str(decision_data.get("reply") or "").strip()
+        if action == "reply" and not reply:
+            raise ServiceError("INVALID_REQUEST", "reply 动作必须提供回复文本")
+        recent_replies = [
+            str(record.get("reply_text") or "")
+            for record in self.reply_records.list(account_slot=account_slot, limit=20)
+            if record.get("result_state") in {"SUCCESS", "RESULT_UNKNOWN"}
+        ]
+        try:
+            confidence = float(decision_data.get("confidence") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ServiceError("INVALID_REQUEST", "confidence 必须是数字") from exc
+        generation = {
+            "reply": reply,
+            "intent": str(decision_data.get("intent") or "other").strip().lower(),
+            "confidence": min(1.0, max(0.0, confidence)),
+            "reason": str(decision_data.get("reason") or "codex_decision").strip(),
+            "facts_used": self._reply_string_list(decision_data.get("facts_used")),
+            "missing_information": self._reply_string_list(
+                decision_data.get("missing_information")
+            ),
+            "quality_flags": ReplyIntelligenceService.quality_flags(reply, recent_replies),
+            "manual_review_required": False,
+            "mode": "codex",
+            "model": "codex",
+        }
+        cycle = self.reply_cycles.start(
+            account_slot=account_slot,
+            platform=platform,
+            source=source,
+        )
+        try:
+            result = self._apply_codex_reply_action(
+                cycle_id=cycle["cycle_id"],
+                event=event,
+                rule=rule,
+                action=action,
+                generation=generation,
+                verified_uid=verified_uid,
+                source=source,
+            )
+            task = result.get("task") or {}
+            result_state = str(task.get("state") or "SUCCESS")
+            finished = self.reply_cycles.finish(
+                cycle["cycle_id"],
+                result_state=result_state,
+                summary={
+                    "source": "codex",
+                    "processed": 1,
+                    "decision": result["decision"]["decision"],
+                },
+            )
+            return {"success": True, "cycle": finished, **result}
+        except Exception as exc:
+            self.reply_cycles.finish(
+                cycle["cycle_id"],
+                result_state="FAILED",
+                summary={"source": "codex", "processed": 0, "error": str(exc)},
+            )
+            raise
 
     def create_passive_reply_draft(
         self,
@@ -1406,6 +1664,251 @@ class ApplicationService:
             "rule": self.reply_rules.set_enabled(rule_id, enabled),
         }
 
+    @staticmethod
+    def _normalize_reply_channels(channels: list[str] | None) -> list[str]:
+        requested = set(channels or ["comment", "private_message"])
+        unknown = requested - {"comment", "private_message"}
+        if unknown:
+            raise ServiceError(
+                "INVALID_REQUEST",
+                f"未知回复渠道: {', '.join(sorted(unknown))}",
+            )
+        return [
+            channel
+            for channel in ("comment", "private_message")
+            if channel in requested
+        ]
+
+    @staticmethod
+    def _reply_event_channel(event: dict) -> str:
+        return (
+            "private_message"
+            if event.get("event_type") == "private_message"
+            else "comment"
+        )
+
+    @staticmethod
+    def _reply_string_list(value: object, *, limit: int = 20) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value[:limit] if str(item).strip()]
+
+    @staticmethod
+    def _compact_reply_event(event: dict) -> dict:
+        payload = dict(event.get("payload") or {})
+        return {
+            "event_id": event.get("event_id"),
+            "event_type": event.get("event_type"),
+            "channel": ApplicationService._reply_event_channel(event),
+            "handling_state": event.get("handling_state"),
+            "occurred_at": event.get("occurred_at"),
+            "actor_user_id": event.get("actor_user_id"),
+            "object_id": event.get("object_id"),
+            "nickname": str(payload.get("nickname") or ""),
+            "content": str(payload.get("content") or ""),
+            "note_title": str(payload.get("note_title") or ""),
+        }
+
+    def _reply_event_for_account(self, account_slot: str, event_id: str) -> dict:
+        event = self.inbound_events.get(event_id)
+        if event.get("account_slot") != account_slot:
+            raise ServiceError("ACCOUNT_MISMATCH", "入站事件不属于当前账号槽位", 409)
+        if event.get("event_type") not in {"note_comment", "private_message"}:
+            raise ServiceError("INVALID_EVENT_TYPE", "该事件不能作为评论或私信回复处理", 409)
+        return event
+
+    def _apply_codex_reply_action(
+        self,
+        *,
+        cycle_id: str,
+        event: dict,
+        rule: dict,
+        action: str,
+        generation: dict,
+        verified_uid: str,
+        source: str,
+    ) -> dict:
+        payload = dict(event.get("payload") or {})
+        if (
+            event.get("event_type") == "note_comment"
+            and rule.get("content_scope") == "all_own_notes"
+            and not payload.get("is_own_note")
+        ):
+            action = "skip"
+            generation["reason"] = "outside_own_notes"
+
+        if action in {"pending", "skip"}:
+            reason = str(generation.get("reason") or f"codex_{action}")
+            decision = self.reply_cycles.record_decision(
+                cycle_id=cycle_id,
+                event=event,
+                decision=action,
+                reason=reason,
+                generation=generation,
+            )
+            if action == "skip":
+                self.inbound_events.ignore(event["event_id"])
+                self._mark_private_message_codex_handled(event)
+            else:
+                self.inbound_events.mark_handled(event["event_id"])
+                self._handoff_private_message(event)
+            return {"decision": decision}
+
+        channel = self._reply_event_channel(event)
+        rule_decision = self.reply_rules.decision(
+            rule["rule_id"],
+            classification=str(generation.get("intent") or "other"),
+            channel=channel,
+            quality_flags=list(generation.get("quality_flags") or []),
+            facts_used=list(generation.get("facts_used") or []),
+            missing_information=list(generation.get("missing_information") or []),
+        )
+        if not rule_decision["authorized"]:
+            decision = self.reply_cycles.record_decision(
+                cycle_id=cycle_id,
+                event=event,
+                decision=rule_decision["decision"],
+                reason=rule_decision["reason"],
+                generation=generation,
+            )
+            if decision["decision"] == "skip":
+                self.inbound_events.ignore(event["event_id"])
+                self._mark_private_message_codex_handled(event)
+            else:
+                self.inbound_events.mark_handled(event["event_id"])
+                self._handoff_private_message(event)
+            return {"decision": decision}
+
+        execution = self._execute_automatic_reply(
+            event=event,
+            generation=generation,
+            verified_uid=verified_uid,
+            source=source,
+        )
+        task = execution["task"]
+        result_state = str(task.get("state") or "FAILED")
+        error_code = str(task.get("error_code") or "")
+        final_decision = "reply" if result_state == "SUCCESS" else "pending"
+        if error_code == "PRIVATE_MESSAGE_CONTEXT_CHANGED":
+            decision_reason = "conversation_changed"
+        elif result_state == "RESULT_UNKNOWN":
+            decision_reason = "result_unknown"
+        elif result_state == "SUCCESS":
+            decision_reason = "sent_with_readback"
+        else:
+            decision_reason = "send_failed"
+        decision = self.reply_cycles.record_decision(
+            cycle_id=cycle_id,
+            event=event,
+            decision=final_decision,
+            reason=decision_reason,
+            generation=generation,
+            reply_task_id=task["task_id"],
+            result_state=task["state"],
+        )
+        if result_state == "SUCCESS" or error_code == "PRIVATE_MESSAGE_CONTEXT_CHANGED":
+            self.inbound_events.mark_handled(event["event_id"])
+        else:
+            self.inbound_events.attach_task(event["event_id"], task["task_id"])
+        if result_state == "SUCCESS":
+            self._mark_private_message_codex_handled(event)
+        elif error_code != "PRIVATE_MESSAGE_CONTEXT_CHANGED":
+            self._handoff_private_message(event)
+        return {
+            "decision": decision,
+            "task": task,
+            "result": execution.get("result"),
+        }
+
+    def list_private_message_conversations(
+        self,
+        account_slot: str,
+        *,
+        owner_state: str | None = None,
+        limit: int = 100,
+    ) -> dict:
+        return {
+            "success": True,
+            "conversations": self.private_message_conversations.list(
+                account_slot=account_slot,
+                owner_state=owner_state,
+                limit=limit,
+            ),
+        }
+
+    def resume_private_message_conversation(
+        self,
+        account_slot: str,
+        user_id: str,
+        *,
+        confirmed: bool,
+    ) -> dict:
+        if not confirmed:
+            raise ServiceError("CONFIRMATION_REQUIRED", "恢复 Codex 私信处理需要明确确认", 409)
+        platform = self._resolve_account_platform(account_slot)
+        conversation = self.private_message_conversations.resume(
+            account_slot=account_slot,
+            platform=platform,
+            user_id=user_id,
+        )
+        return {"success": True, "conversation": conversation}
+
+    def _handoff_private_message(self, event: dict) -> dict | None:
+        if event.get("event_type") != "private_message":
+            return None
+        payload = dict(event.get("payload") or {})
+        return self.private_message_conversations.handoff(
+            str(event.get("account_slot") or ""),
+            str(event.get("platform") or "xiaohongshu"),
+            str(event.get("object_id") or payload.get("user_id") or ""),
+            event_id=str(event.get("event_id") or ""),
+            message_count=int(payload.get("message_count") or 0),
+        )
+
+    def _mark_private_message_codex_handled(self, event: dict) -> dict | None:
+        if event.get("event_type") != "private_message":
+            return None
+        payload = dict(event.get("payload") or {})
+        return self.private_message_conversations.mark_codex_handled(
+            account_slot=str(event.get("account_slot") or ""),
+            platform=str(event.get("platform") or "xiaohongshu"),
+            user_id=str(event.get("object_id") or payload.get("user_id") or ""),
+            message_count=int(payload.get("message_count") or 0),
+        )
+
+    def _reconcile_delayed_private_message_outbound(self, item: dict) -> dict:
+        task_id = str(item.get("reply_task_id") or "")
+        event_id = str(item.get("inbound_event_id") or "")
+        readback = {
+            "source": "conversation_snapshot",
+            "message_count": int(item.get("message_count") or 0),
+            "content": str(item.get("content") or ""),
+        }
+        task = self.tasks.reconcile_result_unknown(
+            task_id,
+            result_summary="延迟回读确认私信已发送",
+        )
+        operation_event = self.operation_events.reconcile_result_unknown(
+            task_id,
+            readback=readback,
+        )
+        reply_record = self.reply_records.reconcile_result_unknown(
+            task_id,
+            readback=readback,
+        )
+        decision = self.reply_cycles.reconcile_result_unknown(
+            inbound_event_id=event_id,
+            reply_task_id=task_id,
+        )
+        event = self.inbound_events.mark_handled(event_id)
+        return {
+            "task": task,
+            "operation_event": operation_event,
+            "reply_record": reply_record,
+            "decision": decision,
+            "event": event,
+        }
+
     def list_reply_cycles(self, *, account_slot: str | None = None) -> dict:
         return {
             "success": True,
@@ -1595,6 +2098,7 @@ class ApplicationService:
                 account_slot=event["account_slot"],
                 limit=20,
             )
+            if record.get("result_state") in {"SUCCESS", "RESULT_UNKNOWN"}
         ]
         try:
             generation = self.reply_intelligence.generate_for_event(
@@ -1615,6 +2119,7 @@ class ApplicationService:
                 ),
             )
             self.inbound_events.mark_handled(event["event_id"])
+            self._handoff_private_message(event)
             return decision
         channel = (
             "private_message"
@@ -1639,8 +2144,10 @@ class ApplicationService:
             )
             if decision["decision"] == "skip":
                 self.inbound_events.ignore(event["event_id"])
+                self._mark_private_message_codex_handled(event)
             else:
                 self.inbound_events.mark_handled(event["event_id"])
+                self._handoff_private_message(event)
             return decision
 
         execution = self._execute_automatic_reply(
@@ -1650,27 +2157,34 @@ class ApplicationService:
             source=source,
         )
         task = execution["task"]
-        final_decision = (
-            "pending"
-            if task["error_code"] == "PRIVATE_MESSAGE_CONTEXT_CHANGED"
-            else "reply"
-        )
+        result_state = str(task.get("state") or "FAILED")
+        error_code = str(task.get("error_code") or "")
+        final_decision = "reply" if result_state == "SUCCESS" else "pending"
+        if error_code == "PRIVATE_MESSAGE_CONTEXT_CHANGED":
+            decision_reason = "conversation_changed"
+        elif result_state == "RESULT_UNKNOWN":
+            decision_reason = "result_unknown"
+        elif result_state == "SUCCESS":
+            decision_reason = "sent_with_readback"
+        else:
+            decision_reason = "send_failed"
         decision = self.reply_cycles.record_decision(
             cycle_id=cycle_id,
             event=event,
             decision=final_decision,
-            reason=(
-                "conversation_changed"
-                if final_decision == "pending"
-                else "sent_with_readback"
-                if task["state"] == "SUCCESS"
-                else "send_finished"
-            ),
+            reason=decision_reason,
             generation=generation,
             reply_task_id=task["task_id"],
             result_state=task["state"],
         )
-        self.inbound_events.mark_handled(event["event_id"])
+        if result_state == "SUCCESS" or error_code == "PRIVATE_MESSAGE_CONTEXT_CHANGED":
+            self.inbound_events.mark_handled(event["event_id"])
+        else:
+            self.inbound_events.attach_task(event["event_id"], task["task_id"])
+        if result_state == "SUCCESS":
+            self._mark_private_message_codex_handled(event)
+        elif error_code != "PRIVATE_MESSAGE_CONTEXT_CHANGED":
+            self._handoff_private_message(event)
         return decision
 
     def _execute_automatic_reply(
@@ -1967,104 +2481,79 @@ class ApplicationService:
         )
         return self.execute_task(task["task_id"])
 
-    def prepare_private_messages(
-        self,
-        account_slot: str,
-        *,
-        recipients: list[dict],
-    ) -> dict:
-        """Persist Agent-generated personalized texts for one batch confirmation."""
-
-        self.require_enabled_capability("prepare-private-messages")
-        normalized = normalize_private_message_recipients(recipients)
-        verified_uid = self._private_message_verified_uid(account_slot)
-        revision_id = uuid.uuid4().hex
-        task = self.tasks.create_workflow(
-            source="agent",
-            account_slot=account_slot,
-            capability="send-private-messages",
-            request_summary=f"待确认个性化私信：{len(normalized)} 人",
-            target_type="user_batch",
-            parameters={
-                "workflow_type": "private_message_batch",
-                "stage": "preparing",
-                "generated": True,
-                "batch_revision_id": revision_id,
-                "verified_uid": verified_uid,
-                "recipients": normalized,
-                "recipient_results": [],
-            },
-        )
-        running = self.tasks.transition(task["task_id"], "RUNNING")
-        self.tasks.update_parameters(running["task_id"], stage="preview_ready")
-        waiting = self.tasks.transition(
-            running["task_id"],
-            "WAITING_APPROVAL",
-            result_summary="个性化私信已生成，等待整批确认",
-        )
-        return {
-            "success": True,
-            "task": waiting,
-            "task_id": waiting["task_id"],
-            "batch_revision_id": revision_id,
-            "preview": private_message_preview(normalized),
-        }
-
     def send_private_messages(
         self,
         account_slot: str,
         *,
         recipients: list[dict] | None = None,
-        task_id: str = "",
-        batch_revision_id: str = "",
-        confirmed: bool = False,
+        resume_task_id: str = "",
     ) -> dict:
-        """Send explicit texts directly or execute one confirmed generated batch."""
+        """Send one Codex-generated batch or resume its retryable recipients."""
 
         self.require_enabled_capability("send-private-messages")
-        if task_id:
-            if not confirmed:
-                raise ServiceError(
-                    "CONFIRMATION_REQUIRED",
-                    "Agent 生成的个性化私信必须在整批确认后发送",
-                    409,
-                )
-            task = self.tasks.get(task_id)
-            parameters = task.get("parameters") or {}
-            if task["account_slot"] != account_slot:
-                raise ServiceError("CONFIRMATION_MISMATCH", "私信任务账号不匹配", 409)
-            if task["capability"] != "send-private-messages" or not parameters.get(
-                "generated"
-            ):
-                raise ServiceError("INVALID_REQUEST", "该任务不是待确认私信批次", 409)
-            if task["state"] != "WAITING_APPROVAL":
-                raise ServiceError("INVALID_TASK_STATE", "私信批次不在待确认状态", 409)
-            if str(parameters.get("batch_revision_id") or "") != str(
-                batch_revision_id or ""
-            ):
-                raise ServiceError("DRAFT_CHANGED", "私信预览版本已变化，需要重新确认", 409)
-            live_uid = self._private_message_verified_uid(account_slot)
-            if live_uid != str(parameters.get("verified_uid") or ""):
-                raise ServiceError("IDENTITY_MISMATCH", "当前登录账号与私信预览账号不一致", 409)
-            self.tasks.transition(task_id, "QUEUED")
-            return self._execute_private_message_batch(task_id)
-
-        normalized = normalize_private_message_recipients(list(recipients or []))
+        if recipients is not None and resume_task_id:
+            raise ServiceError(
+                "INVALID_REQUEST",
+                "新私信收件人和恢复任务不能同时提供",
+                409,
+            )
         verified_uid = self._private_message_verified_uid(account_slot)
+        previous_results: list[dict] = []
+        source_task_id = ""
+        if resume_task_id:
+            source = self.tasks.get(resume_task_id)
+            parameters = source.get("parameters") or {}
+            if source["account_slot"] != account_slot:
+                raise ServiceError("ACCOUNT_MISMATCH", "恢复任务与当前账号不匹配", 409)
+            if source["capability"] != "send-private-messages":
+                raise ServiceError("INVALID_REQUEST", "指定任务不是主动私信批次", 409)
+            if source["state"] not in {
+                "PARTIAL_SUCCESS",
+                "FAILED",
+                "BLOCKED",
+                "RESULT_UNKNOWN",
+            }:
+                raise ServiceError("INVALID_TASK_STATE", "该私信批次当前不需要恢复", 409)
+            if verified_uid != str(parameters.get("verified_uid") or ""):
+                raise ServiceError("IDENTITY_MISMATCH", "当前登录账号与原私信任务账号不一致", 409)
+            normalized = normalize_private_message_recipients(
+                list(parameters.get("recipients") or [])
+            )
+            previous_results = list(parameters.get("recipient_results") or [])
+            previous_by_user = {
+                str(item.get("user_id") or ""): item for item in previous_results
+            }
+            retryable = {
+                item["user_id"]
+                for item in normalized
+                if item["user_id"] not in previous_by_user
+                or previous_by_user[item["user_id"]].get("state")
+                in {"FAILED", "BLOCKED"}
+            }
+            if not retryable:
+                raise ServiceError("NO_RETRYABLE_RECIPIENTS", "该批次没有可恢复的收件人", 409)
+            source_task_id = source["task_id"]
+        else:
+            normalized = normalize_private_message_recipients(list(recipients or []))
+
         task = self.tasks.create(
             source="agent",
             account_slot=account_slot,
             capability="send-private-messages",
-            request_summary=f"发送个性化私信：{len(normalized)} 人",
+            request_summary=(
+                f"恢复个性化私信：{len(normalized)} 人"
+                if source_task_id
+                else f"发送个性化私信：{len(normalized)} 人"
+            ),
             target_type="user_batch",
             parameters={
                 "workflow_type": "private_message_batch",
                 "stage": "ready",
-                "generated": False,
-                "batch_revision_id": uuid.uuid4().hex,
+                "generated_by": "codex",
                 "verified_uid": verified_uid,
                 "recipients": normalized,
-                "recipient_results": [],
+                "recipient_results": previous_results,
+                "resume_from_task_id": source_task_id,
             },
         )
         return self._execute_private_message_batch(task["task_id"])
@@ -2106,6 +2595,13 @@ class ApplicationService:
             previous[recipient["user_id"]] = {
                 "user_id": recipient["user_id"],
                 "nickname": recipient.get("nickname") or "",
+                "contact_purpose": recipient["contact_purpose"],
+                "conversation_type": (
+                    ((execution.get("result") or {}).get("target") or {}).get(
+                        "conversation_type"
+                    )
+                    or recipient["conversation_type"]
+                ),
                 "content": recipient["content"],
                 "task_id": child_task["task_id"],
                 "state": child_task["state"],
@@ -2146,6 +2642,14 @@ class ApplicationService:
             "items": items,
             "count": len(recipients),
             "success_count": success_count,
+            "conversation_counts": {
+                "first_message": sum(
+                    item.get("conversation_type") == "first_message" for item in items
+                ),
+                "existing": sum(
+                    item.get("conversation_type") == "existing" for item in items
+                ),
+            },
             "partial": final_state == "PARTIAL_SUCCESS",
         }
         self._record_task_event(completed, task_id, result=result)
@@ -2218,7 +2722,6 @@ class ApplicationService:
             "follow-user-preview",
             "follow-user",
             "private-message-context",
-            "prepare-private-messages",
             "send-private-messages",
         }:
             raise ServiceError(

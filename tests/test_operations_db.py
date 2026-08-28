@@ -29,4 +29,23 @@ def test_database_initializes_and_reopens(tmp_path) -> None:
         "reply_records",
         "reply_cycles",
         "reply_decisions",
+        "private_message_conversations",
     } <= tables
+
+
+def test_database_migrates_existing_version_five_to_conversation_ownership(tmp_path) -> None:
+    path = tmp_path / "operations.db"
+    database = OperationsDatabase(path=path)
+    with database.transaction() as connection:
+        connection.execute("DROP TABLE private_message_conversations")
+        connection.execute("PRAGMA user_version = 5")
+
+    migrated = OperationsDatabase(path=path)
+
+    assert migrated.fetch_one("PRAGMA user_version")["user_version"] == SCHEMA_VERSION
+    assert migrated.fetch_one(
+        """
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'private_message_conversations'
+        """
+    )["name"] == "private_message_conversations"

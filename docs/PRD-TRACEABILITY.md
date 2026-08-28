@@ -68,8 +68,9 @@
 | V15-PUB-001 | 开放图文、视频和长文发布，必须填写、浏览器预览、用户确认后发布 | AUTOMATED_TESTED | 一步直发已禁用；CLI 状态机、确认门槛和结果回读测试通过，真实账号待验收 |
 | V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | IMPLEMENTED | 草稿终态、预览中的定时时间和结果未知恢复已实现，真实定时发布待验收 |
 | V15-PUB-003 | 发布预览由 Agent/Python CLI 创建，WebUI 可对 `preview_ready` 单任务受控确认或保存草稿 | AUTOMATED_TESTED | WebUI 持续轮询；确认弹窗核对账号、UID、内容和素材，后端复用发布状态机并拒绝账号/UID/阶段不匹配 |
-| V15-MSG-001 | 首次私信和已有会话续发；明确最终文本直发，Agent 生成文本整批确认；每人个性化，单批最多 10 人 | AUTOMATED_TESTED | Agent/CLI、身份检查、逐人回读、独立失败和结果记录已测试；真实发送待验收 |
-| V15-MSG-002 | 主动私信批次只由 Agent/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 仍不能创建或重试主动私信批次；V2.0 仅为已采集的入站私信开放逐条草稿确认 |
+| MESSAGE-01 / REQ-20260824-002 | 用户指定账号、联系人和联系目的；Codex 区分首次/续发并结合上下文生成个性化文本，直接发送、回读和汇总 | AUTOMATED_TESTED | 1–10 人逐条执行、真实会话类型校验、独立失败、三态结果和恢复跳过规则已测试；首次联系实机待验收 |
+| MESSAGE-02 / REQ-20260824-002 | 只读扫描一对一私信会话和自己笔记评论线程，将收到的新私信与评论保存为去重入站事件 | REAL_DEVICE_VERIFIED | 评论和私信按渠道及平台标识分别去重；部分页面失败保留成功采集结果，读取失败不创建事件，采集链不发送回复；真实账号两类收件箱已完成只读采集，私信完成重复扫描去重验证 |
+| V15-MSG-002 | 主动私信批次只由 Codex/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 不创建主动私信批次；CLI 可恢复批次并只重试 `FAILED` 或 `BLOCKED` 项 |
 | V15-FOLLOW-001 | 关注属于单向操作，Agent/CLI 默认无需审批，内部预览、执行一次并回读 | REAL_DEVICE_VERIFIED | 页面执行器、身份检查、任务记录和结果回读已测试；测试账号两个随机目标均回读“已关注” |
 | V15-FOLLOW-002 | 主加任务不由 WebUI 下发，WebUI 只作为控制面板展示状态与结果 | AUTOMATED_TESTED | 通用 WebUI/API 创建入口拒绝主加能力；Agent/CLI 使用内部统一任务服务 |
 | V15-PROFILE-001 | 开放公开资料修改，执行前展示前后差异并确认 | SPEC_APPROVED | 新增预览、确认、执行、回读和审计链 |
@@ -88,9 +89,11 @@
 | V20-LLM-001 | 使用 OpenAI-compatible 模型生成结构化回复候选 | REAL_MODEL_TESTED | 配置、请求、解析和错误分支已测试；DeepSeek 已为真实入站私信事件生成草稿 |
 | V20-DM-001 | 读取一对一私信收件箱，以最新连续对方消息作为回复单位并去重 | REAL_READ_ONLY_TESTED | 真实 `/chat` 页面采集基线已记录；连续消息合并、平台提示和己方最后发言过滤已测试 |
 | V20-DM-002 | 私信上下文生成规则候选，发送前校验会话版本并在发送后回读 | AUTOMATED_TESTED | 会话变化停止发送、消息气泡回读及 `RESULT_UNKNOWN` 不重发已测试；自动回复实机待验收 |
+| V20-DM-003 | 按私信会话维护 Codex/人工所有权和恢复边界 | AUTOMATED_TESTED | `pending` 和发送未闭环转人工、全会话快照、`HUMAN_REPLY/CODEX_OUTBOUND` 归因、延迟回读补正及显式恢复已测试；真实账号待验收 |
 | V20-DRAFT-001 | AI 结果只创建待人工确认草稿，不自动发送 | AUTOMATED_TESTED | 同事件唯一任务/草稿、质量提示和既有确认链测试通过 |
 | V20-WEB-001 | WebUI 可选择 READY 账号采集评论或入站私信，并为明确事件生成草稿 | AUTOMATED_TESTED_PARTIAL | 账号状态、事件列表、模型设置和生成接口测试通过；私信只读采集已有真实页面记录，确认发送待验收 |
 | V20-AUTO-001 | 按账号规则运行有界自动回复周期 | AUTOMATED_TESTED | CLI/API/WebUI、渠道开关、范围、时段、配额、`reply/pending/skip`、任务与回复记录已测试；计划调度与真实账号待验收 |
+| V20-CODEX-001 | Codex 读取入站上下文并提交结构化回复决策 | AUTOMATED_TESTED | `reply-inbox` 采集、列表、上下文、决策文件、规则复核、发送回读和专用 Skill 已测试；计划调度与真实账号待验收 |
 
 ## V1.0 阶段顺序
 

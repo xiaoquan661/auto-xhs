@@ -55,15 +55,6 @@ def test_service_backed_collectors_do_not_take_the_cli_lock_twice():
     context = parser.parse_args(
         ["--account", "alpha", "private-message-context", "--user-id", "user-1"]
     )
-    prepare = parser.parse_args(
-        [
-            "--account",
-            "alpha",
-            "prepare-private-messages",
-            "--recipients-file",
-            "messages.json",
-        ]
-    )
     send = parser.parse_args(
         [
             "--account",
@@ -79,7 +70,6 @@ def test_service_backed_collectors_do_not_take_the_cli_lock_twice():
     assert follow_preview.requires_account_lock is False
     assert follow.requires_account_lock is False
     assert context.requires_account_lock is False
-    assert prepare.requires_account_lock is False
     assert send.requires_account_lock is False
 
 
@@ -107,6 +97,7 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "next-step",
         "send-private-messages",
         "reply-cycle",
+        "reply-inbox",
     }
     assert get_capability_policy("post-comment").requires_confirmation is True
     assert get_capability_policy("reply-comment").requires_confirmation is True
@@ -136,6 +127,9 @@ def test_home_engagement_cli_has_no_comment_options():
     assert get_operation_policy(
         "send-private-messages", "recipient"
     ).requires_result_verification is True
+    assert get_operation_policy("reply-inbox", "collect").risk_level is RiskLevel.READ_ONLY
+    assert get_operation_policy("reply-inbox", "apply").requires_confirmation is False
+    assert get_operation_policy("reply-inbox", "apply").requires_result_verification is True
 
 
 def test_security_configuration_always_requires_confirmation():
