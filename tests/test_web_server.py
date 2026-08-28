@@ -464,13 +464,19 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
             "verified_uid": "owner-1",
             "confirmed": True,
             "preview_confirmed": True,
+            "preview_revision": "preview-1",
         },
     )
     saved_draft = _dispatch_mutation(
         service,
         "POST",
         "/api/v1/tasks/publish-2/save-draft",
-        {"account_slot": "alpha", "verified_uid": "owner-1", "confirmed": True},
+        {
+            "account_slot": "alpha",
+            "verified_uid": "owner-1",
+            "confirmed": True,
+            "preview_revision": "preview-2",
+        },
     )
 
     assert paused["global_paused"] is True

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from operation_event_service import OperationEventService
 from operations_db import OperationsDatabase
 from product_store import ProductStore
@@ -20,6 +22,11 @@ VERIFIED_PUBLISH_EVIDENCE = {
     "success_toast",
     "success_page",
     "note_manager_readback",
+}
+
+VERIFIED_DRAFT_EVIDENCE = {
+    "draft_success_toast",
+    "draft_manager_readback",
 }
 
 
@@ -49,6 +56,7 @@ class PublishWorkflowService:
     ) -> dict:
         if capability not in PUBLISH_WORKFLOW_CAPABILITIES:
             raise ServiceError("INVALID_REQUEST", "未知发布工作流")
+        self._validate_preview(capability, preview)
         active = next(
             (
                 task
@@ -88,21 +96,45 @@ class PublishWorkflowService:
         stage: str = "preview_ready",
         preview_updates: dict | None = None,
     ) -> dict:
+        preview_revision = uuid.uuid4().hex
         if preview_updates:
             task = self.tasks.get(task_id)
             preview = {**(task.get("parameters") or {}).get("preview", {}), **preview_updates}
-            self.tasks.update_parameters(task_id, preview=preview, stage=stage)
+            self.tasks.update_parameters(
+                task_id,
+                preview=preview,
+                stage=stage,
+                preview_revision=preview_revision,
+            )
         else:
-            self.tasks.update_parameters(task_id, stage=stage)
+            self.tasks.update_parameters(
+                task_id,
+                stage=stage,
+                preview_revision=preview_revision,
+            )
         return self.tasks.transition(task_id, "WAITING_APPROVAL", result_summary=summary)
 
-    def prepare_publish(self, task_id: str, *, account: str, confirmed: bool) -> dict:
+    def prepare_publish(
+        self,
+        task_id: str,
+        *,
+        account: str,
+        confirmed: bool,
+        preview_revision: str,
+    ) -> dict:
         if not confirmed:
             raise ServiceError("CONFIRMATION_REQUIRED", "发布必须在用户确认预览后提供 --confirm", 409)
         task = self._waiting_task(task_id, account=account)
         stage = (task.get("parameters") or {}).get("stage")
         if stage != "preview_ready":
             raise ServiceError("PREVIEW_NOT_READY", "发布任务尚未进入最终预览确认阶段", 409)
+        current_revision = str((task.get("parameters") or {}).get("preview_revision") or "")
+        if not preview_revision or preview_revision != current_revision:
+            raise ServiceError(
+                "PUBLISH_PREVIEW_CHANGED",
+                "发布预览内容已变化，请刷新后重新核对",
+                409,
+            )
         return self.resume_preparation(task_id, account=account)
 
     def complete_publish(self, task_id: str, result: dict) -> dict:
@@ -124,7 +156,14 @@ class PublishWorkflowService:
         self._record_completion(completed, result=result, published=True)
         return completed
 
-    def fail(self, task_id: str, exc: Exception, *, result_unknown: bool = False) -> dict:
+    def fail(
+        self,
+        task_id: str,
+        exc: Exception,
+        *,
+        result_unknown: bool = False,
+        published: bool = True,
+    ) -> dict:
         state = "RESULT_UNKNOWN" if result_unknown else "FAILED"
         completed = self.tasks.transition(
             task_id,
@@ -140,22 +179,50 @@ class PublishWorkflowService:
         self._record_completion(
             completed,
             result={"message": str(exc)},
-            published=True,
+            published=published,
         )
         return completed
 
-    def complete_saved_draft(self, task_id: str) -> dict:
-        completed = self.tasks.transition(
-            task_id,
-            "CANCELLED",
-            result_summary="用户取消发布，内容已保存到小红书草稿箱",
-        )
+    def complete_saved_draft(self, task_id: str, result: dict) -> dict:
+        evidence = str(result.get("evidence") or "")
+        if result.get("verified") and evidence in VERIFIED_DRAFT_EVIDENCE:
+            completed = self.tasks.transition(
+                task_id,
+                "CANCELLED",
+                result_summary="用户取消发布，内容已保存到小红书草稿箱",
+            )
+        else:
+            completed = self.tasks.transition(
+                task_id,
+                "RESULT_UNKNOWN",
+                result_summary="已触发保存草稿，但未能确认平台最终结果",
+                error_code="PUBLISH_DRAFT_RESULT_UNKNOWN",
+                recommended_action="请先在小红书草稿箱检查，不要直接重复保存",
+            )
         self._record_completion(
             {**completed, "operation": "save-draft"},
-            result={"saved_as_draft": True},
+            result=result,
             published=False,
         )
         return completed
+
+    @staticmethod
+    def _validate_preview(capability: str, preview: dict) -> None:
+        kind = str(preview.get("kind") or "")
+        expected_kind = {
+            "fill-publish": "image",
+            "fill-publish-video": "video",
+            "long-article": "long_article",
+        }[capability]
+        if kind != expected_kind:
+            raise ServiceError("PUBLISH_KIND_MISMATCH", "发布类型与任务能力不匹配", 409)
+        if not str(preview.get("title") or "").strip():
+            raise ServiceError("PUBLISH_CONTENT_REQUIRED", "发布标题不能为空", 409)
+        if not str(preview.get("content") or "").strip():
+            raise ServiceError("PUBLISH_CONTENT_REQUIRED", "发布正文不能为空", 409)
+        assets = list(preview.get("assets") or [])
+        if kind in {"image", "video"} and not assets:
+            raise ServiceError("PUBLISH_ASSET_REQUIRED", "发布素材不能为空", 409)
 
     def _record_completion(
         self,

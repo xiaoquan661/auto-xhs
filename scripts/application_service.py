@@ -841,6 +841,7 @@ class ApplicationService:
         verified_uid: str,
         confirmed: bool,
         preview_confirmed: bool,
+        preview_revision: str,
     ) -> dict:
         """Execute one prepared publish task after an explicit WebUI preview check."""
 
@@ -867,6 +868,7 @@ class ApplicationService:
             task_id,
             account=account_slot,
             confirmed=True,
+            preview_revision=preview_revision,
         )
         preview = (task.get("parameters") or {}).get("preview") or {}
         try:
@@ -896,6 +898,7 @@ class ApplicationService:
         account_slot: str,
         verified_uid: str,
         confirmed: bool,
+        preview_revision: str,
     ) -> dict:
         """Save a prepared publish form to the platform draft box."""
 
@@ -906,16 +909,35 @@ class ApplicationService:
         if waiting["state"] != "WAITING_APPROVAL":
             raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以保存为草稿", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
-        task = self.publish_workflows.resume_preparation(task_id, account=account_slot)
+        task = self.publish_workflows.prepare_publish(
+            task_id,
+            account=account_slot,
+            confirmed=True,
+            preview_revision=preview_revision,
+        )
+        preview = (task.get("parameters") or {}).get("preview") or {}
         try:
-            self.runner.execute(account_slot, "save-draft", {})
-        except Exception as exc:
-            failed = self.publish_workflows.fail(task_id, exc)
+            result = self.runner.execute(
+                account_slot,
+                "save-draft",
+                {"expected_title": str(preview.get("title") or "")},
+            )
+        except PublishError as exc:
+            failed = self.publish_workflows.fail(task_id, exc, published=False)
             return {"success": True, "task": failed}
-        completed = self.publish_workflows.complete_saved_draft(task_id)
+        except Exception as exc:
+            failed = self.publish_workflows.fail(
+                task_id,
+                exc,
+                result_unknown=True,
+                published=False,
+            )
+            return {"success": True, "task": failed}
+        completed = self.publish_workflows.complete_saved_draft(task_id, result)
         return {
             "success": True,
             "task": completed,
+            "result": result,
             "status": completed["state"],
         }
 

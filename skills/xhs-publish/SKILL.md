@@ -163,10 +163,10 @@ python scripts/cli.py --account <账号别名> fill-publish `
 # 步骤 2: 展示账号、内容、素材、可见范围和时间，让用户核对浏览器中的真实预览
 
 # 步骤 3a: 用户确认发布
-python scripts/cli.py --account <账号别名> click-publish --task-id <任务ID> --confirm
+python scripts/cli.py --account <账号别名> click-publish --task-id <任务ID> --preview-revision <预览版本> --confirm
 
 # 步骤 3b: 用户取消 → 必须先保存草稿！
-python scripts/cli.py --account <账号别名> save-draft --task-id <任务ID>
+python scripts/cli.py --account <账号别名> save-draft --task-id <任务ID> --preview-revision <预览版本> --confirm
 ```
 
 > ⚠️ **用户取消时必须调用 `save-draft`**，不得直接关闭 tab 或结束流程。
@@ -186,10 +186,10 @@ python scripts/cli.py --account <账号别名> fill-publish-video `
 # 步骤 2: 用户确认
 
 # 步骤 3a: 用户确认发布
-python scripts/cli.py --account <账号别名> click-publish --task-id <任务ID> --confirm
+python scripts/cli.py --account <账号别名> click-publish --task-id <任务ID> --preview-revision <预览版本> --confirm
 
 # 步骤 3b: 用户取消 → 必须先保存草稿！
-python scripts/cli.py --account <账号别名> save-draft --task-id <任务ID>
+python scripts/cli.py --account <账号别名> save-draft --task-id <任务ID> --preview-revision <预览版本> --confirm
 ```
 
 > ⚠️ **用户取消时必须调用 `save-draft`**，不得直接关闭 tab 或结束流程。
@@ -246,7 +246,7 @@ python scripts/cli.py --account <账号别名> next-step `
 
 ```powershell
 # 用户在浏览器中确认预览后
-python scripts/cli.py --account <账号别名> click-publish --task-id <任务ID> --confirm
+python scripts/cli.py --account <账号别名> click-publish --task-id <任务ID> --preview-revision <预览版本> --confirm
 ```
 
 ## 处理输出

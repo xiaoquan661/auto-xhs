@@ -60,6 +60,7 @@ def test_webui_offers_controlled_publish_confirmation() -> None:
     assert "publishTaskReadyForConfirmation(item)" in script
     assert "openPublishConfirmation(item)" in script
     assert "tasks/${task.task_id}/${action}" in script
+    assert "preview_revision: task.parameters?.preview_revision" in script
     assert 'id="publish-confirm-dialog"' in page
     assert 'id="publish-preview-confirmed"' in page
     assert 'id="publish-save-draft"' in page
@@ -90,6 +91,7 @@ def test_webui_confirmation_reuses_publish_workflow(tmp_path) -> None:
         verified_uid="owner-1",
         confirmed=True,
         preview_confirmed=True,
+        preview_revision=task["parameters"]["preview_revision"],
     )
 
     assert result["task"]["state"] == "SUCCESS"
@@ -113,6 +115,7 @@ def test_webui_publish_confirmation_rejects_identity_mismatch(tmp_path) -> None:
             verified_uid="owner-1",
             confirmed=True,
             preview_confirmed=True,
+            preview_revision=task["parameters"]["preview_revision"],
         )
 
     assert exc_info.value.code == "CONFIRMATION_MISMATCH"
@@ -128,7 +131,12 @@ def test_webui_can_save_waiting_publish_as_draft(tmp_path) -> None:
             executor=lambda account, capability, parameters: calls.append(
                 (account, capability, parameters)
             )
-            or {"success": True}
+            or {
+                "verified": True,
+                "status": "saved_draft",
+                "evidence": "draft_manager_readback",
+                "saved_as_draft": True,
+            }
         ),
     )
     service.get_account_status = lambda account: _ready_status()
@@ -139,8 +147,9 @@ def test_webui_can_save_waiting_publish_as_draft(tmp_path) -> None:
         account_slot="alpha",
         verified_uid="owner-1",
         confirmed=True,
+        preview_revision=task["parameters"]["preview_revision"],
     )
 
     assert result["task"]["state"] == "CANCELLED"
-    assert calls == [("alpha", "save-draft", {})]
+    assert calls == [("alpha", "save-draft", {"expected_title": "测试标题"})]
     assert store.list("events")[0]["result"]["saved_as_draft"] is True

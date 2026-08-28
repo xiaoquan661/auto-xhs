@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from xhs.errors import AccountRiskControlError
-from xhs.publish import click_publish_button
+from xhs.errors import AccountRiskControlError, PublishError
+from xhs.publish import click_publish_button, save_as_draft
 
 
 class PublishPage:
@@ -24,6 +24,21 @@ class PublishPage:
 
     def mouse_click(self, x: float, y: float) -> None:
         self.click_point = (x, y)
+
+
+class DraftPage:
+    def __init__(self, observations: list[dict], *, clicked: bool = True) -> None:
+        self.observations = list(observations)
+        self.clicked = clicked
+
+    def evaluate(self, expression: str):
+        if expression == "location.href":
+            return "https://creator.xiaohongshu.com/publish/publish?source=official"
+        if "button.custom-button" in expression:
+            return self.clicked
+        if "manager_title_match" in expression:
+            return self.observations.pop(0) if self.observations else {}
+        return None
 
 
 def _observation(**changes) -> dict:
@@ -160,3 +175,68 @@ def test_click_publish_surfaces_risk_control(monkeypatch) -> None:
 
     with pytest.raises(AccountRiskControlError):
         click_publish_button(page, expected_title="测试标题")
+
+
+def test_save_draft_accepts_new_success_toast(monkeypatch) -> None:
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _seconds: None)
+    page = DraftPage(
+        [
+            {
+                "feedback": {"success": True, "message": "草稿已保存"},
+                "url": "https://creator.xiaohongshu.com/publish/publish?source=official",
+                "manager_title_match": False,
+            }
+        ]
+    )
+
+    result = save_as_draft(page, expected_title="测试标题")
+
+    assert result["verified"] is True
+    assert result["evidence"] == "draft_success_toast"
+    assert result["saved_as_draft"] is True
+
+
+def test_save_draft_accepts_manager_title_readback(monkeypatch) -> None:
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _seconds: None)
+    page = DraftPage(
+        [
+            {
+                "feedback": None,
+                "url": "https://creator.xiaohongshu.com/new/note-manager?tab=draft",
+                "manager_title_match": True,
+            }
+        ]
+    )
+
+    result = save_as_draft(page, expected_title="测试标题")
+
+    assert result["verified"] is True
+    assert result["evidence"] == "draft_manager_readback"
+    assert result["saved_as_draft"] is True
+
+
+def test_save_draft_returns_result_unknown_without_readback(monkeypatch) -> None:
+    times = iter([0.0, 11.0])
+    monkeypatch.setattr("xhs.publish.time.monotonic", lambda: next(times))
+
+    result = save_as_draft(DraftPage([]), expected_title="测试标题")
+
+    assert result["verified"] is False
+    assert result["status"] == "result_unknown"
+    assert result["saved_as_draft"] is False
+
+
+def test_save_draft_surfaces_explicit_failure(monkeypatch) -> None:
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _seconds: None)
+    page = DraftPage(
+        [
+            {
+                "feedback": {"success": False, "message": "草稿保存失败"},
+                "url": "https://creator.xiaohongshu.com/publish/publish?source=official",
+                "manager_title_match": False,
+            }
+        ]
+    )
+
+    with pytest.raises(PublishError):
+        save_as_draft(page, expected_title="测试标题")

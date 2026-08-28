@@ -269,6 +269,8 @@ class BusinessRunner:
         if capability == "save-draft":
             from xhs.publish import save_as_draft
 
-            save_as_draft(page)
-            return {"success": True, "message": "内容已保存到小红书草稿箱"}
+            return save_as_draft(
+                page,
+                expected_title=str(parameters.get("expected_title") or ""),
+            )
         raise ServiceError("CAPABILITY_DISABLED", "该能力没有 V1 执行适配器", 409)

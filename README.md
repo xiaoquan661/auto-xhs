@@ -367,8 +367,9 @@ python scripts/cli.py --account brand-a fill-publish `
   --title-file "C:\Temp\title.txt" `
   --content-file "C:\Temp\content.txt" `
   --images "C:\Media\pic1.jpg"
-# 命令返回 TASK_ID；用户核对浏览器真实预览并确认后：
-python scripts/cli.py --account brand-a click-publish --task-id TASK_ID --confirm
+# 命令返回 TASK_ID 和 PREVIEW_REVISION；用户核对浏览器真实预览并确认后：
+python scripts/cli.py --account brand-a click-publish `
+  --task-id TASK_ID --preview-revision PREVIEW_REVISION --confirm
 
 # 点赞 / 收藏 / 评论
 python scripts/cli.py --account brand-a like-feed --feed-id FEED_ID --xsec-token XSEC_TOKEN
