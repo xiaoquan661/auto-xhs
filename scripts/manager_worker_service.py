@@ -1936,14 +1936,10 @@ class ManagerWorkerService:
     ) -> Path:
         if transfer["package_type"] == "task_package":
             root = Path(config["task_inbox_root"])
-        elif transfer["package_type"] == "function_package" and transfer.get(
-            "business_module"
-        ):
+        elif transfer["package_type"] == "function_package" and transfer.get("business_module"):
             module_name = str(transfer["business_module"]).replace("\\", "/").split("/")[-1]
             module_name = "".join(
-                character
-                if character.isalnum() or character in {"-", "_", "."}
-                else "_"
+                character if character.isalnum() or character in {"-", "_", "."} else "_"
                 for character in module_name
             ).strip(".")
             if not module_name:
@@ -2065,9 +2061,10 @@ class ManagerWorkerService:
             )
         if not isinstance(manifest.get("dependencies"), list) or not manifest["dependencies"]:
             raise WorkerServiceError("INVALID_MANIFEST", "功能包dependencies必须是非空数组")
-        if not isinstance(manifest.get("call_relationships"), list) or not manifest[
-            "call_relationships"
-        ]:
+        if (
+            not isinstance(manifest.get("call_relationships"), list)
+            or not manifest["call_relationships"]
+        ):
             raise WorkerServiceError("INVALID_MANIFEST", "功能包call_relationships必须是非空数组")
         supported_environment = manifest.get("supported_environment")
         if not (
@@ -2109,9 +2106,7 @@ class ManagerWorkerService:
             "RUN_RESULT.json",
             "VERIFICATION_REPORT.md",
         )
-        missing_paths = [
-            name for name in required_directories if not (uploaded / name).is_dir()
-        ]
+        missing_paths = [name for name in required_directories if not (uploaded / name).is_dir()]
         missing_paths.extend(name for name in required_files if not (uploaded / name).is_file())
         if missing_paths:
             raise WorkerServiceError(

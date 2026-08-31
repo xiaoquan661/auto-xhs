@@ -820,9 +820,7 @@ def test_incremental_records_deduplicate_natural_key_across_result_revisions(
         "item_results_status": "missing",
         "item_results_missing_reason": "本任务没有逐项结果",
         "incremental_data_status": "observed",
-        "incremental_data": [
-            {"record_type": "operation", "record_id": "event-1", "value": 1}
-        ],
+        "incremental_data": [{"record_type": "operation", "record_id": "event-1", "value": 1}],
     }
     transport.queue(
         "collect-results",

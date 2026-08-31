@@ -693,9 +693,7 @@ class ManagerService:
         machine = self._get_machine(machine_id)
         machine_id = machine["machine_id"]
         cursor = self.store.get_collection_cursor(machine_id)
-        evidence_errors = (
-            self._retry_pending_evidence(machine) if download_evidence else []
-        )
+        evidence_errors = self._retry_pending_evidence(machine) if download_evidence else []
         try:
             response = self.transport.invoke(
                 machine,
@@ -1028,13 +1026,9 @@ class ManagerService:
                 or task.get("actual_version")
                 or ""
             ),
-            project_version=str(
-                result.get("project_version") or task.get("project_version") or ""
-            ),
+            project_version=str(result.get("project_version") or task.get("project_version") or ""),
             function_id=str(result.get("function_id") or task.get("function_id") or ""),
-            version_status=str(
-                result.get("version_status") or task.get("version_status") or ""
-            ),
+            version_status=str(result.get("version_status") or task.get("version_status") or ""),
             reconciliation_required=state == "RESULT_UNKNOWN",
             connectivity="ONLINE",
             error_code=str(result.get("error_code") or ""),
@@ -1095,8 +1089,7 @@ class ManagerService:
         pending = [
             item
             for item in self.store.list("evidence_downloads")
-            if item.get("machine_id") == machine["machine_id"]
-            and item.get("state") != "SUCCESS"
+            if item.get("machine_id") == machine["machine_id"] and item.get("state") != "SUCCESS"
         ]
         for record in pending:
             error = self._attempt_evidence_download(machine, record)
@@ -1167,13 +1160,9 @@ class ManagerService:
             values = raw if isinstance(raw, list) else [raw]
             for item in values:
                 if isinstance(item, str):
-                    items.append(
-                        {"remote_path": item, "relative_path": str(relative_path)}
-                    )
+                    items.append({"remote_path": item, "relative_path": str(relative_path)})
                 elif isinstance(item, dict) and item.get("remote_path"):
-                    items.append(
-                        {"relative_path": str(relative_path), **item}
-                    )
+                    items.append({"relative_path": str(relative_path), **item})
         return items
 
     @staticmethod
@@ -1358,9 +1347,7 @@ class ManagerService:
             project_version=str(
                 execution.get("project_version") or current.get("project_version") or ""
             ),
-            function_id=str(
-                execution.get("function_id") or current.get("function_id") or ""
-            ),
+            function_id=str(execution.get("function_id") or current.get("function_id") or ""),
             version_status=str(
                 execution.get("version_status") or current.get("version_status") or ""
             ),
