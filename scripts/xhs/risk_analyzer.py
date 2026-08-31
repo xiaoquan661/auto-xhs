@@ -7,14 +7,13 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any
 
 # regex 兜底：reqBody 可能被截断导致 JSON.parse 失败，用正则直接抓字段
 _RE_RISK_USER = re.compile(r'"isRiskUser"\s*:\s*"([^"]+)"')
 _RE_RISK_REASON = re.compile(r'"isRiskReason"\s*:\s*"([^"]*)"')
 _RE_MATCHED_PATH = re.compile(r'"matchedPath"\s*:\s*"([^"]+)"')
-_RE_I_FIELDS = re.compile(r'"i1[234]"\s*:\s*(\d+)')
 
 
 def analyze(entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -28,11 +27,6 @@ def analyze(entries: list[dict[str, Any]]) -> dict[str, Any]:
             "high_risk_signals": [],
             "warnings": ["netlog 为空，请确认 netlogger 已启用并执行过浏览/操作"],
         }
-
-    # 按 category 分组
-    by_cat: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for e in entries:
-        by_cat[e.get("category", "other")].append(e)
 
     # 按 host 分组
     by_host: Counter[str] = Counter(e.get("host", "") for e in entries)

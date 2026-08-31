@@ -42,7 +42,6 @@ LIKE_BUTTON = ".interact-container .left .like-lottie"
 COLLECT_BUTTON = ".interact-container .left .reds-icon.collect-icon"
 
 # ========== 发布页 ==========
-UPLOAD_CONTENT = "div.upload-content"
 CREATOR_TAB = "div.creator-tab"
 UPLOAD_INPUT = ".upload-input"
 FILE_INPUT = 'input[type="file"]'
@@ -70,9 +69,6 @@ ORIGINAL_SWITCH = "div.d-switch"
 # 标签联想
 TAG_TOPIC_CONTAINER = "#creator-editor-topic-container"
 TAG_FIRST_ITEM = ".item"
-
-# 弹窗
-POPOVER = "div.d-popover"
 
 # ========== 写长文模式 ==========
 # 注意: 长文模式的按钮（写长文、新的创作、一键排版、下一步）通过文本匹配定位

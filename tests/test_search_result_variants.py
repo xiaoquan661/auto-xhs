@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from scripts.xhs.search import _decode_search_feeds
+from scripts.xhs.search import _apply_filters, _decode_search_feeds
+from scripts.xhs.selectors import FILTER_BUTTON, FILTER_PANEL
 
 
 def test_search_result_decoder_accepts_canonical_and_nested_note_shapes() -> None:
@@ -50,3 +51,18 @@ def test_search_result_decoder_discards_hot_queries_and_unusable_entries() -> No
     feeds = _decode_search_feeds(json.dumps(payload))
 
     assert [feed.id for feed in feeds] == ["6a0868520000000036018c02"]
+
+
+def test_apply_filters_uses_shared_selector_constants(monkeypatch) -> None:
+    scripts: list[str] = []
+
+    class Page:
+        def evaluate(self, script: str) -> None:
+            scripts.append(script)
+
+    monkeypatch.setattr("scripts.xhs.search._wait_for_search_feeds", lambda _page: None)
+
+    _apply_filters(Page(), [(1, "综合")])
+
+    assert f"document.querySelector({json.dumps(FILTER_BUTTON)})" in scripts[0]
+    assert f"document.querySelector({json.dumps(FILTER_PANEL)})" in scripts[0]

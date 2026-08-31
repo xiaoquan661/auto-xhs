@@ -76,7 +76,7 @@ class PublishWorkflowService:
         return self.tasks.transition(task["task_id"], "RUNNING")
 
     def resume_preparation(self, task_id: str, *, account: str) -> dict:
-        task = self._waiting_task(task_id, account=account)
+        self._waiting_task(task_id, account=account)
         queued = self.tasks.transition(task_id, "QUEUED")
         return self.tasks.transition(queued["task_id"], "RUNNING")
 

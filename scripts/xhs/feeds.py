@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import logging
 import time
 
 from .cdp import Page
 from .errors import NoFeedsError
 from .types import Feed
 from .urls import HOME_URL
-
-logger = logging.getLogger(__name__)
 
 # 从 __INITIAL_STATE__ 提取 feeds 的 JS
 _EXTRACT_FEEDS_JS = """

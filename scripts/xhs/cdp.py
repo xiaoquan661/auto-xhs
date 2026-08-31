@@ -25,7 +25,6 @@ class CDPClient:
     def __init__(self, ws_url: str) -> None:
         self._ws = ws_client.connect(ws_url, max_size=50 * 1024 * 1024)
         self._id = 0
-        self._callbacks: dict[int, Any] = {}
 
     def send(self, method: str, params: dict | None = None) -> dict:
         """发送 CDP 命令并等待结果。"""
@@ -451,8 +450,6 @@ class Page:
 
         在页面执行 JS 生成轨迹，Python 侧控制帧间延迟使时序真实。
         """
-        import math as _math
-
         # 获取视口尺寸
         vw = int(self.evaluate("window.innerWidth || 1280") or 1280)
         vh = int(self.evaluate("window.innerHeight || 800") or 800)
