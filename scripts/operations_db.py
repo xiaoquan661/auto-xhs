@@ -10,7 +10,7 @@ from pathlib import Path
 
 from product_store import product_root
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 7
 
 _MIGRATIONS = {
     1: """
@@ -139,6 +139,166 @@ _MIGRATIONS = {
 
         CREATE INDEX action_approvals_draft_idx
             ON action_approvals (draft_id, confirmed_at DESC);
+    """,
+    3: """
+        ALTER TABLE inbound_events
+            ADD COLUMN platform TEXT NOT NULL DEFAULT 'xiaohongshu';
+        ALTER TABLE collector_cursors
+            ADD COLUMN platform TEXT NOT NULL DEFAULT 'xiaohongshu';
+        ALTER TABLE operation_events
+            ADD COLUMN platform TEXT NOT NULL DEFAULT 'xiaohongshu';
+        ALTER TABLE reply_rules
+            ADD COLUMN platform TEXT NOT NULL DEFAULT 'xiaohongshu';
+        ALTER TABLE metric_snapshots
+            ADD COLUMN platform TEXT NOT NULL DEFAULT 'xiaohongshu';
+        ALTER TABLE action_drafts
+            ADD COLUMN platform TEXT NOT NULL DEFAULT 'xiaohongshu';
+    """,
+    4: """
+        ALTER TABLE operation_events
+            ADD COLUMN action TEXT NOT NULL DEFAULT '';
+        ALTER TABLE operation_events
+            ADD COLUMN result_summary TEXT NOT NULL DEFAULT '';
+        ALTER TABLE operation_events
+            ADD COLUMN error_code TEXT NOT NULL DEFAULT '';
+        ALTER TABLE operation_events
+            ADD COLUMN recommended_action TEXT NOT NULL DEFAULT '';
+
+        CREATE TABLE published_posts (
+            published_post_id TEXT PRIMARY KEY,
+            publish_task_id TEXT NOT NULL UNIQUE,
+            operation_event_id TEXT NOT NULL DEFAULT '',
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            verified_uid TEXT NOT NULL DEFAULT '',
+            draft_id TEXT NOT NULL DEFAULT '',
+            draft_revision TEXT NOT NULL DEFAULT '',
+            source_content_id TEXT NOT NULL DEFAULT '',
+            platform_post_id TEXT NOT NULL DEFAULT '',
+            stable_url TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            content_type TEXT NOT NULL DEFAULT '',
+            published_at TEXT,
+            result_state TEXT NOT NULL,
+            readback_state TEXT NOT NULL DEFAULT 'MISSING',
+            error_code TEXT NOT NULL DEFAULT '',
+            result_summary TEXT NOT NULL DEFAULT '',
+            platform_result_json TEXT NOT NULL DEFAULT '{}',
+            readback_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX published_posts_account_time_idx
+            ON published_posts (account_slot, published_at DESC, updated_at DESC);
+
+        CREATE TABLE reply_records (
+            reply_record_id TEXT PRIMARY KEY,
+            channel TEXT NOT NULL,
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            verified_uid TEXT NOT NULL DEFAULT '',
+            inbound_event_id TEXT NOT NULL DEFAULT '',
+            conversation_id TEXT NOT NULL DEFAULT '',
+            thread_id TEXT NOT NULL DEFAULT '',
+            original_message_id TEXT NOT NULL DEFAULT '',
+            original_content TEXT NOT NULL DEFAULT '',
+            target_user_id TEXT NOT NULL DEFAULT '',
+            target_user_name TEXT NOT NULL DEFAULT '',
+            reply_text TEXT NOT NULL,
+            draft_id TEXT NOT NULL DEFAULT '',
+            draft_revision TEXT NOT NULL DEFAULT '',
+            approval_id TEXT NOT NULL DEFAULT '',
+            reply_task_id TEXT NOT NULL UNIQUE,
+            operation_event_id TEXT NOT NULL DEFAULT '',
+            sent_at TEXT,
+            result_state TEXT NOT NULL,
+            error_code TEXT NOT NULL DEFAULT '',
+            result_summary TEXT NOT NULL DEFAULT '',
+            readback_state TEXT NOT NULL DEFAULT 'MISSING',
+            readback_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX reply_records_account_time_idx
+            ON reply_records (account_slot, sent_at DESC, updated_at DESC);
+        CREATE INDEX reply_records_inbound_event_idx
+            ON reply_records (inbound_event_id, updated_at DESC);
+    """,
+    5: """
+        ALTER TABLE reply_rules
+            ADD COLUMN comment_enabled INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE reply_rules
+            ADD COLUMN private_message_enabled INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE reply_rules
+            ADD COLUMN auto_categories_json TEXT NOT NULL
+                DEFAULT '["question", "praise", "discussion", "consultation"]';
+        ALTER TABLE reply_rules
+            ADD COLUMN account_profile TEXT NOT NULL DEFAULT '';
+        ALTER TABLE reply_rules
+            ADD COLUMN knowledge TEXT NOT NULL DEFAULT '';
+
+        CREATE TABLE reply_cycles (
+            cycle_id TEXT PRIMARY KEY,
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            source TEXT NOT NULL DEFAULT 'manual',
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            result_state TEXT NOT NULL DEFAULT 'RUNNING',
+            summary_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE INDEX reply_cycles_account_time_idx
+            ON reply_cycles (account_slot, started_at DESC);
+
+        CREATE TABLE reply_decisions (
+            decision_id TEXT PRIMARY KEY,
+            cycle_id TEXT NOT NULL,
+            inbound_event_id TEXT NOT NULL UNIQUE,
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            channel TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            intent TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 0,
+            reply_text TEXT NOT NULL DEFAULT '',
+            facts_used_json TEXT NOT NULL DEFAULT '[]',
+            missing_information_json TEXT NOT NULL DEFAULT '[]',
+            reply_task_id TEXT NOT NULL DEFAULT '',
+            result_state TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (cycle_id) REFERENCES reply_cycles(cycle_id)
+        );
+
+        CREATE INDEX reply_decisions_account_decision_idx
+            ON reply_decisions (account_slot, decision, updated_at DESC);
+    """,
+    6: """
+        CREATE TABLE private_message_conversations (
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            user_id TEXT NOT NULL,
+            owner_state TEXT NOT NULL DEFAULT 'CODEX',
+            handled_through_message_count INTEGER NOT NULL DEFAULT 0,
+            handoff_event_id TEXT NOT NULL DEFAULT '',
+            resume_after_message_count INTEGER NOT NULL DEFAULT 0,
+            last_observed_message_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (account_slot, platform, user_id)
+        );
+
+        CREATE INDEX private_message_conversations_owner_idx
+            ON private_message_conversations (account_slot, owner_state, updated_at DESC);
+    """,
+    7: """
+        ALTER TABLE private_message_conversations
+            ADD COLUMN resume_source TEXT NOT NULL DEFAULT '';
+        ALTER TABLE private_message_conversations
+            ADD COLUMN matched_reply_task_id TEXT NOT NULL DEFAULT '';
     """,
 }
 

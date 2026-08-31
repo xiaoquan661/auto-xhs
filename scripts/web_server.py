@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,9 +13,11 @@ from urllib.parse import unquote, urlparse
 
 try:
     from .application_service import ApplicationService, ServiceError
+    from .web_lifecycle import schedule_webui_restart
     from .web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 except ImportError:  # Direct execution: python scripts/web_server.py
     from application_service import ApplicationService, ServiceError
+    from web_lifecycle import schedule_webui_restart
     from web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 
 
@@ -195,8 +198,20 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
         return service.list_inbound_events()
     if path == f"{API_PREFIX}/operation-events":
         return service.list_operation_events()
+    if path == f"{API_PREFIX}/data-recovery/summary":
+        return service.data_recovery_summary()
+    if path == f"{API_PREFIX}/data-recovery/published-posts":
+        return service.list_published_posts()
+    if path == f"{API_PREFIX}/data-recovery/operation-records":
+        return service.list_operation_records()
+    if path == f"{API_PREFIX}/data-recovery/reply-records":
+        return service.list_reply_records()
     if path == f"{API_PREFIX}/reply-rules":
         return service.list_reply_rules()
+    if path == f"{API_PREFIX}/reply-cycles":
+        return service.list_reply_cycles()
+    if path == f"{API_PREFIX}/reply-decisions":
+        return service.list_reply_decisions()
     if path == f"{API_PREFIX}/reply-intelligence/status":
         return service.intelligent_reply_status()
     if path == f"{API_PREFIX}/action-drafts":
@@ -213,14 +228,24 @@ def _dispatch_api(service: ApplicationService, path: str) -> dict:
             return service.account_pairing_status(account)
         if action == "bridge":
             return service.get_bridge_status(account)
-        if action == "autostart":
-            return service.get_account_autostart(account)
         if action == "switch":
             return service.get_account_switch(account)
     if len(parts) == 4 and parts[:3] == ["api", "v1", "tasks"]:
         return service.get_task(parts[3])
     if len(parts) == 4 and parts[:3] == ["api", "v1", "inbound-events"]:
         return service.get_inbound_event(parts[3])
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "data-recovery"]
+        and parts[3] == "published-posts"
+    ):
+        return service.get_published_post(parts[4])
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "data-recovery"]
+        and parts[3] == "reply-records"
+    ):
+        return service.get_reply_record(parts[4])
     if len(parts) == 6 and parts[:3] == ["api", "v1", "metrics"]:
         return service.get_metric_history(parts[3], parts[4], parts[5])
     if (
@@ -242,6 +267,8 @@ def _dispatch_mutation(
         return service.set_global_pause(True)
     if method == "POST" and path == f"{API_PREFIX}/system/resume":
         return service.set_global_pause(False)
+    if method == "POST" and path == f"{API_PREFIX}/system/restart":
+        return service.restart_local_service()
     if method == "POST" and path == f"{API_PREFIX}/diagnostics/export":
         return service.export_diagnostics()
     if method == "POST" and path == f"{API_PREFIX}/system/settings":
@@ -256,6 +283,8 @@ def _dispatch_mutation(
         return service.create_draft(**body)
     if method == "POST" and path == f"{API_PREFIX}/reply-rules":
         return service.create_reply_rule(**body)
+    if method == "POST" and path == f"{API_PREFIX}/reply-cycle":
+        return service.run_reply_cycle(**body)
     if method == "POST" and path == f"{API_PREFIX}/action-drafts":
         return service.create_action_draft(**body)
     if method == "POST" and path == f"{API_PREFIX}/accounts":
@@ -401,14 +430,20 @@ def _dispatch_mutation(
             return service.stop_account_bridge(account)
         if method == "POST" and (section, action) == ("bridge", "restart"):
             return service.restart_account_bridge(account)
-        if method == "POST" and (section, action) == ("autostart", "update"):
-            return service.set_account_autostart(account, **body)
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     host = _validate_bind_host(host)
-    server = LocalThreadingHTTPServer((host, port), make_handler(ApplicationService()))
+    project_root = Path(__file__).resolve().parent.parent
+    service = ApplicationService(
+        webui_restarter=lambda: schedule_webui_restart(
+            python_executable=sys.executable,
+            project_root=project_root,
+            port=port,
+        )
+    )
+    server = LocalThreadingHTTPServer((host, port), make_handler(service))
     print(f"auto-xhs WebUI: http://{host}:{server.server_port}")
     try:
         server.serve_forever()

@@ -18,6 +18,52 @@ const BOOTSTRAP_CONFIG = globalThis.XHS_BRIDGE_CONFIG || {
 };
 const BINDING_STORAGE_KEY = BOOTSTRAP_CONFIG.storageKey || "xhsBridgeBinding";
 const PAIRING_PREFIX = "xhs-pair-v1:";
+const PLATFORM_PROTOCOL_VERSION = 2;
+const DEFAULT_PLATFORM = "xiaohongshu";
+const PLATFORM_SPECS = Object.freeze({
+  xiaohongshu: Object.freeze({
+    homeUrl: "https://www.xiaohongshu.com/explore",
+    cookieDomain: "xiaohongshu.com",
+    hosts: ["xiaohongshu.com"],
+    tabUrls: [
+      "https://www.xiaohongshu.com/*",
+      "https://xiaohongshu.com/*",
+      "https://creator.xiaohongshu.com/*",
+    ],
+  }),
+  rednote: Object.freeze({
+    homeUrl: "https://www.rednote.com/explore",
+    cookieDomain: "rednote.com",
+    hosts: ["rednote.com"],
+    tabUrls: [
+      "https://www.rednote.com/*",
+      "https://rednote.com/*",
+      "https://creator.rednote.com/*",
+    ],
+  }),
+});
+
+function normalizePlatform(value) {
+  const platform = String(value || DEFAULT_PLATFORM).trim().toLowerCase();
+  if (!PLATFORM_SPECS[platform]) throw new Error(`不支持的平台: ${value}`);
+  return platform;
+}
+
+function platformSpec(value = binding?.platform) {
+  return PLATFORM_SPECS[normalizePlatform(value)];
+}
+
+function platformForUrl(value) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    for (const [platform, spec] of Object.entries(PLATFORM_SPECS)) {
+      if (spec.hosts.some(host => hostname === host || hostname.endsWith(`.${host}`))) {
+        return platform;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
 let binding = null;
 let ws = null;
 let extensionInstanceId = null;
@@ -27,6 +73,7 @@ async function loadBinding() {
   if (binding) return binding;
   const stored = await chrome.storage.local.get(BINDING_STORAGE_KEY);
   binding = stored[BINDING_STORAGE_KEY] || null;
+  if (binding && !binding.platform) binding = { ...binding, platform: DEFAULT_PLATFORM };
 
   // One-time migration for old per-account extension copies.
   if (!binding && BOOTSTRAP_CONFIG.account && BOOTSTRAP_CONFIG.account !== "default" &&
@@ -38,6 +85,7 @@ async function loadBinding() {
       accountId: BOOTSTRAP_CONFIG.accountId,
       bridgeToken: BOOTSTRAP_CONFIG.bridgeToken,
       profileDirectory: BOOTSTRAP_CONFIG.profileDirectory || "Default",
+      platform: BOOTSTRAP_CONFIG.platform || DEFAULT_PLATFORM,
       instanceId: await getExtensionInstanceId(),
     };
     await chrome.storage.local.set({ [BINDING_STORAGE_KEY]: binding });
@@ -47,9 +95,11 @@ async function loadBinding() {
 
 function publicStatus() {
   return {
+    platformProtocolVersion: PLATFORM_PROTOCOL_VERSION,
     paired: !!binding,
     wsConnected: handshakeVerified,
     account: binding?.account || null,
+    platform: binding?.platform || null,
     bridgeUrl: binding?.bridgeUrl || null,
     accountId: binding?.accountId || null,
     instanceId: extensionInstanceId,
@@ -176,6 +226,9 @@ async function connect() {
       instance_id: instanceId,
       extension_id: chrome.runtime.id,
       profile_directory: current.profileDirectory || "Default",
+      platform: normalizePlatform(current.platform),
+      extension_version: chrome.runtime.getManifest().version,
+      platform_protocol_version: PLATFORM_PROTOCOL_VERSION,
     }));
   };
 
@@ -251,6 +304,10 @@ function decodePairingBundle(bundleText) {
   if (payload?.v !== 1 || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(payload.account || "")) {
     throw new Error("配对包版本或账号格式无效");
   }
+  if (!payload.platform) {
+    throw new Error("配对包缺少平台信息，请从 WebUI 重新生成");
+  }
+  payload.platform = normalizePlatform(payload.platform);
   if (!/^ws:\/\/(localhost|127\.0\.0\.1):\d{4,5}$/.test(payload.bridgeUrl || "")) {
     throw new Error("配对 Bridge 必须是本机 WebSocket 地址");
   }
@@ -262,6 +319,13 @@ function decodePairingBundle(bundleText) {
 
 async function pairExtension(bundleText) {
   const payload = decodePairingBundle(bundleText);
+  const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const activePlatform = platformForUrl(activeTabs[0]?.url || "");
+  if (activePlatform && activePlatform !== payload.platform) {
+    throw new Error(
+      `当前页面平台与配对槽位不一致: expected=${payload.platform}, actual=${activePlatform}`
+    );
+  }
   const instanceId = await getExtensionInstanceId();
   const result = await new Promise((resolve, reject) => {
     const pairingWs = new WebSocket(payload.bridgeUrl);
@@ -276,6 +340,7 @@ async function pairExtension(bundleText) {
       instance_id: instanceId,
       extension_id: chrome.runtime.id,
       profile_directory: payload.profileDirectory || "Default",
+      platform: payload.platform,
     }));
     pairingWs.onmessage = event => {
       let message;
@@ -296,7 +361,8 @@ async function pairExtension(bundleText) {
     };
   });
 
-  if (result.instanceId !== instanceId || result.account !== payload.account) {
+  if (result.instanceId !== instanceId || result.account !== payload.account ||
+      normalizePlatform(result.platform) !== payload.platform) {
     throw new Error("Bridge 返回的配对身份与当前扩展不一致");
   }
   if (ws) {
@@ -315,6 +381,11 @@ async function pairExtension(bundleText) {
 
 async function handleCommand(msg) {
   const { method, params = {} } = msg;
+  const commandPlatform = normalizePlatform(msg.platform);
+  const bindingPlatform = normalizePlatform(binding?.platform);
+  if (commandPlatform !== bindingPlatform) {
+    throw new Error(`命令平台与扩展绑定不一致: expected=${bindingPlatform}, actual=${commandPlatform}`);
+  }
 
   switch (method) {
     case "unpair_extension":
@@ -342,6 +413,9 @@ async function handleCommand(msg) {
 
     case "press_key":
       return await cmdPressKeyViaDebugger(params);
+
+    case "send_content_editable":
+      return await cmdSendContentEditableViaDebugger(params);
 
     case "type_text":
       return await cmdTypeTextViaDebugger(params);
@@ -707,14 +781,20 @@ async function getFreshXsecToken(tabId, noteId) {
 }
 
 async function cmdNavigate({ url, _retried = false }) {
-  const tab = await getOrOpenXhsTab();
+  const expectedPlatform = normalizePlatform(binding?.platform);
+  const targetPlatform = platformForUrl(url);
+  const isNeutralPage = url === "about:blank";
+  if (!isNeutralPage && targetPlatform !== expectedPlatform) {
+    throw new Error(`导航目标平台不匹配: expected=${expectedPlatform}, actual=${targetPlatform || "unknown"}`);
+  }
+  const tab = await getOrOpenPlatformTab();
 
   // 若当前已在 xiaohongshu.com，用页面内 window.location.href 发起导航。
   // 这样浏览器将导航标记为 same-origin（Sec-Fetch-Site: same-origin），
   // 与真实用户点击链接行为一致，避免 chrome.tabs.update 产生的
   // Sec-Fetch-Site: none/cross-site 被 XHS 服务端识别为自动化访问。
-  const isOnXhs = tab.url && tab.url.includes("xiaohongshu.com");
-  if (isOnXhs) {
+  const isOnSamePlatform = platformForUrl(tab.url || "") === expectedPlatform;
+  if (isOnSamePlatform) {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -815,7 +895,7 @@ async function cmdNavigate({ url, _retried = false }) {
 }
 
 async function cmdWaitForLoad({ timeout = 60000 }) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   await waitForTabComplete(tab.id, null, timeout);
   return null;
 }
@@ -856,20 +936,26 @@ async function waitForTabComplete(tabId, expectedUrlPrefix, timeout) {
 // ───────────────────────── 截图 ─────────────────────────
 
 async function cmdScreenshot() {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
   return { data: dataUrl.split(",")[1] };
 }
 
 // ───────────────────────── Cookies ─────────────────────────
 
-async function cmdGetCookies({ domain = "xiaohongshu.com" }) {
-  return await chrome.cookies.getAll({ domain });
+async function cmdGetCookies({ domain = null }) {
+  const spec = platformSpec();
+  const requested = String(domain || spec.cookieDomain).replace(/^\./, "");
+  if (!spec.hosts.some(host => requested === host || requested.endsWith(`.${host}`))) {
+    throw new Error("Cookie 域与账号槽位平台不一致");
+  }
+  return await chrome.cookies.getAll({ domain: requested });
 }
 
 async function cmdDeleteAuthCookies() {
   const authCookieNames = new Set(["web_session", "id_token"]);
-  const cookies = await chrome.cookies.getAll({ domain: "xiaohongshu.com" });
+  const domain = platformSpec().cookieDomain;
+  const cookies = await chrome.cookies.getAll({ domain });
   const targets = cookies.filter((cookie) => authCookieNames.has(cookie.name));
   const removed = [];
 
@@ -882,7 +968,7 @@ async function cmdDeleteAuthCookies() {
     if (result) removed.push(cookie.name);
   }
 
-  const remaining = await chrome.cookies.getAll({ domain: "xiaohongshu.com" });
+  const remaining = await chrome.cookies.getAll({ domain });
   return {
     removed: [...new Set(removed)],
     remaining: remaining
@@ -894,7 +980,7 @@ async function cmdDeleteAuthCookies() {
 // ───────────────────────── MAIN world JS 执行 ─────────────────────────
 
 async function cmdEvaluateInMainWorld(method, params) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: "MAIN",
@@ -1061,7 +1147,7 @@ async function _dispatchRealClickAt(target, x, y) {
 }
 
 async function cmdClickViaDebugger(method, { selector, index, text }) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   const target = { tabId: tab.id };
 
   // 按调用方式构造元素查找表达式
@@ -1103,7 +1189,7 @@ async function cmdClickViaDebugger(method, { selector, index, text }) {
 // ─────── 真实键盘（chrome.debugger + CDP Input.dispatchKeyEvent） ──────
 
 async function cmdPressKeyViaDebugger({ key }) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
 
   // 检查当前焦点是否在 contenteditable
   const ceResult = await chrome.scripting.executeScript({
@@ -1155,10 +1241,19 @@ async function cmdPressKeyViaDebugger({ key }) {
   await chrome.debugger.attach(target, "1.3");
   try {
     const base = { modifiers: 0, ...info };
-    const keyDown = key === "Enter"
-      ? { ...base, type: "keyDown", text: "\r", unmodifiedText: "\r" }
-      : { ...base, type: "keyDown" };
-    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", keyDown);
+    await chrome.debugger.sendCommand(
+      target,
+      "Input.dispatchKeyEvent",
+      { ...base, type: key === "Enter" ? "rawKeyDown" : "keyDown" },
+    );
+    if (key === "Enter") {
+      await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+        ...base,
+        type: "char",
+        text: "\r",
+        unmodifiedText: "\r",
+      });
+    }
     await sleep(30);
     await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { ...base, type: "keyUp" });
   } finally {
@@ -1167,10 +1262,78 @@ async function cmdPressKeyViaDebugger({ key }) {
   return null;
 }
 
+async function cmdSendContentEditableViaDebugger({ selector, text }) {
+  const tab = await getOrOpenPlatformTab();
+  const target = { tabId: tab.id };
+  await chrome.debugger.detach(target).catch(() => {});
+  await chrome.debugger.attach(target, "1.3");
+  try {
+    const focusResult = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el || !el.isContentEditable) return false;
+        el.focus();
+        return document.activeElement === el;
+      })()`,
+      returnByValue: true,
+    });
+    if (focusResult?.result?.value !== true) {
+      throw new Error(`无法聚焦可编辑元素: ${selector}`);
+    }
+
+    const selectAll = {
+      key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2,
+    };
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...selectAll, type: "rawKeyDown",
+    });
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...selectAll, type: "keyUp",
+    });
+    const backspace = {
+      key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, modifiers: 0,
+    };
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...backspace, type: "rawKeyDown",
+    });
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...backspace, type: "keyUp",
+    });
+    await chrome.debugger.sendCommand(target, "Input.insertText", { text });
+    await sleep(120);
+
+    const enteredResult = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: `String(document.querySelector(${JSON.stringify(selector)})?.innerText || "")`,
+      returnByValue: true,
+    });
+    const entered = String(enteredResult?.result?.value || "").trim();
+    if (entered !== String(text || "").trim()) {
+      throw new Error("可编辑元素没有完整写入最终文本");
+    }
+
+    const enter = {
+      key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: 0,
+    };
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...enter, type: "rawKeyDown",
+    });
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...enter, type: "char", text: "\r", unmodifiedText: "\r",
+    });
+    await sleep(30);
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+      ...enter, type: "keyUp",
+    });
+    return { entered, submitted: true };
+  } finally {
+    await chrome.debugger.detach(target).catch(() => {});
+  }
+}
+
 // ─────── 真实文字输入（chrome.debugger + CDP Input.insertText） ──────
 
 async function cmdTypeTextViaDebugger({ text, delayMs = 50 }) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
 
   // 检查当前焦点是否在 contenteditable
   const ceResult = await chrome.scripting.executeScript({
@@ -1214,7 +1377,7 @@ async function cmdTypeTextViaDebugger({ text, delayMs = 50 }) {
 // ───────────────────────── 文件上传（chrome.debugger + CDP） ─────────
 
 async function cmdSetFileInputViaDebugger({ selector, files }) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   const target = { tabId: tab.id };
 
   await chrome.debugger.attach(target, "1.3");
@@ -1238,7 +1401,7 @@ async function cmdSetFileInputViaDebugger({ selector, files }) {
 // ───────────────────────── DOM 操作（MAIN world） ────────────────────
 
 async function cmdDomInMainWorld(method, params) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: "MAIN",
@@ -1652,7 +1815,7 @@ async function storeBlockEvent(event) {
 // ───────────────────────── 风控分析 ─────────────────────────
 
 async function cmdAnalyzeRiskControl({ probeUrls = [] } = {}) {
-  const tab = await getOrOpenXhsTab();
+  const tab = await getOrOpenPlatformTab();
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: "MAIN",
@@ -1861,26 +2024,21 @@ async function riskControlAnalyzer(extraProbeUrls) {
 
 // ───────────────────────── Tab 管理 ─────────────────────────
 
-async function getOrOpenXhsTab() {
-  const xhsUrls = [
-    "https://www.xiaohongshu.com/*",
-    "https://xiaohongshu.com/*",
-    "https://creator.xiaohongshu.com/*",
-  ];
+async function getOrOpenPlatformTab() {
+  const spec = platformSpec();
   const activeTabs = await chrome.tabs.query({
     active: true,
     currentWindow: true,
-    url: xhsUrls,
+    url: spec.tabUrls,
   });
   if (activeTabs.length > 0) return activeTabs[0];
-  const tabs = await chrome.tabs.query({ url: xhsUrls });
+  const tabs = await chrome.tabs.query({ url: spec.tabUrls });
   if (tabs.length > 0) {
     return tabs.sort((left, right) =>
       (right.lastAccessed || 0) - (left.lastAccessed || 0)
     )[0];
   }
-  // 没有已打开的 XHS 页面，新建一个
-  const tab = await chrome.tabs.create({ url: "https://www.xiaohongshu.com/" });
+  const tab = await chrome.tabs.create({ url: spec.homeUrl });
   await waitForTabComplete(tab.id, null, 30000);
   return tab;
 }

@@ -157,6 +157,7 @@ def _connect_runtime(args: argparse.Namespace):
         account=account_name,
         account_id=account_config.account_id,
         bridge_token=account_config.bridge_token,
+        platform=account_config.platform,
     )
     return account_name, page
 
@@ -531,7 +532,7 @@ def cmd_random_comment(args: argparse.Namespace) -> None:
 
 
 def cmd_home_engagement(args: argparse.Namespace) -> None:
-    """在同一个首页会话中完成浏览、点赞和评论。"""
+    """在同一个首页会话中完成浏览和点赞。"""
     from xhs.home_engagement import home_engagement
 
     browser, page = _connect(args)
@@ -540,11 +541,9 @@ def cmd_home_engagement(args: argparse.Namespace) -> None:
             page,
             browse_count=args.browse_count,
             like_count=args.like_count,
-            comment_count=args.comment_count,
             duration_seconds=args.duration_minutes * 60,
             min_read_seconds=args.min_read_seconds,
             max_read_seconds=args.max_read_seconds,
-            style=args.style,
         )
         _output(result, exit_code=0 if result.get("success") else 2)
     finally:
@@ -651,6 +650,133 @@ def cmd_generate_reply_draft(args: argparse.Namespace) -> None:
     _output(result)
 
 
+def cmd_reply_cycle(args: argparse.Namespace) -> None:
+    """Collect and process one bounded automatic-reply cycle."""
+    from application_service import ApplicationService
+
+    channels = []
+    if not args.private_messages_only:
+        channels.append("comment")
+    if not args.comments_only:
+        channels.append("private_message")
+    result = ApplicationService().run_reply_cycle(
+        account_slot=args.account,
+        source="codex",
+        channels=channels,
+        max_events=args.max_events,
+        max_notes=args.max_notes,
+        max_conversations=args.max_conversations,
+    )
+    _output(result)
+
+
+def _reply_inbox_channels(args: argparse.Namespace) -> list[str]:
+    channels = []
+    if not getattr(args, "private_messages_only", False):
+        channels.append("comment")
+    if not getattr(args, "comments_only", False):
+        channels.append("private_message")
+    return channels
+
+
+def _load_reply_decision(path: str) -> dict:
+    from pathlib import Path
+
+    source = Path(path).expanduser()
+    if not source.is_absolute():
+        raise ValueError("Codex 回复决策文件必须使用绝对路径")
+    source = source.resolve()
+    if not source.is_file():
+        raise ValueError(f"Codex 回复决策文件不存在: {source}")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("Codex 回复决策文件必须是 JSON 对象") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Codex 回复决策文件必须是 JSON 对象")
+    return data
+
+
+def cmd_reply_inbox_collect(args: argparse.Namespace) -> None:
+    """Collect new reply events for Codex without generating text."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().collect_reply_inbox(
+            args.account,
+            channels=_reply_inbox_channels(args),
+            max_notes=args.max_notes,
+            max_conversations=args.max_conversations,
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_reply_inbox_list(args: argparse.Namespace) -> None:
+    """List compact inbound events for Codex triage."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().list_reply_inbox(
+            args.account,
+            channels=_reply_inbox_channels(args),
+            handling_state=args.state,
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_reply_inbox_context(args: argparse.Namespace) -> None:
+    """Read one event, its conversation context, and the account reply policy."""
+
+    from application_service import ApplicationService
+
+    _output(ApplicationService().get_reply_inbox_context(args.account, args.event_id))
+
+
+def cmd_reply_inbox_apply(args: argparse.Namespace) -> None:
+    """Apply one Codex-authored reply decision through the existing send chain."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().apply_codex_reply_decision(
+            args.account,
+            _load_reply_decision(args.decision_file),
+        )
+    )
+
+
+def cmd_reply_inbox_conversations(args: argparse.Namespace) -> None:
+    """List private-message conversation ownership and boundaries."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().list_private_message_conversations(
+            args.account,
+            owner_state=args.owner,
+            limit=args.limit,
+        )
+    )
+
+
+def cmd_reply_inbox_resume(args: argparse.Namespace) -> None:
+    """Return one human-owned private-message conversation to Codex."""
+
+    from application_service import ApplicationService
+
+    _output(
+        ApplicationService().resume_private_message_conversation(
+            args.account,
+            args.user_id,
+            confirmed=args.confirm,
+        )
+    )
+
+
 def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
     """Collect account and own-note metrics into local snapshots."""
     from application_service import ApplicationService
@@ -739,25 +865,8 @@ def cmd_private_message_inbox(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_prepare_private_messages(args: argparse.Namespace) -> None:
-    """Persist Agent-generated personalized texts for one batch confirmation."""
-
-    from application_service import ApplicationService
-
-    result = ApplicationService().prepare_private_messages(
-        args.account,
-        recipients=_load_private_message_recipients(args.recipients_file),
-    )
-    result["next_command"] = (
-        f"python scripts/cli.py --account {args.account} send-private-messages "
-        f"--task-id {result['task_id']} --batch-revision-id "
-        f"{result['batch_revision_id']} --confirm"
-    )
-    _output(result)
-
-
 def cmd_send_private_messages(args: argparse.Namespace) -> None:
-    """Send explicit personalized texts or one confirmed generated batch."""
+    """Send a Codex-generated batch or resume its retryable recipients."""
 
     from application_service import ApplicationService
 
@@ -770,9 +879,7 @@ def cmd_send_private_messages(args: argparse.Namespace) -> None:
     else:
         result = service.send_private_messages(
             args.account,
-            task_id=args.task_id,
-            batch_revision_id=args.batch_revision_id or "",
-            confirmed=args.confirm,
+            resume_task_id=args.resume_task_id,
         )
     _output(result, exit_code=0 if result["task"]["state"] == "SUCCESS" else 2)
 
@@ -850,6 +957,13 @@ def cmd_publish(args: argparse.Namespace) -> None:
     )
 
 
+def _account_platform(account: str) -> str:
+    """Resolve the configured platform before persisting an Agent workflow."""
+    from account_manager import load_account
+
+    return load_account(account, allow_legacy_default=False).platform
+
+
 def cmd_fill_publish(args: argparse.Namespace) -> None:
     """只填写图文表单，不发布。"""
     from image_downloader import process_images
@@ -880,6 +994,7 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
     workflow = PublishWorkflowService()
     task = workflow.begin(
         account=args.account,
+        platform=_account_platform(args.account),
         capability="fill-publish",
         request_summary=f"图文发布预览：{title}",
         preview=preview,
@@ -953,6 +1068,7 @@ def cmd_fill_publish_video(args: argparse.Namespace) -> None:
     workflow = PublishWorkflowService()
     task = workflow.begin(
         account=args.account,
+        platform=_account_platform(args.account),
         capability="fill-publish-video",
         request_summary=f"视频发布预览：{title}",
         preview=preview,
@@ -1082,6 +1198,7 @@ def cmd_long_article(args: argparse.Namespace) -> None:
     workflow = PublishWorkflowService()
     task = workflow.begin(
         account=args.account,
+        platform=_account_platform(args.account),
         capability="long-article",
         request_summary=f"长文发布预览：{title}",
         preview=preview,
@@ -1340,6 +1457,7 @@ def cmd_account_add(args: argparse.Namespace) -> None:
     extension_source = Path(__file__).parent.parent / "extension"
     config = add_account(
         args.name,
+        platform=getattr(args, "platform", "xiaohongshu"),
         bridge_port=args.port,
         extension_source=extension_source,
     )
@@ -1373,6 +1491,7 @@ def cmd_account_onboard(args: argparse.Namespace) -> None:
         extension_source = Path(__file__).parent.parent / "extension"
         config = add_account(
             args.name,
+                platform=getattr(args, "platform", "xiaohongshu"),
             bridge_port=args.port,
             extension_source=extension_source,
         )
@@ -1418,6 +1537,7 @@ def cmd_account_import(args: argparse.Namespace) -> None:
     extension_source = Path(__file__).parent.parent / "extension"
     config = import_existing_profile(
         args.name,
+        platform=getattr(args, "platform", "xiaohongshu"),
         user_data_dir=args.user_data_dir,
         profile_directory=args.profile_directory,
         bridge_port=args.port,
@@ -1570,7 +1690,7 @@ def cmd_account_pair_begin(args: argparse.Namespace) -> None:
     pairing = create_pairing_session(config, ttl_seconds=args.ttl)
     bridge_url = args.bridge_url or config.bridge_url
     _ensure_bridge_ready(bridge_url, config)
-    page = BridgePage(bridge_url, account=config.name)
+    page = BridgePage(bridge_url, account=config.name, platform=config.platform)
     if not page.is_server_running():
         raise RuntimeError("Bridge 启动失败，配对会话无法使用")
     _output(
@@ -1590,7 +1710,11 @@ def cmd_account_pair_status(args: argparse.Namespace) -> None:
     from xhs.bridge import BridgePage
 
     config = load_account(args.account, allow_legacy_default=False)
-    page = BridgePage(args.bridge_url or config.bridge_url, account=config.name)
+    page = BridgePage(
+        args.bridge_url or config.bridge_url,
+        account=config.name,
+        platform=config.platform,
+    )
     status = get_pairing_status(config.name)
     bridge = page.get_server_status()
     _output(
@@ -1618,6 +1742,7 @@ def cmd_account_unpair(args: argparse.Namespace) -> None:
         account=config.name,
         account_id=config.account_id,
         bridge_token=config.bridge_token,
+        platform=config.platform,
     )
     local_binding_cleared = False
     if page.is_extension_connected():
@@ -1640,34 +1765,6 @@ def cmd_account_unpair(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_account_autostart_enable(args: argparse.Namespace) -> None:
-    from account_autostart import enable_account_autostart
-    from account_manager import load_account
-
-    if not args.confirm:
-        raise ValueError("启用登录自启动必须显式提供 --confirm")
-    config = load_account(args.account, allow_legacy_default=False)
-    _output({"success": True, "autostart": enable_account_autostart(config.name)})
-
-
-def cmd_account_autostart_status(args: argparse.Namespace) -> None:
-    from account_autostart import account_autostart_status
-    from account_manager import load_account
-
-    config = load_account(args.account, allow_legacy_default=False)
-    _output({"success": True, "autostart": account_autostart_status(config.name)})
-
-
-def cmd_account_autostart_disable(args: argparse.Namespace) -> None:
-    from account_autostart import disable_account_autostart
-    from account_manager import load_account
-
-    if not args.confirm:
-        raise ValueError("关闭登录自启动必须显式提供 --confirm")
-    config = load_account(args.account, allow_legacy_default=False)
-    _output({"success": True, "autostart": disable_account_autostart(config.name)})
-
-
 def cmd_account_doctor(args: argparse.Namespace) -> None:
     from application_service import ApplicationService
 
@@ -1687,7 +1784,11 @@ def cmd_account_connection_enroll(args: argparse.Namespace) -> None:
     config = load_account(args.account, allow_legacy_default=False)
     if not config.account_id or not config.bridge_token:
         raise RuntimeError("账号尚未启用连接身份；请先运行 account-sync 并重新加载扩展")
-    page = BridgePage(args.bridge_url or config.bridge_url, account=config.name)
+    page = BridgePage(
+        args.bridge_url or config.bridge_url,
+        account=config.name,
+        platform=config.platform,
+    )
     status = page.get_server_status()
     extension = (status or {}).get("extension") or {}
     instance_id = str(extension.get("instance_id") or "")
@@ -1887,6 +1988,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="一条命令创建账号槽位、启动 Bridge 并准备一次性配对",
     )
     sub.add_argument("--name", required=True, help="账号别名，如 brand-a")
+    sub.add_argument(
+        "--platform",
+        choices=("xiaohongshu", "rednote"),
+        default="xiaohongshu",
+        help="账号槽位绑定的平台",
+    )
     sub.add_argument("--port", type=int, help="Bridge 端口；省略时自动分配")
     sub.add_argument("--confirm", action="store_true", help="确认创建槽位并启动配对")
     sub.add_argument("--ttl", type=int, default=300, help="配对包有效秒数（30-900）")
@@ -1899,11 +2006,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = subparsers.add_parser("account-add", help="创建独立账号浏览器环境")
     sub.add_argument("--name", required=True, help="账号别名，如 brand-a")
+    sub.add_argument(
+        "--platform",
+        choices=("xiaohongshu", "rednote"),
+        default="xiaohongshu",
+        help="账号槽位绑定的平台",
+    )
     sub.add_argument("--port", type=int, help="Bridge 端口；省略时自动分配")
     sub.set_defaults(func=cmd_account_add, requires_account_lock=False)
 
     sub = subparsers.add_parser("account-import", help="绑定已有 Chrome Profile")
     sub.add_argument("--name", required=True, help="账号别名，如 brand-a")
+    sub.add_argument(
+        "--platform",
+        choices=("xiaohongshu", "rednote"),
+        default="xiaohongshu",
+        help="账号槽位绑定的平台",
+    )
     sub.add_argument(
         "--user-data-dir",
         required=True,
@@ -1975,24 +2094,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_argument("--confirm", action="store_true", help="确认撤销当前配对")
     sub.set_defaults(func=cmd_account_unpair, requires_account_lock=False)
-
-    sub = subparsers.add_parser(
-        "account-autostart-enable",
-        help="注册 Windows 登录任务，只自动启动该账号的 Bridge",
-    )
-    sub.add_argument("--confirm", action="store_true", help="确认注册登录自启动任务")
-    sub.set_defaults(func=cmd_account_autostart_enable, requires_account_lock=False)
-
-    sub = subparsers.add_parser(
-        "account-autostart-status", help="查看该账号的 Windows 登录自启动状态"
-    )
-    sub.set_defaults(func=cmd_account_autostart_status, requires_account_lock=False)
-
-    sub = subparsers.add_parser(
-        "account-autostart-disable", help="删除该账号的 Windows 登录自启动任务"
-    )
-    sub.add_argument("--confirm", action="store_true", help="确认删除登录自启动任务")
-    sub.set_defaults(func=cmd_account_autostart_disable, requires_account_lock=False)
 
     sub = subparsers.add_parser("account-doctor", help="只读诊断账号配置和运行状态")
     sub.add_argument("--name", help="只检查指定账号；省略时检查全部账号")
@@ -2147,20 +2248,13 @@ def build_parser() -> argparse.ArgumentParser:
     # home-engagement
     sub = subparsers.add_parser(
         "home-engagement",
-        help="在一次首页会话中完成浏览、点赞和评论",
+        help="在一次首页会话中完成浏览和点赞",
     )
     sub.add_argument("--browse-count", type=int, default=6, help="点开笔记数量")
     sub.add_argument("--like-count", type=int, default=2, help="点赞数量")
-    sub.add_argument("--comment-count", type=int, default=1, choices=range(0, 4), help="评论数量")
     sub.add_argument("--duration-minutes", type=int, default=3, help="最长执行分钟数")
     sub.add_argument("--min-read-seconds", type=float, default=8, help="单篇最短阅读秒数")
     sub.add_argument("--max-read-seconds", type=float, default=15, help="单篇最长阅读秒数")
-    sub.add_argument(
-        "--style",
-        choices=("natural", "praise", "question"),
-        default="natural",
-        help="评论风格",
-    )
     sub.set_defaults(func=cmd_home_engagement)
 
     # get-feed-detail
@@ -2214,21 +2308,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_private_message_context, requires_account_lock=False)
 
     sub = subparsers.add_parser(
-        "prepare-private-messages",
-        help="保存 Agent 生成的个性化私信并等待整批确认",
-    )
-    sub.add_argument("--recipients-file", required=True)
-    sub.set_defaults(func=cmd_prepare_private_messages, requires_account_lock=False)
-
-    sub = subparsers.add_parser(
         "send-private-messages",
-        help="直接发送明确文本，或发送已整批确认的 Agent 生成文本",
+        help="直接发送 Codex 生成的个性化私信，或恢复可重试的批次项",
     )
     source = sub.add_mutually_exclusive_group(required=True)
     source.add_argument("--recipients-file")
-    source.add_argument("--task-id")
-    sub.add_argument("--batch-revision-id")
-    sub.add_argument("--confirm", action="store_true")
+    source.add_argument("--resume-task-id")
     sub.set_defaults(func=cmd_send_private_messages, requires_account_lock=False)
 
     sub = subparsers.add_parser(
@@ -2251,6 +2336,63 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--knowledge-file", help="可选：UTF-8 账号事实与业务知识文件")
     sub.add_argument("--reply-style", default="natural", help="本次回复风格")
     sub.set_defaults(func=cmd_generate_reply_draft)
+
+    sub = subparsers.add_parser(
+        "reply-cycle",
+        help="按账号规则采集并处理一轮新评论和新私信回复",
+    )
+    channel_group = sub.add_mutually_exclusive_group()
+    channel_group.add_argument("--comments-only", action="store_true")
+    channel_group.add_argument("--private-messages-only", action="store_true")
+    sub.add_argument("--max-events", type=int, default=20)
+    sub.add_argument("--max-notes", type=int, default=20)
+    sub.add_argument("--max-conversations", type=int, default=20)
+    sub.set_defaults(func=cmd_reply_cycle, requires_account_lock=False)
+
+    sub = subparsers.add_parser(
+        "reply-inbox",
+        help="由 Codex 读取上下文、生成决策并通过现有执行链回复",
+    )
+    inbox = sub.add_subparsers(dest="reply_inbox_command", required=True)
+
+    inbox_sub = inbox.add_parser("collect", help="只读采集新评论和新私信事件")
+    channel_group = inbox_sub.add_mutually_exclusive_group()
+    channel_group.add_argument("--comments-only", action="store_true")
+    channel_group.add_argument("--private-messages-only", action="store_true")
+    inbox_sub.add_argument("--max-notes", type=int, default=20)
+    inbox_sub.add_argument("--max-conversations", type=int, default=20)
+    inbox_sub.add_argument("--limit", type=int, default=20)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_collect, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("list", help="列出供 Codex 处理的事件摘要")
+    channel_group = inbox_sub.add_mutually_exclusive_group()
+    channel_group.add_argument("--comments-only", action="store_true")
+    channel_group.add_argument("--private-messages-only", action="store_true")
+    inbox_sub.add_argument(
+        "--state",
+        choices=["NEW", "TASK_CREATED", "IGNORED", "HANDLED"],
+        default="NEW",
+    )
+    inbox_sub.add_argument("--limit", type=int, default=20)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_list, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("context", help="读取一个事件的完整回复上下文和账号规则")
+    inbox_sub.add_argument("--event-id", required=True)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_context, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("apply", help="应用 Codex 生成的 reply、pending 或 skip 决策")
+    inbox_sub.add_argument("--decision-file", required=True, help="UTF-8 JSON 决策文件绝对路径")
+    inbox_sub.set_defaults(func=cmd_reply_inbox_apply, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("conversations", help="查看私信会话所有权与处理边界")
+    inbox_sub.add_argument("--owner", choices=["CODEX", "HUMAN"])
+    inbox_sub.add_argument("--limit", type=int, default=100)
+    inbox_sub.set_defaults(func=cmd_reply_inbox_conversations, requires_account_lock=False)
+
+    inbox_sub = inbox.add_parser("resume", help="将一个人工接管会话恢复给 Codex")
+    inbox_sub.add_argument("--user-id", required=True, help="私信联系人用户 ID")
+    inbox_sub.add_argument("--confirm", action="store_true", help="确认从当前边界恢复 Codex 处理")
+    inbox_sub.set_defaults(func=cmd_reply_inbox_resume, requires_account_lock=False)
 
     sub = subparsers.add_parser(
         "collect-operations-metrics",

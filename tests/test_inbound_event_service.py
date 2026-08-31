@@ -31,6 +31,22 @@ def test_event_natural_key_deduplicates_repeated_collection(tmp_path) -> None:
     assert len(service.list(account_slot="alpha")) == 1
 
 
+def test_comment_and_private_message_use_separate_dedup_namespaces(tmp_path) -> None:
+    service = _service(tmp_path)
+    common = {
+        "account_slot": "alpha",
+        "platform_event_id": "platform-event-1",
+        "occurred_at": "2026-08-27T10:00:00+00:00",
+    }
+
+    comment = service.record(event_type="note_comment", **common)
+    private_message = service.record(event_type="private_message", **common)
+
+    assert comment["created"] is True
+    assert private_message["created"] is True
+    assert len(service.list(account_slot="alpha")) == 2
+
+
 def test_event_can_be_linked_to_passive_task_and_marked_handled(tmp_path) -> None:
     service = _service(tmp_path)
     event = service.record(

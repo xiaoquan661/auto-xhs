@@ -49,6 +49,20 @@ def test_publish_workflow_persists_preview_for_webui_monitoring(tmp_path) -> Non
     assert persisted["parameters"]["preview"]["title"] == "测试标题"
 
 
+def test_publish_workflow_persists_explicit_platform(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    task = service.begin(
+        account="rednote-a",
+        platform="rednote",
+        capability="fill-publish",
+        request_summary="RedNote 图文发布预览",
+        preview=_preview(),
+    )
+
+    assert task["platform"] == "rednote"
+
+
 def test_publish_requires_confirmation_and_matching_account(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
@@ -81,6 +95,10 @@ def test_verified_publish_completes_and_records_result(tmp_path) -> None:
     event = service.store.list("events")[0]
     assert event["task_id"] == task["task_id"]
     assert event["result"]["note_id"] == "note-1"
+    published = service.published_posts.list()
+    assert len(published) == 1
+    assert published[0]["platform_post_id"] == "note-1"
+    assert published[0]["result_state"] == "SUCCESS"
 
 
 def test_unverified_publish_becomes_result_unknown(tmp_path) -> None:
@@ -96,6 +114,7 @@ def test_unverified_publish_becomes_result_unknown(tmp_path) -> None:
     assert completed["state"] == "RESULT_UNKNOWN"
     assert completed["error_code"] == "PUBLISH_RESULT_UNKNOWN"
     assert "不要直接重复发布" in completed["recommended_action"]
+    assert service.published_posts.list()[0]["result_state"] == "RESULT_UNKNOWN"
 
 
 def test_publish_success_without_accepted_evidence_is_result_unknown(tmp_path) -> None:
@@ -122,6 +141,7 @@ def test_saving_draft_cancels_publish_without_claiming_success(tmp_path) -> None
     assert completed["state"] == "CANCELLED"
     assert "草稿箱" in completed["result_summary"]
     assert service.store.list("events")[0]["result"]["saved_as_draft"] is True
+    assert service.published_posts.list() == []
 
 
 def test_account_has_only_one_open_publish_workflow(tmp_path) -> None:

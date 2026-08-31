@@ -17,7 +17,7 @@
   "use strict";
 
   const BLOCKED = new Set([404, 461, 403, 999]);
-  const XHS_API = /xiaohongshu\.com\/api\//;
+  const PLATFORM_API = /(?:xiaohongshu|rednote)\.com\/api\//;
 
   const RESP_BODY_MAX = 4096;
   const MENTIONS_API = "/api/sns/web/v1/you/mentions";
@@ -64,7 +64,12 @@
     try { return new URL(url).searchParams.get(key); } catch (_) { return null; }
   }
 
-  function isApiUrl(url) { return XHS_API.test(url); }
+  function isApiUrl(url) { return PLATFORM_API.test(url); }
+  function isSupportedUrl(url) {
+    return /(?:^|\.)(?:xiaohongshu|rednote)\.com(?:\/|$)/.test(
+      String(url || "").replace(/^https?:\/\//, "")
+    );
+  }
 
   // ── 根因分析 ─────────────────────────────────────────────────
 
@@ -296,7 +301,7 @@
   const _respJson = Response.prototype.json;
 
   function _netlogReportResp(url, status, body) {
-    if (!url || !url.includes("xiaohongshu.com")) return;
+    if (!url || !isSupportedUrl(url)) return;
     captureMentionsResponse(url, status, body);
     let truncated = body;
     if (typeof body === "string" && body.length > RESP_BODY_MAX) {
@@ -347,12 +352,12 @@
     const resp = await _fetch.call(this, input, init);
 
     // 现有 BLOCKED 诊断保持不变
-    if (BLOCKED.has(resp.status) && (isApiUrl(url) || url.includes("xiaohongshu.com"))) {
+    if (BLOCKED.has(resp.status) && (isApiUrl(url) || isSupportedUrl(url))) {
       emit(buildEvent(url, method, resp.status, headers, { intercept_type: "fetch" }));
     }
 
     // NetLog 全量记录（background 单点过滤 _netEnabled）
-    if (url.includes("xiaohongshu.com")) {
+    if (isSupportedUrl(url)) {
       let respBody = null;
       try {
         const clone = resp.clone();
@@ -398,14 +403,14 @@
       const url = this.__i_url || "";
 
       // 现有 BLOCKED 诊断保持不变
-      if (BLOCKED.has(this.status) && (isApiUrl(url) || url.includes("xiaohongshu.com"))) {
+      if (BLOCKED.has(this.status) && (isApiUrl(url) || isSupportedUrl(url))) {
         emit(buildEvent(url, this.__i_method || "GET", this.status, this.__i_headers || {}, {
           intercept_type: "xhr",
         }));
       }
 
       // NetLog 全量记录（background 单点过滤 _netEnabled）
-      if (url.includes("xiaohongshu.com")) {
+      if (isSupportedUrl(url)) {
         let respBody = null;
         try {
           const t = this.responseText || "";

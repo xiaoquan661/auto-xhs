@@ -24,6 +24,8 @@ from typing import Any
 import websockets
 from websockets.server import ServerConnection
 
+from platforms import DEFAULT_PLATFORM, normalize_platform
+
 logger = logging.getLogger("xhs-bridge")
 
 
@@ -36,12 +38,14 @@ class BridgeServer:
         bridge_token: str | None = None,
         extension_instance_id: str | None = None,
         profile_directory: str | None = None,
+        platform: str = DEFAULT_PLATFORM,
     ) -> None:
         self.account = account
         self.account_id = account_id or None
         self.bridge_token = bridge_token or None
         self.extension_instance_id = extension_instance_id or None
         self.profile_directory = profile_directory or None
+        self.platform = normalize_platform(platform)
         self._extension_ws: ServerConnection | None = None
         self._extension_info: dict[str, Any] | None = None
         self._pending: dict[str, asyncio.Future[Any]] = {}
@@ -83,6 +87,7 @@ class BridgeServer:
                     {
                         "type": "handshake_ack",
                         "account": self.account,
+                        "platform": self.platform,
                         "identity_verified": bool(
                             self.account_id and self.bridge_token
                         ),
@@ -105,12 +110,14 @@ class BridgeServer:
         from account_pairing import consume_pairing_session, public_binding
 
         try:
+            platform = self._resolve_pairing_platform(msg)
             updated = consume_pairing_session(
                 self.account,
                 str(msg.get("pairing_code") or ""),
                 instance_id=str(msg.get("instance_id") or ""),
                 extension_id=str(msg.get("extension_id") or ""),
                 profile_directory=str(msg.get("profile_directory") or ""),
+                platform=platform,
             )
         except (OSError, ValueError, RuntimeError) as exc:
             await ws.send(
@@ -139,9 +146,23 @@ class BridgeServer:
             )
         )
 
+    def _resolve_pairing_platform(self, msg: dict) -> str:
+        raw_platform = str(msg.get("platform") or "").strip()
+        if not raw_platform:
+            raise ValueError(
+                "扩展后台未上报平台，请打开 chrome://extensions 重载扩展后再配对"
+            )
+        return normalize_platform(raw_platform)
+
     def _validate_cli_request(self, msg: dict) -> str | None:
         if msg.get("method") == "ping_server":
             return None
+        try:
+            received_platform = normalize_platform(msg.get("platform"))
+        except ValueError:
+            return "CLI 平台声明无效"
+        if received_platform != self.platform:
+            return "CLI 平台与账号槽位不匹配"
         params = msg.get("params") or {}
         received_account_id = msg.get("account_id") or params.get("account_id")
         if self.account_id and received_account_id != self.account_id:
@@ -156,6 +177,15 @@ class BridgeServer:
     # ─── Extension 端（长连接） ───────────────────────────────────────
 
     def _validate_extension_handshake(self, msg: dict) -> str | None:
+        try:
+            received_platform = normalize_platform(msg.get("platform"))
+        except ValueError:
+            return "Extension 平台声明无效"
+        if received_platform != self.platform:
+            return (
+                "Extension 平台与账号槽位不匹配: "
+                f"expected={self.platform!r}, actual={received_platform!r}"
+            )
         if (
             self.profile_directory
             and msg.get("profile_directory") != self.profile_directory
@@ -189,6 +219,9 @@ class BridgeServer:
             "instance_id": handshake.get("instance_id"),
             "extension_id": handshake.get("extension_id"),
             "profile_directory": handshake.get("profile_directory"),
+            "platform": normalize_platform(handshake.get("platform")),
+            "extension_version": handshake.get("extension_version"),
+            "platform_protocol_version": handshake.get("platform_protocol_version"),
             "identity_verified": bool(self.account_id and self.bridge_token),
             "instance_enrolled": bool(
                 self.extension_instance_id
@@ -226,6 +259,7 @@ class BridgeServer:
                 "result": {
                     "extension_connected": self._extension_ws is not None,
                     "account": self.account,
+                    "platform": self.platform,
                     "account_id": self.account_id,
                     "expected_profile_directory": self.profile_directory,
                     "connection_identity_required": bool(
@@ -288,6 +322,7 @@ async def main(
     bridge_token: str | None = None,
     extension_instance_id: str | None = None,
     profile_directory: str | None = None,
+    platform: str = DEFAULT_PLATFORM,
 ) -> None:
     server = BridgeServer(
         account,
@@ -295,6 +330,7 @@ async def main(
         bridge_token=bridge_token,
         extension_instance_id=extension_instance_id,
         profile_directory=profile_directory,
+        platform=platform,
     )
     async with websockets.serve(server.handle, "localhost", port):
         logger.info(
@@ -337,6 +373,11 @@ if __name__ == "__main__":
         default=os.getenv("XHS_PROFILE_DIRECTORY"),
         help="该账号槽位期望连接的 Chrome Profile 目录名",
     )
+    parser.add_argument(
+        "--platform",
+        default=os.getenv("XHS_PLATFORM", DEFAULT_PLATFORM),
+        help="该账号槽位绑定的平台",
+    )
     args = parser.parse_args()
 
     asyncio.run(
@@ -347,5 +388,6 @@ if __name__ == "__main__":
             args.token,
             args.extension_instance_id,
             args.profile_directory,
+            args.platform,
         )
     )

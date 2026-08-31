@@ -29,6 +29,7 @@
           <a class="nav-item" href="#tasks" data-workspace-link="tasks" aria-label="任务"><span class="nav-icon">▷</span><span>任务</span></a>
           <a class="nav-item" href="#approvals" data-workspace-link="approvals" aria-label="确认中心"><span class="nav-icon">✓</span><span>确认中心</span><b class="nav-badge" id="confirmation-count">0</b></a>
           <a class="nav-item" href="#records" data-workspace-link="records" aria-label="执行记录"><span class="nav-icon">◷</span><span>执行记录</span></a>
+          <a class="nav-item" href="#data" data-workspace-link="data" aria-label="数据回收"><span class="nav-icon">▤</span><span>数据回收</span></a>
           <a class="nav-item" href="#system" data-workspace-link="system" aria-label="系统"><span class="nav-icon">⌘</span><span>系统</span></a>
         </nav>
 
@@ -50,6 +51,7 @@
             <div class="service-health" id="health" data-state="loading" role="status">
               <span class="status-pulse"></span><span>正在连接本地服务</span>
             </div>
+            <button class="service-restart-button" id="restart-service" type="button">重启服务</button>
             <button class="icon-button" id="refresh" type="button" aria-label="刷新全部状态" title="刷新全部状态">
               <span aria-hidden="true">↻</span>
             </button>
@@ -124,6 +126,12 @@
           <div class="setup-grid">
             <form class="setup-card composer-card" id="account-form">
               <div class="card-number" aria-hidden="true">A</div>
+              <label>平台
+                <select id="account-platform" name="platform">
+                  <option value="xiaohongshu">小红书</option>
+                  <option value="rednote">RedNote</option>
+                </select>
+              </label>
               <label><span id="account-name-label">槽位名称（跟随 Profile）</span><input id="account-name" name="name" required maxlength="80" placeholder="请先扫描并选择 Profile" readonly /><small class="field-help" id="account-name-help">选择已有 Profile 后自动使用它的名称，避免槽位与 Profile 对不上。</small></label>
               <input id="account-key" name="account_key" type="hidden" />
               <label>添加方式
@@ -216,20 +224,12 @@
                   <p class="direct-send-note">点击下方按钮即授权当前账号完成本次随机评论，生成后将直接发送，不进入逐条确认。</p>
                 </fieldset>
                 <fieldset class="browse-settings home-engagement-settings" id="home-engagement-settings" hidden>
-                  <legend>首页综合互动</legend>
+                  <legend>首页浏览点赞</legend>
                   <label>点开数量<input id="task-home-browse-count" type="number" min="1" max="50" value="6" /><span>篇</span></label>
                   <label>点赞数量<input id="task-home-like-count" type="number" min="0" max="50" value="2" /><span>篇</span></label>
-                  <label>评论数量<input id="task-home-comment-count" type="number" min="0" max="3" value="1" /><span>篇</span></label>
                   <label>最长执行时间<input id="task-home-duration" type="number" min="1" max="10" value="3" /><span>分钟</span></label>
                   <label class="home-read-range"><span class="field-label">单篇阅读</span><span class="range-inputs"><input id="task-home-min-read" aria-label="单篇最短阅读秒数" type="number" min="0" max="60" value="8" /><span>至</span><input id="task-home-max-read" aria-label="单篇最长阅读秒数" type="number" min="0" max="60" value="15" /><span>秒</span></span></label>
-                  <label>评论风格
-                    <select id="task-home-style">
-                      <option value="natural">自然互动</option>
-                      <option value="praise">友好认可</option>
-                      <option value="question">提问互动</option>
-                    </select>
-                  </label>
-                  <p class="direct-send-note">一次提交会在同一首页会话完成浏览、点赞和评论；点击执行即授权本批评论直接发送。</p>
+                  <p class="form-note">一次提交会在同一首页会话完成浏览和点赞，并按篇记录结果。</p>
                 </fieldset>
                 <label id="task-target-field"><span id="task-target-label">任务目标</span><input id="task-target" /></label>
                 <label id="token-field"><span id="task-token-label">XSEC Token</span><input id="task-token" placeholder="查看详情或互动时需要" /></label>
@@ -280,10 +280,43 @@
               </form>
               <div class="record-list draft-ledger" id="draft-list"><article class="empty-card"><div><strong>暂无草稿</strong><span>最终确认后才能执行。</span></div></article></div>
             </div>
+            <form class="setup-card intelligent-reply-panel" id="reply-rule-form">
+              <div class="section-heading compact-heading">
+                <div><p class="section-kicker">AUTOMATIC REPLY CYCLE</p><h3>账号回复规则</h3></div>
+                <p>每次运行只处理一批新事件；只有规则判定为“回复”的内容会直接发送并回读。</p>
+              </div>
+              <label>账号槽位<select id="reply-rule-account" required></select></label>
+              <div class="inline-checks">
+                <label><input id="reply-rule-enabled" type="checkbox" /> 启用自动回复规则</label>
+                <label><input id="reply-rule-comment-enabled" type="checkbox" checked /> 评论回复</label>
+                <label><input id="reply-rule-private-message-enabled" type="checkbox" checked /> 私信回复</label>
+              </div>
+              <div class="form-grid">
+                <label>生效时段<input id="reply-rule-active-time" placeholder="例如 09:00-22:00；留空表示全天" /></label>
+                <label>每小时上限<input id="reply-rule-hourly-limit" type="number" min="0" value="0" /></label>
+                <label>每天上限<input id="reply-rule-daily-limit" type="number" min="0" value="0" /></label>
+                <label>回复风格<input id="reply-rule-style" value="natural" /></label>
+              </div>
+              <label>账号人设<textarea id="reply-rule-profile" rows="3" placeholder="账号长期语气、称呼和表达习惯"></textarea></label>
+              <label>可确认知识<textarea id="reply-rule-knowledge" rows="4" placeholder="价格、时间、服务范围等可用于回答的确定事实"></textarea></label>
+              <div class="task-actions">
+                <button class="secondary-button" type="submit" id="save-reply-rule">保存规则</button>
+                <button class="primary-button" type="button" id="run-reply-cycle">立即运行一轮</button>
+              </div>
+              <p class="form-note" id="reply-cycle-message" role="status">普通问题、感谢、一般讨论和知识库可回答咨询可自动回复；需要业务判断的内容进入待处理。</p>
+              <div class="section-heading compact-heading">
+                <div><p class="section-kicker">PENDING</p><h3>待处理内容</h3></div>
+              </div>
+              <div class="record-list" id="reply-pending-list"><article class="empty-card"><div><strong>暂无待处理内容</strong><span>规则无法自动回答的内容会显示在这里。</span></div></article></div>
+              <div class="section-heading compact-heading">
+                <div><p class="section-kicker">DECISIONS</p><h3>自动回复记录</h3></div>
+              </div>
+              <div class="record-list" id="reply-decision-list"><article class="empty-card"><div><strong>暂无自动回复记录</strong><span>运行回复周期后会显示决策与发送结果。</span></div></article></div>
+            </form>
             <div class="setup-card intelligent-reply-panel">
               <div class="section-heading compact-heading">
-                <div><p class="section-kicker">V2.0 / AI REPLY DRAFTS</p><h3>新评论智能回复</h3></div>
-                <p id="reply-intelligence-status">只生成待确认草稿，不会自动发送。</p>
+                <div><p class="section-kicker">MANUAL TAKEOVER</p><h3>新评论智能回复（人工接管）</h3></div>
+                <p id="reply-intelligence-status">用于人工接管某一条评论并生成草稿。</p>
               </div>
               <form class="comment-collection-bar" id="comment-collection-form">
                 <label>采集账号<select id="comment-collection-account" required></select></label>
@@ -295,8 +328,8 @@
             </div>
             <div class="setup-card intelligent-reply-panel private-message-reply-panel">
               <div class="section-heading compact-heading">
-                <div><p class="section-kicker">V2.0 / PRIVATE MESSAGE REPLIES</p><h3>新私信智能回复</h3></div>
-                <p id="private-message-intelligence-status">只读取一对一文字私信，只生成待确认草稿。</p>
+                <div><p class="section-kicker">MANUAL TAKEOVER</p><h3>新私信智能回复（人工接管）</h3></div>
+                <p id="private-message-intelligence-status">用于人工接管某一轮私信并生成草稿。</p>
               </div>
               <form class="comment-collection-bar" id="private-message-collection-form">
                 <label>采集账号<select id="private-message-collection-account" required></select></label>
@@ -318,9 +351,32 @@
           <div class="record-list record-ledger" id="record-list"><article class="empty-card"><div><strong>暂无记录</strong><span>任务完成后会保留最小结果。</span></div></article></div>
         </section>
 
+        <section class="content-section data-recovery-section workspace-view" data-workspace="data" hidden>
+          <div class="section-heading">
+            <div><p class="section-kicker">06 / DATA RECOVERY</p><h2>数据回收</h2></div>
+            <p>集中查看发布帖子以及私信和评论回复记录。</p>
+          </div>
+
+          <div class="recovery-summary" aria-label="数据回收概览">
+            <article><span>发布记录</span><strong id="data-published-total">0</strong><small>发布任务结算后记录</small></article>
+            <article><span>回复记录</span><strong id="data-reply-total">0</strong><small>私信回复与评论回复</small></article>
+          </div>
+
+          <div class="recovery-ledgers">
+            <article class="recovery-panel">
+              <div class="lane-heading"><div><p class="section-kicker">PUBLISHED POSTS</p><h3>发布台账</h3></div><span>帖子与发布回读</span></div>
+              <div class="record-list data-ledger" id="published-post-list"><article class="empty-card"><div><strong>暂无发布记录</strong><span>发布任务结算后会显示在这里。</span></div></article></div>
+            </article>
+            <article class="recovery-panel">
+              <div class="lane-heading"><div><p class="section-kicker">REPLIES</p><h3>回复台账</h3></div><span>原内容、回复文本与结果</span></div>
+              <div class="record-list data-ledger" id="reply-record-list"><article class="empty-card"><div><strong>暂无回复记录</strong><span>私信回复或评论回复结算后会显示在这里。</span></div></article></div>
+            </article>
+          </div>
+        </section>
+
         <section class="content-section system-section workspace-view" data-workspace="system" hidden>
           <div class="section-heading">
-            <div><p class="section-kicker">06 / SYSTEM</p><h2>系统与诊断</h2></div>
+            <div><p class="section-kicker">07 / SYSTEM</p><h2>系统与诊断</h2></div>
             <p>查看运行健康、导出脱敏诊断，并管理并发、配额和熔断规则。</p>
           </div>
         <div class="diagnosis-layout" id="diagnosis">
@@ -354,7 +410,7 @@
               </div>
               <button class="primary-button" type="submit">确认保存设置</button>
             </form>
-            <p class="version-line">VERSION <strong id="product-version">—</strong><br />账号自启动在各账号卡片中设置</p>
+            <p class="version-line">VERSION <strong id="product-version">—</strong></p>
           </article>
 
           <article class="settings-card reply-model-settings-card">
@@ -578,7 +634,7 @@
         <p class="remove-profile" id="remove-account-profile">Chrome · —</p>
         <div class="remove-guidance">
           <strong>不会删除这些内容</strong>
-          <p>Chrome Profile、小红书登录数据和共享通用扩展都会保留。系统只会停止该槽位的受管 Bridge、关闭自启动、撤销配对，并把槽位数据保存到本机归档。</p>
+          <p>Chrome Profile、小红书登录数据和共享通用扩展都会保留。系统只会停止该槽位的受管 Bridge、撤销配对，并把槽位数据保存到本机归档。</p>
         </div>
         <label class="remove-confirm-field">
           输入完整槽位名称以确认

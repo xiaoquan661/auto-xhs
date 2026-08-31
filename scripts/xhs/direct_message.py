@@ -21,6 +21,44 @@ _READ_CHAT_JS = r"""
     const editor = document.querySelector('.xhs-im-input-bar-editor[contenteditable="true"]');
     const header = document.querySelector('.xhs-im-chat-window__header-name');
     const chatWindow = document.querySelector('.xhs-im-chat-window');
+    const inputBar = editor ? editor.closest('.xhs-im-input-bar') : null;
+    const reactHandlers = (node) => {
+        if (!node) return [];
+        const propsKey = Object.keys(node).find((key) => key.startsWith('__reactProps$'));
+        const props = propsKey ? node[propsKey] : null;
+        return props && typeof props === 'object'
+            ? Object.keys(props).filter((key) => key.startsWith('on')).sort()
+            : [];
+    };
+    const frameworkKeys = (node) => node
+        ? Object.keys(node).filter((key) => key.startsWith('__')).slice(0, 12)
+        : [];
+    const ancestorChain = [];
+    for (let node = editor, depth = 0; node && depth < 5; node = node.parentElement, depth += 1) {
+        ancestorChain.push({
+            tag: String(node.tagName || '').toLowerCase(),
+            class_name: String(node.className || ''),
+            role: String(node.getAttribute?.('role') || ''),
+            framework_keys: frameworkKeys(node)
+        });
+    }
+    const sendControls = inputBar ? Array.from(
+        inputBar.querySelectorAll('button,a,[role="button"]')
+    ).slice(0, 12).map((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+            tag: String(node.tagName || '').toLowerCase(),
+            label: String(
+                node.getAttribute('aria-label') || node.getAttribute('title') ||
+                node.innerText || node.textContent || ''
+            ).trim(),
+            class_name: String(node.className || ''),
+            disabled: Boolean(node.disabled || node.getAttribute('aria-disabled') === 'true'),
+            visible: rect.width > 0 && rect.height > 0 &&
+                style.display !== 'none' && style.visibility !== 'hidden'
+        };
+    }) : [];
     const messages = Array.from(document.querySelectorAll('.chat-item')).map((item) => {
         const textNode = item.querySelector('.xhs-im-bubble__text');
         const content = String(textNode ? textNode.innerText || textNode.textContent || '' : '')
@@ -37,7 +75,20 @@ _READ_CHAT_JS = r"""
         first_message_notice: String(
             chatWindow ? chatWindow.innerText || chatWindow.textContent || '' : ''
         ).includes('只能发送1条消息'),
-        messages
+        messages,
+        composer: {
+            active: document.activeElement === editor,
+            editor_class: String(editor ? editor.className || '' : ''),
+            editor_text: String(editor ? editor.innerText || editor.textContent || '' : ''),
+            editor_attributes: editor ? Object.fromEntries(
+                Array.from(editor.attributes).map((attribute) => [attribute.name, attribute.value])
+            ) : {},
+            input_bar_text: String(inputBar ? inputBar.innerText || inputBar.textContent || '' : ''),
+            editor_handlers: reactHandlers(editor),
+            input_bar_handlers: reactHandlers(inputBar),
+            ancestors: ancestorChain,
+            send_controls: sendControls
+        }
     });
 })()
 """
@@ -169,6 +220,19 @@ class PrivateMessageResultUnknownError(ServiceError):
         )
 
 
+class PrivateMessageContextChangedError(ServiceError):
+    """The peer sent a new turn after reply generation; nothing was sent."""
+
+    result_unknown = False
+
+    def __init__(self) -> None:
+        super().__init__(
+            "PRIVATE_MESSAGE_CONTEXT_CHANGED",
+            "会话状态或对方最新消息在文本生成后发生变化，本次未发送",
+            409,
+        )
+
+
 def inspect_private_message_context(
     page: Page,
     user_id: str,
@@ -191,6 +255,7 @@ def inspect_private_message_context(
         ),
         "messages": state["messages"][-limit:],
         "message_count": len(state["messages"]),
+        "composer": state["composer"],
     }
 
 
@@ -201,6 +266,8 @@ def send_private_message(
     content: str,
     *,
     expected_nickname: str = "",
+    expected_conversation_type: str = "",
+    expected_peer_turn: list[str] | None = None,
 ) -> dict:
     """Send one final text once and require a new outgoing-bubble readback."""
 
@@ -214,25 +281,46 @@ def send_private_message(
         if not opened["existing"] or before["first_message_notice"]
         else "existing"
     )
-    if expected_nickname and before["target_nickname"]:
-        if before["target_nickname"] != expected_nickname.strip():
-            raise PrivateMessageUnavailableError("当前会话收件人与任务目标不一致")
+    if expected_conversation_type and conversation_type != expected_conversation_type:
+        raise PrivateMessageContextChangedError()
+    if (
+        expected_nickname
+        and before["target_nickname"]
+        and before["target_nickname"] != expected_nickname.strip()
+    ):
+        raise PrivateMessageUnavailableError("当前会话收件人与任务目标不一致")
+    if expected_peer_turn is not None:
+        latest_peer_turn = _latest_peer_turn(before["messages"])
+        normalized_expected = [
+            str(item).strip() for item in expected_peer_turn if str(item).strip()
+        ]
+        if latest_peer_turn != normalized_expected:
+            raise PrivateMessageContextChangedError()
     before_self = _matching_count(before["messages"], content, role="self")
     before_all = _matching_count(before["messages"], content)
 
-    page.input_content_editable(CHAT_EDITOR, content)
-    entered = str(
-        page.evaluate(
-            "String(document.querySelector(" + json.dumps(CHAT_EDITOR) + ")?.innerText || '')"
-        )
-        or ""
-    ).strip()
-    if entered != content:
-        raise PrivateMessageUnavailableError("私信输入框没有完整写入最终文本")
-    if page.evaluate(_SYNC_CHAT_EDITOR_STATE_JS) is not True:
-        raise PrivateMessageUnavailableError("私信输入框状态没有同步到页面")
-
-    _trigger_send(page)
+    atomic_send = getattr(page, "send_content_editable", None)
+    if callable(atomic_send):
+        send_result = atomic_send(CHAT_EDITOR, content)
+        if str(send_result.get("entered") or "").strip() != content:
+            raise PrivateMessageUnavailableError("私信输入框没有完整写入最终文本")
+        if send_result.get("submitted") is not True:
+            raise PrivateMessageUnavailableError("私信输入框没有触发发送")
+    else:
+        page.input_content_editable(CHAT_EDITOR, content)
+        entered = str(
+            page.evaluate(
+                "String(document.querySelector("
+                + json.dumps(CHAT_EDITOR)
+                + ")?.innerText || '')"
+            )
+            or ""
+        ).strip()
+        if entered != content:
+            raise PrivateMessageUnavailableError("私信输入框没有完整写入最终文本")
+        if page.evaluate(_SYNC_CHAT_EDITOR_STATE_JS) is not True:
+            raise PrivateMessageUnavailableError("私信输入框状态没有同步到页面")
+        _trigger_send(page)
     deadline = time.monotonic() + 8.0
     while time.monotonic() < deadline:
         current = _read_chat(page)
@@ -250,6 +338,7 @@ def send_private_message(
                 "readback": {
                     "user_id": user_id.strip(),
                     "nickname": current["target_nickname"] or expected_nickname.strip(),
+                    "conversation_type": conversation_type,
                     "content": content,
                     "outgoing_message_present": True,
                 },
@@ -335,6 +424,7 @@ def _read_chat(page: Page) -> dict:
             for item in list(data.get("messages") or [])
             if str(item.get("content") or "").strip()
         ],
+        "composer": dict(data.get("composer") or {}),
     }
 
 
@@ -343,3 +433,15 @@ def _matching_count(messages: list[dict], content: str, role: str | None = None)
         item.get("content") == content and (role is None or item.get("role") == role)
         for item in messages
     )
+
+
+def _latest_peer_turn(messages: list[dict]) -> list[str]:
+    turn: list[str] = []
+    for item in reversed(messages):
+        if item.get("role") != "peer":
+            break
+        content = str(item.get("content") or "").strip()
+        if content:
+            turn.append(content)
+    turn.reverse()
+    return turn

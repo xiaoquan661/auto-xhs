@@ -50,6 +50,11 @@ def test_private_inbox_only_returns_conversations_last_authored_by_peer() -> Non
     assert result["count"] == 1
     assert result["messages"][0]["user_id"] == "user-1"
     assert result["messages"][0]["content"] == "你好"
+    assert len(result["conversation_snapshots"]) == 2
+    second = result["conversation_snapshots"][1]
+    assert second["user_id"] == "user-2"
+    assert second["latest_role"] == "self"
+    assert second["message_count"] == 2
     assert result["skipped"] == [
         {"user_id": "user-2", "reason": "latest_message_not_peer"}
     ]

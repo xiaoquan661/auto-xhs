@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from operations_db import OperationsDatabase
+from platforms import normalize_platform
 
 
 def utc_now() -> str:
@@ -45,19 +46,22 @@ class CollectorService:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         collector_type: str,
         cursor_value: str = "",
         last_seen_time: str | None = None,
     ) -> dict:
         now = utc_now()
+        platform = normalize_platform(platform)
         with self.database.transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO collector_cursors (
-                    account_slot, collector_type, cursor_value, last_seen_time,
+                    account_slot, platform, collector_type, cursor_value, last_seen_time,
                     last_success_time, last_attempt_time, last_error
-                ) VALUES (?, ?, ?, ?, ?, ?, '')
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, '')
                 ON CONFLICT(account_slot, collector_type) DO UPDATE SET
+                    platform = excluded.platform,
                     cursor_value = excluded.cursor_value,
                     last_seen_time = excluded.last_seen_time,
                     last_success_time = excluded.last_success_time,
@@ -66,6 +70,7 @@ class CollectorService:
                 """,
                 (
                     account_slot,
+                    platform,
                     collector_type,
                     cursor_value,
                     last_seen_time,
@@ -86,21 +91,24 @@ class CollectorService:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         collector_type: str,
         error: str,
     ) -> dict:
         now = utc_now()
+        platform = normalize_platform(platform)
         with self.database.transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO collector_cursors (
-                    account_slot, collector_type, last_attempt_time, last_error
-                ) VALUES (?, ?, ?, ?)
+                    account_slot, platform, collector_type, last_attempt_time, last_error
+                ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(account_slot, collector_type) DO UPDATE SET
+                    platform = excluded.platform,
                     last_attempt_time = excluded.last_attempt_time,
                     last_error = excluded.last_error
                 """,
-                (account_slot, collector_type, now, error),
+                (account_slot, platform, collector_type, now, error),
             )
             row = connection.execute(
                 """

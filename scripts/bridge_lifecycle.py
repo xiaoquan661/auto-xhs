@@ -29,7 +29,8 @@ def get_bridge_lifecycle(
 ) -> dict:
     page_factory = page_factory or bridge_module.BridgePage
     bridge_url = getattr(config, "bridge_url", f"ws://localhost:{config.bridge_port}")
-    page = page_factory(bridge_url, account=config.name)
+    platform = getattr(config, "platform", "xiaohongshu")
+    page = page_factory(bridge_url, account=config.name, platform=platform)
     running = page.is_server_running()
     record = _read_process_record(config.name)
     checker = process_checker or process_is_running
@@ -59,7 +60,8 @@ def start_bridge(
         page_factory = bridge_module.BridgePage
     process_factory = process_factory or subprocess.Popen
     bridge_url = getattr(config, "bridge_url", f"ws://localhost:{config.bridge_port}")
-    page = page_factory(bridge_url, account=config.name)
+    platform = getattr(config, "platform", "xiaohongshu")
+    page = page_factory(bridge_url, account=config.name, platform=platform)
     if page.is_server_running():
         return get_bridge_lifecycle(config, page_factory=page_factory)
 
@@ -70,6 +72,7 @@ def start_bridge(
         ("XHS_BRIDGE_ACCOUNT_ID", getattr(config, "account_id", None)),
         ("XHS_BRIDGE_TOKEN", getattr(config, "bridge_token", None)),
         ("XHS_EXTENSION_INSTANCE_ID", getattr(config, "extension_instance_id", None)),
+        ("XHS_PLATFORM", platform),
     ):
         if value:
             process_env[key] = value
@@ -96,6 +99,8 @@ def start_bridge(
             config.name,
             "--profile-directory",
             getattr(config, "chrome_profile_directory", None) or "Default",
+            "--platform",
+            platform,
         ],
         **kwargs,
     )
@@ -124,7 +129,11 @@ def stop_bridge(
         _clear_process_record(config.name)
         raise RuntimeError("没有找到由本项目登记的 Bridge 进程")
     bridge_url = getattr(config, "bridge_url", f"ws://localhost:{config.bridge_port}")
-    page = page_factory(bridge_url, account=config.name)
+    page = page_factory(
+        bridge_url,
+        account=config.name,
+        platform=getattr(config, "platform", "xiaohongshu"),
+    )
     accepted = page.shutdown_server(
         account_id=getattr(config, "account_id", None),
         bridge_token=getattr(config, "bridge_token", None),

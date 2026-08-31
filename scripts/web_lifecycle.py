@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
 import socket
 import subprocess
 import sys
@@ -15,6 +17,9 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from product_store import product_root
+
+
+ACTIVE_RESTART_STATES = {"RUNNING", "CANCEL_REQUESTED"}
 
 
 def service_is_healthy(url: str, *, timeout: float = 0.5) -> bool:
@@ -32,6 +37,37 @@ def port_is_listening(host: str, port: int, *, timeout: float = 0.2) -> bool:
             return True
     except OSError:
         return False
+
+
+def read_tasks(url: str, *, timeout: float = 2.0) -> list[dict]:
+    with urlopen(f"{url}/api/v1/tasks", timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return list(payload.get("tasks") or [])
+
+
+def listener_pid(host: str, port: int) -> int | None:
+    if sys.platform != "win32":
+        state_path = product_root() / "webui-process.json"
+        if not state_path.exists():
+            return None
+        return int(json.loads(state_path.read_text(encoding="utf-8"))["pid"])
+
+    result = subprocess.run(
+        ["netstat", "-ano", "-p", "TCP"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    endpoint = f"{host}:{port}"
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[1] == endpoint and parts[3].upper() == "LISTENING":
+            return int(parts[4])
+    return None
+
+
+def terminate_process(pid: int) -> None:
+    os.kill(pid, signal.SIGTERM)
 
 
 def _startup_log_excerpt(path: Path, *, limit: int = 1200) -> str:
@@ -137,24 +173,165 @@ def start_webui(
     }
 
 
+def restart_webui(
+    *,
+    python_executable: str,
+    project_root: str | Path,
+    port: int = 8765,
+    delay: float = 0.0,
+    task_reader: Callable[[str], list[dict]] = read_tasks,
+    pid_reader: Callable[[str, int], int | None] = listener_pid,
+    process_terminator: Callable[[int], None] = terminate_process,
+    health_checker: Callable[[str], bool] = service_is_healthy,
+    port_checker: Callable[[str, int], bool] = port_is_listening,
+    process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
+) -> dict:
+    url = f"http://127.0.0.1:{port}"
+    if delay > 0:
+        time.sleep(delay)
+
+    if not health_checker(url):
+        return start_webui(
+            python_executable=python_executable,
+            project_root=project_root,
+            port=port,
+            process_factory=process_factory,
+            health_checker=health_checker,
+            port_checker=port_checker,
+        )
+
+    active = [
+        item
+        for item in task_reader(url)
+        if str(item.get("state") or "").upper() in ACTIVE_RESTART_STATES
+    ]
+    if active:
+        return {
+            "success": False,
+            "status": "active_tasks",
+            "message": f"当前有 {len(active)} 个执行中任务，请先终止或等待任务结束",
+            "task_ids": [str(item.get("task_id") or "") for item in active],
+            "url": url,
+        }
+
+    pid = pid_reader("127.0.0.1", port)
+    if pid is None:
+        return {
+            "success": False,
+            "status": "process_not_found",
+            "message": "本地服务正常响应，但未找到对应进程",
+            "url": url,
+        }
+
+    process_terminator(pid)
+    for _ in range(50):
+        if not port_checker("127.0.0.1", port):
+            break
+        time.sleep(0.1)
+    else:
+        return {
+            "success": False,
+            "status": "stop_failed",
+            "message": "旧的本地服务未能在 5 秒内停止",
+            "url": url,
+            "pid": pid,
+        }
+
+    result = start_webui(
+        python_executable=python_executable,
+        project_root=project_root,
+        port=port,
+        process_factory=process_factory,
+        health_checker=health_checker,
+        port_checker=port_checker,
+    )
+    if result.get("success"):
+        result["status"] = "restarted"
+        result["previous_pid"] = pid
+    return result
+
+
+def schedule_webui_restart(
+    *,
+    python_executable: str,
+    project_root: str | Path,
+    port: int = 8765,
+    delay: float = 0.8,
+    process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
+) -> dict:
+    root = Path(project_root).resolve()
+    log_root = root / "tmp"
+    log_root.mkdir(parents=True, exist_ok=True)
+    restart_log = log_root / "webui-restart.log"
+    log_stream = restart_log.open("w", encoding="utf-8")
+    kwargs: dict = {
+        "cwd": str(root),
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_stream,
+        "stderr": subprocess.STDOUT,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        process = process_factory(
+            [
+                python_executable,
+                str(Path(__file__).resolve()),
+                "restart",
+                "--python",
+                python_executable,
+                "--project-root",
+                str(root),
+                "--port",
+                str(port),
+                "--delay",
+                str(delay),
+            ],
+            **kwargs,
+        )
+    finally:
+        log_stream.close()
+    return {
+        "success": True,
+        "status": "restart_scheduled",
+        "helper_pid": process.pid,
+        "url": f"http://127.0.0.1:{port}",
+        "log_path": str(restart_log),
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="启动 auto-xhs 本地 WebUI")
-    parser.add_argument("command", choices=["start"])
+    parser.add_argument("command", choices=["start", "restart"])
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--project-root", default=str(Path(__file__).resolve().parent.parent))
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open-browser", action="store_true")
+    parser.add_argument("--delay", type=float, default=0.0)
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    result = start_webui(
-        python_executable=args.python,
-        project_root=args.project_root,
-        port=args.port,
-        open_browser=args.open_browser,
-    )
+    if args.command == "restart":
+        result = restart_webui(
+            python_executable=args.python,
+            project_root=args.project_root,
+            port=args.port,
+            delay=args.delay,
+        )
+    else:
+        result = start_webui(
+            python_executable=args.python,
+            project_root=args.project_root,
+            port=args.port,
+            open_browser=args.open_browser,
+        )
     print(json.dumps(result, ensure_ascii=False))
     raise SystemExit(0 if result["success"] else 1)
 

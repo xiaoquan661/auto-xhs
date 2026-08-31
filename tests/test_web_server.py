@@ -74,6 +74,9 @@ class FakeService:
         self.paused = paused
         return {"success": True, "global_paused": paused}
 
+    def restart_local_service(self) -> dict:
+        return {"success": True, "status": "restart_scheduled"}
+
     def update_system_settings(self, **body) -> dict:
         return {"success": True, **body}
 
@@ -97,12 +100,6 @@ class FakeService:
 
     def restart_account_bridge(self, account: str) -> dict:
         return {"success": True, "lifecycle": {"account": account, "restarted": True}}
-
-    def get_account_autostart(self, account: str) -> dict:
-        return {"success": True, "autostart": {"account": account, "enabled": False}}
-
-    def set_account_autostart(self, account: str, **body) -> dict:
-        return {"success": True, "autostart": {"account": account, **body}}
 
     def list_tasks(self) -> dict:
         return {"success": True, "tasks": self.tasks}
@@ -177,6 +174,34 @@ class FakeService:
     def list_operation_events(self) -> dict:
         return {"success": True, "events": []}
 
+    def data_recovery_summary(self) -> dict:
+        return {
+            "success": True,
+            "summary": {
+                "published_posts": {"total": 0, "states": {}},
+                "operation_records": {"total": 0, "states": {}},
+                "reply_records": {"total": 0, "states": {}},
+            },
+        }
+
+    def list_published_posts(self) -> dict:
+        return {"success": True, "posts": []}
+
+    def get_published_post(self, published_post_id: str) -> dict:
+        return {
+            "success": True,
+            "post": {"published_post_id": published_post_id},
+        }
+
+    def list_operation_records(self) -> dict:
+        return {"success": True, "records": []}
+
+    def list_reply_records(self) -> dict:
+        return {"success": True, "records": []}
+
+    def get_reply_record(self, reply_record_id: str) -> dict:
+        return {"success": True, "record": {"reply_record_id": reply_record_id}}
+
     def get_metric_history(self, account: str, entity_type: str, entity_id: str) -> dict:
         return {
             "success": True,
@@ -200,6 +225,18 @@ class FakeService:
 
     def set_reply_rule_enabled(self, rule_id: str, **body) -> dict:
         return {"success": True, "rule": {"rule_id": rule_id, **body}}
+
+    def list_reply_cycles(self) -> dict:
+        return {"success": True, "cycles": []}
+
+    def list_reply_decisions(self) -> dict:
+        return {"success": True, "decisions": []}
+
+    def run_reply_cycle(self, **body) -> dict:
+        return {
+            "success": True,
+            "cycle": {"cycle_id": "cycle-1", "summary": body},
+        }
 
     def create_task(self, **body) -> dict:
         self.tasks.append(body)
@@ -283,7 +320,23 @@ def test_api_dispatch_routes_to_shared_service() -> None:
     assert _dispatch_api(service, "/api/v1/tasks")["tasks"] == []
     assert _dispatch_api(service, "/api/v1/inbound-events")["events"] == []
     assert _dispatch_api(service, "/api/v1/operation-events")["events"] == []
+    assert _dispatch_api(service, "/api/v1/data-recovery/summary")["summary"][
+        "published_posts"
+    ]["total"] == 0
+    assert _dispatch_api(service, "/api/v1/data-recovery/published-posts")["posts"] == []
+    assert _dispatch_api(service, "/api/v1/data-recovery/operation-records")["records"] == []
+    assert _dispatch_api(service, "/api/v1/data-recovery/reply-records")["records"] == []
+    assert _dispatch_api(
+        service,
+        "/api/v1/data-recovery/published-posts/post-1",
+    )["post"]["published_post_id"] == "post-1"
+    assert _dispatch_api(
+        service,
+        "/api/v1/data-recovery/reply-records/reply-1",
+    )["record"]["reply_record_id"] == "reply-1"
     assert _dispatch_api(service, "/api/v1/reply-rules")["rules"] == []
+    assert _dispatch_api(service, "/api/v1/reply-cycles")["cycles"] == []
+    assert _dispatch_api(service, "/api/v1/reply-decisions")["decisions"] == []
     assert (
         _dispatch_api(service, "/api/v1/reply-intelligence/status")["mode"]
         == "review_only"
@@ -318,6 +371,7 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
     service = FakeService()
 
     paused = _dispatch_mutation(service, "POST", "/api/v1/system/pause", {})
+    restarted = _dispatch_mutation(service, "POST", "/api/v1/system/restart", {})
     task = _dispatch_mutation(
         service,
         "POST",
@@ -383,6 +437,12 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
         "/api/v1/reply-rules/rule-1/enabled",
         {"enabled": True},
     )
+    reply_cycle = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/reply-cycle",
+        {"account_slot": "alpha", "max_events": 10},
+    )
     retried = _dispatch_mutation(
         service,
         "POST",
@@ -414,6 +474,7 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
     )
 
     assert paused["global_paused"] is True
+    assert restarted["status"] == "restart_scheduled"
     assert task["task"]["capability"] == "search-feeds"
     assert draft["draft"]["content"] == "新文本"
     assert diagnostics["path"] == "diagnostic.json"
@@ -426,6 +487,7 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
     assert reply_rule["rule"]["account_slot"] == "alpha"
     assert updated_rule["rule"]["reply_style"] == "professional"
     assert enabled_rule["rule"]["enabled"] is True
+    assert reply_cycle["cycle"]["summary"]["account_slot"] == "alpha"
     assert retried["task"]["state"] == "SUCCESS"
     assert cancelled["task"]["state"] == "CANCELLED"
     assert published["task"]["state"] == "SUCCESS"
@@ -560,7 +622,15 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
 
     for label in ("今日总览", "账号", "任务", "确认中心", "执行记录", "系统"):
         assert label in html
-    for workspace in ("overview", "accounts", "tasks", "approvals", "records", "system"):
+    for workspace in (
+        "overview",
+        "accounts",
+        "tasks",
+        "approvals",
+        "records",
+        "data",
+        "system",
+    ):
         assert f'data-workspace="{workspace}"' in html
         assert f'data-workspace-link="{workspace}"' in html
     assert "hashchange" in workspace_script
@@ -593,6 +663,12 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "auth/logout" in script
     assert "退出当前账号" in script
     assert "回读页面确认已退出" in script
+    assert "退出成功，" in script
+    assert "当前无账号" in script
+    assert "我已登录，完成核验" in script
+    assert "终止当前任务" in script
+    assert "取消等待" in script
+    assert 'window.AutoXhsWorkspace?.navigate("tasks"' in script
     assert 'id="account-remove-dialog"' in html
     assert "删除槽位" in script
     assert '"DELETE"' in script
@@ -600,6 +676,12 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "切换账号" in script
     assert "tasks/${created.task.task_id}/execute" in script
     assert "tasks/${task.task_id}/${action}" in script
+    assert 'id="published-post-list"' in html
+    assert 'id="reply-record-list"' in html
+    assert "data-recovery/published-posts" in script
+    assert "data-recovery/reply-records" in script
+    assert 'id="operation-record-list"' not in html
+    assert "data-recovery/operation-records" not in script
     assert 'id="task-submit"' in html
     assert "account-activity" in script
     assert "pendingSubmissionByAccount" in script
@@ -660,11 +742,18 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert 'id="random-comment-settings"' in html
     assert 'id="home-engagement-settings"' in html
     assert 'id="task-comment-count"' in html
+    assert 'id="task-home-comment-count"' not in html
+    assert 'id="task-home-style"' not in html
+    assert "homeCommentCount" not in script
+    assert "homeStyle" not in script
     assert "direct_send_authorized: true" in script
     assert "function appendRandomCommentResults" in script
     assert "创建并直接发送" in script
     assert "drafts/${draft.draft_id}/execute" in script
     assert 'id="global-pause"' in html
+    assert 'id="restart-service"' in html
+    assert "function restartLocalService" in script
+    assert "runtime_instance_id !== previousInstanceId" in script
     assert 'id="settings-form"' in html
     assert 'id="reply-model-form"' in html
     assert 'id="reply-model-api-key"' in html
@@ -691,6 +780,38 @@ def test_webui_stops_guided_uid_polling_when_profile_is_logged_out() -> None:
     assert "scheduleAccountSetupPoll" not in login_required_branch
     assert "系统已停止自动检测" in login_required_branch
     assert "scheduleAccountSetupPoll(inspectGuidedIdentity, 2000)" in uid_unavailable_branch
+
+
+def test_webui_renders_logged_out_identity_only_inside_account_card() -> None:
+    script = (
+        Path(__file__).resolve().parents[1] / "webui" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    activity_renderer = script.split("function paintAccountActivity", 1)[1].split(
+        "function syncAccountActivityUI", 1
+    )[0]
+    account_renderer = script.split("function accountCard", 1)[1].split(
+        "const setupSteps", 1
+    )[0]
+
+    assert "LOGIN_REQUIRED" not in activity_renderer
+    assert 'else if (state === "LOGIN_REQUIRED") {' in account_renderer
+    assert 'bindingRow("当前小红书账号", "当前无账号"' in account_renderer
+
+
+def test_webui_account_card_exposes_task_management_actions() -> None:
+    script = (
+        Path(__file__).resolve().parents[1] / "webui" / "app.js"
+    ).read_text(encoding="utf-8")
+    activity_renderer = script.split("function paintAccountActivity", 1)[1].split(
+        "function syncAccountActivityUI", 1
+    )[0]
+
+    assert 'view.textContent = "查看任务"' in activity_renderer
+    assert 'cancel.textContent = activity.state === "RUNNING"' in activity_renderer
+    assert '"终止当前任务"' in activity_renderer
+    assert 'updateTask(activity, "cancel", cancel)' in activity_renderer
+    assert 'activity.state === "CANCEL_REQUESTED"' in activity_renderer
 
 
 def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:

@@ -51,6 +51,7 @@ def create_pairing_session(
     session = {
         "schema_version": PAIRING_SCHEMA_VERSION,
         "account": config.name,
+        "platform": config.platform,
         "code_hash": _hash_pairing_code(pairing_code),
         "created_at": now.isoformat(),
         "expires_at": expires_at.isoformat(),
@@ -59,6 +60,7 @@ def create_pairing_session(
     bundle_payload = {
         "v": PAIRING_SCHEMA_VERSION,
         "account": config.name,
+        "platform": config.platform,
         "bridgeUrl": config.bridge_url,
         "pairingCode": pairing_code,
         "profileDirectory": config.chrome_profile_directory or "Default",
@@ -71,6 +73,7 @@ def create_pairing_session(
     ).decode("ascii").rstrip("=")
     return {
         "account": config.name,
+        "platform": config.platform,
         "bridge_url": config.bridge_url,
         "profile_directory": config.chrome_profile_directory or "Default",
         "expires_at": expires_at.isoformat(),
@@ -103,6 +106,7 @@ def get_pairing_status(account: str) -> dict:
         pending = bool(expires_at and _parse_time(expires_at) > datetime.now(UTC))
     return {
         "account": account,
+        "platform": config.platform,
         "extension_mode": config.extension_mode,
         "paired": bool(config.extension_instance_id),
         "extension_instance_id": config.extension_instance_id,
@@ -118,6 +122,7 @@ def consume_pairing_session(
     instance_id: str,
     extension_id: str,
     profile_directory: str,
+    platform: str | None = None,
 ) -> AccountConfig:
     account = validate_account_name(account)
     if not _INSTANCE_RE.fullmatch(instance_id):
@@ -146,6 +151,11 @@ def consume_pairing_session(
         raise RuntimeError(
             "配对 Profile 与账号槽位不一致: "
             f"expected={expected_profile!r}, actual={profile_directory!r}"
+        )
+    if platform is not None and platform != config.platform:
+        raise RuntimeError(
+            "配对平台与账号槽位不一致: "
+            f"expected={config.platform!r}, actual={platform!r}"
         )
 
     claimed = path.with_name(
@@ -181,6 +191,7 @@ def public_binding(config: AccountConfig) -> dict:
     return {
         "schemaVersion": PAIRING_SCHEMA_VERSION,
         "account": config.name,
+        "platform": config.platform,
         "bridgeUrl": config.bridge_url,
         "accountId": config.account_id,
         "bridgeToken": config.bridge_token,

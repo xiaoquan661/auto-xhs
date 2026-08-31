@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 
 from .direct_message import CHAT_URL, _read_chat
 
-
 _READ_CONVERSATIONS_JS = r"""
 (() => Array.from(document.querySelectorAll('.xhs-im-conv-item'))
     .filter((node) => node.getAttribute('data-conv-kind') === 'c2c')
@@ -50,6 +49,7 @@ def collect_private_messages(
     conversations = list(raw)[:max_conversations] if isinstance(raw, list) else []
 
     messages: list[dict] = []
+    conversation_snapshots: list[dict] = []
     skipped: list[dict] = []
     observed_at = datetime.now(UTC).isoformat()
     for conversation in conversations:
@@ -65,17 +65,40 @@ def collect_private_messages(
             skipped.append({"user_id": user_id, "reason": "conversation_unavailable"})
             continue
         recent = list(state["messages"])[-context_limit:]
+        nickname = str(
+            state.get("target_nickname") or conversation.get("nickname") or ""
+        ).strip()
+        conversation_snapshots.append(
+            {
+                "user_id": user_id,
+                "nickname": nickname,
+                "display_time": str(conversation.get("display_time") or ""),
+                "observed_at": observed_at,
+                "message_count": len(state["messages"]),
+                "context": recent,
+                "latest_role": str((recent[-1] if recent else {}).get("role") or ""),
+            }
+        )
         if not recent or recent[-1]["role"] != "peer":
             skipped.append({"user_id": user_id, "reason": "latest_message_not_peer"})
             continue
-        content = str(recent[-1].get("content") or "").strip()
-        if content in _PLATFORM_NOTICES:
+        peer_turn: list[str] = []
+        for item in reversed(recent):
+            if item.get("role") != "peer":
+                break
+            text = str(item.get("content") or "").strip()
+            if text:
+                peer_turn.append(text)
+        peer_turn.reverse()
+        if any(content in _PLATFORM_NOTICES for content in peer_turn):
             skipped.append({"user_id": user_id, "reason": "latest_message_platform_notice"})
             continue
-        if not content or (content.startswith("[") and content.endswith("]")):
+        if not peer_turn or any(
+            content.startswith("[") and content.endswith("]") for content in peer_turn
+        ):
             skipped.append({"user_id": user_id, "reason": "latest_message_not_text"})
             continue
-        nickname = str(state.get("target_nickname") or conversation.get("nickname") or "").strip()
+        content = "\n".join(peer_turn)
         messages.append(
             {
                 "message_id": f"{user_id}:{len(state['messages'])}:{content}",
@@ -86,6 +109,7 @@ def collect_private_messages(
                 "occurred_at": observed_at,
                 "message_count": len(state["messages"]),
                 "context": recent,
+                "peer_turn": peer_turn,
                 "source": "chat_inbox",
             }
         )
@@ -93,6 +117,7 @@ def collect_private_messages(
     cursor = messages[0]["message_id"] if messages else ""
     return {
         "messages": messages,
+        "conversation_snapshots": conversation_snapshots,
         "count": len(messages),
         "conversation_count": len(conversations),
         "skipped": skipped,

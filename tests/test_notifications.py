@@ -6,6 +6,7 @@ import pytest
 
 from scripts.xhs.notifications import (
     NotificationReplyError,
+    _visible_notification_content,
     collect_comment_notifications,
     reply_to_comment_notification,
 )
@@ -17,6 +18,8 @@ class NotificationPage:
         self.captured = captured
         self.navigated = ""
         self.clicked: list[str] = []
+        self.scrolls: list[tuple[int, int]] = []
+        self.expressions: list[str] = []
         self.typed: list[tuple[str, str]] = []
 
     def navigate(self, url: str) -> None:
@@ -28,7 +31,11 @@ class NotificationPage:
     def wait_dom_stable(self) -> None:
         return None
 
+    def scroll_to(self, x: int, y: int) -> None:
+        self.scrolls.append((x, y))
+
     def evaluate(self, expression: str):
+        self.expressions.append(expression)
         if "window.__AUTO_XHS_MENTIONS__" in expression:
             return json.dumps(self.captured, ensure_ascii=False) if self.captured else None
         if "data-auto-xhs-comment-notification-send" in expression and "actual !==" in expression:
@@ -113,6 +120,9 @@ def test_replies_inside_the_uniquely_matched_notification_card(monkeypatch) -> N
 
     assert result["success"] is True
     assert result["readback"] == "editor-closed"
+    assert page.scrolls == []
+    assert any(".notification-page .tabs-content-container" in value for value in page.expressions)
+    assert any('"visibleContent": "效率提升很多感谢分享"' in value for value in page.expressions)
     assert len(page.clicked) == 2
     assert page.typed == [
         ("[data-auto-xhs-comment-notification-editor]", "有帮到你就好～")
@@ -124,3 +134,8 @@ def test_notification_reply_rejects_missing_observed_target_before_send() -> Non
         reply_to_comment_notification(NotificationPage(), "回复内容")
 
     assert exc_info.value.result_unknown is False
+
+
+def test_notification_match_uses_text_visible_after_xhs_emoji_rendering() -> None:
+    assert _visible_notification_content("感谢[飞吻R]") == "感谢"
+    assert _visible_notification_content("[开心R]收到啦[飞吻R]") == "收到啦"

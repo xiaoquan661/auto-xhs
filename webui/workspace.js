@@ -25,6 +25,11 @@
       title: "执行记录",
       description: "查看任务终态、结果摘要和失败原因。",
     },
+    data: {
+      breadcrumb: "本地工作台 · 数据回收",
+      title: "数据回收",
+      description: "查看发布台账、操作流水以及私信和评论回复记录。",
+    },
     system: {
       breadcrumb: "本地工作台 · 系统",
       title: "系统",

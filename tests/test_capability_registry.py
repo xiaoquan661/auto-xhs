@@ -55,15 +55,6 @@ def test_service_backed_collectors_do_not_take_the_cli_lock_twice():
     context = parser.parse_args(
         ["--account", "alpha", "private-message-context", "--user-id", "user-1"]
     )
-    prepare = parser.parse_args(
-        [
-            "--account",
-            "alpha",
-            "prepare-private-messages",
-            "--recipients-file",
-            "messages.json",
-        ]
-    )
     send = parser.parse_args(
         [
             "--account",
@@ -79,7 +70,6 @@ def test_service_backed_collectors_do_not_take_the_cli_lock_twice():
     assert follow_preview.requires_account_lock is False
     assert follow.requires_account_lock is False
     assert context.requires_account_lock is False
-    assert prepare.requires_account_lock is False
     assert send.requires_account_lock is False
 
 
@@ -97,7 +87,6 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     } == {
         "post-comment",
         "random-comment",
-        "home-engagement",
         "reply-comment",
         "fill-publish",
         "fill-publish-video",
@@ -107,6 +96,8 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "select-template",
         "next-step",
         "send-private-messages",
+        "reply-cycle",
+        "reply-inbox",
     }
     assert get_capability_policy("post-comment").requires_confirmation is True
     assert get_capability_policy("reply-comment").requires_confirmation is True
@@ -114,15 +105,31 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     assert get_capability_policy("random-comment").supports_scheduling is False
     assert get_capability_policy("home-engagement").requires_confirmation is False
     assert get_capability_policy("home-engagement").requires_identity_check is True
+    assert get_capability_policy("home-engagement").risk_level == RiskLevel.STATE_CHANGE
     assert get_capability_policy("publish").enabled_in_v1 is False
     assert get_capability_policy("publish-video").enabled_in_v1 is False
     assert get_capability_policy("fill-publish").supports_scheduling is True
     assert get_capability_policy("fill-publish-video").supports_scheduling is True
+
+
+def test_home_engagement_cli_has_no_comment_options():
+    parser = cli.build_parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    option_dests = {action.dest for action in subparsers.choices["home-engagement"]._actions}
+    assert "comment_count" not in option_dests
+    assert "style" not in option_dests
     assert get_capability_policy("send-private-messages").requires_confirmation is False
     assert get_capability_policy("send-private-messages").supports_scheduling is False
     assert get_operation_policy(
         "send-private-messages", "recipient"
     ).requires_result_verification is True
+    assert get_operation_policy("reply-inbox", "collect").risk_level is RiskLevel.READ_ONLY
+    assert get_operation_policy("reply-inbox", "apply").requires_confirmation is False
+    assert get_operation_policy("reply-inbox", "apply").requires_result_verification is True
 
 
 def test_security_configuration_always_requires_confirmation():

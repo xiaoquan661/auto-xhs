@@ -52,6 +52,7 @@ def test_fill_then_confirmed_click_persists_agent_task(
     image_file.write_bytes(b"image")
     monkeypatch.setenv("XHS_PRODUCT_HOME", str(product_root))
     monkeypatch.setattr("image_downloader.process_images", lambda _images: [str(image_file)])
+    monkeypatch.setattr("scripts.cli._account_platform", lambda _account: "rednote")
     monkeypatch.setattr("scripts.cli._connect", lambda _args: (Browser(), object()))
     monkeypatch.setattr("xhs.publish.fill_publish_form", lambda _page, _content: None)
 
@@ -71,6 +72,7 @@ def test_fill_then_confirmed_click_persists_agent_task(
 
     assert fill_exit.value.code == 0
     assert fill_report["task"]["source"] == "agent"
+    assert fill_report["task"]["platform"] == "rednote"
     assert fill_report["task"]["state"] == "WAITING_APPROVAL"
     assert fill_report["preview"]["title"] == "测试标题"
 

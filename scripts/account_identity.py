@@ -7,9 +7,15 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from account_manager import account_dir, validate_account_name
+from account_manager import account_dir, load_account, validate_account_name
+from platforms import (
+    DEFAULT_PLATFORM,
+    get_platform_spec,
+    normalize_platform,
+    rewrite_platform_url,
+)
 
-IDENTITY_SCHEMA_VERSION = 1
+IDENTITY_SCHEMA_VERSION = 2
 
 
 def identity_record_path(account: str) -> Path:
@@ -25,7 +31,13 @@ def identity_history_path(account: str) -> Path:
 
 
 def load_identity_record(account: str) -> dict | None:
-    return _read_optional_json(identity_record_path(account))
+    record = _read_optional_json(identity_record_path(account))
+    if record and isinstance(record.get("current"), dict):
+        record = {
+            **record,
+            "current": normalize_observed_identity(record["current"]),
+        }
+    return record
 
 
 def load_switch_state(account: str) -> dict | None:
@@ -51,12 +63,16 @@ def load_identity_history(account: str, *, limit: int = 20) -> list[dict]:
     return events[-limit:]
 
 
-def normalize_observed_identity(identity: dict) -> dict:
+def normalize_observed_identity(identity: dict, *, platform: str | None = None) -> dict:
     logged_in = bool(identity.get("logged_in"))
     user_id = str(identity.get("user_id") or "").strip()
     nickname = str(identity.get("nickname") or "").strip()
     profile_url = str(identity.get("profile_url") or "").strip()
+    normalized_platform = normalize_platform(identity.get("platform") or platform)
+    if profile_url:
+        profile_url = rewrite_platform_url(profile_url, normalized_platform)
     return {
+        "platform": normalized_platform,
         "logged_in": logged_in,
         "user_id": user_id,
         "nickname": nickname,
@@ -73,11 +89,14 @@ def record_current_identity(
     label: str | None = None,
 ) -> dict:
     account = validate_account_name(account)
-    current = normalize_observed_identity(identity)
+    expected_platform = _account_platform(account)
+    current = normalize_observed_identity(identity, platform=expected_platform)
     if not current["logged_in"]:
         raise ValueError("当前未登录，不能记录账号身份")
     if not current["user_id"]:
-        raise ValueError("无法读取当前小红书 UID，不能建立身份保护")
+        raise ValueError("无法读取当前平台 UID，不能建立身份保护")
+    if current["platform"] != expected_platform:
+        raise ValueError("当前页面平台与账号槽位平台不一致，不能建立身份保护")
     payload = {
         "schema_version": IDENTITY_SCHEMA_VERSION,
         "account": account,
@@ -106,9 +125,12 @@ def replace_current_identity(
         raise RuntimeError("槽位尚未记录原账号身份，请先完成首次身份确认")
     previous = previous_record.get("current") or {}
     previous_user_id = str(previous.get("user_id") or "")
-    current = normalize_observed_identity(identity)
+    expected_platform = _account_platform(account)
+    current = normalize_observed_identity(identity, platform=expected_platform)
     if not current["logged_in"] or not current["user_id"]:
-        raise RuntimeError("当前 Profile 尚未登录可识别的小红书账号")
+        raise RuntimeError("当前 Profile 尚未登录可识别的平台账号")
+    if current["platform"] != expected_platform:
+        raise RuntimeError("当前页面平台与账号槽位平台不一致")
     if previous_user_id != expected_recorded_user_id.strip():
         raise RuntimeError("槽位原 UID 已发生变化，请刷新账号状态后重新确认")
     if current["user_id"] != expected_observed_user_id.strip():
@@ -147,7 +169,7 @@ def begin_login_switch(
         raise RuntimeError(
             f"账号 {account!r} 已处于换号流程中；请完成或取消现有换号流程"
         )
-    observed = normalize_observed_identity(identity)
+    observed = normalize_observed_identity(identity, platform=_account_platform(account))
     record = load_identity_record(account)
     previous = observed if observed["logged_in"] else (record or {}).get("current")
     payload = {
@@ -174,16 +196,20 @@ def complete_login_switch(
     pending = load_switch_state(account)
     if not pending:
         raise RuntimeError(f"账号 {account!r} 当前没有待完成的换号流程")
-    current = normalize_observed_identity(identity)
+    expected_platform = _account_platform(account)
+    current = normalize_observed_identity(identity, platform=expected_platform)
     if not current["logged_in"]:
         raise RuntimeError("新账号尚未登录，换号流程不能完成")
     if not current["user_id"]:
-        raise RuntimeError("无法读取新账号的小红书 UID，换号流程不能完成")
+        raise RuntimeError("无法读取新账号的平台 UID，换号流程不能完成")
+    if current["platform"] != expected_platform:
+        raise RuntimeError("当前页面平台与账号槽位平台不一致，换号流程不能完成")
 
     previous = pending.get("from") or {}
     previous_user_id = str(previous.get("user_id") or "")
     if previous_user_id and previous_user_id == current["user_id"]:
-        raise RuntimeError("当前仍是原小红书账号；请先登录另一个账号")
+        platform_name = get_platform_spec(expected_platform).display_name
+        raise RuntimeError(f"当前仍是原{platform_name}账号；请先登录另一个账号")
     expected = (expected_user_id or pending.get("target_user_id") or "").strip()
     if expected and current["user_id"] != expected:
         raise RuntimeError(
@@ -222,7 +248,7 @@ def cancel_login_switch(
     pending = load_switch_state(account)
     if not pending:
         raise RuntimeError(f"账号 {account!r} 当前没有待取消的换号流程")
-    current = normalize_observed_identity(identity)
+    current = normalize_observed_identity(identity, platform=_account_platform(account))
     previous = pending.get("from") or {}
     previous_user_id = str(previous.get("user_id") or "")
     current_user_id = current["user_id"] if current["logged_in"] else ""
@@ -243,21 +269,31 @@ def cancel_login_switch(
 
 def identity_status(account: str, observed: dict | None = None) -> dict:
     account = validate_account_name(account)
+    expected_platform = _account_platform(account)
     record = load_identity_record(account)
     pending = load_switch_state(account)
-    current = normalize_observed_identity(observed) if observed is not None else None
+    current = (
+        normalize_observed_identity(observed, platform=expected_platform)
+        if observed is not None
+        else None
+    )
     comparison = "not_checked"
     if current is not None:
         if not current["logged_in"]:
             comparison = "logged_out"
         elif not record:
             comparison = "unbound"
+        elif current["platform"] != expected_platform:
+            comparison = "platform_mismatch"
+        elif record.get("current", {}).get("platform") != expected_platform:
+            comparison = "platform_mismatch"
         elif current["user_id"] == record.get("current", {}).get("user_id"):
             comparison = "match"
         else:
             comparison = "mismatch"
     return {
         "account": account,
+        "platform": expected_platform,
         "switch_pending": pending is not None,
         "comparison": comparison,
         "observed": current,
@@ -282,7 +318,22 @@ def assert_live_identity(account: str, observed: dict) -> dict:
             f"登录身份发生变化，已阻止任务: expected={expected!r}, actual={actual!r}；"
             "请使用安全换号流程或 account-identity --record 重新绑定"
         )
+    if status["comparison"] == "platform_mismatch":
+        expected = status["platform"]
+        actual = (status.get("observed") or {}).get("platform") or (
+            (status.get("recorded") or {}).get("current") or {}
+        ).get("platform")
+        raise RuntimeError(
+            f"平台身份发生变化，已阻止任务: expected={expected!r}, actual={actual!r}"
+        )
     return status
+
+
+def _account_platform(account: str) -> str:
+    try:
+        return normalize_platform(load_account(account).platform)
+    except FileNotFoundError:
+        return DEFAULT_PLATFORM
 
 
 def _read_optional_json(path: Path) -> dict | None:

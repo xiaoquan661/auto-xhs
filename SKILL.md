@@ -31,11 +31,12 @@ docs/PRD.md 的版本规则
   评论一次点击直发、规则化自动回复，以及 Bridge 与绑定 Chrome Profile 联合启动。
 - **主加**：关注属于单向操作，默认无需审批。Agent 可直接执行，并在内部完成目标预览、关注和
   结果回读；只有用户特别说明需要审批时才暂停等待确认。
-- **私信**：首期 Agent/CLI 执行链已实现。支持首次私信和已有会话续发；单批最多 10 人且每人
-  文本必须个性化。用户明确给出最终文本时直接发送；Agent 生成或修改文本时先展示整批全文，
-  用户确认一次后发送。真实账号发送仍需单独授权验收。
-- **V2.0 智能回复**：评论上下文采集和 AI 待确认草稿已完成自动化测试；生成草稿不发送内容，
-  模型连通和真实账号验收仍需单独执行，后台规则化自动回复未开放。
+- **主动私信**：Codex/CLI 执行链支持首次私信和已有会话续发。用户指定账号、联系人和联系目的后，
+  Codex 读取每位联系人的真实上下文，生成不同的最终文本并直接发送、回读和汇总。单批最多 10 人；
+  恢复批次只重试 `FAILED` 或 `BLOCKED` 项。真实账号发送仍需明确验收目标。
+- **V2.0 Codex 回复**：评论和入站私信使用 `reply-inbox`。Codex 读取笔记或会话上下文、账号人设、
+  知识与规则，生成并提交 `reply`、`pending` 或 `skip`；Python/Bridge 负责账号核验、发送前校验、
+  页面回读和记录。API 模型 `reply-cycle` 保留为兼容运行方式，真实账号周期待验收。
 - **执行门槛**：V1.5 规则不等于代码已经可用。在能力注册表、CLI/WebUI 执行链、测试和
   真实设备验收完成前，不得绕过 `CAPABILITY_DISABLED`，不得把不存在的命令描述为已执行。
 
@@ -52,19 +53,19 @@ docs/PRD.md 的版本规则
 - 文件路径使用绝对路径，CLI 输出以 JSON 结构化反馈。
 - 完成当前任务后停止，不主动扩展成持续任务或批量操作。
 - 后续新增运营能力默认只由 Agent/Python CLI 下发；WebUI 作为控制面板展示状态和结果。当前例外是
-  对既有 `preview_ready` 发布任务逐项确认，以及只读评论采集和 AI 待确认草稿生成。
+  对既有 `preview_ready` 发布任务逐项确认，以及账号回复规则配置、手动运行周期和单条人工接管。
 
 ## 意图路由
 
 1. 登录状态、退出、半自动换号、配对 → `xhs-auth`。
 2. 图文、视频、长文、草稿、定时发布 → `xhs-publish`。
 3. 首页、搜索、详情、评论读取、用户主页 → `xhs-explore`。
-4. 私信、主加、评论、随机评论、回复、点赞、收藏 → `xhs-interact`。
+4. 主动私信、主加、主动评论、随机评论、点赞、收藏 → `xhs-interact`。
 5. 竞品分析、热点追踪、内容创作、互动管理 → `xhs-content-ops`。
 6. 公开资料修改 → 识别为 V1.5 目标能力；当前没有完整 CLI 执行链时明确报告待实现，
    不猜测命令或改用外部工具。
-7. 新评论回收、智能回复草稿、被动回复任务和运营指标快照 → `xhs-content-ops`；当前只读采集、
-   AI 待确认草稿与本地闭环已通过自动化测试，模型连通和真实账号链仍需验收。
+7. 新评论或入站私信的 Codex 回复 → `xhs-reply`；复合运营回收和运营指标快照 →
+   `xhs-content-ops`。
 
 ## 账号与登录规则
 
@@ -97,7 +98,6 @@ V1.5 产品登录只保留半自动流程：
 
 - 已连接正确 Profile 时不重复打开。
 - 错误 Profile 返回 `PROFILE_MISMATCH`，不得误报 READY。
-- Windows 登录自启动只恢复用户明确启用的槽位，顺序为 Bridge → 绑定 Profile。
 - 系统可以按上述规则打开 Chrome，但不自动关闭用户的 Chrome。
 - 联合启动已完成自动化测试；真实 Windows 环境仍必须按 Profile、扩展实例和 UID 回读判断是否 READY。
 
@@ -110,13 +110,13 @@ V1.5 产品登录只保留半自动流程：
 | 保存草稿 | 用户取消发布时可以保存草稿，不得把保存草稿描述为已经发布 |
 | 指定评论 | 用户点击创建当前任务后直接发送，不增加第二次逐条确认 |
 | 随机评论 | 当前点击一次性授权本账号、本任务 1–3 条，每条单独记录结果 |
-| 首页综合互动 | 当前点击一次性授权本账号、本任务的浏览、点赞和评论配额；只对本批已浏览笔记互动并逐篇记录 |
+| 首页浏览点赞 | 当前点击授权本账号、本任务的浏览和点赞配额；只对本批已浏览笔记点赞并逐篇记录 |
 | 自动回复 | 用户先按账号启用规则；符合规则的回复不逐条确认，但必须受时间、配额、暂停和记录约束 |
-| 私信 | 明确的逐人最终文本直接发送；Agent 生成或改写时整批确认一次；每人个性化，单批最多 10 人 |
+| 私信 | 当前任务指定账号、联系人和联系目的后，Codex 逐人读取上下文、生成文本、直接发送并回读 |
 | 公开资料修改 | 展示修改前后差异，用户确认一次后执行 |
 
-表中规则化自动回复、公开资料修改和指定评论点击即直发仍是目标规格，不授权绕过当前服务层限制。
-V2.0 当前只生成待人工确认草稿，不等同于规则化自动发送。
+规则化自动回复必须由账号规则显式启用。Codex 回复通过 `reply-inbox` 执行；API 模型兼容模式通过
+`reply-cycle` 执行。人工接管草稿继续用于单条处理。
 
 ## 子技能概览
 
@@ -126,6 +126,7 @@ V2.0 当前只生成待人工确认草稿，不等同于规则化自动发送。
 | `xhs-publish` | V1.5 发布预览、确认、草稿和定时发布目标流程 |
 | `xhs-explore` | 首页、搜索、详情、评论读取和用户主页 |
 | `xhs-interact` | 私信、主加、评论、随机评论、规则化回复、点赞和收藏 |
+| `xhs-reply` | Codex 读取评论或私信上下文并提交回复、待处理或跳过决策 |
 | `xhs-content-ops` | 组合研究、创作、发布和互动流程 |
 
 ## 数据回收命令
@@ -134,27 +135,54 @@ V2.0 当前只生成待人工确认草稿，不等同于规则化自动发送。
 # 自动发现自己最近的笔记，回收新评论并写入事件收件箱
 python scripts/cli.py --account <账号别名> collect-note-comments --max-notes 20
 
+# 只读扫描最近一对一会话，回收对方最后发送的文字
+python scripts/cli.py --account <账号别名> collect-private-messages --max-conversations 20
+
+# 由 Codex 采集、读取上下文并处理评论和私信回复
+python scripts/cli.py --account <账号别名> reply-inbox collect --limit 20
+python scripts/cli.py --account <账号别名> reply-inbox list --state NEW --limit 20
+
 # 回收账号与自己笔记的运营指标时间快照
 python scripts/cli.py --account <账号别名> collect-operations-metrics --max-notes 50
 
-# 为一个已采集的新评论事件生成待人工确认草稿（不会发送）
+# 为一个已采集的评论或入站私信事件生成待人工确认草稿（不会发送）
 python scripts/cli.py --account <账号别名> generate-reply-draft `
   --event-id <事件ID> --verified-uid <当前已核验UID>
 ```
 
-上述命令是只读采集；评论回复仍进入草稿/确认链。主加和私信已具备 Agent/CLI 页面执行器、任务记录
-和回读链；私信真实发送尚未验收，主页装修和拉群仍没有真实页面执行器。
+上述采集命令只读，草稿生成只写本地状态。Codex 对每个事件运行 `reply-inbox context`，再通过绝对
+路径决策文件调用 `reply-inbox apply`。账号规则授权的 `reply` 直接发送，`pending` 和 `skip` 分别
+记录。私信 `pending` 会将会话交给人工；人工发出新消息后从该边界自动恢复，也可使用
+`reply-inbox conversations` 查看所有权并通过带 `--confirm` 的 `reply-inbox resume` 显式恢复。
+主加和主动私信具备独立的 Agent/CLI 页面执行器、任务记录和回读链。
 
-需要同一账号完成“浏览首页 + 点赞 + 评论”时，优先使用单会话复合命令，避免分别执行
-`browse-feeds`、`like-feed` 和 `random-comment` 造成重复连接与导航：
+需要同一账号完成“浏览首页 + 点赞”时，使用单会话复合命令：
 
 ```powershell
 python scripts/cli.py --account <账号别名> home-engagement `
-  --browse-count 6 --like-count 2 --comment-count 1 `
+  --browse-count 6 --like-count 2 `
   --duration-minutes 3 --min-read-seconds 8 --max-read-seconds 15
 ```
 
-不同账号可并发执行该命令；同一账号仍由账号锁串行。评论一旦尝试发送，不因结果不明自动换篇重试。
+不同账号可并发执行该命令；同一账号仍由账号锁串行。该命令不生成或发送评论。需要评论时，
+Agent 从已浏览结果中选定笔记，使用 `feed_id` 和 `xsec_token` 读取标题、正文、标签及可用图片文字，
+生成与笔记上下文一致的最终评论，再通过 `post-comment` 发送并回读平台结果。
+
+## 经理机跨电脑调度
+
+经理机使用 `python scripts/manager_cli.py` 登记和检查 Windows 执行机，通过 SSH 固定调用
+`scripts/manager_worker.py`。执行机固定入口只负责任务协议、版本、暂停恢复、对账和结果回收；真实
+小红书任务继续交给执行机本地 WebUI 应用服务，因此不得绕过账号身份、账号锁、配额、确认和页面
+回读规则。
+
+经理机与执行机之间不得传输 Chrome Profile、Cookie 或登录数据。SSH 响应超时的在途任务进入
+`RECONCILIATION_REQUIRED`，先对账再继续；`RESULT_UNKNOWN` 不得自动重发。部署、配置样例和完整
+命令见 `docs/MANAGER-SSH-OPERATIONS.md`。
+
+功能包安装后先登记为停用状态，再通过 `manager_cli.py version set` 明确正式或试用状态以及允许的
+经理、设备、账号和动作范围。带 `function_id` 的任务必须同时给出
+`allowed_function_versions`；执行机接单时锁定实际版本，并在结果中分别返回功能包
+`actual_version` 与项目 `project_version`。
 
 ## 新电脑准备
 

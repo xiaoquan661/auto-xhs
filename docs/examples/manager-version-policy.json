@@ -1,0 +1,21 @@
+{
+  "machine_id": "EXECUTOR-01",
+  "function_id": "EXPLORE-02",
+  "version": "1.0",
+  "status": "FORMAL",
+  "scope": {
+    "manager_ids": [
+      "MILA-MANAGER"
+    ],
+    "machine_ids": [
+      "EXECUTOR-01"
+    ],
+    "account_slots": [
+      "brand-a"
+    ],
+    "allowed_actions": [
+      "search-feeds"
+    ]
+  },
+  "set_as_stable": true
+}

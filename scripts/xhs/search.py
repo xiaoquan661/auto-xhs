@@ -26,13 +26,54 @@ _FILTER_OPTIONS: dict[int, list[str]] = {
     5: ["不限", "同城", "附近"],
 }
 
-# 从 __INITIAL_STATE__ 提取搜索结果的 JS
+# 从 __INITIAL_STATE__ 提取搜索结果的 JS。不同站点版本会使用不同字段，
+# 但条目结构仍可在 Python 侧统一规范化为 Feed。
 _EXTRACT_SEARCH_JS = """
 (() => {
-    const s = window.__INITIAL_STATE__?.search;
-    if (!s?.feeds) return "";
-    const data = s.feeds.value !== undefined ? s.feeds.value : s.feeds._value;
+    const state = window.__INITIAL_STATE__ || {};
+    const search = state.search || {};
+    const searchResult = state.searchResult || {};
+    const unwrap = (value) => {
+        if (value?.value !== undefined) return value.value;
+        if (value?._value !== undefined) return value._value;
+        return value;
+    };
+    const pools = [
+        unwrap(search.feeds),
+        unwrap(search.noteResults),
+        unwrap(search.items),
+        unwrap(searchResult.items),
+    ];
+    const data = pools.find((items) => Array.isArray(items) && items.length > 0);
     return data ? JSON.stringify(data) : "";
+})()
+"""
+
+_SEARCH_DIAGNOSTICS_JS = """
+(() => {
+    const state = window.__INITIAL_STATE__ || {};
+    const search = state.search || {};
+    const searchResult = state.searchResult || {};
+    const size = (value) => {
+        const data = value?.value !== undefined ? value.value : value?._value;
+        return Array.isArray(data) ? data.length : (Array.isArray(value) ? value.length : null);
+    };
+    return {
+        url: location.href,
+        title: document.title,
+        stateKeys: Object.keys(state).sort(),
+        searchKeys: Object.keys(search).sort(),
+        searchResultKeys: Object.keys(searchResult).sort(),
+        counts: {
+            searchFeeds: size(search.feeds),
+            searchNoteResults: size(search.noteResults),
+            searchItems: size(search.items),
+            searchResultItems: size(searchResult.items),
+        },
+        noteLinkCount: document.querySelectorAll(
+            'a[href*="/explore/"], a[href*="/discovery/item/"]'
+        ).length,
+    };
 })()
 """
 
@@ -109,11 +150,11 @@ def search_feeds(
     if not result:
         raise NoFeedsError()
 
-    feeds_data = json.loads(result)
-    if not feeds_data:
+    feeds = _decode_search_feeds(result)
+    if not feeds:
         raise NoFeedsError()
 
-    return [Feed.from_dict(f) for f in feeds_data]
+    return feeds
 
 
 def collect_search_feeds(
@@ -163,7 +204,7 @@ def collect_search_feeds(
         sleeper(min(random.uniform(0.9, 1.5), max(0.0, deadline - time.monotonic())))
 
         result = page.evaluate(_EXTRACT_SEARCH_JS)
-        feeds = [Feed.from_dict(item) for item in json.loads(result)] if result else []
+        feeds = _decode_search_feeds(result) if result else []
         if add_feeds(feeds):
             empty_scrolls = 0
         else:
@@ -186,23 +227,70 @@ def collect_search_feeds(
     }
 
 
-def _wait_for_search_feeds(page: Page, timeout: float = 15.0) -> None:
+def _wait_for_search_feeds(page: Page, timeout: float | None = None) -> None:
     """等待 __INITIAL_STATE__.search.feeds 有数据。
 
     Raises:
         NoFeedsError: 超时仍无数据。
     """
+    if timeout is None:
+        timeout = 30.0 if getattr(page, "platform", "xiaohongshu") == "rednote" else 15.0
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = page.evaluate(_EXTRACT_SEARCH_JS)
         if result:
             try:
-                if json.loads(result):
+                if _decode_search_feeds(result):
                     return
             except json.JSONDecodeError:
                 pass
         time.sleep(0.3)
+    try:
+        logger.warning(
+            "搜索结果状态诊断（仅结构，不含内容）: %s",
+            page.evaluate(_SEARCH_DIAGNOSTICS_JS),
+        )
+    except Exception as exc:
+        logger.warning("搜索结果状态诊断失败: %s", exc)
     raise NoFeedsError()
+
+
+def _decode_search_feeds(result: str) -> list[Feed]:
+    """Normalize supported search-state variants and discard non-note entries."""
+    raw_items = json.loads(result)
+    if not isinstance(raw_items, list):
+        return []
+
+    feeds: list[Feed] = []
+    for index, item in enumerate(raw_items):
+        if not isinstance(item, dict):
+            continue
+        note = item.get("note") if isinstance(item.get("note"), dict) else {}
+        note_card = item.get("noteCard")
+        if not isinstance(note_card, dict):
+            nested_card = note.get("noteCard")
+            note_card = nested_card if isinstance(nested_card, dict) else note
+
+        note_id = str(
+            item.get("id") or item.get("noteId") or note.get("id") or note.get("noteId") or ""
+        ).strip()
+        xsec_token = str(item.get("xsecToken") or note.get("xsecToken") or "").strip()
+        model_type = str(item.get("modelType") or "note").strip()
+        if not note_id or "#" in note_id or not xsec_token or model_type == "hot_query":
+            continue
+
+        feeds.append(
+            Feed.from_dict(
+                {
+                    "id": note_id,
+                    "xsecToken": xsec_token,
+                    "modelType": model_type,
+                    "index": item.get("index", index),
+                    "noteCard": note_card,
+                }
+            )
+        )
+    return feeds
 
 
 def _apply_filters(page: Page, filters: list[tuple[int, str]]) -> None:

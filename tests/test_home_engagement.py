@@ -79,30 +79,30 @@ class FakePage:
 def test_home_engagement_reuses_one_home_session_and_records_actions() -> None:
     page = FakePage()
     feeds = [_feed(index) for index in range(8)]
-    comments: list[tuple[str, str]] = []
 
     with (
-        patch("xhs.home_engagement._browse_candidates", side_effect=lambda _page, seen: [feed for feed in feeds if feed.id not in seen]),
+        patch(
+            "xhs.home_engagement._browse_candidates",
+            side_effect=lambda _page, seen: [feed for feed in feeds if feed.id not in seen],
+        ),
         patch("xhs.browse_like.time.sleep"),
     ):
         result = home_engagement(
             page,
             browse_count=6,
             like_count=2,
-            comment_count=1,
             reader=lambda _page, _seconds, _deadline: 10.0,
             liker=lambda _page, feed_id: ActionResult(feed_id, True, "点赞成功"),
-            commenter=lambda _page, content, *, feed_id="": comments.append((feed_id, content)),
             chooser=lambda candidates: candidates[0],
         )
 
     assert result["success"] is True
-    assert result["counts"] == {"browsed": 6, "liked": 2, "commented": 1, "skipped": 0}
+    assert result["counts"] == {"browsed": 6, "liked": 2, "skipped": 0}
     assert page.navigate_calls == [HOME_URL]
     assert len({item["feed_id"] for item in result["items"]}) == 6
     assert sum(item["like"] is not None for item in result["items"]) == 2
-    assert sum(item["comment"] is not None for item in result["items"]) == 1
-    assert comments[0][0] in {item["feed_id"] for item in result["items"]}
+    assert all(item["xsec_token"].startswith("token-") for item in result["items"])
+    assert all("comment" not in item for item in result["items"])
 
 
 def test_home_engagement_skips_disappearing_card_and_continues() -> None:
@@ -119,7 +119,10 @@ def test_home_engagement_skips_disappearing_card_and_continues() -> None:
         return real_open(target_page, feed)
 
     with (
-        patch("xhs.home_engagement._browse_candidates", side_effect=lambda _page, seen: [feed for feed in feeds if feed.id not in seen]),
+        patch(
+            "xhs.home_engagement._browse_candidates",
+            side_effect=lambda _page, seen: [feed for feed in feeds if feed.id not in seen],
+        ),
         patch("xhs.home_engagement._open_from_feed", side_effect=open_with_one_failure),
         patch("xhs.browse_like.time.sleep"),
     ):
@@ -127,7 +130,6 @@ def test_home_engagement_skips_disappearing_card_and_continues() -> None:
             page,
             browse_count=3,
             like_count=0,
-            comment_count=0,
             reader=lambda _page, _seconds, _deadline: 8.0,
             chooser=lambda candidates: candidates[0],
         )

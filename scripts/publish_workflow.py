@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from operation_event_service import OperationEventService
+from operations_db import OperationsDatabase
 from product_store import ProductStore
+from published_post_service import PublishedPostService
 from service_errors import ServiceError
 from task_service import FINAL_STATES, TaskService
 
@@ -21,14 +24,25 @@ VERIFIED_PUBLISH_EVIDENCE = {
 
 
 class PublishWorkflowService:
-    def __init__(self, store: ProductStore | None = None) -> None:
+    def __init__(
+        self,
+        store: ProductStore | None = None,
+        *,
+        operations_database: OperationsDatabase | None = None,
+        operation_events: OperationEventService | None = None,
+        published_posts: PublishedPostService | None = None,
+    ) -> None:
         self.store = store or ProductStore()
         self.tasks = TaskService(self.store)
+        database = operations_database or OperationsDatabase(root=self.store.root)
+        self.operation_events = operation_events or OperationEventService(database)
+        self.published_posts = published_posts or PublishedPostService(database)
 
     def begin(
         self,
         *,
         account: str,
+        platform: str | None = None,
         capability: str,
         request_summary: str,
         preview: dict,
@@ -54,6 +68,7 @@ class PublishWorkflowService:
         task = self.tasks.create_workflow(
             source="agent",
             account_slot=account,
+            platform=platform,
             capability=capability,
             request_summary=request_summary,
             parameters={"workflow_type": "publish", "stage": "preparing", "preview": preview},
@@ -106,7 +121,7 @@ class PublishWorkflowService:
                 error_code="PUBLISH_RESULT_UNKNOWN",
                 recommended_action="请先在小红书创作中心检查，不要直接重复发布",
             )
-        self.tasks.record_event(completed, task_id, result=result)
+        self._record_completion(completed, result=result, published=True)
         return completed
 
     def fail(self, task_id: str, exc: Exception, *, result_unknown: bool = False) -> dict:
@@ -122,7 +137,11 @@ class PublishWorkflowService:
                 else "检查账号、素材和页面状态后重新创建发布任务"
             ),
         )
-        self.tasks.record_event(completed, task_id)
+        self._record_completion(
+            completed,
+            result={"message": str(exc)},
+            published=True,
+        )
         return completed
 
     def complete_saved_draft(self, task_id: str) -> dict:
@@ -131,8 +150,33 @@ class PublishWorkflowService:
             "CANCELLED",
             result_summary="用户取消发布，内容已保存到小红书草稿箱",
         )
-        self.tasks.record_event(completed, task_id, result={"saved_as_draft": True})
+        self._record_completion(
+            {**completed, "operation": "save-draft"},
+            result={"saved_as_draft": True},
+            published=False,
+        )
         return completed
+
+    def _record_completion(
+        self,
+        task: dict,
+        *,
+        result: dict,
+        published: bool,
+    ) -> None:
+        event_task = {**task, "operation": task.get("operation") or "publish"}
+        self.tasks.record_event(event_task, task["task_id"], result=result)
+        operation_event = self.operation_events.record(
+            event_task,
+            result=result,
+            readback=(result.get("readback") or {}),
+        )
+        if published:
+            self.published_posts.record(
+                event_task,
+                result=result,
+                operation_event_id=operation_event["operation_event_id"],
+            )
 
     def get(self, task_id: str, *, account: str) -> dict:
         task = self.tasks.get(task_id)

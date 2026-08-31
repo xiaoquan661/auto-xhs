@@ -2,7 +2,8 @@
 
 面向个人运营者的本地多账号小红书运营系统。系统通过 Chrome Profile、WebUI、Codex 和统一
 Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线；V1.5 能力正在分批交付，其中
-账号联合启动、分步发布、主加和私信已具备自动化测试证据；V2.0 第一阶段已接入新评论智能回复草稿。
+账号联合启动、分步发布、主加和私信已具备自动化测试证据；V2.0 已接入由 Codex 生成决策的评论和
+入站私信回复收件箱。
 凡涉及真实浏览器写操作的能力，仍按各自文档标注区分“已测试”和“已实机验收”。
 
 支持 [OpenClaw](https://github.com/openclaw/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台。
@@ -17,6 +18,7 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线�
 | **xhs-publish**     | V1.5目标 | 图文 / 视频 / 长文 / 草稿 / 定时发布     |
 | **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐 |
 | **xhs-interact**    | 社交互动 | 私信、主加、评论、回复、点赞、收藏       |
+| **xhs-reply**       | 入站回复 | Codex 评论与私信上下文回复               |
 | **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作   |
 
 ### 版本与开放范围
@@ -27,9 +29,9 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线�
 | Chrome | 绑定固定 Profile，不自动关闭或切换账号 | 联合启动已测试：扩展离线时可打开绑定 Profile；真实 Windows 待验收 |
 | 发布 | 禁止一步直发，必须填写、真实预览、单任务确认和结果回读 | Agent/CLI 填写及 WebUI/Agent 受控确认已测试；真实发布待验收 |
 | 评论 | 指定评论/回复保留最终文本确认；随机评论一次授权 1–3 条 | 当前确认链可用；“所有指定评论点击即直发”仍是 V1.5 规格 |
-| 智能回复 | 评论和私信均只生成待人工确认草稿，不自动发送 | 评论通知和私信收件箱采集、模型草稿及确认链已实现；评论真实回复已验收，私信确认发送待验收 |
+| Codex 回复 | Codex 读取入站上下文并提交回复决策；业务判断类内容进入待处理 | `reply-inbox`、规则复核、发送回读和专用 Skill 已通过自动化测试；真实账号周期待验收 |
 | 主加 | 单向关注，Agent/CLI 内部预览后执行并回读 | 已完成自动化测试和测试账号实机回读 |
-| 私信 | 主动私信沿用 Agent 批次；收到的新私信可在 WebUI 生成草稿并逐条确认 | 主动发送执行器、收件箱只读采集、AI 草稿和确认发送链已实现 |
+| 私信 | 主动私信沿用 Agent 任务；入站私信按账号规则回复或进入待处理 | 最新连续对方消息作为一次回复单位，发送前校验会话未变化 |
 | 资料修改 | 展示前后差异并确认后执行 | 尚无完整执行链 |
 
 实现状态以 [需求追踪矩阵](docs/PRD-TRACEABILITY.md) 为准；文档导航和历史/现行边界见
@@ -40,6 +42,9 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线�
 Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动器会检查环境、复用已经运行的
 本地服务并打开 `http://127.0.0.1:8765`。首次进入后按
 “添加账号 → 手动打开目标 Profile → 配对扩展 → 检查并确认 UID”的顺序完成账号准备。
+
+更新 Python 后端代码后，可点击 WebUI 顶部的“重启服务”，也可以双击 `restart-auto-xhs.cmd`。
+安全重启会先检查执行中任务；服务恢复后，WebUI 通过新的运行实例标识确认后台已经完成更新。
 
 V1.5 已把“启动 Bridge”升级为“启动账号”：先启动 Bridge，扩展未连接时再自动打开绑定
 Profile，并在核对扩展实例和 Profile 后恢复连接。该链已通过自动化测试，真实 Windows 环境仍待验收。
@@ -154,17 +159,8 @@ python scripts/cli.py account-doctor --name brand-a --require-ready
 粘贴剪贴板内容并确认。这是浏览器侧的安全确认，不能跨 Profile 自动代替。剪贴板不可用时，
 命令会在 JSON 中回退显示短期配对包。
 
-V1.0 的 Bridge 默认以独立后台进程启动，关闭 Agent 或 PowerShell 不应终止它。若希望电脑重新
-登录后自动恢复 Bridge，需由用户明确确认后为每个槽位注册 Windows 登录任务：
-
-```bash
-python scripts/cli.py --account brand-a account-autostart-enable --confirm
-python scripts/cli.py --account brand-b account-autostart-enable --confirm
-```
-
-可分别使用 `account-autostart-status` 和 `account-autostart-disable --confirm` 检查或撤销。V1.0
-计划任务不会启动 Chrome。V1.5 目标将只为明确启用自启动的槽位按“Bridge → 绑定 Profile”恢复
-账号；联合启动代码完成前仍由用户手动打开并保持 Chrome Profile 在线。
+Bridge 默认以独立后台进程启动，关闭 Agent 或 PowerShell 不应终止它。需要恢复账号运行环境时，
+使用 `account-start` 启动或复用 Bridge，并按需打开绑定的 Chrome Profile。
 
 之后给所有业务命令加上目标账号：
 
@@ -173,9 +169,12 @@ python scripts/cli.py --account brand-a search-feeds --keyword "咖啡"
 python scripts/cli.py --account brand-b search-feeds --keyword "露营"
 python scripts/cli.py --account brand-a random-comment --count 1 --style natural
 
-# 单次首页会话：浏览 6 篇，其中点赞 2 篇、评论 1 篇
-python scripts/cli.py --account brand-a home-engagement --browse-count 6 --like-count 2 --comment-count 1
+# 单次首页会话：浏览 6 篇，其中点赞 2 篇
+python scripts/cli.py --account brand-a home-engagement --browse-count 6 --like-count 2
 ```
+
+`home-engagement` 只执行浏览和点赞。需要评论时，Agent 从结果中选定笔记，读取标题、正文、标签和
+可用图片文字后生成具体评论，再通过 `post-comment` 发送并回读平台结果。
 
 不同账号的命令可由两个终端或 Agent 并发执行。同一账号的命令由账号锁串行执行，避免两个
 任务同时抢占同一个页面。V1.0 指定评论仍走当前确认链；随机评论命令或 WebUI 的直接发送按钮
@@ -240,7 +239,7 @@ python scripts/cli.py --account account-1 account-switch-history
 python scripts/cli.py --account account-1 account-remove --confirm --confirm-name account-1
 ```
 
-该操作会停止受管 Bridge、关闭该槽位自启动、撤销配对，并把槽位目录移入本机
+该操作会停止受管 Bridge、撤销配对，并把槽位目录移入本机
 `.xhs\accounts\.archive`。它不会删除 Chrome Profile、小红书登录数据或共享通用扩展。
 
 #### 绑定已有 Chrome Profile
@@ -311,23 +310,23 @@ python scripts/web_server.py
 
 图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步填写并形成真实预览。进入
 `preview_ready` 后，用户可在 Agent 对话或 WebUI 中逐任务核对并确认发布或保存草稿；WebUI 不创建
-或填写发布内容。主动私信仍由 Agent/CLI 下发并由 WebUI 展示结果；收到的新私信可由 WebUI
-只读采集，生成上下文智能回复草稿并逐条确认。评论和私信均不在后台自动发送。详见
+或填写发布内容。主动私信仍由 Agent/CLI 下发并由 WebUI 展示结果；收到的新私信和自己笔记下
+的新评论由 Codex 通过 `reply-inbox` 读取上下文、生成决策、发送并回读，需要业务判断的内容进入待处理。详见
 [`docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md`](docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md)。
 
-**个性化私信（Agent 流程）：**
+**个性化私信（Codex 流程）：**
 
-> “使用 brand-a 给这 3 位博主分别写一条合作私信，先给我确认全文”
+> “使用 brand-a 给这 3 位博主分别写一条合作私信，目的是沟通内容合作。”
 
-首次私信和已有会话续发均支持。用户已明确给出每个收件人的完整最终文本时直接发送；由 Agent
-生成或修改文本时，先展示整批收件人及全文，确认一次后发送。单批最多 10 人，每个人必须使用
-不同的个性化文本；逐人记录成功、失败或结果未知，结果未知不会自动重发。
+Codex 先识别首次私信或已有会话，结合用户给出的联系目的和真实上下文为每位联系人生成不同文本，
+随后直接发送、回读并汇总。单批最多 10 人；逐人记录 `SUCCESS`、`FAILED` 或
+`RESULT_UNKNOWN`，单人失败不阻断其余人，恢复批次不重发成功或结果未知项。
 
-**新私信回复（WebUI 流程）：**
+**入站回复（Codex 流程）：**
 
-在“外发草稿确认”中选择 READY 账号并点击“读取私信收件箱”。系统只读取最近一对一会话，
-仅把最后一条由对方发送的文字写入本地事件收件箱；生成 AI 草稿后仍需核对目标、上下文和最终文本，
-确认后才会回到对应会话发送并回读。语音、表情、平台提示和最后一条由自己发送的会话不会生成事件。
+在 WebUI“账号回复规则”中配置评论/私信开关、生效时段、数量上限、人设和知识，并显式启用。
+每次手动或计划运行 `reply-inbox` 都只处理一批新事件。Codex 读取笔记、评论线程或近期私信会话，
+结合账号人设、知识和规则生成 `reply`、`pending` 或 `skip`；Python/Bridge 负责发送前核验和页面回读。
 
 **主动关注博主（Agent 流程）：**
 
@@ -382,20 +381,21 @@ python scripts/cli.py --account brand-a post-comment --feed-id FEED_ID --xsec-to
 python scripts/cli.py --account brand-a follow-user `
   --user-id USER_ID --xsec-token XSEC_TOKEN
 
-# 私信：recipients.json 是 1–10 人的 UTF-8 JSON 数组，每人有 user_id、content 和可选 xsec_token
-# 用户已提供最终文本时直接发送
+# 私信：先读取会话，再将联系目的、会话类型、上下文快照和最终文本写入 recipients.json
 python scripts/cli.py --account brand-a send-private-messages `
   --recipients-file "C:\Temp\recipients.json"
 
-# Agent 生成文本时先返回整批预览，再按返回的 task_id/revision 确认一次
-python scripts/cli.py --account brand-a prepare-private-messages `
-  --recipients-file "C:\Temp\recipients.json"
+# 恢复一个部分完成的批次，只重试 FAILED/BLOCKED 项
 python scripts/cli.py --account brand-a send-private-messages `
-  --task-id TASK_ID --batch-revision-id REVISION_ID --confirm
+  --resume-task-id TASK_ID
+
+# 只读采集最近一对一会话中由对方发送的最新文字
+python scripts/cli.py --account brand-a collect-private-messages `
+  --max-conversations 20
 ```
 
-> V1.0 不会自动打开 Chrome。V1.5 联合启动完成后，`account-start` 才会在扩展未连接时自动
-> 打开槽位绑定 Profile；在此之前继续按页面提示手动打开。
+> `account-start` 会在扩展未连接时按需打开槽位绑定 Profile；普通业务命令不会任意启动、切换
+> 或关闭 Chrome。进入 READY 仍以 Profile、扩展实例和 UID 回读为准。
 
 ## CLI 命令参考
 
@@ -416,7 +416,6 @@ python scripts/cli.py --account brand-a send-private-messages `
 | `account-pair-begin`        | 生成目标账号的一次性 Profile 配对包                   |
 | `account-pair-status`       | 查看 Profile 配对与扩展连接状态                       |
 | `account-unpair`            | 撤销 Profile 配对并轮换长期连接令牌                   |
-| `account-autostart-enable` / `account-autostart-status` / `account-autostart-disable` | 管理该槽位的 Windows 登录自启动 |
 | `account-connection-enroll` | 仅供旧版账号专属扩展迁移使用                          |
 | `account-identity`          | 读取当前小红书 UID，并与账号槽位的身份记录比较        |
 | `account-switch-begin`      | 暂停业务任务并退出当前登录，开始安全换号              |
@@ -436,14 +435,16 @@ python scripts/cli.py --account brand-a send-private-messages `
 | `user-profile`              | 获取用户主页信息和帖子列表                            |
 | `follow-user-preview`       | Agent 可选只读目标主页和当前关注状态                  |
 | `follow-user`               | Agent 无需审批地预览、关注一个目标并回读结果          |
+| `collect-private-messages`  | 只读采集最近一对一会话中由对方发送的最新文字          |
 | `private-message-context`   | 只读识别首次私信入口或读取已有会话近期文本            |
-| `prepare-private-messages`  | 保存 Agent 生成的 1–10 人个性化私信并返回整批预览    |
-| `send-private-messages`     | 直发用户最终文本，或发送已整批确认的 Agent 文本       |
-| `generate-reply-draft`      | 为新评论事件生成上下文智能回复并保存为待确认草稿      |
+| `send-private-messages`     | 直接发送 Codex 个性化文本，或恢复批次可重试项         |
+| `generate-reply-draft`      | 为新评论或入站私信事件生成智能回复待确认草稿          |
+| `reply-cycle`               | 按账号规则处理一轮新评论和新私信，发送后回读并记录    |
+| `reply-inbox`               | Codex 采集、读取上下文并应用一个结构化回复决策        |
 | `post-comment`              | V1.0 使用当前确认链；V1.5 目标为当前任务点击后直发    |
 | `random-comment`            | 当前任务点击一次性授权 1–3 条随机评论                 |
-| `home-engagement`           | 单次首页会话完成浏览、点赞、评论并输出逐篇记录         |
-| `reply-comment`             | 单次回复；V1.5 自动回复规则链尚待实现                 |
+| `home-engagement`           | 单次首页会话完成浏览和点赞并输出逐篇记录               |
+| `reply-comment`             | 单次回复执行器；规则周期通过专用操作调用并要求回读     |
 | `like-feed`                 | 点赞 / 取消点赞                                       |
 | `favorite-feed`             | 收藏 / 取消收藏                                       |
 | `publish` / `publish-video` | 旧版一步发布命令；已明确禁用                           |
@@ -460,9 +461,9 @@ python scripts/cli.py --account brand-a send-private-messages `
 
 退出码：`0` 成功 · `1` 未登录 · `2` 错误
 
-主加已完成 Agent/CLI 自动化链和真实关注验收。私信已完成 Agent/CLI 执行链、自动化测试和真实页面
-只读结构检查，但尚未发送真实私信验收。智能回复已能生成待人工确认草稿，但后台规则化自动发送和
-公开资料修改仍没有完整执行链。
+主加已完成 Agent/CLI 自动化链和真实关注验收。主动私信执行器已完成自动化测试；入站私信收件箱
+只读采集和模型草稿已有真实页面记录。评论和私信规则周期、上下文判断、发送前会话校验、页面
+回读和待处理记录已完成自动化测试，真实账号周期仍需单独授权验收。
 
 ## 项目结构
 
@@ -478,7 +479,9 @@ xiaohongshu-skills/
 │   ├── account_doctor.py           # 多账号配置和运行状态只读诊断
 │   ├── account_identity.py         # 登录身份记录、安全换号和任务保护
 │   ├── application_service.py      # CLI、WebUI 和 Agent 共用的应用服务层
-│   ├── reply_intelligence_service.py # 智能回复上下文、生成和质量标记
+│   ├── reply_intelligence_service.py # API 模型兼容生成与确定性质量标记
+│   ├── reply_llm_client.py         # API 模型兼容客户端
+│   ├── private_message_collector.py # 入站私信事件去重与持久化
 │   ├── operations_db.py            # 任务、事件和指标本地存储
 │   ├── web_server.py               # 仅监听本机的 WebUI/API 服务
 │   ├── run_lock.py                 # 每账号独立的任务锁
@@ -491,6 +494,8 @@ xiaohongshu-skills/
 │   │   ├── feed_detail.py          # 笔记详情 + 评论加载
 │   │   ├── user_profile.py         # 用户主页
 │   │   ├── comment.py              # 评论、回复
+│   │   ├── direct_message.py       # 私信上下文、发送和结果回读
+│   │   ├── private_inbox.py        # 一对一私信收件箱只读采集
 │   │   ├── like_favorite.py        # 点赞、收藏
 │   │   ├── publish.py              # 图文发布
 │   │   ├── publish_video.py        # 视频发布
@@ -514,11 +519,13 @@ xiaohongshu-skills/
 │   ├── workspace.js
 │   └── app.js
 ├── docs/                            # PRD、用户指南、架构、专题和验收文档
+├── prompts/                         # 评论与私信智能回复提示词
 ├── skills/                         # Claude Code Skills 定义
 │   ├── xhs-auth/SKILL.md
 │   ├── xhs-publish/SKILL.md
 │   ├── xhs-explore/SKILL.md
 │   ├── xhs-interact/SKILL.md
+│   ├── xhs-reply/SKILL.md
 │   └── xhs-content-ops/SKILL.md
 ├── SKILL.md                        # 技能统一入口（路由到子技能）
 ├── CLAUDE.md                       # 项目开发指南

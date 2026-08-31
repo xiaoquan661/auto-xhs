@@ -18,21 +18,27 @@ class OperationEventService:
             connection.execute(
                 """
                 INSERT INTO operation_events (
-                    operation_event_id, task_id, account_slot, capability,
-                    target_type, target_id, started_at, finished_at,
-                    result_state, platform_result_json, readback_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    operation_event_id, task_id, account_slot, platform, capability,
+                    action, target_type, target_id, started_at, finished_at,
+                    result_state, result_summary, error_code, recommended_action,
+                    platform_result_json, readback_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     operation_event_id,
                     task["task_id"],
                     task["account_slot"],
+                    str(task.get("platform") or "xiaohongshu"),
                     task["capability"],
+                    self._action(task),
                     str(task.get("target_type") or ""),
                     str(task.get("target_id") or ""),
                     task.get("started_at"),
                     task.get("finished_at"),
                     task["state"],
+                    str(task.get("result_summary") or ""),
+                    str(task.get("error_code") or ""),
+                    str(task.get("recommended_action") or ""),
                     json.dumps(result or {}, ensure_ascii=False, sort_keys=True),
                     json.dumps(readback or {}, ensure_ascii=False, sort_keys=True),
                 ),
@@ -46,11 +52,46 @@ class OperationEventService:
         )
         return self._decode(row) if row else {}
 
+    def get_by_task(self, task_id: str) -> dict:
+        row = self.database.fetch_one(
+            """
+            SELECT * FROM operation_events
+            WHERE task_id = ?
+            ORDER BY finished_at DESC
+            LIMIT 1
+            """,
+            (task_id,),
+        )
+        return self._decode(row) if row else {}
+
+    def reconcile_result_unknown(self, task_id: str, *, readback: dict) -> dict:
+        current = self.get_by_task(task_id)
+        if not current:
+            return {}
+        merged_readback = {**dict(current.get("readback") or {}), **readback}
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE operation_events
+                SET result_state = 'SUCCESS',
+                    result_summary = '延迟回读确认私信已发送',
+                    error_code = '', recommended_action = '', readback_json = ?
+                WHERE operation_event_id = ? AND result_state = 'RESULT_UNKNOWN'
+                """,
+                (
+                    json.dumps(merged_readback, ensure_ascii=False, sort_keys=True),
+                    current["operation_event_id"],
+                ),
+            )
+        return self.get(current["operation_event_id"])
+
     def list(
         self,
         *,
         account_slot: str | None = None,
         capability: str | None = None,
+        action: str | None = None,
+        result_state: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         clauses: list[str] = []
@@ -61,6 +102,12 @@ class OperationEventService:
         if capability:
             clauses.append("capability = ?")
             values.append(capability)
+        if action:
+            clauses.append("action = ?")
+            values.append(action)
+        if result_state:
+            clauses.append("result_state = ?")
+            values.append(result_state)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         values.append(max(1, int(limit)))
         rows = self.database.fetch_all(
@@ -73,6 +120,19 @@ class OperationEventService:
             values,
         )
         return [self._decode(row) for row in rows]
+
+    @staticmethod
+    def _action(task: dict) -> str:
+        operation = str(task.get("operation") or "")
+        capability = str(task.get("capability") or "")
+        if (
+            operation in {"reviewed_reply", "automatic_reply"}
+            and capability == "send-private-messages"
+        ):
+            return "private-message-reply"
+        if operation == "automatic_reply" and capability == "reply-comment":
+            return "comment-reply"
+        return operation or capability
 
     @staticmethod
     def _decode(row: dict) -> dict:

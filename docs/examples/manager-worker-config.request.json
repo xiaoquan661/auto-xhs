@@ -1,0 +1,10 @@
+{
+  "action": "configure",
+  "payload": {
+    "machine_id": "EXECUTOR-01",
+    "role": "executor",
+    "project_version": "0.1.0",
+    "package_root": "C:\\auto-xhs\\manager-packages",
+    "task_inbox_root": "C:\\auto-xhs\\manager-task-inbox"
+  }
+}

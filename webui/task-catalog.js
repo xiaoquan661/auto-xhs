@@ -85,8 +85,8 @@
       commentSettings: true,
     },
     "home-engagement": {
-      label: "首页浏览 + 点赞 + 评论",
-      help: "一次会话点开推荐笔记，并只在这些已浏览笔记中完成点赞和评论；单篇失败会记录后继续。",
+      label: "首页浏览 + 点赞",
+      help: "一次会话点开推荐笔记，并只在这些已浏览笔记中完成点赞；单篇失败会记录后继续。",
       targetLabel: "",
       placeholder: "",
       targetRequired: false,

@@ -1,0 +1,4 @@
+interface:
+  display_name: "小红书 Codex 回复"
+  short_description: "由 Codex 结合评论或私信上下文生成并执行回复"
+  default_prompt: "Use $xhs-reply to process this account's new comments and private messages."

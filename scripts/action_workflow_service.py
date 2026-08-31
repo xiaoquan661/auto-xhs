@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from operations_db import OperationsDatabase
+from platforms import normalize_platform
 from service_errors import ServiceError
 
 ACTION_TYPES = {
@@ -30,12 +31,14 @@ class ActionWorkflowService:
         self,
         *,
         account_slot: str,
+        platform: str = "xiaohongshu",
         verified_uid: str,
         action_type: str,
         target_id: str = "",
         payload: dict,
     ) -> dict:
         self._validate(action_type, target_id, payload)
+        platform = normalize_platform(platform)
         draft_id = uuid.uuid4().hex
         revision_id = uuid.uuid4().hex
         now = utc_now()
@@ -51,15 +54,16 @@ class ActionWorkflowService:
             connection.execute(
                 """
                 INSERT INTO action_drafts (
-                    draft_id, revision_id, account_slot, verified_uid,
+                    draft_id, revision_id, account_slot, platform, verified_uid,
                     action_type, target_type, target_id, payload_json,
                     preview_json, state, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)
                 """,
                 (
                     draft_id,
                     revision_id,
                     account_slot,
+                    platform,
                     verified_uid,
                     action_type,
                     target_type,
