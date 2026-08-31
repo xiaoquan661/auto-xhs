@@ -16,6 +16,7 @@
 | [新手项目说明](BEGINNER-PROJECT-GUIDE.md) | 从产品定位、架构、上手、日常使用到开发维护的完整导读 | 现行；建议第一次接触项目时先读 |
 | [PRD](PRD.md) | V1.0 基线与 V1.5 产品合同 | 现行；V2.0 另有专题文档 |
 | [需求追踪矩阵](PRD-TRACEABILITY.md) | 区分规格、实现、自动化测试和实机验收 | 现行 |
+| [经理机 SSH 调度](MANAGER-SSH-OPERATIONS.md) | MANAGER-01 至 MANAGER-04 的三机部署、调度、传输、对账和结果回收 | 自动化测试通过；三机实机待验收 |
 | [用户指南](USER-GUIDE.md) | 安装、账号、WebUI、任务和确认流程 | 现行 |
 | [故障恢复](TROUBLESHOOTING.md) | 常见启动、账号、任务、发布和模型问题 | 现行 |
 | [闭环与数据回收架构](AUTO-XHS-CLOSED-LOOP-ARCHITECTURE.md) | 私信、主加、被动回复、指标和 WebUI 闭环 | 已批准，进度更新至 2026-08-21 |

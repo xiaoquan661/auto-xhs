@@ -1,0 +1,27 @@
+{
+  "task_id": "manager-demo-001",
+  "machine_id": "EXECUTOR-01",
+  "account_slot": "brand-a",
+  "capability": "search-feeds",
+  "function_id": "EXPLORE-02",
+  "operation": "",
+  "platform": "xiaohongshu",
+  "request_summary": "搜索指定关键词并回收页面结果",
+  "target_type": "keyword",
+  "target_id": "露营",
+  "parameters": {
+    "keyword": "露营"
+  },
+  "authorization": {
+    "authorization_id": "instruction-001",
+    "scope": "read-only"
+  },
+  "allowed_versions": [
+    "0.1.0"
+  ],
+  "allowed_function_versions": [
+    "1.0"
+  ],
+  "write_intent": false,
+  "timeout_seconds": 300
+}

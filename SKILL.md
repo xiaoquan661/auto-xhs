@@ -168,6 +168,22 @@ python scripts/cli.py --account <账号别名> home-engagement `
 Agent 从已浏览结果中选定笔记，使用 `feed_id` 和 `xsec_token` 读取标题、正文、标签及可用图片文字，
 生成与笔记上下文一致的最终评论，再通过 `post-comment` 发送并回读平台结果。
 
+## 经理机跨电脑调度
+
+经理机使用 `python scripts/manager_cli.py` 登记和检查 Windows 执行机，通过 SSH 固定调用
+`scripts/manager_worker.py`。执行机固定入口只负责任务协议、版本、暂停恢复、对账和结果回收；真实
+小红书任务继续交给执行机本地 WebUI 应用服务，因此不得绕过账号身份、账号锁、配额、确认和页面
+回读规则。
+
+经理机与执行机之间不得传输 Chrome Profile、Cookie 或登录数据。SSH 响应超时的在途任务进入
+`RECONCILIATION_REQUIRED`，先对账再继续；`RESULT_UNKNOWN` 不得自动重发。部署、配置样例和完整
+命令见 `docs/MANAGER-SSH-OPERATIONS.md`。
+
+功能包安装后先登记为停用状态，再通过 `manager_cli.py version set` 明确正式或试用状态以及允许的
+经理、设备、账号和动作范围。带 `function_id` 的任务必须同时给出
+`allowed_function_versions`；执行机接单时锁定实际版本，并在结果中分别返回功能包
+`actual_version` 与项目 `project_version`。
+
 ## 新电脑准备
 
 首次运行前执行：

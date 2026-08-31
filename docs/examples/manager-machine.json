@@ -1,0 +1,15 @@
+{
+  "manager_id": "MILA-MANAGER",
+  "machine_id": "EXECUTOR-01",
+  "ssh_host": "192.0.2.10",
+  "ssh_port": 22,
+  "ssh_user": "executor-user",
+  "working_directory": "C:\\auto-xhs\\xiaohongshu-skills",
+  "python_executable": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\python.exe",
+  "identity_file": "",
+  "allowed_versions": [
+    "0.1.0"
+  ],
+  "expected_role": "executor",
+  "connect_timeout_seconds": 10
+}

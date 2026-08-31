@@ -1,0 +1,10 @@
+{
+  "transfer_id": "function-package-001",
+  "machine_id": "EXECUTOR-01",
+  "transfer_type": "function_package",
+  "source_path": "C:\\manager-input\\功能包\\互动模块\\INTERACT-01\\1.0",
+  "allowed_versions": [
+    "0.1.0"
+  ],
+  "timeout_seconds": 600
+}
