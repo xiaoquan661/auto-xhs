@@ -8,6 +8,8 @@
     if (!response.ok || payload.success === false) {
       const error = new Error(payload.error?.message || "请求失败");
       error.code = payload.error?.code || "REQUEST_FAILED";
+      error.payload = payload;
+      error.httpStatus = response.status;
       throw error;
     }
     return payload;
@@ -27,6 +29,8 @@
     if (!response.ok || payload.success === false) {
       const error = new Error(payload.error?.message || "请求失败");
       error.code = payload.error?.code || "REQUEST_FAILED";
+      error.payload = payload;
+      error.httpStatus = response.status;
       throw error;
     }
     return payload;

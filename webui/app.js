@@ -2918,6 +2918,7 @@ async function loadDashboard() {
     const statuses = await fetchAccountStatuses(accountData);
     renderAccountRoster(accountData, statuses);
     await loadWorkData(accountData, statuses);
+    await window.AutoXhsManagerConsole?.load();
     scheduleAccountStatusPoll();
     loadDiagnosis();
   } catch (error) {

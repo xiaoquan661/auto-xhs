@@ -334,6 +334,14 @@ class ManagerService:
         )
         return {"success": True, "tasks": tasks}
 
+    def list_transfers(self) -> dict:
+        transfers = sorted(
+            self.store.list("transfers"),
+            key=lambda item: item["created_at"],
+            reverse=True,
+        )
+        return {"success": True, "transfers": transfers}
+
     def list_function_versions(
         self,
         machine_id: str,
