@@ -99,6 +99,26 @@
             <small>CLI 与 WebUI 共用</small>
           </article>
         </section>
+
+        <section class="manager-cluster" aria-labelledby="manager-cluster-title">
+          <div class="section-heading">
+            <div><p class="section-kicker">CLUSTER CONTROL</p><h2 id="manager-cluster-title">执行机集群</h2></div>
+            <div class="section-heading-actions">
+              <p>读取各执行机的最近状态；连接检查、暂停、恢复和结果回收只在明确点击后执行。</p>
+              <button class="secondary-button" id="manager-refresh" type="button">刷新集群状态</button>
+            </div>
+          </div>
+          <div class="manager-summary" aria-label="集群概览">
+            <article><span>已登记执行机</span><strong id="manager-machine-total">0</strong><small>当前经理机管理范围</small></article>
+            <article><span>可调度</span><strong id="manager-ready-total">0</strong><small>状态为 READY</small></article>
+            <article><span>远程任务</span><strong id="manager-active-task-total">0</strong><small>等待、运行或暂停</small></article>
+            <article><span>需要对账</span><strong id="manager-reconcile-total">0</strong><small>不会自动重复派发</small></article>
+          </div>
+          <div class="manager-machine-grid" id="manager-machine-list" aria-live="polite">
+            <article class="loading-card"><span></span><span></span><span></span></article>
+          </div>
+          <p class="manager-inline-message" id="manager-cluster-message" role="status" aria-live="polite">正在读取集群状态…</p>
+        </section>
         </div>
 
         <div class="workspace-view" data-workspace="accounts" hidden>
@@ -240,6 +260,43 @@
             </div>
           </div>
           </div>
+
+          <section class="manager-remote-tasks" aria-labelledby="manager-task-title">
+            <div class="lane-heading">
+              <div><p class="section-kicker">REMOTE TASKS</p><h3 id="manager-task-title">远程任务调度</h3></div>
+              <span>派发到已登记执行机</span>
+            </div>
+            <div class="manager-operation-layout">
+              <form class="setup-card manager-form" id="manager-task-form">
+                <div class="manager-form-heading"><strong>新建远程任务</strong><small>写操作需要勾选本次明确授权</small></div>
+                <div class="manager-form-grid">
+                  <label>任务编号<input id="manager-task-id" required maxlength="120" /></label>
+                  <label>目标执行机<select id="manager-task-machine" required><option value="">暂无执行机</option></select></label>
+                  <label>账号槽位<input id="manager-task-account" required maxlength="120" placeholder="brand-a" /></label>
+                  <label>具体能力<input id="manager-task-capability" required maxlength="120" placeholder="search-feeds" /></label>
+                  <label class="manager-span-2">任务摘要<input id="manager-task-summary" required maxlength="240" placeholder="说明本次任务目的" /></label>
+                  <label>目标类型<input id="manager-task-target-type" maxlength="80" placeholder="keyword / feed" /></label>
+                  <label>目标标识<input id="manager-task-target-id" maxlength="500" /></label>
+                </div>
+                <details class="manager-advanced-fields">
+                  <summary>版本与参数</summary>
+                  <div class="manager-form-grid">
+                    <label>功能编号<input id="manager-task-function-id" maxlength="120" placeholder="EXPLORE-02" /></label>
+                    <label>功能版本<input id="manager-task-function-versions" maxlength="240" placeholder="1.0，多个用逗号分隔" /></label>
+                    <label>项目版本<input id="manager-task-project-versions" maxlength="240" placeholder="0.1.0，留空继承执行机策略" /></label>
+                    <label>超时时间<input id="manager-task-timeout" type="number" min="1" max="7200" value="300" /><span class="field-suffix">秒</span></label>
+                    <label class="manager-span-2">参数 JSON<textarea id="manager-task-parameters" rows="4">{}</textarea></label>
+                  </div>
+                </details>
+                <label class="manager-confirm-check"><input id="manager-task-write-intent" type="checkbox" />本任务会修改平台状态，我确认授权执行</label>
+                <button class="primary-button wide-button" type="submit">派发远程任务</button>
+                <p class="form-note" id="manager-task-message" role="status" aria-live="polite">只会向所选执行机派发一次；待对账任务不会自动重发。</p>
+              </form>
+              <div class="manager-task-ledger" id="manager-task-list" aria-live="polite">
+                <article class="empty-card"><div><strong>暂无远程任务</strong><span>登记执行机后可从这里派发与跟踪。</span></div></article>
+              </div>
+            </div>
+          </section>
         </section>
 
         <section class="content-section approvals-section workspace-view" data-workspace="approvals" hidden>
@@ -372,6 +429,29 @@
               <div class="record-list data-ledger" id="reply-record-list"><article class="empty-card"><div><strong>暂无回复记录</strong><span>私信回复或评论回复结算后会显示在这里。</span></div></article></div>
             </article>
           </div>
+
+          <section class="manager-result-workspace" aria-labelledby="manager-result-title">
+            <div class="lane-heading">
+              <div><p class="section-kicker">REMOTE RESULTS</p><h3 id="manager-result-title">远程结果与增量数据</h3></div>
+              <span>以执行机回收记录为准</span>
+            </div>
+            <div class="manager-result-toolbar">
+              <label>执行机<select id="manager-result-machine"><option value="">全部执行机</option></select></label>
+              <label class="manager-confirm-check"><input id="manager-collect-evidence" type="checkbox" checked />同时下载证据文件</label>
+              <button class="primary-button" id="manager-collect-results" type="button">立即回收所选执行机</button>
+              <p id="manager-collect-message" role="status" aria-live="polite">列表会自动读取缓存；结果回收需要手动触发。</p>
+            </div>
+            <div class="manager-summary" aria-label="远程结果概览">
+              <article><span>结果记录</span><strong id="manager-result-total">0</strong><small>当前筛选范围</small></article>
+              <article><span>增量记录</span><strong id="manager-incremental-total">0</strong><small>已保存的数据条目</small></article>
+              <article><span>人工动作</span><strong id="manager-manual-total">0</strong><small>需要人工继续处理</small></article>
+              <article><span>数据缺口</span><strong id="manager-data-gap-total">0</strong><small>回收摘要中的缺失项</small></article>
+            </div>
+            <div class="manager-result-columns">
+              <article class="recovery-panel"><div class="lane-heading"><div><h3>任务结果</h3></div><span>业务终态与建议动作</span></div><div class="record-list" id="manager-result-list"></div></article>
+              <article class="recovery-panel"><div class="lane-heading"><div><h3>增量数据</h3></div><span>事件、指标与诊断</span></div><div class="record-list" id="manager-incremental-list"></div></article>
+            </div>
+          </section>
         </section>
 
         <section class="content-section system-section workspace-view" data-workspace="system" hidden>
@@ -436,6 +516,66 @@
             </form>
           </article>
         </div>
+
+        <section class="manager-system" aria-labelledby="manager-system-title">
+          <div class="section-heading">
+            <div><p class="section-kicker">CLUSTER SETTINGS</p><h2 id="manager-system-title">集群配置</h2></div>
+            <p>项目目录和 Python 使用执行机路径；SSH 密钥与传输源使用经理机本地绝对路径。</p>
+          </div>
+
+          <form class="setup-card manager-form" id="manager-machine-form">
+            <div class="manager-form-heading"><strong>登记执行机</strong><small>保存连接资料后可从首页执行连接检查</small></div>
+            <div class="manager-form-grid manager-machine-form-grid">
+              <label>机器编号<input id="manager-machine-id" required maxlength="120" placeholder="EXECUTOR-01" /></label>
+              <label>显示名称<input id="manager-machine-alias" maxlength="120" placeholder="上海执行机 01" /></label>
+              <label>SSH 地址<input id="manager-machine-host" required maxlength="255" placeholder="192.168.110.84" /></label>
+              <label>SSH 端口<input id="manager-machine-port" type="number" min="1" max="65535" value="22" required /></label>
+              <label>SSH 用户<input id="manager-machine-user" required maxlength="120" /></label>
+              <label>经理机编号<input id="manager-machine-manager-id" maxlength="120" value="MILA-MANAGER" /></label>
+              <label class="manager-span-2">项目目录<input id="manager-machine-workdir" required placeholder="C:\auto-xhs\xiaohongshu-skills" /></label>
+              <label class="manager-span-2">Python 路径<input id="manager-machine-python" required placeholder="C:\auto-xhs\xiaohongshu-skills\.venv\Scripts\python.exe" /></label>
+              <label class="manager-span-2">密钥文件<input id="manager-machine-identity" placeholder="可选，经理机上的绝对路径" /></label>
+              <label>允许项目版本<input id="manager-machine-versions" required maxlength="240" placeholder="0.1.0，多个用逗号分隔" /></label>
+              <label>连接超时<input id="manager-machine-connect-timeout" type="number" min="1" max="120" value="10" /><span class="field-suffix">秒</span></label>
+            </div>
+            <button class="primary-button" type="submit">保存执行机</button>
+            <p class="form-note" id="manager-machine-message" role="status" aria-live="polite">保存后回到首页，点击“连接检查”核验 SSH 与执行端身份。</p>
+          </form>
+
+          <div class="manager-package-layout">
+            <form class="setup-card manager-form" id="manager-transfer-form">
+              <div class="manager-form-heading"><strong>功能包传输</strong><small>一次传输对应一个明确来源目录</small></div>
+              <label>传输编号<input id="manager-transfer-id" required maxlength="120" /></label>
+              <label>目标执行机<select id="manager-transfer-machine" required><option value="">暂无执行机</option></select></label>
+              <label>传输类型<select id="manager-transfer-type"><option value="function_package">功能包</option><option value="task_package">任务包</option><option value="config">配置</option></select></label>
+              <label>经理机来源绝对路径<input id="manager-transfer-source" required /></label>
+              <label>允许项目版本<input id="manager-transfer-versions" maxlength="240" placeholder="0.1.0，多个用逗号分隔" /></label>
+              <label>超时时间<input id="manager-transfer-timeout" type="number" min="1" max="7200" value="600" /><span class="field-suffix">秒</span></label>
+              <button class="primary-button wide-button" type="submit">开始传输</button>
+              <p class="form-note" id="manager-transfer-message" role="status" aria-live="polite">传输完成后会保留目标路径和版本回读。</p>
+            </form>
+
+            <form class="setup-card manager-form" id="manager-version-form">
+              <div class="manager-form-heading"><strong>设置功能版本策略</strong><small>正式版和试用版需要明确适用范围</small></div>
+              <label>目标执行机<select id="manager-version-machine" required><option value="">暂无执行机</option></select></label>
+              <label>功能编号<input id="manager-version-function" required maxlength="120" placeholder="EXPLORE-02" /></label>
+              <label>版本<input id="manager-version-value" required maxlength="120" placeholder="1.0" /></label>
+              <label>状态<select id="manager-version-status"><option value="FORMAL">正式</option><option value="TRIAL">试用</option><option value="DISABLED">停用</option></select></label>
+              <label>账号范围<input id="manager-version-accounts" maxlength="500" placeholder="brand-a，多个用逗号分隔" /></label>
+              <label>允许动作<input id="manager-version-actions" maxlength="500" placeholder="search-feeds，多个用逗号分隔" /></label>
+              <label class="manager-confirm-check"><input id="manager-version-stable" type="checkbox" checked />设为稳定版本</label>
+              <div class="manager-inline-actions">
+                <button class="primary-button" type="submit">保存版本策略</button>
+                <button class="secondary-button" id="manager-load-versions" type="button">读取执行机版本</button>
+              </div>
+              <p class="form-note" id="manager-version-message" role="status" aria-live="polite">读取版本会主动连接所选执行机，请按需触发。</p>
+            </form>
+          </div>
+          <div class="manager-result-columns manager-package-ledgers">
+            <article class="recovery-panel"><div class="lane-heading"><div><h3>传输记录</h3></div><span>状态与目标路径</span></div><div class="record-list" id="manager-transfer-list"></div></article>
+            <article class="recovery-panel"><div class="lane-heading"><div><h3>执行机版本</h3></div><span>手动读取结果</span></div><div class="record-list" id="manager-version-list"></div></article>
+          </div>
+        </section>
         </section>
 
         <footer><span>AUTO—XHS / LOCAL FIRST</span><span>配置与任务数据只保存在本机</span></footer>
@@ -650,6 +790,7 @@
     <script src="/api-client.js?v=20260820-workspace-1" defer></script>
     <script src="/task-catalog.js?v=20260820-workspace-1" defer></script>
     <script src="/workspace.js?v=20260820-workspace-1" defer></script>
+    <script src="/manager-console.js?v=20260831-manager-console-1" defer></script>
     <script src="/app.js?v=20260821-reply-context-1" defer></script>
   </body>
 </html>

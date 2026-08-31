@@ -13,10 +13,12 @@ from urllib.parse import unquote, urlparse
 
 try:
     from .application_service import ApplicationService, ServiceError
+    from .manager_service import ManagerService
     from .web_lifecycle import schedule_webui_restart
     from .web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 except ImportError:  # Direct execution: python scripts/web_server.py
     from application_service import ApplicationService, ServiceError
+    from manager_service import ManagerService
     from web_lifecycle import schedule_webui_restart
     from web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 
@@ -29,6 +31,8 @@ class LocalThreadingHTTPServer(ThreadingHTTPServer):
 
     allow_reuse_address = False
     allow_reuse_port = False
+
+
 API_PREFIX = "/api/v1"
 
 
@@ -43,6 +47,7 @@ def make_handler(
     *,
     web_root: Path = WEB_ROOT,
     session_token: str | None = None,
+    manager_service: ManagerService | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     token = session_token or create_session_token()
 
@@ -73,7 +78,7 @@ def make_handler(
                 payload = (
                     {"success": True, "session_token": token}
                     if path == f"{API_PREFIX}/session"
-                    else _dispatch_api(service, path)
+                    else _dispatch_api(service, path, manager_service)
                 )
             except ServiceError as exc:
                 self._send_json(exc.http_status, exc.to_dict())
@@ -108,7 +113,13 @@ def make_handler(
                 )
                 return
             try:
-                payload = _dispatch_mutation(service, method, path, self._read_json())
+                payload = _dispatch_mutation(
+                    service,
+                    method,
+                    path,
+                    self._read_json(),
+                    manager_service,
+                )
             except ServiceError as exc:
                 self._send_json(exc.http_status, exc.to_dict())
                 return
@@ -175,7 +186,14 @@ def make_handler(
     return LocalWebHandler
 
 
-def _dispatch_api(service: ApplicationService, path: str) -> dict:
+def _dispatch_api(
+    service: ApplicationService,
+    path: str,
+    manager_service: ManagerService | None = None,
+) -> dict:
+    manager = _dispatch_manager_api(manager_service, path)
+    if manager is not None:
+        return manager
     if path == f"{API_PREFIX}/health":
         return service.health()
     if path == f"{API_PREFIX}/capabilities":
@@ -262,7 +280,11 @@ def _dispatch_mutation(
     method: str,
     path: str,
     body: dict,
+    manager_service: ManagerService | None = None,
 ) -> dict:
+    manager = _dispatch_manager_mutation(manager_service, method, path, body)
+    if manager is not None:
+        return manager
     if method == "POST" and path == f"{API_PREFIX}/system/pause":
         return service.set_global_pause(True)
     if method == "POST" and path == f"{API_PREFIX}/system/resume":
@@ -433,6 +455,93 @@ def _dispatch_mutation(
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
 
 
+def _dispatch_manager_api(
+    manager_service: ManagerService | None,
+    path: str,
+) -> dict | None:
+    prefix = f"{API_PREFIX}/manager"
+    if not path.startswith(f"{prefix}/"):
+        return None
+    manager = _require_manager_service(manager_service)
+    if path == f"{prefix}/machines":
+        return manager.list_machines()
+    if path == f"{prefix}/tasks":
+        return manager.list_tasks()
+    if path == f"{prefix}/transfers":
+        return manager.list_transfers()
+    if path == f"{prefix}/results":
+        return manager.list_results()
+
+    parts = [unquote(part) for part in path.split("/") if part]
+    if len(parts) == 5 and parts[:4] == ["api", "v1", "manager", "tasks"]:
+        return manager.get_task(parts[4])
+    if (
+        len(parts) == 6
+        and parts[:4] == ["api", "v1", "manager", "machines"]
+        and parts[5] == "versions"
+    ):
+        return manager.list_function_versions(parts[4])
+    if (
+        len(parts) == 7
+        and parts[:4] == ["api", "v1", "manager", "machines"]
+        and parts[5] == "versions"
+    ):
+        return manager.list_function_versions(parts[4], parts[6])
+    raise ServiceError("NOT_FOUND", "经理机接口不存在", 404)
+
+
+def _dispatch_manager_mutation(
+    manager_service: ManagerService | None,
+    method: str,
+    path: str,
+    body: dict,
+) -> dict | None:
+    prefix = f"{API_PREFIX}/manager"
+    if not path.startswith(f"{prefix}/"):
+        return None
+    manager = _require_manager_service(manager_service)
+    if method == "POST" and path == f"{prefix}/machines":
+        return manager.register_machine(body)
+    if method == "POST" and path == f"{prefix}/tasks":
+        return manager.dispatch_task(body)
+    if method == "POST" and path == f"{prefix}/transfers":
+        return manager.transfer(body)
+    if method == "POST" and path == f"{prefix}/version-policies":
+        return manager.set_function_version_policy(body)
+
+    parts = [unquote(part) for part in path.split("/") if part]
+    if len(parts) == 6 and parts[:4] == ["api", "v1", "manager", "machines"]:
+        machine_id, action = parts[4], parts[5]
+        if method == "POST" and action == "check":
+            return manager.check_machine(machine_id)
+        if method == "POST" and action == "pause":
+            return manager.pause_machine(machine_id)
+        if method == "POST" and action == "resume":
+            return manager.resume_machine(machine_id)
+        if method == "POST" and action == "collect":
+            return manager.collect_results(
+                machine_id,
+                download_evidence=bool(body.get("download_evidence", True)),
+            )
+    if len(parts) == 6 and parts[:4] == ["api", "v1", "manager", "tasks"]:
+        task_id, action = parts[4], parts[5]
+        if method == "POST" and action == "reconcile":
+            return manager.reconcile_task(task_id)
+        if method == "POST" and action == "pause":
+            return manager.pause_task(task_id)
+        if method == "POST" and action == "resume":
+            return manager.resume_task(task_id)
+    raise ServiceError("NOT_FOUND", "经理机接口不存在", 404)
+
+
+def _require_manager_service(
+    manager_service: ManagerService | None,
+) -> ManagerService:
+    if manager_service is None:
+        raise ServiceError("MANAGER_SERVICE_UNAVAILABLE", "经理机服务未启用", 503)
+    return manager_service
+
+
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     host = _validate_bind_host(host)
     project_root = Path(__file__).resolve().parent.parent
@@ -443,7 +552,11 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
             port=port,
         )
     )
-    server = LocalThreadingHTTPServer((host, port), make_handler(service))
+    manager_service = ManagerService()
+    server = LocalThreadingHTTPServer(
+        (host, port),
+        make_handler(service, manager_service=manager_service),
+    )
     print(f"auto-xhs WebUI: http://{host}:{server.server_port}")
     try:
         server.serve_forever()
