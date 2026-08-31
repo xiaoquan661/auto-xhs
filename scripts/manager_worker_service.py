@@ -594,6 +594,9 @@ class ManagerWorkerService:
                 "started_at": None,
                 "finished_at": None,
                 "updated_at": now,
+                "business_result": {},
+                "business_result_status": "missing",
+                "business_result_missing_reason": "任务尚未结算",
                 "item_results": [],
                 "item_results_status": "missing",
                 "item_results_missing_reason": "任务尚未结算",
@@ -683,6 +686,9 @@ class ManagerWorkerService:
         except Exception as exc:
             outcome = {
                 "state": "RESULT_UNKNOWN" if getattr(exc, "result_unknown", False) else "FAILED",
+                "business_result": {},
+                "business_result_status": "failed",
+                "business_result_missing_reason": "任务执行异常，未取得业务结果",
                 "item_results": [],
                 "item_results_status": "failed",
                 "item_results_missing_reason": "任务执行异常，未取得逐项结果",
@@ -727,6 +733,9 @@ class ManagerWorkerService:
             current.update(
                 {
                     "state": outcome["state"],
+                    "business_result": outcome["business_result"],
+                    "business_result_status": outcome["business_result_status"],
+                    "business_result_missing_reason": outcome["business_result_missing_reason"],
                     "item_results": outcome["item_results"],
                     "item_results_status": outcome["item_results_status"],
                     "item_results_missing_reason": outcome["item_results_missing_reason"],
@@ -1309,6 +1318,9 @@ class ManagerWorkerService:
             current.update(
                 {
                     "state": outcome["state"],
+                    "business_result": outcome["business_result"],
+                    "business_result_status": outcome["business_result_status"],
+                    "business_result_missing_reason": outcome["business_result_missing_reason"],
                     "item_results": outcome["item_results"],
                     "item_results_status": outcome["item_results_status"],
                     "item_results_missing_reason": outcome["item_results_missing_reason"],
@@ -1517,6 +1529,31 @@ class ManagerWorkerService:
         task = value.get("task") if isinstance(value.get("task"), dict) else {}
         nested = value.get("result") if isinstance(value.get("result"), dict) else {}
 
+        business_result_present = "business_result" in value or "result" in value
+        raw_business_result = (
+            value.get("business_result") if "business_result" in value else value.get("result")
+        )
+        if business_result_present and isinstance(raw_business_result, (dict, list)):
+            business_result = copy.deepcopy(raw_business_result)
+            business_result_status = str(
+                value.get("business_result_status")
+                or nested.get("business_result_status")
+                or "observed"
+            )
+            business_result_missing_reason = str(
+                value.get("business_result_missing_reason")
+                or nested.get("business_result_missing_reason")
+                or ""
+            )
+        elif business_result_present:
+            business_result = {}
+            business_result_status = "failed"
+            business_result_missing_reason = "业务结果格式不是对象或数组"
+        else:
+            business_result = {}
+            business_result_status = "missing"
+            business_result_missing_reason = "执行结果未提供业务结果"
+
         def first_present(
             mappings: tuple[dict[str, Any], ...],
             names: tuple[str, ...],
@@ -1542,7 +1579,7 @@ class ManagerWorkerService:
         )
         item_results, item_results_present = first_present(
             (value, nested),
-            ("item_results", "items", "recipient_results", "results"),
+            ("item_results", "items", "recipient_results", "results", "feeds"),
         )
         if item_results_present and isinstance(item_results, list):
             item_results_status = str(
@@ -1639,6 +1676,9 @@ class ManagerWorkerService:
         )
         return {
             "state": state,
+            "business_result": business_result,
+            "business_result_status": business_result_status,
+            "business_result_missing_reason": business_result_missing_reason,
             "item_results": copy.deepcopy(item_results),
             "item_results_status": item_results_status,
             "item_results_missing_reason": item_results_missing_reason,
@@ -1692,6 +1732,11 @@ class ManagerWorkerService:
                 "actual_version": execution.get("actual_version") or execution["project_version"],
                 "version_status": execution.get("version_status", "PROJECT"),
                 "state": execution["state"],
+                "business_result": copy.deepcopy(execution.get("business_result", {})),
+                "business_result_status": execution.get("business_result_status", "missing"),
+                "business_result_missing_reason": execution.get(
+                    "business_result_missing_reason", ""
+                ),
                 "item_results": copy.deepcopy(execution.get("item_results") or []),
                 "item_results_status": execution.get("item_results_status", "missing"),
                 "item_results_missing_reason": execution.get("item_results_missing_reason", ""),
