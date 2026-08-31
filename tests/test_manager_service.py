@@ -985,3 +985,26 @@ def test_result_summary_does_not_turn_missing_data_into_observed_zero() -> None:
     assert summary["incremental_data_status"] == "mixed"
     assert summary["incremental_record_count"] == 0
     assert {gap["task_id"] for gap in summary["data_gaps"]} == {"missing"}
+
+
+def test_result_summary_does_not_assign_states_to_discovery_rows() -> None:
+    feeds = [{"id": "feed-1", "displayTitle": "露营🏕️"}]
+
+    summary = ManagerService._summarize_results(
+        [
+            {
+                "task_id": "search",
+                "state": "SUCCESS",
+                "business_result": {"feeds": feeds, "count": 1},
+                "business_result_status": "observed",
+                "item_results": feeds,
+                "item_results_status": "observed",
+                "incremental_data": [],
+                "incremental_data_status": "observed",
+            }
+        ]
+    )
+
+    assert summary["item_results_status"] == "observed"
+    assert summary["item_state_counts"] == {}
+    assert summary["data_gaps"] == []

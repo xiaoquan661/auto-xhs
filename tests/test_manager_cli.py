@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 
 import pytest
@@ -230,6 +231,17 @@ def test_error_output_is_utf8_json_and_returns_exit_code_two(capsys) -> None:
         "success": False,
         "error": {"code": "TEST_ERROR", "message": "中文错误"},
     }
+
+
+def test_output_reconfigures_windows_stream_for_emoji(monkeypatch) -> None:
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="gbk")
+    monkeypatch.setattr(manager_cli.sys, "stdout", stream)
+
+    manager_cli._output({"title": "露营🏕️"})
+    stream.flush()
+
+    assert json.loads(buffer.getvalue().decode("utf-8")) == {"title": "露营🏕️"}
 
 
 def test_unsuccessful_service_result_returns_exit_code_two(capsys) -> None:
