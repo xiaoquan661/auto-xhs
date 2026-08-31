@@ -8,7 +8,6 @@
 
 const NETLOG_MAX_ENTRIES   = 500;
 const NETLOG_REQBODY_MAX   = 8192;
-const NETLOG_RESPBODY_MAX  = 4096;
 const NETLOG_FLUSH_EVERY_N = 10;
 const NETLOG_STORAGE_KEY   = "netLog";
 const NETLOG_ENABLED_KEY   = "netlogEnabled";

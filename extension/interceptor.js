@@ -286,7 +286,7 @@
     _pendingEvents.length = 0;
   }
 
-  // content.js 就绪后会发 xhs-interceptor-ready 消息，或 500ms 后强制 flush
+  // content.js 就绪后会发 xhs-content-ready 消息，或超时后强制 flush
   window.addEventListener("message", (e) => {
     if (e.data?.source === "xhs-content-ready") flushPending();
   });

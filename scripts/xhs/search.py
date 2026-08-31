@@ -10,7 +10,6 @@ from collections.abc import Callable
 
 from .cdp import Page
 from .errors import NoFeedsError
-from .human import sleep_random
 from .selectors import FILTER_BUTTON, FILTER_PANEL
 from .types import Feed, FilterOption
 from .urls import make_search_url
@@ -310,7 +309,7 @@ def _apply_filters(page: Page, filters: list[tuple[int, str]]) -> None:
     script = f"""
 (() => {{
   return new Promise((resolve, reject) => {{
-    const btn = document.querySelector('div.filter');
+    const btn = document.querySelector({json.dumps(FILTER_BUTTON)});
     if (!btn) {{ reject('筛选按钮不存在'); return; }}
 
     // 记录点击前的 feeds 快照（用于判断结果已刷新）
@@ -322,7 +321,7 @@ def _apply_filters(page: Page, filters: list[tuple[int, str]]) -> None:
 
     // 等待筛选面板出现
     const panelTimer = setInterval(() => {{
-      const wrapper = document.querySelector('div.filters-wrapper');
+      const wrapper = document.querySelector({json.dumps(FILTER_PANEL)});
       if (!wrapper) {{
         if (++attempts > 50) {{ clearInterval(panelTimer); reject('筛选面板等待超时'); }}
         return;

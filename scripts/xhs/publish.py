@@ -25,14 +25,11 @@ from .selectors import (
     IMAGE_PREVIEW,
     ORIGINAL_SWITCH,
     ORIGINAL_SWITCH_CARD,
-    POPOVER,
-    PUBLISH_BUTTON,
     SCHEDULE_SWITCH,
     TAG_FIRST_ITEM,
     TAG_TOPIC_CONTAINER,
     TITLE_INPUT,
     TITLE_MAX_SUFFIX,
-    UPLOAD_CONTENT,
     UPLOAD_INPUT,
     VISIBILITY_DROPDOWN,
     VISIBILITY_OPTIONS,
@@ -546,10 +543,6 @@ def _click_publish_tab(page: Page, tab_name: str) -> None:
         if found == "clicked":
             return
 
-        if found == "blocked":
-            # 尝试移除弹窗
-            _remove_pop_cover(page)
-
         time.sleep(0.2)
 
     # 调试：输出页面信息
@@ -566,17 +559,6 @@ def _click_publish_tab(page: Page, tab_name: str) -> None:
     """)
     logger.error("调试信息: %s", debug_info)
     raise PublishError(f"没有找到发布 TAB - {tab_name}")
-
-
-def _remove_pop_cover(page: Page) -> None:
-    """移除弹窗遮挡。"""
-    if page.has_element(POPOVER):
-        page.remove_element(POPOVER)
-    # 点击空位置
-    x = 380 + random.randint(0, 100)
-    y = 20 + random.randint(0, 60)
-    page.mouse_click(float(x), float(y))
-
 
 # ========== 图片上传 ==========
 

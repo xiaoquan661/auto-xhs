@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import random
 import time
 
@@ -12,8 +11,6 @@ from .like_favorite import like_current_feed
 from .selectors import LIKE_BUTTON
 from .types import Feed
 from .urls import HOME_URL
-
-logger = logging.getLogger(__name__)
 
 _CLOSE_SELECTORS = (
     ".close-circle",

@@ -2936,10 +2936,6 @@ async function loadDashboard() {
   }
 }
 
-function setupNavigation() {
-  window.AutoXhsWorkspace?.render(window.location.hash);
-}
-
 function renderSystem(system) {
   const pause = $("#global-pause");
   pause.dataset.paused = system.global_paused ? "true" : "false";
@@ -3172,5 +3168,4 @@ syncAccountMode();
 renderTaskTemplateActions();
 resetDraftForm();
 setupTaskPanels();
-setupNavigation();
 loadDashboard();
