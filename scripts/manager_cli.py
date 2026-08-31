@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -256,6 +257,9 @@ def _result_list(args: argparse.Namespace, service: ManagerService) -> dict:
 
 
 def _output(payload: dict) -> None:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

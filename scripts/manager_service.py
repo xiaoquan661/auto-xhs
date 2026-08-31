@@ -1213,7 +1213,9 @@ class ManagerService:
                 for item in item_results:
                     if not isinstance(item, dict):
                         continue
-                    item_states[str(item.get("state") or "UNKNOWN")] += 1
+                    item_state = str(item.get("state") or "").strip()
+                    if item_state:
+                        item_states[item_state] += 1
                     item_error = str(
                         item.get("error_classification") or item.get("error_code") or ""
                     )
