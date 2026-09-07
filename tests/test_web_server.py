@@ -669,8 +669,8 @@ def test_webui_contains_manager_operations_and_account_workspace() -> None:
 
     assert "运营总览" in html
     assert "员工机" in html
-    assert "账号与人设" in html
-    assert "运营任务" in html
+    assert "账号管理" in html
+    assert 'id="manager-executions-panel"' in html
     assert "数据回收" in html
     assert "异常中心" in html
     assert 'id="manager-operation-detail-dialog"' in html

@@ -11,6 +11,7 @@ from run_lock import for_account
 from service_errors import ServiceError
 from xhs.bridge import BridgePage
 
+
 def _serialize(value):
     if hasattr(value, "to_dict"):
         return value.to_dict()
