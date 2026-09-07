@@ -74,12 +74,14 @@ class ReplyCycleService:
         decision: str,
         reason: str,
         generation: dict | None = None,
+        rule: dict | None = None,
         reply_task_id: str = "",
         result_state: str = "",
     ) -> dict:
         if decision not in DECISIONS:
             raise ServiceError("INVALID_REQUEST", f"未知回复决策: {decision}")
         generation = dict(generation or {})
+        rule = dict(rule or {})
         event_type = str(event.get("event_type") or "")
         channel = "private_message" if event_type == "private_message" else "comment"
         now = utc_now()
@@ -103,6 +105,8 @@ class ReplyCycleService:
             ),
             reply_task_id,
             result_state,
+            str(rule.get("rule_id") or ""),
+            int(rule.get("rule_version") or 0),
             now,
             now,
         )
@@ -113,8 +117,8 @@ class ReplyCycleService:
                     decision_id, cycle_id, inbound_event_id, account_slot, platform,
                     channel, decision, reason, intent, confidence, reply_text,
                     facts_used_json, missing_information_json, reply_task_id,
-                    result_state, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    result_state, rule_id, rule_version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(inbound_event_id) DO UPDATE SET
                     cycle_id = excluded.cycle_id,
                     decision = excluded.decision,
@@ -126,6 +130,8 @@ class ReplyCycleService:
                     missing_information_json = excluded.missing_information_json,
                     reply_task_id = excluded.reply_task_id,
                     result_state = excluded.result_state,
+                    rule_id = excluded.rule_id,
+                    rule_version = excluded.rule_version,
                     updated_at = excluded.updated_at
                 """,
                 values,

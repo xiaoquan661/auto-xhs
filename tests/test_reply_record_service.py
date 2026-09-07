@@ -5,9 +5,7 @@ from scripts.reply_record_service import ReplyRecordService
 
 
 def test_comment_reply_record_keeps_original_and_sent_content(tmp_path) -> None:
-    service = ReplyRecordService(
-        OperationsDatabase(path=tmp_path / "operations.db")
-    )
+    service = ReplyRecordService(OperationsDatabase(path=tmp_path / "operations.db"))
     task = {
         "task_id": "reply-task-1",
         "account_slot": "alpha",
@@ -16,6 +14,8 @@ def test_comment_reply_record_keeps_original_and_sent_content(tmp_path) -> None:
             "user_id": "user-1",
             "nickname": "访客",
             "original_content": "请问怎么报名？",
+            "rule_id": "rule-1",
+            "rule_version": 4,
         },
         "state": "SUCCESS",
         "finished_at": "2026-08-26T10:00:00+00:00",
@@ -51,12 +51,12 @@ def test_comment_reply_record_keeps_original_and_sent_content(tmp_path) -> None:
     assert record["original_content"] == "请问怎么报名？"
     assert record["reply_text"] == "请查看主页报名说明。"
     assert record["readback_state"] == "VERIFIED"
+    assert record["rule_id"] == "rule-1"
+    assert record["rule_version"] == 4
 
 
 def test_comment_reply_record_accepts_notification_acknowledgement(tmp_path) -> None:
-    service = ReplyRecordService(
-        OperationsDatabase(path=tmp_path / "operations.db")
-    )
+    service = ReplyRecordService(OperationsDatabase(path=tmp_path / "operations.db"))
     task = {
         "task_id": "reply-task-notification",
         "account_slot": "alpha",
@@ -84,9 +84,7 @@ def test_comment_reply_record_accepts_notification_acknowledgement(tmp_path) -> 
 
 
 def test_private_message_reply_is_idempotent_by_task(tmp_path) -> None:
-    service = ReplyRecordService(
-        OperationsDatabase(path=tmp_path / "operations.db")
-    )
+    service = ReplyRecordService(OperationsDatabase(path=tmp_path / "operations.db"))
     task = {
         "task_id": "reply-task-2",
         "account_slot": "alpha",

@@ -50,7 +50,7 @@ from capability_registry import (
 )
 from collector_service import CollectorService
 from comment_collector import CommentCollector
-from conversation_ownership_service import ConversationOwnershipService, OWNER_HUMAN
+from conversation_ownership_service import OWNER_HUMAN, ConversationOwnershipService
 from data_recovery_service import DataRecoveryService
 from diagnostic_export import export_diagnostic_report
 from inbound_event_service import InboundEventService
@@ -73,6 +73,7 @@ from reply_cycle_service import ReplyCycleService
 from reply_intelligence_service import ReplyIntelligenceService
 from reply_llm_client import OpenAICompatibleReplyClient, ReplyModelConfig
 from reply_rule_service import ReplyRuleService
+from report_service import ReportService
 from service_errors import ServiceError
 from task_service import TaskService
 from xhs.bridge import BridgePage
@@ -169,6 +170,7 @@ class ApplicationService:
             self.private_message_conversations,
         )
         self.metrics = MetricService(self.operations_database)
+        self.reports = ReportService(self.operations_database)
         self.data_recovery = DataRecoveryService(self.operations_database)
         self.published_posts = self.data_recovery.published_posts
         self.operation_events = self.data_recovery.operation_events
@@ -844,6 +846,7 @@ class ApplicationService:
         verified_uid: str,
         confirmed: bool,
         preview_confirmed: bool,
+        preview_revision: str,
     ) -> dict:
         """Execute one prepared publish task after an explicit WebUI preview check."""
 
@@ -870,6 +873,7 @@ class ApplicationService:
             task_id,
             account=account_slot,
             confirmed=True,
+            preview_revision=preview_revision,
         )
         preview = (task.get("parameters") or {}).get("preview") or {}
         try:
@@ -899,6 +903,7 @@ class ApplicationService:
         account_slot: str,
         verified_uid: str,
         confirmed: bool,
+        preview_revision: str,
     ) -> dict:
         """Save a prepared publish form to the platform draft box."""
 
@@ -909,16 +914,35 @@ class ApplicationService:
         if waiting["state"] != "WAITING_APPROVAL":
             raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以保存为草稿", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
-        self.publish_workflows.resume_preparation(task_id, account=account_slot)
+        task = self.publish_workflows.prepare_publish(
+            task_id,
+            account=account_slot,
+            confirmed=True,
+            preview_revision=preview_revision,
+        )
+        preview = (task.get("parameters") or {}).get("preview") or {}
         try:
-            self.runner.execute(account_slot, "save-draft", {})
-        except Exception as exc:
-            failed = self.publish_workflows.fail(task_id, exc)
+            result = self.runner.execute(
+                account_slot,
+                "save-draft",
+                {"expected_title": str(preview.get("title") or "")},
+            )
+        except PublishError as exc:
+            failed = self.publish_workflows.fail(task_id, exc, published=False)
             return {"success": True, "task": failed}
-        completed = self.publish_workflows.complete_saved_draft(task_id)
+        except Exception as exc:
+            failed = self.publish_workflows.fail(
+                task_id,
+                exc,
+                result_unknown=True,
+                published=False,
+            )
+            return {"success": True, "task": failed}
+        completed = self.publish_workflows.complete_saved_draft(task_id, result)
         return {
             "success": True,
             "task": completed,
+            "result": result,
             "status": completed["state"],
         }
 
@@ -1650,6 +1674,23 @@ class ApplicationService:
             ),
         }
 
+    def generate_operation_report(self, **values) -> dict:
+        if "platform" not in values and values.get("account_slot"):
+            values["platform"] = self._resolve_account_platform(values["account_slot"])
+        return {"success": True, "report": self.reports.generate(**values)}
+
+    def list_operation_reports(self, **filters) -> dict:
+        return {"success": True, "reports": self.reports.list(**filters)}
+
+    def get_operation_report(self, report_id: str) -> dict:
+        return {"success": True, "report": self.reports.get(report_id)}
+
+    def revise_operation_report(self, report_id: str, **values) -> dict:
+        return {
+            "success": True,
+            "report": self.reports.revise(report_id, **values),
+        }
+
     def list_reply_rules(self, *, account_slot: str | None = None) -> dict:
         return {
             "success": True,
@@ -1751,6 +1792,7 @@ class ApplicationService:
                 decision=action,
                 reason=reason,
                 generation=generation,
+                rule=rule,
             )
             if action == "skip":
                 self.inbound_events.ignore(event["event_id"])
@@ -1776,6 +1818,7 @@ class ApplicationService:
                 decision=rule_decision["decision"],
                 reason=rule_decision["reason"],
                 generation=generation,
+                rule=rule,
             )
             if decision["decision"] == "skip":
                 self.inbound_events.ignore(event["event_id"])
@@ -1790,6 +1833,7 @@ class ApplicationService:
             generation=generation,
             verified_uid=verified_uid,
             source=source,
+            rule=rule,
         )
         task = execution["task"]
         result_state = str(task.get("state") or "FAILED")
@@ -1809,6 +1853,7 @@ class ApplicationService:
             decision=final_decision,
             reason=decision_reason,
             generation=generation,
+            rule=rule,
             reply_task_id=task["task_id"],
             result_state=task["state"],
         )
@@ -2095,6 +2140,7 @@ class ApplicationService:
                 event=event,
                 decision="skip",
                 reason="outside_own_notes",
+                rule=rule,
             )
             self.inbound_events.ignore(event["event_id"])
             return decision
@@ -2123,6 +2169,7 @@ class ApplicationService:
                 reason=(
                     exc.code if isinstance(exc, ServiceError) else "generation_failed"
                 ),
+                rule=rule,
             )
             self.inbound_events.mark_handled(event["event_id"])
             self._handoff_private_message(event)
@@ -2147,6 +2194,7 @@ class ApplicationService:
                 decision=rule_decision["decision"],
                 reason=rule_decision["reason"],
                 generation=generation,
+                rule=rule,
             )
             if decision["decision"] == "skip":
                 self.inbound_events.ignore(event["event_id"])
@@ -2161,6 +2209,7 @@ class ApplicationService:
             generation=generation,
             verified_uid=verified_uid,
             source=source,
+            rule=rule,
         )
         task = execution["task"]
         result_state = str(task.get("state") or "FAILED")
@@ -2180,6 +2229,7 @@ class ApplicationService:
             decision=final_decision,
             reason=decision_reason,
             generation=generation,
+            rule=rule,
             reply_task_id=task["task_id"],
             result_state=task["state"],
         )
@@ -2200,6 +2250,7 @@ class ApplicationService:
         generation: dict,
         verified_uid: str,
         source: str,
+        rule: dict,
     ) -> dict:
         payload = dict(event.get("payload") or {})
         private_message = event.get("event_type") == "private_message"
@@ -2223,6 +2274,8 @@ class ApplicationService:
             "original_content": str(payload.get("content") or ""),
             "content": str(generation.get("reply") or ""),
             "verified_uid": verified_uid,
+            "rule_id": str(rule.get("rule_id") or ""),
+            "rule_version": int(rule.get("rule_version") or 0),
         }
         if private_message:
             parameters["expected_peer_turn"] = list(

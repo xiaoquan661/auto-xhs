@@ -1028,7 +1028,8 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
                 "status": "表单已填写，等待确认发布",
                 "next_command": (
                     f"python scripts/cli.py --account {args.account} click-publish "
-                    f"--task-id {task['task_id']} --confirm"
+                    f"--task-id {task['task_id']} --preview-revision "
+                    f"{task['parameters']['preview_revision']} --confirm"
                 ),
             }
         )
@@ -1101,7 +1102,8 @@ def cmd_fill_publish_video(args: argparse.Namespace) -> None:
                 "status": "视频表单已填写，等待确认发布",
                 "next_command": (
                     f"python scripts/cli.py --account {args.account} click-publish "
-                    f"--task-id {task['task_id']} --confirm"
+                    f"--task-id {task['task_id']} --preview-revision "
+                    f"{task['parameters']['preview_revision']} --confirm"
                 ),
             }
         )
@@ -1122,7 +1124,12 @@ def cmd_click_publish(args: argparse.Namespace) -> None:
     workflow = PublishWorkflowService()
     checks = workflow.store.get_setting("runtime_identity_checks", {})
     args._runtime_identity = (checks or {}).get(args.account) or {}
-    task = workflow.prepare_publish(args.task_id, account=args.account, confirmed=args.confirm)
+    task = workflow.prepare_publish(
+        args.task_id,
+        account=args.account,
+        confirmed=args.confirm,
+        preview_revision=args.preview_revision,
+    )
     browser = None
     publish_attempted = False
     try:
@@ -1158,18 +1165,44 @@ def cmd_click_publish(args: argparse.Namespace) -> None:
 def cmd_save_draft(args: argparse.Namespace) -> None:
     """保存为草稿。"""
     from publish_workflow import PublishWorkflowService
+    from xhs.errors import PublishError
     from xhs.publish import save_as_draft
 
     workflow = PublishWorkflowService()
-    task = workflow.resume_preparation(args.task_id, account=args.account)
+    task = workflow.prepare_publish(
+        args.task_id,
+        account=args.account,
+        confirmed=args.confirm,
+        preview_revision=args.preview_revision,
+    )
     browser = None
+    draft_attempted = False
     try:
         browser, page = _connect_existing(args)
-        save_as_draft(page)
-        task = workflow.complete_saved_draft(task["task_id"])
-        _output({"success": True, "task_id": task["task_id"], "task": task, "status": "内容已保存到草稿箱"})
+        draft_attempted = True
+        preview = (task.get("parameters") or {}).get("preview") or {}
+        result = save_as_draft(page, expected_title=str(preview.get("title") or ""))
+        task = workflow.complete_saved_draft(task["task_id"], result)
+        _output(
+            {
+                "success": task["state"] == "CANCELLED",
+                "task_id": task["task_id"],
+                "task": task,
+                "result": result,
+                "status": task["state"],
+            },
+            exit_code=0 if task["state"] == "CANCELLED" else 2,
+        )
+    except PublishError as exc:
+        workflow.fail(task["task_id"], exc, published=False)
+        raise
     except Exception as exc:
-        workflow.fail(task["task_id"], exc)
+        workflow.fail(
+            task["task_id"],
+            exc,
+            result_unknown=draft_attempted,
+            published=False,
+        )
         raise
     finally:
         if browser:
@@ -1301,7 +1334,8 @@ def cmd_next_step(args: argparse.Namespace) -> None:
                 "status": "已进入发布页，等待确认发布",
                 "next_command": (
                     f"python scripts/cli.py --account {args.account} click-publish "
-                    f"--task-id {task['task_id']} --confirm"
+                    f"--task-id {task['task_id']} --preview-revision "
+                    f"{task['parameters']['preview_revision']} --confirm"
                 ),
             }
         )
@@ -2479,12 +2513,15 @@ def build_parser() -> argparse.ArgumentParser:
     # click-publish
     sub = subparsers.add_parser("click-publish", help="确认预览后执行发布")
     sub.add_argument("--task-id", required=True, help="fill/long-article 返回的发布任务 ID")
+    sub.add_argument("--preview-revision", required=True, help="最终预览版本")
     sub.add_argument("--confirm", action="store_true", help="确认已核对浏览器真实预览")
     sub.set_defaults(func=cmd_click_publish)
 
     # save-draft
     sub = subparsers.add_parser("save-draft", help="保存为草稿")
     sub.add_argument("--task-id", required=True, help="待取消发布的任务 ID")
+    sub.add_argument("--preview-revision", required=True, help="最终预览版本")
+    sub.add_argument("--confirm", action="store_true", help="确认保存当前预览为平台草稿")
     sub.set_defaults(func=cmd_save_draft)
 
     # long-article

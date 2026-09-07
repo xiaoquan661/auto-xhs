@@ -10,7 +10,7 @@ from pathlib import Path
 
 from product_store import product_root
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 
 _MIGRATIONS = {
     1: """
@@ -299,6 +299,90 @@ _MIGRATIONS = {
             ADD COLUMN resume_source TEXT NOT NULL DEFAULT '';
         ALTER TABLE private_message_conversations
             ADD COLUMN matched_reply_task_id TEXT NOT NULL DEFAULT '';
+    """,
+    8: """
+        ALTER TABLE reply_rules
+            ADD COLUMN rule_version INTEGER NOT NULL DEFAULT 1;
+
+        CREATE TABLE reply_rule_versions (
+            rule_id TEXT NOT NULL,
+            rule_version INTEGER NOT NULL,
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            content_scope TEXT NOT NULL,
+            reply_style TEXT NOT NULL,
+            active_time_range TEXT NOT NULL,
+            hourly_limit INTEGER NOT NULL,
+            daily_limit INTEGER NOT NULL,
+            comment_enabled INTEGER NOT NULL,
+            private_message_enabled INTEGER NOT NULL,
+            auto_categories_json TEXT NOT NULL,
+            manual_categories_json TEXT NOT NULL,
+            account_profile TEXT NOT NULL,
+            knowledge TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (rule_id, rule_version),
+            FOREIGN KEY (rule_id) REFERENCES reply_rules(rule_id)
+        );
+
+        INSERT INTO reply_rule_versions (
+            rule_id, rule_version, account_slot, platform, enabled,
+            content_scope, reply_style, active_time_range, hourly_limit,
+            daily_limit, comment_enabled, private_message_enabled,
+            auto_categories_json, manual_categories_json, account_profile,
+            knowledge, created_at, updated_at
+        )
+        SELECT
+            rule_id, 1, account_slot, platform, enabled,
+            content_scope, reply_style, active_time_range, hourly_limit,
+            daily_limit, comment_enabled, private_message_enabled,
+            auto_categories_json, manual_categories_json, account_profile,
+            knowledge, created_at, updated_at
+        FROM reply_rules;
+
+        ALTER TABLE reply_decisions
+            ADD COLUMN rule_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE reply_decisions
+            ADD COLUMN rule_version INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE reply_records
+            ADD COLUMN rule_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE reply_records
+            ADD COLUMN rule_version INTEGER NOT NULL DEFAULT 0;
+
+        CREATE INDEX reply_rule_versions_account_idx
+            ON reply_rule_versions (account_slot, rule_id, rule_version DESC);
+        CREATE INDEX reply_decisions_rule_idx
+            ON reply_decisions (rule_id, rule_version, updated_at DESC);
+        CREATE INDEX reply_records_rule_idx
+            ON reply_records (rule_id, rule_version, updated_at DESC);
+    """,
+    9: """
+        CREATE TABLE operation_reports (
+            report_id TEXT PRIMARY KEY,
+            root_report_id TEXT NOT NULL,
+            previous_report_id TEXT NOT NULL DEFAULT '',
+            revision_number INTEGER NOT NULL,
+            report_type TEXT NOT NULL,
+            account_slot TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            entity_type TEXT NOT NULL DEFAULT '',
+            entity_id TEXT NOT NULL DEFAULT '',
+            period_start TEXT NOT NULL,
+            period_end TEXT NOT NULL,
+            summary_json TEXT NOT NULL,
+            details_json TEXT NOT NULL,
+            anomalies_json TEXT NOT NULL,
+            revision_reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            UNIQUE (root_report_id, revision_number)
+        );
+
+        CREATE INDEX operation_reports_account_time_idx
+            ON operation_reports (account_slot, report_type, period_end DESC);
+        CREATE INDEX operation_reports_revision_idx
+            ON operation_reports (root_report_id, revision_number DESC);
     """,
 }
 

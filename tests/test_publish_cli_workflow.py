@@ -7,7 +7,15 @@ import pytest
 
 from product_store import ProductStore
 from scripts.application_service import ApplicationService
-from scripts.cli import cmd_click_publish, cmd_fill_publish, cmd_publish
+from scripts.cli import (
+    cmd_click_publish,
+    cmd_fill_publish,
+    cmd_fill_publish_video,
+    cmd_long_article,
+    cmd_next_step,
+    cmd_publish,
+    cmd_select_template,
+)
 from service_errors import ServiceError
 
 
@@ -89,6 +97,7 @@ def test_fill_then_confirmed_click_persists_agent_task(
     click_args = argparse.Namespace(
         account="alpha",
         task_id=fill_report["task_id"],
+        preview_revision=fill_report["task"]["parameters"]["preview_revision"],
         confirm=True,
     )
     with pytest.raises(SystemExit) as click_exit:
@@ -100,3 +109,92 @@ def test_fill_then_confirmed_click_persists_agent_task(
     stored = ProductStore(product_root).get("tasks", fill_report["task_id"])
     assert stored["state"] == "SUCCESS"
     assert ProductStore(product_root).list("events")[0]["result"]["note_id"] == "note-1"
+
+
+def test_video_fill_enters_final_preview(tmp_path, monkeypatch, capsys) -> None:
+    product_root = tmp_path / "product"
+    title_file = tmp_path / "title.txt"
+    content_file = tmp_path / "content.txt"
+    video_file = tmp_path / "video.mp4"
+    title_file.write_text("视频标题", encoding="utf-8")
+    content_file.write_text("视频正文", encoding="utf-8")
+    video_file.write_bytes(b"video")
+    monkeypatch.setenv("XHS_PRODUCT_HOME", str(product_root))
+    monkeypatch.setattr("scripts.cli._account_platform", lambda _account: "xiaohongshu")
+    monkeypatch.setattr("scripts.cli._connect", lambda _args: (Browser(), object()))
+    monkeypatch.setattr("xhs.publish_video.fill_publish_video_form", lambda *_args: None)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cmd_fill_publish_video(
+            argparse.Namespace(
+                account="alpha",
+                title_file=str(title_file),
+                content_file=str(content_file),
+                video=str(video_file),
+                tags=["测试"],
+                schedule_at=None,
+                visibility="公开可见",
+            )
+        )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_info.value.code == 0
+    assert report["task"]["state"] == "WAITING_APPROVAL"
+    assert report["task"]["parameters"]["stage"] == "preview_ready"
+    assert report["preview"]["kind"] == "video"
+
+
+def test_long_article_reaches_final_preview_after_template(tmp_path, monkeypatch, capsys) -> None:
+    product_root = tmp_path / "product"
+    title_file = tmp_path / "title.txt"
+    content_file = tmp_path / "content.txt"
+    description_file = tmp_path / "description.txt"
+    title_file.write_text("长文标题", encoding="utf-8")
+    content_file.write_text("长文正文", encoding="utf-8")
+    description_file.write_text("长文摘要", encoding="utf-8")
+    monkeypatch.setenv("XHS_PRODUCT_HOME", str(product_root))
+    monkeypatch.setattr("scripts.cli._account_platform", lambda _account: "xiaohongshu")
+    monkeypatch.setattr("scripts.cli._connect", lambda _args: (Browser(), object()))
+    monkeypatch.setattr("scripts.cli._connect_existing", lambda _args: (Browser(), object()))
+    monkeypatch.setattr(
+        "xhs.publish_long_article.publish_long_article",
+        lambda *_args, **_kwargs: ["简约"],
+    )
+    monkeypatch.setattr("xhs.publish_long_article.select_template", lambda *_args: True)
+    monkeypatch.setattr(
+        "xhs.publish_long_article.click_next_and_fill_description",
+        lambda *_args: None,
+    )
+
+    with pytest.raises(SystemExit):
+        cmd_long_article(
+            argparse.Namespace(
+                account="alpha",
+                title_file=str(title_file),
+                content_file=str(content_file),
+                images=[],
+            )
+        )
+    created = json.loads(capsys.readouterr().out)
+    assert created["task"]["parameters"]["stage"] == "template_selection"
+
+    with pytest.raises(SystemExit):
+        cmd_select_template(
+            argparse.Namespace(account="alpha", task_id=created["task_id"], name="简约")
+        )
+    selected = json.loads(capsys.readouterr().out)
+    assert selected["task"]["parameters"]["stage"] == "next_step"
+
+    with pytest.raises(SystemExit):
+        cmd_next_step(
+            argparse.Namespace(
+                account="alpha",
+                task_id=created["task_id"],
+                content_file=str(description_file),
+            )
+        )
+    preview = json.loads(capsys.readouterr().out)
+
+    assert preview["task"]["parameters"]["stage"] == "preview_ready"
+    assert preview["preview"]["kind"] == "long_article"
+    assert preview["preview"]["description"] == "长文摘要"

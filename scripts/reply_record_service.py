@@ -45,11 +45,7 @@ class ReplyRecordService:
             readback = {"acknowledgement": acknowledgement} if acknowledgement else {}
         payload = dict(source_event.get("payload") or {})
         parameters = dict(task.get("parameters") or {})
-        channel = (
-            "PRIVATE_MESSAGE_REPLY"
-            if event_type == "private_message"
-            else "COMMENT_REPLY"
-        )
+        channel = "PRIVATE_MESSAGE_REPLY" if event_type == "private_message" else "COMMENT_REPLY"
         now = utc_now()
         state = str(task.get("state") or "RESULT_UNKNOWN")
         readback_state = "VERIFIED" if readback else "MISSING"
@@ -64,8 +60,12 @@ class ReplyRecordService:
                     original_content, target_user_id, target_user_name, reply_text,
                     draft_id, draft_revision, approval_id, reply_task_id,
                     operation_event_id, sent_at, result_state, error_code,
-                    result_summary, readback_state, readback_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    result_summary, readback_state, readback_json, created_at, updated_at,
+                    rule_id, rule_version
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(reply_task_id) DO UPDATE SET
                     approval_id = excluded.approval_id,
                     operation_event_id = excluded.operation_event_id,
@@ -75,6 +75,8 @@ class ReplyRecordService:
                     result_summary = excluded.result_summary,
                     readback_state = excluded.readback_state,
                     readback_json = excluded.readback_json,
+                    rule_id = excluded.rule_id,
+                    rule_version = excluded.rule_version,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -84,11 +86,31 @@ class ReplyRecordService:
                     normalize_platform(task.get("platform") or source_event.get("platform")),
                     str(draft.get("verified_uid") or ""),
                     str(source_event.get("event_id") or ""),
-                    str(payload.get("conversation_id") or payload.get("chat_id") or source_event.get("object_id") or ""),
-                    str(payload.get("thread_id") or payload.get("feed_id") or source_event.get("object_id") or ""),
-                    str(payload.get("comment_id") or payload.get("message_id") or source_event.get("platform_event_id") or ""),
+                    str(
+                        payload.get("conversation_id")
+                        or payload.get("chat_id")
+                        or source_event.get("object_id")
+                        or ""
+                    ),
+                    str(
+                        payload.get("thread_id")
+                        or payload.get("feed_id")
+                        or source_event.get("object_id")
+                        or ""
+                    ),
+                    str(
+                        payload.get("comment_id")
+                        or payload.get("message_id")
+                        or source_event.get("platform_event_id")
+                        or ""
+                    ),
                     str(parameters.get("original_content") or payload.get("content") or ""),
-                    str(parameters.get("user_id") or payload.get("user_id") or source_event.get("actor_user_id") or ""),
+                    str(
+                        parameters.get("user_id")
+                        or payload.get("user_id")
+                        or source_event.get("actor_user_id")
+                        or ""
+                    ),
                     str(parameters.get("nickname") or payload.get("nickname") or ""),
                     str(draft.get("content") or parameters.get("content") or ""),
                     str(draft.get("draft_id") or ""),
@@ -104,6 +126,8 @@ class ReplyRecordService:
                     json.dumps(readback, ensure_ascii=False, sort_keys=True),
                     now,
                     now,
+                    str(parameters.get("rule_id") or ""),
+                    int(parameters.get("rule_version") or 0),
                 ),
             )
             row = connection.execute(

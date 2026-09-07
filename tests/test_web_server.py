@@ -214,6 +214,21 @@ class FakeService:
             "delta": {"account": account, "type": entity_type, "id": entity_id},
         }
 
+    def list_operation_reports(self) -> dict:
+        return {"success": True, "reports": []}
+
+    def get_operation_report(self, report_id: str) -> dict:
+        return {"success": True, "report": {"report_id": report_id}}
+
+    def generate_operation_report(self, **body) -> dict:
+        return {"success": True, "report": {"report_id": "report-1", **body}}
+
+    def revise_operation_report(self, report_id: str, **body) -> dict:
+        return {
+            "success": True,
+            "report": {"report_id": "report-2", "previous_report_id": report_id, **body},
+        }
+
     def list_reply_rules(self) -> dict:
         return {"success": True, "rules": []}
 
@@ -340,6 +355,13 @@ def test_api_dispatch_routes_to_shared_service() -> None:
     assert _dispatch_api(service, "/api/v1/reply-rules")["rules"] == []
     assert _dispatch_api(service, "/api/v1/reply-cycles")["cycles"] == []
     assert _dispatch_api(service, "/api/v1/reply-decisions")["decisions"] == []
+    assert _dispatch_api(service, "/api/v1/operation-reports")["reports"] == []
+    assert (
+        _dispatch_api(service, "/api/v1/operation-reports/report-1")["report"][
+            "report_id"
+        ]
+        == "report-1"
+    )
     assert (
         _dispatch_api(service, "/api/v1/reply-intelligence/status")["mode"]
         == "review_only"
@@ -446,6 +468,23 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
         "/api/v1/reply-cycle",
         {"account_slot": "alpha", "max_events": 10},
     )
+    report = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/operation-reports",
+        {
+            "report_type": "daily",
+            "account_slot": "alpha",
+            "period_start": "2026-08-28T00:00:00+00:00",
+            "period_end": "2026-08-28T23:59:59+00:00",
+        },
+    )
+    revision = _dispatch_mutation(
+        service,
+        "POST",
+        "/api/v1/operation-reports/report-1/revisions",
+        {"revision_reason": "补录指标"},
+    )
     retried = _dispatch_mutation(
         service,
         "POST",
@@ -467,13 +506,19 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
             "verified_uid": "owner-1",
             "confirmed": True,
             "preview_confirmed": True,
+            "preview_revision": "preview-1",
         },
     )
     saved_draft = _dispatch_mutation(
         service,
         "POST",
         "/api/v1/tasks/publish-2/save-draft",
-        {"account_slot": "alpha", "verified_uid": "owner-1", "confirmed": True},
+        {
+            "account_slot": "alpha",
+            "verified_uid": "owner-1",
+            "confirmed": True,
+            "preview_revision": "preview-2",
+        },
     )
 
     assert paused["global_paused"] is True
@@ -491,6 +536,8 @@ def test_mutation_dispatch_routes_to_shared_service() -> None:
     assert updated_rule["rule"]["reply_style"] == "professional"
     assert enabled_rule["rule"]["enabled"] is True
     assert reply_cycle["cycle"]["summary"]["account_slot"] == "alpha"
+    assert report["report"]["report_id"] == "report-1"
+    assert revision["report"]["previous_report_id"] == "report-1"
     assert retried["task"]["state"] == "SUCCESS"
     assert cancelled["task"]["state"] == "CANCELLED"
     assert published["task"]["state"] == "SUCCESS"
@@ -622,8 +669,8 @@ def test_webui_contains_manager_operations_and_account_workspace() -> None:
 
     assert "运营总览" in html
     assert "员工机" in html
-    assert "账号与人设" in html
-    assert "运营任务" in html
+    assert "账号管理" in html
+    assert 'id="manager-executions-panel"' in html
     assert "数据回收" in html
     assert "异常中心" in html
     assert 'id="manager-operation-detail-dialog"' in html

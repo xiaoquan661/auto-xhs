@@ -105,3 +105,14 @@ def test_background_service_starts_immediately_and_stops() -> None:
 
     assert sync.running is False
     assert manager.sync_records["health_accounts"]["status"] == "IDLE"
+
+
+def test_partial_collection_keeps_pending_counts_and_partial_cycle_status() -> None:
+    manager = FakeManager()
+    manager.collect_results = lambda machine_id, **kwargs: {
+        "success": True, "status": "PARTIAL_SUCCESS", "collected": 1000,
+        "outbox_collection": {"pending_records": 50, "imported_records": 1000},
+    }
+    summary = ManagerSyncService(manager).run_result_cycle()
+    assert summary["status"] == "PARTIAL_SUCCESS"
+    assert summary["outcomes"][0]["outbox_collection"]["pending_records"] == 50

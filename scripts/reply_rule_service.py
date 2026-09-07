@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -109,6 +110,11 @@ class ReplyRuleService:
                     now,
                 ),
             )
+            row = connection.execute(
+                "SELECT * FROM reply_rules WHERE rule_id = ?",
+                (rule_id,),
+            ).fetchone()
+            self._insert_version(connection, dict(row))
         return self.get(rule_id)
 
     def get(self, rule_id: str) -> dict:
@@ -134,6 +140,29 @@ class ReplyRuleService:
             rows = self.database.fetch_all(
                 "SELECT * FROM reply_rules ORDER BY account_slot, updated_at DESC"
             )
+        return [self._decode(row) for row in rows]
+
+    def get_version(self, rule_id: str, rule_version: int) -> dict:
+        row = self.database.fetch_one(
+            """
+            SELECT * FROM reply_rule_versions
+            WHERE rule_id = ? AND rule_version = ?
+            """,
+            (rule_id, int(rule_version)),
+        )
+        if row is None:
+            raise ServiceError("NOT_FOUND", "回复规则版本不存在", 404)
+        return self._decode(row)
+
+    def list_versions(self, rule_id: str) -> list[dict]:
+        rows = self.database.fetch_all(
+            """
+            SELECT * FROM reply_rule_versions
+            WHERE rule_id = ?
+            ORDER BY rule_version DESC
+            """,
+            (rule_id,),
+        )
         return [self._decode(row) for row in rows]
 
     def update(self, rule_id: str, **changes) -> dict:
@@ -173,6 +202,7 @@ class ReplyRuleService:
             values.append(value)
         if not assignments:
             return self.get(rule_id)
+        assignments.append("rule_version = rule_version + 1")
         assignments.append("updated_at = ?")
         values.append(utc_now())
         values.append(rule_id)
@@ -183,16 +213,30 @@ class ReplyRuleService:
             )
             if cursor.rowcount != 1:
                 raise ServiceError("NOT_FOUND", "回复规则不存在", 404)
+            row = connection.execute(
+                "SELECT * FROM reply_rules WHERE rule_id = ?",
+                (rule_id,),
+            ).fetchone()
+            self._insert_version(connection, dict(row))
         return self.get(rule_id)
 
     def set_enabled(self, rule_id: str, enabled: bool) -> dict:
         with self.database.transaction() as connection:
             cursor = connection.execute(
-                "UPDATE reply_rules SET enabled = ?, updated_at = ? WHERE rule_id = ?",
+                """
+                UPDATE reply_rules
+                SET enabled = ?, rule_version = rule_version + 1, updated_at = ?
+                WHERE rule_id = ?
+                """,
                 (int(bool(enabled)), utc_now(), rule_id),
             )
             if cursor.rowcount != 1:
                 raise ServiceError("NOT_FOUND", "回复规则不存在", 404)
+            row = connection.execute(
+                "SELECT * FROM reply_rules WHERE rule_id = ?",
+                (rule_id,),
+            ).fetchone()
+            self._insert_version(connection, dict(row))
         return self.get(rule_id)
 
     def resolve(self, account_slot: str, *, platform: str = "xiaohongshu") -> dict:
@@ -311,6 +355,40 @@ class ReplyRuleService:
             "reason": reason,
             "rule": rule,
         }
+
+    @staticmethod
+    def _insert_version(connection: sqlite3.Connection, row: dict) -> None:
+        connection.execute(
+            """
+            INSERT INTO reply_rule_versions (
+                rule_id, rule_version, account_slot, platform, enabled,
+                content_scope, reply_style, active_time_range, hourly_limit,
+                daily_limit, comment_enabled, private_message_enabled,
+                auto_categories_json, manual_categories_json, account_profile,
+                knowledge, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["rule_id"],
+                row["rule_version"],
+                row["account_slot"],
+                row["platform"],
+                row["enabled"],
+                row["content_scope"],
+                row["reply_style"],
+                row["active_time_range"],
+                row["hourly_limit"],
+                row["daily_limit"],
+                row["comment_enabled"],
+                row["private_message_enabled"],
+                row["auto_categories_json"],
+                row["manual_categories_json"],
+                row["account_profile"],
+                row["knowledge"],
+                row["created_at"],
+                row["updated_at"],
+            ),
+        )
 
     @staticmethod
     def _decode(row: dict) -> dict:

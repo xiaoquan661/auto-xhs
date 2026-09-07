@@ -1880,7 +1880,7 @@ def test_unexpected_l0_failure_reaches_failed_terminal_state(tmp_path, monkeypat
     assert result["task"]["error_code"] == "EXECUTION_ERROR"
 
 
-def test_service_recovers_interrupted_task_on_startup(tmp_path) -> None:
+def test_service_recovers_interrupted_task_on_startup(tmp_path, monkeypatch) -> None:
     store = ProductStore(tmp_path / "product")
     task = TaskService(store).create(
         source="webui",
@@ -1890,6 +1890,7 @@ def test_service_recovers_interrupted_task_on_startup(tmp_path) -> None:
     )
     TaskService(store).transition(task["task_id"], "RUNNING")
 
+    monkeypatch.setattr("task_service.process_is_running", lambda pid: False)
     service = ApplicationService(product_store=store)
 
     assert service.get_task(task["task_id"])["task"]["state"] == "FAILED"

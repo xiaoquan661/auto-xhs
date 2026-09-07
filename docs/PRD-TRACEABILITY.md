@@ -56,7 +56,7 @@
 | SAFE-001 | L1 配额、去重、间隔、熔断和结果回读 | AUTOMATED_TESTED | 配额、去重、熔断、账号锁和结果未知场景已测试 |
 | AUD-001 | 保存最小确认和执行结果且不含秘密 | AUTOMATED_TESTED | 最小记录和诊断脱敏故障注入测试通过 |
 | DB-001 | 完整 SQLite 任务、事件和迁移体系 | DEFERRED | 后续数据阶段验收 |
-| DATA-001 | 数据采集产品、日报和周报 | DEFERRED | 后续数据阶段验收 |
+| DATA-001 | 数据采集产品、日报和周报 | AUTOMATED_TESTED | 指标时间序列、相邻有效增量、日报、周报、单篇复盘及修正版保留测试通过 |
 | UX-001 | 普通流程无需 PowerShell、Python 路径或端口知识 | AUTOMATED_TESTED | 双击入口、WebUI 设置、1366×768 Chrome 视觉检查和用户手册已完成；真实用户体验待验收 |
 | TEST-001 | 另一台 Windows 电脑完成 WebUI 配置和 Agent 定时任务 | PLANNED | 签署跨电脑验收报告 |
 
@@ -72,9 +72,9 @@
 | MANAGER-05 / REQ-20260824-002 | 按账号维护版本化人设卡并在 WebUI 设定运营目标 | AUTOMATED_TESTED | 单账号启用人设、历史版本、目标草稿/启用/暂停/完成、目标指标汇总和 API/CLI/WebUI 路由已测试；目标保存与启用均不创建计划或任务 |
 | MANAGER-06 / REQ-20260824-002 | WebUI 创建运营任务，经理 Agent 领取、规划并下发 | AUTOMATED_TESTED | 常驻经理 Agent 自动处理 `WAITING_AGENT` 收件箱，生成浏览/点赞/评论计划并通过 SSH 派发；API/CLI 保留为恢复入口，WebUI 展示经理与员工 Agent 交接记录 |
 | MANAGER-07 / REQ-20260824-002 | 运营任务贯穿 SSH 员工机执行与数据回收 | AUTOMATED_TESTED | `operation_task_id` 随任务进入员工机本地服务；常驻经理 Agent 自动回收并按目标指标核销，结果与增量记录保留任务、目标和人设关联；多机持续周期待实机验收 |
-| V15-PUB-001 | 开放图文、视频和长文发布，必须填写、浏览器预览、用户确认后发布 | AUTOMATED_TESTED | 一步直发已禁用；CLI 状态机、确认门槛和结果回读测试通过，真实账号待验收 |
-| V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | IMPLEMENTED | 草稿终态、预览中的定时时间和结果未知恢复已实现，真实定时发布待验收 |
-| V15-PUB-003 | 发布预览由 Agent/Python CLI 创建，WebUI 可对 `preview_ready` 单任务受控确认或保存草稿 | AUTOMATED_TESTED | WebUI 持续轮询；确认弹窗核对账号、UID、内容和素材，后端复用发布状态机并拒绝账号/UID/阶段不匹配 |
+| V15-PUB-001 | 开放图文、视频和长文发布，必须填写、浏览器预览、用户确认后发布 | AUTOMATED_TESTED | CLI 状态机、素材校验、预览版本、一次性确认和结果回读测试通过，真实账号待验收 |
+| V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | AUTOMATED_TESTED | 草稿正向证据、预览中的定时时间和结果未知终态已测试，真实定时发布待验收 |
+| V15-PUB-003 | 发布预览由 Agent/Python CLI 创建，WebUI 可对 `preview_ready` 单任务受控确认或保存草稿 | AUTOMATED_TESTED | WebUI 持续轮询；确认弹窗核对账号、UID、内容、素材和时间，后端拒绝账号、UID、阶段或预览版本不匹配 |
 | MESSAGE-01 / REQ-20260824-002 | 用户指定账号、联系人和联系目的；Codex 区分首次/续发并结合上下文生成个性化文本，直接发送、回读和汇总 | AUTOMATED_TESTED | 1–10 人逐条执行、真实会话类型校验、独立失败、三态结果和恢复跳过规则已测试；首次联系实机待验收 |
 | MESSAGE-02 / REQ-20260824-002 | 只读扫描一对一私信会话和自己笔记评论线程，将收到的新私信与评论保存为去重入站事件 | REAL_DEVICE_VERIFIED | 评论和私信按渠道及平台标识分别去重；部分页面失败保留成功采集结果，读取失败不创建事件，采集链不发送回复；真实账号两类收件箱已完成只读采集，私信完成重复扫描去重验证 |
 | V15-MSG-002 | 主动私信批次只由 Codex/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 不创建主动私信批次；CLI 可恢复批次并只重试 `FAILED` 或 `BLOCKED` 项 |
@@ -87,6 +87,13 @@
 | V15-REPLY-001 | 按账号启用自动回复规则，符合规则的回复不逐条确认 | AUTOMATED_TESTED | 评论/私信开关、时段、配额、暂停、决策、回读与记录已测试；真实账号周期待验收 |
 | V15-OS-001 | 正式支持 Windows 10/11，不声明 macOS/Linux 正式支持 | SPEC_APPROVED | 子 Skill 元数据和启动说明统一，完成两台 Windows 验收 |
 | V15-DOC-001 | 文档优先级固定为 PRD → 主 Skill → 子 Skill → README/用户指南 | IMPLEMENTED | 文档索引、状态口径和本地链接检查已更新 |
+
+### 发布功能包交付映射
+
+| 功能编号 | 任务编号 | 功能范围 | 当前状态 |
+|---|---|---|---|
+| PUBLISH-01 | REQ-20260824-002 / CHG-6-16 | 准备图文、视频和长文真实预览，在 WebUI 逐任务核对账号、UID、内容、素材和时间 | AUTOMATED_TESTED |
+| PUBLISH-02 | REQ-20260824-002 / PLAN-2-27 | 依有效确认发布或保存平台草稿，并按页面证据结算任务终态 | AUTOMATED_TESTED |
 
 ## V2.0：2026-08-21 评论与入站私信智能回复
 

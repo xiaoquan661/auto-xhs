@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import socket
 import sys
 import uuid
@@ -220,11 +221,11 @@ class ManagerService:
         except ManagerTransportError as exc:
             sync_status = "UNKNOWN"
             sync_message = str(exc)
-        stored = self.store.put(
+        stored = self.store.update(
             "accounts",
             key,
-            {
-                **stored,
+            lambda current: {
+                **current,
                 "management_sync_status": sync_status,
                 "management_sync_message": sync_message,
             },
@@ -369,8 +370,10 @@ class ManagerService:
             "alerts": alerts,
             "personas": personas_payload["personas"],
             "goals": goals_payload["goals"],
+            "daily_plans": self.list_daily_plans()["plans"],
             "operation_tasks": operation_tasks_payload["operation_tasks"],
             "agent_messages": messages_payload["agent_messages"],
+            "versions": self.store.list("versions"),
             "data_sources": [
                 data_source("health_accounts", "机器与账号缓存"),
                 data_source("results", "员工机结果回收"),
@@ -434,6 +437,76 @@ class ManagerService:
         saved = self.store.put("agent_messages", message_id, record)
         return {"success": True, "agent_message": saved}
 
+    def list_daily_plans(self) -> dict:
+        plans = sorted(self.store.list("daily_plans"), key=lambda item: item["plan_date"])
+        return {"success": True, "plans": plans}
+
+    def save_daily_plan(self, request: dict) -> dict:
+        """Save dated account quantities for subsequent Agent planning."""
+        try:
+            plan_date = date.fromisoformat(str(request.get("plan_date") or "")).isoformat()
+        except ValueError as exc:
+            raise ServiceError("INVALID_PLAN_DATE", "请选择有效的计划日期") from exc
+        entries = request.get("accounts")
+        if not isinstance(entries, list):
+            raise ServiceError("INVALID_PLAN", "计划需要包含账号列表")
+        accounts = []
+        seen = set()
+        for entry in entries:
+            machine = self._get_machine(str(entry.get("machine_id") or ""))
+            slot = str(entry.get("account_slot") or "").strip()
+            key = self._account_key(machine["machine_id"], slot)
+            if key in seen or not self.store.get("accounts", key):
+                raise ServiceError("INVALID_PLAN_ACCOUNT", "请选择已登记且不重复的员工机账号")
+            seen.add(key)
+            metrics = {}
+            for kind in ("browse", "like", "comment", "publish"):
+                value = (entry.get("metrics") or {}).get(kind, 0)
+                if type(value) is not int or value < 0:
+                    raise ServiceError("INVALID_PLAN_COUNT", "操作数量必须为非负整数")
+                metrics[kind] = value
+            accounts.append(
+                {
+                    "machine_id": machine["machine_id"],
+                    "account_slot": slot,
+                    "participating": entry.get("participating") is True,
+                    "metrics": metrics,
+                    "notes": str(entry.get("notes") or "").strip(),
+                }
+            )
+        previous = self.store.get("daily_plans", plan_date) or {}
+        plan = self.store.put(
+            "daily_plans",
+            plan_date,
+            {
+                "plan_date": plan_date,
+                "accounts": accounts,
+                "status": "SAVED",
+                "version": int(previous.get("version", 0)) + 1,
+                "updated_at": utc_now(),
+            },
+        )
+        return {"success": True, "plan": plan}
+
+    def manage_remote_account(self, machine_id: str, request: dict) -> dict:
+        """Forward account lifecycle controls to the selected worker's local service."""
+        machine = self._get_machine(machine_id)
+        try:
+            response = self.transport.invoke(
+                machine, "account-lifecycle", request, timeout_seconds=90
+            )
+        except ManagerTransportError as exc:
+            raise ServiceError("ACCOUNT_ACTION_UNKNOWN", f"操作结果待核对：{exc}", 409) from exc
+        remote_error = self._remote_error(response)
+        if remote_error:
+            code, message = remote_error
+            raise ServiceError(code, message, 409)
+        if request.get("action") == "delete" and response.get("archived"):
+            key = self._account_key(machine["machine_id"], str(request.get("account") or ""))
+            self.store.delete("accounts", key)
+            self.store.delete("account_alerts", key)
+        return {"success": True, "operation": response, "machine_id": machine["machine_id"]}
+
     def save_persona(self, request: dict) -> dict:
         """Create or update the stable persona configuration bound to an account unit."""
 
@@ -461,16 +534,14 @@ class ManagerService:
             (
                 item
                 for item in self.store.list("personas")
-                if item.get("account_key") == account_key
-                and item.get("status") == "ACTIVE"
-                and item.get("persona_id") != persona_id
+                if item.get("account_key") == account_key and item.get("persona_id") != persona_id
             ),
             None,
         )
         if conflicting is not None:
             raise ServiceError(
                 "PERSONA_BINDING_EXISTS",
-                "该账号已经绑定启用中的人设卡，请更新现有人设卡",
+                "该账号已经绑定人设卡，请更新现有人设卡",
                 409,
             )
 
@@ -2075,6 +2146,40 @@ class ManagerService:
         evidence_errors = self._retry_pending_evidence(machine) if download_evidence else []
         normalized_results: list[dict] = []
         next_cursor = cursor
+        collection_error = ""
+        archive_root = (
+            self.store.root
+            / "daily_receipts"
+            / datetime.now().astimezone().date().isoformat()
+            / "raw"
+            / self._safe_path_component(machine_id)
+        )
+
+        def archive_receipt(metadata: dict, local_record: Path) -> None:
+            target = (
+                archive_root
+                / self._safe_path_component(str(metadata.get("task_id") or "unassigned"))
+                / f"{int(metadata['sequence']):012d}.json"
+            )
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(local_record, target)
+
+        # Archive receipts collected before the dated archive layout was introduced.
+        if not machine.get("outbox_archive_initialized"):
+            for metadata in index["records"]:
+                if (
+                    not isinstance(metadata, dict)
+                    or not 0 < int(metadata.get("sequence") or 0) <= cursor
+                ):
+                    continue
+                cached = collector_root / "records" / f"{int(metadata['sequence']):012d}.json"
+                if cached.exists():
+                    try:
+                        archive_receipt(metadata, cached)
+                    except OSError as exc:
+                        collection_error = f"回执 {metadata['sequence']} 归档失败：{exc}"
+                        break
         batch_download = getattr(self.transport, "sftp_download_many", None)
         if callable(batch_download):
             files = []
@@ -2100,6 +2205,7 @@ class ManagerService:
             relative_path = str(metadata.get("relative_path") or "")
             record_type = str(metadata.get("record_type") or "")
             if not relative_path or record_type not in {"acknowledgement", "event", "result"}:
+                collection_error = f"回执 {sequence} 的文件路径或类型无法识别"
                 break
             local_record = collector_root / "records" / f"{sequence:012d}.json"
             remote_record = self._join_remote_path(outbox_root, relative_path)
@@ -2117,12 +2223,15 @@ class ManagerService:
                 payload = record.get("payload")
                 if not isinstance(payload, dict):
                     raise ValueError("outbox record payload missing")
-            except (ManagerTransportError, OSError, json.JSONDecodeError, ValueError):
+                archive_receipt(metadata, local_record)
+            except (ManagerTransportError, OSError, json.JSONDecodeError, ValueError) as exc:
+                collection_error = f"回执 {sequence}（{relative_path}）收集失败：{exc}"
                 break
 
             if record_type == "result":
                 raw_result = payload.get("result")
                 if not isinstance(raw_result, dict):
+                    collection_error = f"回执 {sequence} 缺少任务结果"
                     break
                 ingested = self._ingest_results(
                     machine,
@@ -2195,20 +2304,50 @@ class ManagerService:
         )
         if not records:
             status = "IDLE"
+        if collection_error:
+            status = "PARTIAL_SUCCESS"
+        all_records = [item for item in index["records"] if isinstance(item, dict)]
+        outbox_collection = {
+            "observed_at": sync_at,
+            "remote_updated_at": index.get("updated_at"),
+            "total_records": len(all_records),
+            "imported_records": sum(
+                int(item.get("sequence") or 0) <= next_cursor for item in all_records
+            ),
+            "pending_records": sum(
+                int(item.get("sequence") or 0) > next_cursor for item in all_records
+            ),
+            "cursor": next_cursor,
+            "high_watermark": int(index.get("high_watermark") or 0),
+            "batch_records": (
+                acknowledgement_count + event_count + collected_results + duplicate_results
+            ),
+            "batch_results": collected_results,
+            "batch_events": event_count,
+            "batch_acknowledgements": acknowledgement_count,
+            "archive_root": str(archive_root),
+        }
         self._update_machine(
             machine_id,
             last_result_sync_at=sync_at,
-            last_result_success_at=utc_now(),
+            last_result_success_at=(
+                machine.get("last_result_success_at") if collection_error else utc_now()
+            ),
             result_sync_status=status,
-            result_sync_error_code="",
-            result_sync_error="",
+            result_sync_error_code="OUTBOX_COLLECTION_FAILED" if collection_error else "",
+            result_sync_error=collection_error,
+            outbox_collection=outbox_collection,
+            outbox_archive_initialized=not collection_error,
         )
         summary = self._summarize_results(normalized_results)
         return {
-            "success": True,
+            "success": not collection_error,
             "status": status,
             "machine_id": machine_id,
             "transport": "sftp_outbox",
+            "error_code": "OUTBOX_COLLECTION_FAILED" if collection_error else "",
+            "message": collection_error,
+            "outbox_collection": outbox_collection,
             "previous_cursor": cursor,
             "next_cursor": next_cursor,
             "collected": collected_results,
@@ -3105,6 +3244,7 @@ class ManagerService:
             "account": self._with_account_task(record),
             "diagnosis": response.get("diagnosis"),
             "operation": response.get("operation"),
+            "field_request": response.get("field_request"),
         }
 
     def _record_health_account_slots(
@@ -3556,7 +3696,9 @@ class ManagerService:
 
     @classmethod
     def _normalize_persona_request(cls, request: dict) -> dict:
-        machine_id = str(request.get("machine_id") or "LOCAL").strip().upper()
+        machine_id = str(request.get("machine_id") or "").strip().upper()
+        if machine_id in {"", "LOCAL", "MANAGER"}:
+            raise ServiceError("INVALID_PERSONA", "人设卡必须绑定员工机账号，请提供员工机编号")
         account_slot = str(request.get("account_slot") or "").strip()
         if not account_slot:
             raise ServiceError("INVALID_PERSONA", "人设卡必须绑定账号槽位")
@@ -4205,6 +4347,11 @@ class ManagerService:
                         or str(like.get("status") or "").lower() == "success"
                     )
                 return completed
+            if any(
+                not isinstance(item, dict) or not (item.get("state") or item.get("status"))
+                for item in result["item_results"]
+            ):
+                return None
             return sum(
                 str(item.get("state") or item.get("status") or "").upper()
                 in {"SUCCESS", "COMPLETED"}

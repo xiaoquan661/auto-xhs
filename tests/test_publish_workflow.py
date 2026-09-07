@@ -37,6 +37,10 @@ def _waiting_task(service: PublishWorkflowService) -> dict:
     )
 
 
+def _revision(task: dict) -> str:
+    return task["parameters"]["preview_revision"]
+
+
 def test_publish_workflow_persists_preview_for_webui_monitoring(tmp_path) -> None:
     service = _service(tmp_path)
 
@@ -68,9 +72,19 @@ def test_publish_requires_confirmation_and_matching_account(tmp_path) -> None:
     task = _waiting_task(service)
 
     with pytest.raises(ServiceError) as missing:
-        service.prepare_publish(task["task_id"], account="alpha", confirmed=False)
+        service.prepare_publish(
+            task["task_id"],
+            account="alpha",
+            confirmed=False,
+            preview_revision=_revision(task),
+        )
     with pytest.raises(ServiceError) as mismatch:
-        service.prepare_publish(task["task_id"], account="beta", confirmed=True)
+        service.prepare_publish(
+            task["task_id"],
+            account="beta",
+            confirmed=True,
+            preview_revision=_revision(task),
+        )
 
     assert missing.value.code == "CONFIRMATION_REQUIRED"
     assert mismatch.value.code == "CONFIRMATION_MISMATCH"
@@ -79,7 +93,12 @@ def test_publish_requires_confirmation_and_matching_account(tmp_path) -> None:
 def test_verified_publish_completes_and_records_result(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
-    running = service.prepare_publish(task["task_id"], account="alpha", confirmed=True)
+    running = service.prepare_publish(
+        task["task_id"],
+        account="alpha",
+        confirmed=True,
+        preview_revision=_revision(task),
+    )
 
     completed = service.complete_publish(
         running["task_id"],
@@ -104,7 +123,12 @@ def test_verified_publish_completes_and_records_result(tmp_path) -> None:
 def test_unverified_publish_becomes_result_unknown(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
-    running = service.prepare_publish(task["task_id"], account="alpha", confirmed=True)
+    running = service.prepare_publish(
+        task["task_id"],
+        account="alpha",
+        confirmed=True,
+        preview_revision=_revision(task),
+    )
 
     completed = service.complete_publish(
         running["task_id"],
@@ -120,7 +144,12 @@ def test_unverified_publish_becomes_result_unknown(tmp_path) -> None:
 def test_publish_success_without_accepted_evidence_is_result_unknown(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
-    running = service.prepare_publish(task["task_id"], account="alpha", confirmed=True)
+    running = service.prepare_publish(
+        task["task_id"],
+        account="alpha",
+        confirmed=True,
+        preview_revision=_revision(task),
+    )
 
     completed = service.complete_publish(
         running["task_id"],
@@ -134,13 +163,97 @@ def test_publish_success_without_accepted_evidence_is_result_unknown(tmp_path) -
 def test_saving_draft_cancels_publish_without_claiming_success(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
-    running = service.resume_preparation(task["task_id"], account="alpha")
+    running = service.prepare_publish(
+        task["task_id"],
+        account="alpha",
+        confirmed=True,
+        preview_revision=_revision(task),
+    )
 
-    completed = service.complete_saved_draft(running["task_id"])
+    completed = service.complete_saved_draft(
+        running["task_id"],
+        {
+            "verified": True,
+            "status": "saved_draft",
+            "evidence": "draft_success_toast",
+            "saved_as_draft": True,
+        },
+    )
 
     assert completed["state"] == "CANCELLED"
     assert "草稿箱" in completed["result_summary"]
     assert service.store.list("events")[0]["result"]["saved_as_draft"] is True
+    assert service.published_posts.list() == []
+
+
+def test_changed_preview_revision_is_rejected(tmp_path) -> None:
+    service = _service(tmp_path)
+    task = _waiting_task(service)
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.prepare_publish(
+            task["task_id"],
+            account="alpha",
+            confirmed=True,
+            preview_revision="older-preview",
+        )
+
+    assert exc_info.value.code == "PUBLISH_PREVIEW_CHANGED"
+    assert service.get(task["task_id"], account="alpha")["state"] == "WAITING_APPROVAL"
+
+
+def test_consumed_confirmation_cannot_publish_twice(tmp_path) -> None:
+    service = _service(tmp_path)
+    task = _waiting_task(service)
+    service.prepare_publish(
+        task["task_id"],
+        account="alpha",
+        confirmed=True,
+        preview_revision=_revision(task),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.prepare_publish(
+            task["task_id"],
+            account="alpha",
+            confirmed=True,
+            preview_revision=_revision(task),
+        )
+
+    assert exc_info.value.code == "INVALID_TASK_STATE"
+
+
+def test_image_publish_requires_material(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.begin(
+            account="alpha",
+            capability="fill-publish",
+            request_summary="缺少图片",
+            preview={**_preview(), "assets": [], "asset_count": 0},
+        )
+
+    assert exc_info.value.code == "PUBLISH_ASSET_REQUIRED"
+
+
+def test_unverified_draft_save_becomes_result_unknown(tmp_path) -> None:
+    service = _service(tmp_path)
+    task = _waiting_task(service)
+    running = service.prepare_publish(
+        task["task_id"],
+        account="alpha",
+        confirmed=True,
+        preview_revision=_revision(task),
+    )
+
+    completed = service.complete_saved_draft(
+        running["task_id"],
+        {"verified": False, "status": "result_unknown", "evidence": "none"},
+    )
+
+    assert completed["state"] == "RESULT_UNKNOWN"
+    assert completed["error_code"] == "PUBLISH_DRAFT_RESULT_UNKNOWN"
     assert service.published_posts.list() == []
 
 

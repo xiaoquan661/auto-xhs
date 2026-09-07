@@ -124,15 +124,16 @@ class ManagerSyncService:
                 }
             outcomes.append({"machine_id": machine_id, **outcome})
 
-        succeeded = sum(item.get("success") is True for item in outcomes)
+        succeeded = sum(
+            item.get("success") is True and item.get("status") != "PARTIAL_SUCCESS"
+            for item in outcomes
+        )
         failed = len(outcomes) - succeeded
         status = "IDLE" if not outcomes else "SUCCESS" if not failed else "PARTIAL_SUCCESS"
-        if outcomes and not succeeded:
+        if outcomes and not any(item.get("success") is True for item in outcomes):
             status = "FAILED"
         completed_at = utc_now()
-        next_run_at = (
-            datetime.now(UTC) + timedelta(seconds=interval_seconds)
-        ).isoformat()
+        next_run_at = (datetime.now(UTC) + timedelta(seconds=interval_seconds)).isoformat()
         summary = {
             "success": failed == 0,
             "status": status,
@@ -175,6 +176,7 @@ class ManagerSyncService:
             "collected": int(result.get("collected") or 0),
             "incremental_collected": int(result.get("incremental_collected") or 0),
             "pending_evidence": int(result.get("pending_evidence") or 0),
+            "outbox_collection": result.get("outbox_collection"),
             "error_code": str(result.get("error_code") or ""),
             "message": str(result.get("message") or ""),
         }

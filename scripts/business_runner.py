@@ -178,9 +178,7 @@ class BusinessRunner:
                 str(parameters.get("xsec_token") or ""),
                 str(parameters.get("content") or ""),
                 expected_nickname=str(parameters.get("nickname") or ""),
-                expected_conversation_type=str(
-                    parameters.get("conversation_type") or ""
-                ),
+                expected_conversation_type=str(parameters.get("conversation_type") or ""),
                 expected_peer_turn=(
                     list(parameters.get("expected_peer_turn") or [])
                     if "expected_peer_turn" in parameters
@@ -274,6 +272,8 @@ class BusinessRunner:
         if capability == "save-draft":
             from xhs.publish import save_as_draft
 
-            save_as_draft(page)
-            return {"success": True, "message": "内容已保存到小红书草稿箱"}
+            return save_as_draft(
+                page,
+                expected_title=str(parameters.get("expected_title") or ""),
+            )
         raise ServiceError("CAPABILITY_DISABLED", "该能力没有 V1 执行适配器", 409)

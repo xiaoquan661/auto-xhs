@@ -234,6 +234,8 @@ def _dispatch_api(
         return service.list_reply_cycles()
     if path == f"{API_PREFIX}/reply-decisions":
         return service.list_reply_decisions()
+    if path == f"{API_PREFIX}/operation-reports":
+        return service.list_operation_reports()
     if path == f"{API_PREFIX}/reply-intelligence/status":
         return service.intelligent_reply_status()
     if path == f"{API_PREFIX}/action-drafts":
@@ -270,6 +272,8 @@ def _dispatch_api(
         return service.get_reply_record(parts[4])
     if len(parts) == 6 and parts[:3] == ["api", "v1", "metrics"]:
         return service.get_metric_history(parts[3], parts[4], parts[5])
+    if len(parts) == 4 and parts[:3] == ["api", "v1", "operation-reports"]:
+        return service.get_operation_report(parts[3])
     if len(parts) == 7 and parts[:3] == ["api", "v1", "metrics"] and parts[6] == "delta":
         return service.get_metric_delta(parts[3], parts[4], parts[5])
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
@@ -307,6 +311,8 @@ def _dispatch_mutation(
         return service.create_reply_rule(**body)
     if method == "POST" and path == f"{API_PREFIX}/reply-cycle":
         return service.run_reply_cycle(**body)
+    if method == "POST" and path == f"{API_PREFIX}/operation-reports":
+        return service.generate_operation_report(**body)
     if method == "POST" and path == f"{API_PREFIX}/action-drafts":
         return service.create_action_draft(**body)
     if method == "POST" and path == f"{API_PREFIX}/accounts":
@@ -317,6 +323,13 @@ def _dispatch_mutation(
         return service.discover_profiles(body.get("user_data_dir"))
 
     parts = [unquote(part) for part in path.split("/") if part]
+    if (
+        len(parts) == 5
+        and parts[:3] == ["api", "v1", "operation-reports"]
+        and parts[4] == "revisions"
+        and method == "POST"
+    ):
+        return service.revise_operation_report(parts[3], **body)
     if (
         len(parts) == 5
         and parts[:3] == ["api", "v1", "inbound-events"]
@@ -455,6 +468,8 @@ def _dispatch_manager_api(
         return manager.list_accounts()
     if path == f"{prefix}/personas":
         return manager.list_personas()
+    if path == f"{prefix}/daily-plans":
+        return manager.list_daily_plans()
     if path == f"{prefix}/goals":
         return manager.list_goals()
     if path == f"{prefix}/operation-tasks":
@@ -529,6 +544,8 @@ def _dispatch_manager_mutation(
         return manager.dispatch_task(body)
     if method in {"POST", "PATCH"} and path == f"{prefix}/personas":
         return manager.save_persona(body)
+    if method == "POST" and path == f"{prefix}/daily-plans":
+        return manager.save_daily_plan(body)
     if method in {"POST", "PATCH"} and path == f"{prefix}/goals":
         return manager.save_goal(body)
     if method == "POST" and path == f"{prefix}/operation-tasks":
@@ -543,6 +560,13 @@ def _dispatch_manager_mutation(
         return manager.set_function_version_policy(body)
 
     parts = [unquote(part) for part in path.split("/") if part]
+    if (
+        method == "POST"
+        and len(parts) == 6
+        and parts[:4] == ["api", "v1", "manager", "machines"]
+        and parts[5] == "account-lifecycle"
+    ):
+        return manager.manage_remote_account(parts[4], body)
     if (
         len(parts) == 8
         and parts[:4] == ["api", "v1", "manager", "machines"]

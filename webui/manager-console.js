@@ -22,23 +22,28 @@
     alerts: [],
     sync: {},
     errors: {},
-    localAccounts: [],
-    localStatuses: [],
     localTasks: [],
     activePublishTask: null,
     activeManagedAccount: null,
     system: {},
-    replyModel: {},
     personas: [],
     goals: [],
+    dailyPlans: [],
     operationTasks: [],
     agentMessages: [],
     snapshot: {},
   };
   const pendingActions = new Set();
+  const expandedPersonas = new Set();
+  const expandedWorkerDays = new Set();
+  let editingPersona = null;
+  let planning = null;
+  let accountTools = null;
   let selectedMachineId = localStorage.getItem("auto-xhs:manager-machine") || "";
   let selectedAccountNode = localStorage.getItem("auto-xhs:manager-account-node") || "all";
   let selectedOperationTaskId = "";
+  let selectedGoalId = "";
+  let selectedProgressTab = "goals";
   let selectedView = localStorage.getItem(VIEW_STORAGE_KEY) || "overview";
   let refreshTimer = null;
   let refreshPromise = null;
@@ -160,18 +165,6 @@
     if (node) node.textContent = String(value ?? "—");
   }
 
-  function splitList(value) {
-    return String(value || "")
-      .split(/[，,\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  function generatedId(prefix) {
-    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
-    return `${prefix}-${stamp}-${String(Date.now()).slice(-4)}`;
-  }
-
   function formatTime(value) {
     if (!value) return "—";
     const date = new Date(value);
@@ -187,7 +180,7 @@
   function toneFor(value) {
     const normalized = String(value || "").toUpperCase();
     if (
-      ["ACTIVE", "READY", "SUCCESS", "ONLINE", "FORMAL", "CURRENT", "OBSERVED"]
+      ["ACTIVE", "READY", "SUCCESS", "COMPLETED", "ONLINE", "FORMAL", "CURRENT", "OBSERVED"]
         .includes(normalized)
     ) {
       return "success";
@@ -304,8 +297,6 @@
   function populateMachineSelects() {
     const selectors = [
       "#manager-result-machine",
-      "#manager-transfer-machine",
-      "#manager-version-machine",
     ];
     selectors.forEach((selector) => {
       const select = $(selector);
@@ -326,86 +317,6 @@
       });
       if ([...select.options].some((option) => option.value === previous)) select.value = previous;
     });
-  }
-
-  function strategyAccounts(machineId) {
-    if (machineId === "LOCAL") {
-      return state.localAccounts.map((account) => ({
-        account_slot: account.name,
-        nickname: account.name,
-      }));
-    }
-    return state.accounts.filter((account) => account.machine_id === machineId);
-  }
-
-  function populateStrategyAccount(machineSelector, accountSelector, preferredValue = "") {
-    const machine = $(machineSelector)?.value || "LOCAL";
-    const select = $(accountSelector);
-    if (!select) return;
-    const previous = preferredValue || select.value;
-    const placeholder = element("option", "", "请选择账号槽位");
-    placeholder.value = "";
-    select.replaceChildren(placeholder);
-    strategyAccounts(machine).forEach((account) => {
-      const option = element(
-        "option",
-        "",
-        account.nickname && account.nickname !== account.account_slot
-          ? `${account.nickname} · ${account.account_slot}`
-          : account.account_slot,
-      );
-      option.value = account.account_slot;
-      select.appendChild(option);
-    });
-    if ([...select.options].some((option) => option.value === previous)) {
-      select.value = previous;
-    }
-  }
-
-  function populateStrategySelects() {
-    const selectors = ["#manager-persona-machine", "#manager-goal-machine"];
-    selectors.forEach((selector) => {
-      const select = $(selector);
-      if (!select) return;
-      const previous = select.value || "LOCAL";
-      const managerOption = element("option", "", "经理机");
-      managerOption.value = "LOCAL";
-      select.replaceChildren(managerOption);
-      state.machines.forEach((machine) => {
-        const option = element("option", "", machine.host_alias || machine.machine_id);
-        option.value = machine.machine_id;
-        select.appendChild(option);
-      });
-      select.value = [...select.options].some((option) => option.value === previous)
-        ? previous
-        : "LOCAL";
-    });
-    populateStrategyAccount("#manager-persona-machine", "#manager-persona-account");
-    populateStrategyAccount("#manager-goal-machine", "#manager-goal-account");
-  }
-
-  function populateOperationGoalSelect() {
-    const select = $("#manager-operation-goal");
-    if (!select) return;
-    const previous = select.value;
-    const placeholder = element("option", "", "请选择已启用的运营目标");
-    placeholder.value = "";
-    select.replaceChildren(placeholder);
-    state.goals
-      .filter((goal) => goal.state === "ACTIVE")
-      .forEach((goal) => {
-        const target = (goal.targets || [])[0] || {};
-        const option = element(
-          "option",
-          "",
-          `${goal.title} · ${target.machine_id || "LOCAL"}/${target.account_slot || "—"}`,
-        );
-        option.value = goal.goal_id;
-        select.appendChild(option);
-      });
-    if ([...select.options].some((option) => option.value === previous)) {
-      select.value = previous;
-    }
   }
 
   function machineActionButtons(machine) {
@@ -458,8 +369,9 @@
     const button = element("button", "manager-machine-nav-item");
     button.type = "button";
     button.dataset.managerMachineSelect = machine.machine_id;
-    button.setAttribute("aria-pressed", String(selectedMachineId === machine.machine_id));
-    if (selectedMachineId === machine.machine_id) button.classList.add("active");
+    const active = selectedView === "workers" && selectedMachineId === machine.machine_id;
+    button.setAttribute("aria-pressed", String(active));
+    if (active) button.classList.add("active");
 
     const avatar = element("span", "manager-rail-avatar", machineAvatar(machine));
     avatar.dataset.tone = toneFor(machine.status);
@@ -494,7 +406,7 @@
     }
     setText("#manager-rail-total", `${state.machines.length} 个`);
     setText("#manager-overview-count", state.machines.length);
-    const overviewActive = !selectedMachineId;
+    const overviewActive = selectedView === "overview";
     overviewSwitch.classList.toggle("active", overviewActive);
     overviewSwitch.setAttribute("aria-pressed", String(overviewActive));
     nav.replaceChildren(...state.machines.map(machineNavButton));
@@ -536,20 +448,13 @@
   function machineIdForPublishTask(task) {
     const explicit = task.machine_id || task.parameters?.machine_id;
     if (explicit) return explicit;
-    const matches = [...state.accounts, ...state.localAccounts.map((account, index) =>
-      normalizeLocalAccount(account, state.localStatuses[index]),
-    )].filter((account) => account.account_slot === task.account_slot);
+    const matches = state.accounts.filter((account) => account.account_slot === task.account_slot);
     return matches.length === 1 ? matches[0].machine_id : "";
   }
 
   function publishAccount(task) {
     const machineId = machineIdForPublishTask(task);
-    const accounts = [
-      ...state.accounts,
-      ...state.localAccounts.map((account, index) =>
-        normalizeLocalAccount(account, state.localStatuses[index]),
-      ),
-    ];
+    const accounts = state.accounts;
     return accounts.find((account) => {
       return account.machine_id === machineId && account.account_slot === task.account_slot;
     }) || null;
@@ -673,6 +578,7 @@
         account_slot: task.account_slot,
         verified_uid: identity.live_user_id || account?.uid || "",
         confirmed: true,
+        preview_revision: task.parameters?.preview_revision,
         ...(publish ? { preview_confirmed: true } : {}),
       });
       const finalTask = payload.task || {};
@@ -800,7 +706,20 @@
         accountActionButton("检查身份", "identity-check", account),
       );
       card.appendChild(actions);
+      const more = element("details", "manager-account-more");
+      more.appendChild(element("summary", "", "更多账号管理"));
+      const tools = element("div", "manager-card-actions");
+      for (const [label, action] of [["扩展配对", "pair-begin"], ["切换账号", "switch-begin"],
+        ["完成换号", "switch-complete"], ["退出登录", "logout"],
+        ["停止 Bridge", "bridge-stop"], ["删除账号槽位", "delete"]]) {
+        const button = element("button", "secondary-button", label);
+        button.type = "button";
+        button.addEventListener("click", () => accountTools.open(action, account));
+        tools.appendChild(button);
+      }
+      append(more, tools); card.appendChild(more);
     }
+    card.appendChild(accountPersonaPanel(account));
     return card;
   }
 
@@ -864,159 +783,170 @@
     return card;
   }
 
+  function workerMetric(record, kind) {
+    const capability = resultCapability(record);
+    if (/^(collect-|prepare-|generate-|fill-|save-|check-|list-|search-)/.test(capability)) {
+      return { target: null, actual: null };
+    }
+    const [target, actual] = actionTargetActualText([record], kind).split(" / ");
+    return { target: numericCount(target === "—" ? null : target),
+      actual: numericCount(actual === "—" ? null : actual) };
+  }
+
+  function workerTaskDate(task) {
+    return localDateValue(task.created_at || task.request?.created_at);
+  }
+
+  function workerDayMetrics(machineId, accountSlot, date) {
+    const plan = (state.dailyPlans || []).find((item) => item.plan_date === date)
+      ?.accounts.find((row) => row.machine_id === machineId && row.account_slot === accountSlot);
+    const tasks = state.tasks.filter((task) => task.machine_id === machineId
+      && task.request?.account_slot === accountSlot && workerTaskDate(task) === date
+      && taskPrimaryState(task) !== "CANCELLED");
+    const results = state.results.filter((result) => result.machine_id === machineId
+      && resultAccount(result) === accountSlot && resultDate(result) === date);
+    const goals = state.goals.filter((goal) => goal.period_start === date && goal.period_end === date
+      && !["DRAFT", "CANCELLED"].includes(goal.state) && goal.targets?.length === 1
+      && goal.targets[0].machine_id === machineId && goal.targets[0].account_slot === accountSlot);
+    const planned = tasks.map((task) => ({ task_request: task.request }));
+    // A receipt can outlive its task in the manager cache; count its request only once.
+    const taskIds = new Set(state.tasks.filter((task) => task.machine_id === machineId)
+      .map((task) => task.task_id));
+    results.filter((result) => !taskIds.has(result.task_id))
+      .forEach((result) => planned.push(result));
+    return Object.keys(metricLabels).map((kind) => {
+      const targets = goals.map((goal) => numericCount(goal.target_metrics?.[kind]));
+      targets.push(...planned.filter((record) => !goals.some((goal) =>
+        goal.goal_id === (record.goal_id || resultRequest(record).goal_id)
+        && numericCount(goal.target_metrics?.[kind]) !== null))
+        .map((record) => workerMetric(record, kind).target));
+      const knownTargets = targets.filter((value) => value !== null);
+      const observations = results.map((result) => workerMetric(result, kind));
+      const knownActuals = observations.map((item) => item.actual).filter((value) => value !== null);
+      const target = plan ? (plan.participating ? numericCount(plan.metrics[kind]) : 0)
+        : knownTargets.length ? knownTargets.reduce((sum, n) => sum + n, 0) : null;
+      const actual = knownActuals.length ? knownActuals.reduce((sum, n) => sum + n, 0) : null;
+      const incomplete = observations.some((item) => item.target !== null && item.actual === null);
+      let status = "未设置目标";
+      let tone = "info";
+      if (incomplete || (actual === null && target !== null)) status = "等待回执";
+      else if (target !== null && actual !== null) {
+        status = actual >= target ? "完成" : `${actual === 0 ? "未开始" : "进行中"} · 差 ${target - actual}`;
+        tone = actual >= target ? "success" : "warning";
+      } else if (actual !== null) status = "已回传";
+      return { kind, target, actual, status, tone, incomplete };
+    });
+  }
+
+  function workerDayCard(machineId, accountSlot, date) {
+    const account = state.accounts.find((item) => item.machine_id === machineId
+      && item.account_slot === accountSlot);
+    const card = element("section", "worker-day-account");
+    append(card, append(element("div", "worker-account-strip"),
+      element("span", "", "执行账号"), element("strong", "", account?.nickname || accountSlot),
+      element("small", "", `${machineId} / ${accountSlot}`)));
+    const rows = workerDayMetrics(machineId, accountSlot, date).map((metric) => {
+      const badge = element("span", "manager-state-badge", metric.status);
+      badge.dataset.tone = metric.tone;
+      const actual = metric.actual === null ? "—"
+        : metric.incomplete ? `${metric.actual}（部分回传）` : metric.actual;
+      return [metricLabels[metric.kind], metric.target ?? "—", actual, badge];
+    });
+    card.appendChild(observationTable(["指标", "目标", "实际", "状态"], rows,
+      `${date} ${accountSlot} 目标与实际完成情况`));
+    return card;
+  }
+
+  function workerDayAccounts(machineId, date) {
+    const accounts = new Set();
+    (state.dailyPlans || []).filter((plan) => plan.plan_date === date)
+      .forEach((plan) => plan.accounts.filter((row) => row.machine_id === machineId)
+        .forEach((row) => accounts.add(row.account_slot)));
+    state.tasks.filter((task) => task.machine_id === machineId && workerTaskDate(task) === date)
+      .forEach((task) => accounts.add(task.request?.account_slot));
+    state.results.filter((result) => result.machine_id === machineId && resultDate(result) === date)
+      .forEach((result) => accounts.add(resultAccount(result)));
+    state.goals.filter((goal) => goal.period_start === date && goal.period_end === date)
+      .forEach((goal) => (goal.targets || []).filter((target) => target.machine_id === machineId)
+        .forEach((target) => accounts.add(target.account_slot)));
+    if (date === localDateValue(new Date())) {
+      state.accounts.filter((account) => account.machine_id === machineId)
+        .forEach((account) => accounts.add(account.account_slot));
+    }
+    return [...accounts].filter(Boolean).sort();
+  }
+
+  function nextWorkerPlan(machineId, today) {
+    return [...(state.dailyPlans || [])].filter((plan) => plan.plan_date > today
+      && plan.accounts.some((row) => row.machine_id === machineId && row.participating))
+      .sort((a, b) => a.plan_date.localeCompare(b.plan_date))[0];
+  }
+
+  function renderWorkerNextDay(machineId, today) {
+    const plan = nextWorkerPlan(machineId, today);
+    const host = $("#worker-next-day");
+    $("#worker-next-plan-link").onclick = () => {
+      if (plan) planning.selectDate(plan.plan_date);
+    };
+    if (!plan) {
+      host.replaceChildren(emptyCard("待规划", "保存该员工机的未来计划后，在这里展示操作数量。"));
+      return;
+    }
+    host.replaceChildren(...plan.accounts.filter((row) => row.machine_id === machineId
+      && row.participating).map((row) => {
+      const account = state.accounts.find((item) => item.machine_id === machineId
+        && item.account_slot === row.account_slot);
+      const card = element("article", "worker-next-account");
+      const heading = element("div", "room-section-head");
+      const badge = element("span", "manager-state-badge", "已规划");
+      badge.dataset.tone = "success";
+      append(heading, element("h3", "", `${plan.plan_date} · ${account?.nickname || row.account_slot}`), badge);
+      const metrics = element("div", "daily-plan-numbers");
+      ["browse", "like", "comment", "publish"].forEach((kind) => {
+        append(metrics, append(element("div"), element("span", "", metricLabels[kind]),
+          element("strong", "", String(row.metrics[kind] ?? 0))));
+      });
+      append(card, heading, metrics,
+        element("p", "room-footnote", row.notes || `${machineId} / ${row.account_slot} · 由经理 Agent 安排执行`));
+      return card;
+    }));
+  }
+
   function renderMachineDetail(machine) {
-    const hero = $("#manager-detail-hero");
-    const accountList = $("#manager-machine-account-list");
-    const taskList = $("#manager-machine-task-list");
-    const agentList = $("#manager-machine-agent-list");
-    const todayList = $("#manager-machine-today-list");
-    const activityList = $("#manager-machine-activity-list");
-    const alertList = $("#manager-machine-alert-list");
-    if (!hero || !accountList || !taskList || !todayList || !activityList || !alertList) return;
-
-    setText("#manager-machine-detail-kicker", `EXECUTOR · ${machine.machine_id}`);
+    setText("#manager-machine-detail-kicker", `员工机 · ${machine.machine_id}`);
     setText("#manager-machine-detail-title", machine.host_alias || machine.machine_id);
-    setText(
-      "#manager-machine-detail-description",
-      `${machine.machine_id} 的连接、调度、任务与回读状态。`,
-    );
-
-    const head = element("div", "manager-detail-hero-head");
-    const title = element("div", "manager-card-title");
-    const copy = element("div");
-    append(
-      copy,
-      element("strong", "", machine.host_alias || machine.machine_id),
-      element("small", "", machine.machine_id),
-    );
-    append(title, element("span", "manager-machine-icon", machineAvatar(machine)), copy);
-    append(head, title, stateBadge(machine.status));
-    const facts = factList(
-      [
-        ["SSH 地址", `${machine.ssh_user || "—"}@${machine.ssh_host || "—"}:${machine.ssh_port || 22}`],
-        ["连接状态", labelFor(machine.ssh_state)],
-        ["项目版本", machine.installed_version || "尚未读取"],
-        ["允许版本", (machine.allowed_versions || []).join("、") || "—"],
-        ["工作目录", machine.working_directory],
-        ["最近检查", formatTime(machine.last_check_at)],
-      ],
-      "manager-detail-facts",
-    );
-    hero.replaceChildren(head, facts);
-    if (Boolean(machine.desired_paused) !== Boolean(machine.remote_paused)) {
-      hero.appendChild(element("p", "manager-inline-message", "暂停状态正在等待执行机回读同步。"));
-    }
-    if (machine.last_error) {
-      hero.appendChild(element("p", "manager-inline-message", machine.last_error));
-    }
-    hero.appendChild(machineActionButtons(machine));
-
-    const tasks = recordsForMachine(state.tasks, machine.machine_id);
-    const results = recordsForMachine(state.results, machine.machine_id);
-    const transfers = recordsForMachine(state.transfers, machine.machine_id);
-    const incremental = recordsForMachine(state.incrementalRecords, machine.machine_id);
-    const accounts = recordsForMachine(state.accounts, machine.machine_id);
-    const alerts = alertsForMachine(machine.machine_id);
-    const todayResults = results.filter((result) =>
-      sameLocalDay(result.recorded_at || result.collected_at || result.updated_at),
-    );
-    setText("#manager-detail-account-total", accounts.length);
-    setText(
-      "#manager-detail-today",
-      todayResults.reduce((total, result) => total + resultOperationCount(result), 0),
-    );
-    setText(
-      "#manager-detail-pending",
-      tasks.filter((task) => String(task.dispatch_state || "").toUpperCase() === "PENDING_DISPATCH")
-        .length,
-    );
-    setText(
-      "#manager-detail-running",
-      tasks.filter(taskIsExecuting).length,
-    );
-    setText(
-      "#manager-detail-paused",
-      tasks.filter((task) => String(task.dispatch_state || "").toUpperCase() === "PAUSED").length,
-    );
-    setText(
-      "#manager-detail-success",
-      results.filter((result) => String(result.state || result.status).toUpperCase() === "SUCCESS")
-        .length,
-    );
-    setText("#manager-detail-reconcile", tasks.filter(taskNeedsReconciliation).length);
-    setText("#manager-detail-incremental", incremental.length);
-
-    const accountCards = accounts.map(compactAccountCard);
-    accountList.replaceChildren(
-      ...(accountCards.length
-        ? accountCards
-        : [emptyCard("暂无账号缓存", "运行连接检查或在账号管理页同步这台员工机。")]),
-    );
-
-    const taskCards = tasks
-      .sort((left, right) => Number(taskIsActive(right)) - Number(taskIsActive(left))
-        || activityTime(right) - activityTime(left))
-      .slice(0, 6)
-      .map(compactTaskCard);
-    taskList.replaceChildren(
-      ...(taskCards.length
-        ? taskCards
-        : [emptyCard("暂无 Agent 任务", "Agent 向这台执行机下发后会显示在这里。")]),
-    );
-
-    const taskIds = new Set(tasks.map((task) => task.task_id));
-    const agentName = `${machine.machine_id}-AGENT`;
-    const messages = state.agentMessages.filter((message) =>
-      message.payload?.machine_id === machine.machine_id
-      || taskIds.has(message.task_id)
-      || message.from_agent === agentName
-      || message.to_agent === agentName,
-    ).sort((left, right) => activityTime(right) - activityTime(left));
-    agentList?.replaceChildren(
-      ...(messages.length
-        ? messages.slice(0, 12).reverse().map(operationTimelineItem)
-        : [emptyCard("暂无协作记录", "这台员工机的 ACK、执行进度和结果回执会显示在这里。")]),
-    );
-    const latestAck = messages.find((message) => message.message_type === "TASK_ACK");
-    hero.appendChild(factList([
-      ["最近 ACK", formatTime(latestAck?.created_at)],
-      ["最近回收", formatTime(machine.last_result_success_at)],
-    ]));
-
-    const todayCards = [...todayResults]
-      .sort((left, right) => activityTime(right) - activityTime(left))
-      .slice(0, 8)
-      .map(compactTodayResultCard);
-    todayList.replaceChildren(
-      ...(todayCards.length
-        ? todayCards
-        : [emptyCard("今日暂无结果", "平台结果回读后会按动作显示在这里。")]),
-    );
-
-    const activity = [
-      ...results.map((record) => ({ record, type: "result" })),
-      ...transfers.map((record) => ({ record, type: "transfer" })),
-    ]
-      .sort((left, right) => activityTime(right.record) - activityTime(left.record))
-      .slice(0, 6)
-      .map(({ record, type }) => compactActivityCard(record, type));
-    activityList.replaceChildren(
-      ...(activity.length
-        ? activity
-        : [emptyCard("暂无结果或传输", "回收结果或传输功能包后会显示在这里。")]),
-    );
-    const alertCards = alerts.map(compactAlertCard);
-    if (machine.status !== "READY" && machine.status !== "PAUSED") {
-      alertCards.unshift(emptyCard(
-        `机器${labelFor(machine.status)}`,
-        machine.stale_reason || machine.last_error || "请检查这台员工机的连接和执行服务。",
-      ));
-    }
-    alertList.replaceChildren(
-      ...(alertCards.length
-        ? alertCards
-        : [emptyCard("当前状态正常", "当前没有需要处理的机器或账号告警。")]),
-    );
+    setText("#manager-machine-detail-description", "按账号查看运营目标与实际完成情况。");
+    const today = localDateValue(new Date());
+    renderWorkerNextDay(machine.machine_id, today);
+    setText("#worker-today-date", today);
+    const accounts = workerDayAccounts(machine.machine_id, today);
+    $("#worker-today-progress").replaceChildren(...(accounts.length
+      ? accounts.map((slot) => workerDayCard(machine.machine_id, slot, today))
+      : [emptyCard("暂无当日运营记录", "账号和目标下发后自动展示完成情况。")]));
+    const dates = new Set([
+      ...(state.dailyPlans || []).filter((plan) => plan.accounts.some((row) =>
+        row.machine_id === machine.machine_id)).map((plan) => plan.plan_date),
+      ...state.tasks.filter((task) => task.machine_id === machine.machine_id).map(workerTaskDate),
+      ...state.results.filter((result) => result.machine_id === machine.machine_id).map(resultDate),
+      ...state.goals.filter((goal) => goal.period_start === goal.period_end
+        && goal.targets?.some((target) => target.machine_id === machine.machine_id))
+        .map((goal) => goal.period_start),
+    ].filter((date) => date && date < today));
+    setText("#worker-history-count", `${dates.size} 天`);
+    $("#worker-history-list").replaceChildren(...(dates.size
+      ? [...dates].sort().reverse().map((date) => {
+        const detail = element("details", "worker-history-day");
+        const key = `${machine.machine_id}:${date}`;
+        detail.open = expandedWorkerDays.has(key);
+        detail.addEventListener("toggle", () => {
+          if (detail.open) expandedWorkerDays.add(key);
+          else expandedWorkerDays.delete(key);
+        });
+        append(detail, element("summary", "", date),
+          ...workerDayAccounts(machine.machine_id, date)
+            .map((slot) => workerDayCard(machine.machine_id, slot, date)));
+        return detail;
+      }) : [element("p", "manager-inline-message", "暂无往日记录。") ]));
   }
 
   function renderMachineStage() {
@@ -1037,45 +967,11 @@
     localStorage.setItem("auto-xhs:manager-machine", selectedMachineId);
     renderMachineNavigation();
     renderMachineStage();
-    if (selectedMachineId) selectManagerView("workers");
-  }
-
-  function normalizeLocalAccount(account, status) {
-    const rawStatus = String(status?.status || "UNKNOWN").toUpperCase();
-    let healthState = "WARNING";
-    if (rawStatus === "READY") healthState = "READY";
-    else if (["LOGIN_REQUIRED", "IDENTITY_MISMATCH", "PLATFORM_MISMATCH", "BLOCKED"]
-      .includes(rawStatus) || status?.server_running === false) healthState = "BLOCKED";
-    else if (["UNKNOWN", "ERROR"].includes(rawStatus)) healthState = "UNKNOWN";
-    const identity = status?.identity || {};
-    return {
-      account_key: `MANAGER:${account.name}`,
-      machine_id: "MANAGER",
-      account_slot: account.name,
-      name: account.name,
-      platform: account.platform || "xiaohongshu",
-      health_state: healthState,
-      bridge_status: status?.server_running ? "READY" : "BLOCKED",
-      extension_status: status?.extension_connected ? "READY" : "WARNING",
-      profile_status: status?.profile_verified ? "READY" : "BLOCKED",
-      identity,
-      uid: identity.live_user_id || identity.user_id || "",
-      nickname: identity.live_nickname || identity.nickname || "",
-      agent_task_status: "IDLE",
-      last_check_at: identity.observed_at || "",
-      abnormal_reason: healthState === "READY" ? "" : status?.next_action || "账号状态待确认",
-      recommended_action: status?.next_action || "在经理机账号卡片中处理",
-      source_label: "经理机本机环境",
-      updated_at: identity.observed_at || "",
-    };
+    selectManagerView(selectedMachineId ? "workers" : "overview");
   }
 
   function accountsForSelectedNode() {
-    const local = state.localAccounts.map((account, index) =>
-      normalizeLocalAccount(account, state.localStatuses[index]),
-    );
-    if (selectedAccountNode === "manager") return local;
-    if (selectedAccountNode === "all") return [...local, ...state.accounts];
+    if (selectedAccountNode === "all") return state.accounts;
     return state.accounts.filter((account) => account.machine_id === selectedAccountNode);
   }
 
@@ -1085,7 +981,7 @@
       return (
         task.machine_id === account.machine_id &&
         request.account_slot === account.account_slot &&
-        taskIsActive(task)
+        taskIsExecuting(task)
       );
     });
   }
@@ -1095,7 +991,7 @@
       return (
         persona.machine_id === account.machine_id &&
         persona.account_slot === account.account_slot &&
-        persona.status !== "DISABLED"
+        persona.status === "ACTIVE"
       );
     });
   }
@@ -1178,7 +1074,7 @@
     const nav = $("#manager-account-node-list");
     if (!nav) return;
     if (
-      !["all", "manager"].includes(selectedAccountNode)
+      selectedAccountNode !== "all"
       && !state.machines.some((machine) => machine.machine_id === selectedAccountNode)
     ) {
       selectedAccountNode = "all";
@@ -1189,29 +1085,16 @@
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
-    setText("#manager-account-node-manager-count", state.localAccounts.length);
-    setText("#manager-account-node-all-count", state.localAccounts.length + state.accounts.length);
+    setText("#manager-account-node-all-count", state.accounts.length);
   }
 
   function renderAccountWorkspace() {
-    const remoteSection = $("#manager-remote-account-section");
-    const localSection = $("#manager-local-account-section");
     const grid = $("#manager-remote-account-grid");
-    const localGrid = $("#manager-local-account-grid");
-    if (!remoteSection || !localSection || !grid) return;
+    if (!grid) return;
     renderAccountNavigation();
     const accounts = visibleAccounts();
-    const showLocal = ["all", "manager"].includes(selectedAccountNode);
-    const remoteAccounts = accounts.filter((account) => account.machine_id !== "MANAGER");
-    const localAccounts = accounts.filter((account) => account.machine_id === "MANAGER");
-    localSection.hidden = !showLocal;
-    remoteSection.hidden = selectedAccountNode === "manager";
-    const title = selectedAccountNode === "all"
-      ? "全部节点账号"
-      : selectedAccountNode === "manager"
-        ? "经理机账号"
-        : `${selectedAccountNode} 账号`;
-    setText("#manager-account-view-title", title);
+    setText("#manager-account-view-title", selectedAccountNode === "all"
+      ? "全部员工机账号" : `${selectedAccountNode} 账号`);
     const counts = new Map();
     accounts.forEach((account) => {
       const key = String(account.health_state || "UNKNOWN").toUpperCase();
@@ -1222,72 +1105,89 @@
     setText("#manager-account-warning", counts.get("WARNING") || 0);
     setText("#manager-account-blocked", counts.get("BLOCKED") || 0);
     setText("#manager-account-unknown", counts.get("UNKNOWN") || 0);
-    setText(
-      "#manager-account-running",
-      accounts.filter((account) => account.agent_task_status === "RUNNING").length,
-    );
-    const localAttention = state.localStatuses.filter(
-      (status) => String(status?.status || "UNKNOWN").toUpperCase() !== "READY",
-    ).length;
-    setText(
-      "#blocked-total",
-      localAttention + state.alerts.filter((alert) => alert.active !== false).length,
-    );
-    const cards = remoteAccounts.map(compactAccountCard);
-    grid.replaceChildren(
-      ...(cards.length
-        ? cards
-        : [emptyCard("暂无员工机账号", "选择员工机并同步账号状态后会显示在这里。")]),
-    );
-    if (localGrid) {
-      localGrid.replaceChildren(
-        ...(localAccounts.length
-          ? localAccounts.map((account) => compactAccountCard(account, false))
-          : [emptyCard("暂无本机环境账号", "经理机本地账号会在此独立展示。")]),
-      );
-    }
+    setText("#manager-account-running", accounts.filter(accountHasActiveTask).length);
+    setText("#blocked-total", state.accounts.length);
+    const cards = accounts.map((account) => compactAccountCard(account));
+    grid.replaceChildren(...(cards.length ? cards : [emptyCard("暂无匹配的员工机账号",
+      "账号与专属人设同步后显示在这里，也可调整筛选条件。")]));
   }
 
-  function renderPersonas() {
-    const list = $("#manager-persona-list");
-    if (!list) return;
-    populateStrategySelects();
-    const cards = state.personas.map((persona) => {
-      const card = element("article", "manager-task-card manager-strategy-card");
-      const head = element("div", "manager-card-head");
-      const copy = element("div", "manager-record-copy");
-      append(
-        copy,
-        element("strong", "", persona.display_name || persona.account_slot),
-        element(
-          "small",
-          "",
-          `${persona.machine_id || "LOCAL"} · ${persona.account_slot}`,
-        ),
-      );
-      append(head, copy, stateBadge(persona.status));
-      append(
-        card,
-        head,
-        factList([
-          ["角色定位", persona.role],
-          ["目标受众", persona.audience],
-          ["内容主题", (persona.content_topics || []).join("、")],
-          ["表达语气", persona.tone],
-          ["互动方式", persona.interaction_style],
-          ["更新时间", formatTime(persona.updated_at)],
-        ]),
-      );
-      const actions = element("div", "manager-card-actions");
-      actions.appendChild(actionButton("编辑人设卡", "persona-edit", persona.persona_id));
-      card.appendChild(actions);
-      return card;
+  function accountPersonaPanel(account) {
+    const persona = state.personas.find((item) => item.machine_id === account.machine_id
+      && item.account_slot === account.account_slot);
+    const panel = element("details", "manager-account-persona");
+    const accountKey = `${account.machine_id}:${account.account_slot}`;
+    panel.open = expandedPersonas.has(accountKey);
+    panel.addEventListener("toggle", () => {
+      if (panel.open) expandedPersonas.add(accountKey);
+      else expandedPersonas.delete(accountKey);
     });
-    list.replaceChildren(
-      ...(cards.length
-        ? cards
-        : [emptyCard("暂无账号人设卡", "选择节点和账号后保存人设卡。")]),
-    );
+    const title = persona?.display_name || "待配置";
+    panel.appendChild(element("summary", "", `账号人设 · ${title}`));
+    const edit = element("button", "secondary-button", persona ? "编辑人设" : "配置人设");
+    edit.type = "button";
+    edit.addEventListener("click", () => openPersonaEditor(account));
+    panel.appendChild(append(element("div", "manager-persona-toolbar"),
+      persona ? stateBadge(persona.status) : element("span", "", "为此账号配置专属人设"), edit));
+    if (!persona) {
+      return panel;
+    }
+    append(panel, factList([
+      ["角色定位", persona.role], ["目标受众", persona.audience],
+      ["内容主题", (persona.content_topics || []).join("、")], ["语言", persona.language],
+      ["表达语气", persona.tone], ["互动方式", persona.interaction_style],
+      ["事实边界", persona.fact_boundaries], ["知识说明", persona.knowledge],
+      ["版本", `v${persona.version || 1}`], ["更新时间", formatTime(persona.updated_at)],
+    ]));
+    return panel;
+  }
+
+  function openPersonaEditor(account) {
+    const persona = state.personas.find((item) => item.machine_id === account.machine_id
+      && item.account_slot === account.account_slot) || {};
+    editingPersona = { machine_id: account.machine_id, account_slot: account.account_slot,
+      persona_id: persona.persona_id || "" };
+    const form = $("#manager-persona-editor-form");
+    form.reset();
+    for (const field of ["display_name", "role", "audience", "language", "tone",
+      "interaction_style", "fact_boundaries", "knowledge", "status", "content_topics"]) {
+      const value = persona[field];
+      form.elements.namedItem(field).value = Array.isArray(value) ? value.join("、")
+        : value || (field === "language" ? "中文" : field === "status" ? "ACTIVE" : "");
+    }
+    setText("#manager-persona-editor-account", `${account.machine_id} / ${account.account_slot}`);
+    setText("#manager-persona-editor-version", persona.version ? `当前版本 v${persona.version}` : "首次配置");
+    setMessage("#manager-persona-editor-message", "");
+    $("#manager-persona-editor").showModal();
+  }
+
+  async function savePersonaEditor(event) {
+    event.preventDefault();
+    if (!editingPersona) return;
+    const form = event.currentTarget;
+    const button = form.querySelector("button[type='submit']");
+    const body = { ...editingPersona };
+    for (const field of ["display_name", "role", "audience", "language", "tone",
+      "interaction_style", "fact_boundaries", "knowledge", "status"]) {
+      body[field] = form.elements.namedItem(field).value.trim();
+    }
+    body.content_topics = form.elements.namedItem("content_topics").value
+      .split(/[、，,\n]/).map((value) => value.trim()).filter(Boolean);
+    button.disabled = true;
+    setMessage("#manager-persona-editor-message", "正在保存人设…");
+    try {
+      const payload = await mutateJson(`${managerApi}/personas`, "POST", body);
+      state.personas = [...state.personas.filter((item) => item.persona_id !== payload.persona.persona_id),
+        payload.persona];
+      expandedPersonas.add(`${body.machine_id}:${body.account_slot}`);
+      $("#manager-persona-editor").close();
+      renderAccountWorkspace();
+      setMessage("#manager-account-message", `人设已保存 · v${payload.persona.version}`, "success");
+    } catch (error) {
+      setMessage("#manager-persona-editor-message", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function metricSummary(metrics, emptyLabel = "以期望成果为准") {
@@ -1298,68 +1198,162 @@
       .join(" · ") || emptyLabel;
   }
 
-  function goalActionButtons(goal) {
-    const actions = element("div", "manager-card-actions");
-    if (["DRAFT", "PAUSED"].includes(goal.state)) {
-      actions.appendChild(actionButton("编辑目标", "goal-edit", goal.goal_id));
-      actions.appendChild(actionButton("启用目标", "goal-activate", goal.goal_id, "primary"));
-    }
-    if (goal.state === "ACTIVE") {
-      actions.appendChild(actionButton("暂停目标", "goal-pause", goal.goal_id, "warning"));
-    }
-    if (["ACTIVE", "PAUSED"].includes(goal.state)) {
-      actions.appendChild(actionButton("标记完成", "goal-complete", goal.goal_id));
-    }
-    return actions;
+  function observationTable(headers, rows, caption) {
+    const wrapper = element("div", "manager-table-scroll");
+    const table = element("table", "manager-observation-table");
+    const title = element("caption", "sr-only", caption);
+    const head = element("thead");
+    const heading = element("tr");
+    headers.forEach((label) => {
+      const cell = element("th", "", label);
+      cell.scope = "col";
+      heading.appendChild(cell);
+    });
+    head.appendChild(heading);
+    const body = element("tbody");
+    rows.forEach((values) => {
+      const row = element("tr");
+      values.forEach((value) => {
+        const cell = element("td");
+        if (value && typeof value === "object") cell.appendChild(value);
+        else cell.textContent = String(value ?? "—");
+        row.appendChild(cell);
+      });
+      body.appendChild(row);
+    });
+    append(table, title, head, body);
+    wrapper.appendChild(table);
+    return wrapper;
+  }
+
+  function recordTitle(title, subtitle) {
+    return append(element("div", "manager-record-copy"),
+      element("strong", "", title || "—"), element("small", "", subtitle || ""));
+  }
+
+  function targetNames(targets) {
+    return (targets || []).map((target) =>
+      `${target.machine_id || "LOCAL"} / ${target.account_slot || "—"}`).join("、") || "—";
+  }
+
+  function goalMetricProgress(goal) {
+    const panel = element("div", "manager-metric-progress");
+    const actual = goal.progress?.actual_metrics || {};
+    const targets = goal.target_metrics || {};
+    const keys = [...new Set([...Object.keys(targets), ...Object.keys(actual)])];
+    keys.forEach((key) => {
+      const target = Number(targets[key] || 0);
+      const value = actual[key];
+      if (!target && value == null) return;
+      const row = element("div", "manager-metric-progress-row");
+      append(row, element("span", "", metricLabels[key] || key),
+        element("strong", "", `${value ?? "—"} / ${target || "—"}`));
+      if (target > 0 && value != null) {
+        const progress = element("progress");
+        progress.max = target;
+        progress.value = Number(value);
+        progress.setAttribute("aria-label", `${metricLabels[key] || key} ${value} / ${target}`);
+        row.appendChild(progress);
+      }
+      panel.appendChild(row);
+    });
+    if (!panel.childElementCount) panel.appendChild(element("small", "", "按目标说明验收"));
+    return panel;
+  }
+
+  function goalMatchesFilters(goal) {
+    const status = $("#manager-operation-filter-state")?.value || "";
+    const machine = $("#manager-operation-filter-machine")?.value || "";
+    const account = $("#manager-operation-filter-account")?.value || "";
+    const date = $("#manager-operation-filter-date")?.value || "";
+    const keyword = ($("#manager-operation-filter-keyword")?.value || "").trim().toLowerCase();
+    const targets = goal.targets || [];
+    const text = [goal.title, goal.goal_id, goal.desired_outcome, targetNames(targets)]
+      .filter(Boolean).join(" ").toLowerCase();
+    return (!status || goal.state === status)
+      && ((!machine && !account) || targets.some((target) =>
+        (!machine || target.machine_id === machine) && (!account || target.account_slot === account)))
+      && (!date || (goal.period_start && goal.period_end
+        && date >= goal.period_start && date <= goal.period_end))
+      && (!keyword || text.includes(keyword));
   }
 
   function renderGoals() {
     const list = $("#manager-goal-list");
     if (!list) return;
     setText("#manager-goal-total", state.goals.length);
-    setText("#manager-goal-draft", state.goals.filter((goal) => goal.state === "DRAFT").length);
-    setText("#manager-goal-active", state.goals.filter((goal) => goal.state === "ACTIVE").length);
-    setText("#manager-goal-paused", state.goals.filter((goal) => goal.state === "PAUSED").length);
-    const cards = state.goals.map((goal) => {
-      const target = (goal.targets || [])[0] || {};
-      const progress = goal.progress || {};
-      const card = element("article", "manager-task-card manager-strategy-card");
-      const head = element("div", "manager-card-head");
-      const copy = element("div", "manager-record-copy");
-      append(
-        copy,
-        element("strong", "", goal.title || goal.goal_id),
-        element("small", "", `${goal.goal_id} · v${goal.version || 1}`),
-      );
-      append(head, copy, stateBadge(goal.state));
-      append(
-        card,
-        head,
-        factList([
-          ["账号", `${target.machine_id || "LOCAL"} · ${target.account_slot || "—"}`],
-          ["周期", `${goal.period_start || "—"} 至 ${goal.period_end || "—"}`],
-          ["目标指标", metricSummary(goal.target_metrics)],
-          ["实际指标", metricSummary(progress.actual_metrics, "等待结果回收")],
-          ["目标 / 实际", `${progress.target_total ?? "—"} / ${progress.actual_total ?? "—"}`],
-          ["回收结果", String(progress.result_count || 0)],
-          ["内容方向", (goal.content_topics || []).join("、")],
-        ]),
-      );
-      if (goal.desired_outcome) {
-        card.appendChild(element("p", "manager-inline-message", goal.desired_outcome));
-      }
-      const actions = goalActionButtons(goal);
-      if (actions.childElementCount) card.appendChild(actions);
-      return card;
+    for (const [id, status] of [["active", "ACTIVE"], ["completed", "COMPLETED"], ["paused", "PAUSED"]]) {
+      setText(`#manager-goal-${id}`, state.goals.filter((goal) => goal.state === status).length);
+    }
+    const goals = state.goals.filter((goal) => selectedProgressTab !== "goals" || goalMatchesFilters(goal))
+      .sort((a, b) => Number(b.state === "ACTIVE") - Number(a.state === "ACTIVE")
+        || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    const rows = goals.map((goal) => {
+      const detail = element("button", "manager-text-button", "查看详情");
+      detail.type = "button";
+      detail.dataset.managerGoalDetail = goal.goal_id;
+      return [recordTitle(goal.title, goal.goal_id), targetNames(goal.targets),
+        recordTitle(goal.period_start, `至 ${goal.period_end || "—"}`),
+        goalMetricProgress(goal), stateBadge(goal.state), detail];
     });
-    list.replaceChildren(
-      ...(cards.length
-        ? cards
-        : [emptyCard("暂无运营目标", "保存目标后由 Agent 读取并制定计划。")]),
-    );
+    list.replaceChildren(rows.length
+      ? observationTable(["运营目标", "机器 / 账号", "周期", "指标进展", "状态", "详情"], rows, "目标进展")
+      : emptyCard(state.goals.length ? "没有符合条件的目标" : "等待经理 Agent 下发目标",
+        state.goals.length ? "调整筛选条件查看其他目标。" : "目标同步后，完成情况将显示在这里。"));
+    if (selectedGoalId) renderGoalDetail(selectedGoalId);
+  }
+
+  function renderGoalDetail(goalId, openDialog = false) {
+    const dialog = $("#manager-goal-detail-dialog");
+    const goal = state.goals.find((item) => item.goal_id === goalId);
+    if (!dialog || !goal) return;
+    selectedGoalId = goalId;
+    setText("#manager-goal-detail-title", goal.title || goal.goal_id);
+    setText("#manager-goal-detail-subtitle", `${goal.goal_id} · v${goal.version || 1} · 经理 Agent 下发`);
+    const content = $("#manager-goal-detail-body");
+    content.replaceChildren(stateBadge(goal.state), factList([
+      ["目标账号", targetNames(goal.targets)],
+      ["周期", `${goal.period_start || "—"} 至 ${goal.period_end || "—"}`],
+      ["期望成果", goal.desired_outcome],
+      ["内容方向", (goal.content_topics || []).join("、")],
+      ["回收结果", goal.progress?.result_count ?? 0],
+      ["更新时间", formatTime(goal.updated_at)],
+    ]), goalMetricProgress(goal), element("h3", "", "关联执行记录"));
+    const tasks = state.operationTasks.filter((task) => task.goal_id === goalId);
+    tasks.forEach((task) => {
+      const button = element("button", "manager-related-task", task.title || task.operation_task_id);
+      button.type = "button";
+      button.dataset.managerOperationDetail = task.operation_task_id;
+      button.appendChild(stateBadge(task.state));
+      content.appendChild(button);
+    });
+    if (!tasks.length) content.appendChild(emptyCard("尚未同步执行记录", "经理 Agent 下发后自动展示。"));
+    if (openDialog && !dialog.open) dialog.showModal();
+  }
+
+  function renderProgress() {
+    populateOperationFilters();
+    renderGoals();
+    renderOperationTasks();
+    renderPartialErrors();
+  }
+
+  function selectProgressTab(tab) {
+    selectedProgressTab = tab === "executions" ? "executions" : "goals";
+    document.querySelectorAll("[data-manager-progress-tab]").forEach((button) => {
+      const active = button.dataset.managerProgressTab === selectedProgressTab;
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    });
+    $("#manager-goals-panel").hidden = selectedProgressTab !== "goals";
+    $("#manager-executions-panel").hidden = selectedProgressTab !== "executions";
+    $("#manager-operation-filter-state").value = "";
+    setText("#manager-progress-date-label", selectedProgressTab === "goals" ? "目标周期内日期" : "任务创建日期");
+    renderProgress();
   }
 
   function populateOperationFilters() {
+    const records = selectedProgressTab === "goals" ? state.goals : state.operationTasks;
     const stateSelect = $("#manager-operation-filter-state");
     const machineSelect = $("#manager-operation-filter-machine");
     const accountSelect = $("#manager-operation-filter-account");
@@ -1379,19 +1373,19 @@
     populate(
       stateSelect,
       "全部状态",
-      state.operationTasks.map((task) => String(task.state || "WAITING_AGENT").toUpperCase()),
+      records.map((task) => String(task.state || "UNKNOWN").toUpperCase()),
       labelFor,
     );
     populate(
       machineSelect,
       "全部员工机",
-      state.operationTasks.flatMap((task) =>
+      records.flatMap((task) =>
         (task.targets || []).map((target) => String(target.machine_id || ""))),
     );
     populate(
       accountSelect,
       "全部账号",
-      state.operationTasks.flatMap((task) =>
+      records.flatMap((task) =>
         (task.targets || []).map((target) => String(target.account_slot || ""))),
     );
   }
@@ -1418,8 +1412,9 @@
       ...targets.flatMap((target) => [target.machine_id, target.account_slot]),
     ].filter(Boolean).join(" ").toLowerCase();
     return (!selectedState || task.state === selectedState)
-      && (!machineId || targets.some((target) => target.machine_id === machineId))
-      && (!accountSlot || targets.some((target) => target.account_slot === accountSlot))
+      && ((!machineId && !accountSlot) || targets.some((target) =>
+        (!machineId || target.machine_id === machineId)
+        && (!accountSlot || target.account_slot === accountSlot)))
       && (!selectedDate || createdDate === selectedDate)
       && (!keyword || haystack.includes(keyword));
   }
@@ -1440,109 +1435,30 @@
   function renderOperationTasks() {
     const list = $("#manager-operation-list");
     if (!list) return;
-    populateOperationGoalSelect();
-    populateOperationFilters();
-    const runningStates = new Set(["PLANNING", "DISPATCHING", "RUNNING"]);
     setText("#manager-operation-total", state.operationTasks.length);
-    setText(
-      "#manager-operation-waiting",
-      state.operationTasks.filter((task) => task.state === "WAITING_AGENT").length,
-    );
-    setText(
-      "#manager-operation-running",
-      state.operationTasks.filter((task) => runningStates.has(task.state)).length,
-    );
-    setText(
-      "#manager-operation-reconcile",
-      state.operationTasks.filter((task) => task.state === "RECONCILIATION_REQUIRED").length,
-    );
-    const visibleTasks = state.operationTasks
-      .filter(operationTaskMatchesFilters)
-      .sort((left, right) => operationTaskPriority(left) - operationTaskPriority(right)
-        || String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
-    const cards = visibleTasks.map((task) => {
-      const progress = task.progress || {};
-      const targets = (task.targets || [])
-        .map((target) => `${target.machine_id || "LOCAL"}/${target.account_slot || "—"}`)
-        .join("、");
-      const personaSnapshots = (task.persona_bindings || [])
-        .map((persona) => persona.display_name || persona.persona_id)
-        .join("、");
-      const card = element("article", "manager-task-card manager-strategy-card");
-      const head = element("div", "manager-card-head");
-      const copy = element("div", "manager-record-copy");
-      append(
-        copy,
-        element("strong", "", task.title || task.operation_task_id),
-        element("small", "", task.operation_task_id),
-      );
-      append(head, copy, stateBadge(task.state));
-      append(
-        card,
-        head,
-        factList([
-          ["运营目标", task.goal_snapshot?.title || task.goal_id],
-          ["目标账号", targets],
-          ["经理 Agent", task.manager_agent_id || "等待领取"],
-          ["人设快照", personaSnapshots],
-          [
-            "计划动作 / 执行任务",
-            `${progress.plan_action_count || 0} / ${progress.execution_task_count || 0}`,
-          ],
-          ["目标 / 实际", `${progress.target_total ?? "—"} / ${progress.actual_total ?? "—"}`],
-          ["回收结果", String(progress.result_count || 0)],
-          ["更新时间", formatTime(task.updated_at)],
-        ]),
-      );
-      if (task.instructions) {
-        card.appendChild(element("p", "manager-inline-message", task.instructions));
-      }
-      if (task.plan?.summary) {
-        card.appendChild(
-          element("p", "manager-inline-message", `经理 Agent 计划：${task.plan.summary}`),
-        );
-      }
-      if (task.result_summary) {
-        card.appendChild(
-          element("p", "manager-inline-message", `任务结论：${task.result_summary}`),
-        );
-      }
-      const exchanges = state.agentMessages
-        .filter((message) => message.operation_task_id === task.operation_task_id)
-        .slice(0, 4);
-      if (exchanges.length) {
-        const exchangeList = element("div", "manager-agent-exchanges");
-        exchangeList.appendChild(element("strong", "", "Agent 交接记录"));
-        exchanges.forEach((message) => {
-          exchangeList.appendChild(
-            element(
-              "p",
-              "manager-inline-message",
-              `${message.from_agent} → ${message.to_agent} · `
-                + `${labelFor(operationMessageStatus(message))} · ${message.summary}`,
-            ),
-          );
-        });
-        card.appendChild(exchangeList);
-      }
-      const actions = element("div", "manager-card-actions");
-      const detailButton = element("button", "secondary-button", "查看任务详情");
-      detailButton.type = "button";
-      detailButton.dataset.managerOperationDetail = task.operation_task_id;
-      actions.appendChild(detailButton);
-      card.appendChild(actions);
-      return card;
+    setText("#manager-operation-waiting", state.operationTasks.filter((task) => task.state === "WAITING_AGENT").length);
+    setText("#manager-operation-running", state.operationTasks.filter((task) =>
+      ["PLANNING", "DISPATCHING", "RUNNING"].includes(task.state)).length);
+    setText("#manager-operation-reconcile", state.operationTasks.filter((task) =>
+      task.state === "RECONCILIATION_REQUIRED").length);
+    const tasks = state.operationTasks
+      .filter((task) => selectedProgressTab !== "executions" || operationTaskMatchesFilters(task))
+      .sort((a, b) => operationTaskPriority(a) - operationTaskPriority(b)
+        || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    const rows = tasks.map((task) => {
+      const detail = element("button", "manager-text-button", "查看详情");
+      detail.type = "button";
+      detail.dataset.managerOperationDetail = task.operation_task_id;
+      return [recordTitle(task.title, task.goal_snapshot?.title || task.goal_id),
+        targetNames(task.targets), stateBadge(task.state),
+        recordTitle(task.result_summary || task.plan?.summary || "等待 Agent 回传进展",
+          `已回收 ${task.progress?.result_count || 0} 条结果`),
+        formatTime(task.updated_at), detail];
     });
-    list.replaceChildren(
-      ...(cards.length
-        ? cards
-        : [emptyCard(
-            state.operationTasks.length ? "没有符合条件的运营任务" : "暂无运营任务",
-            state.operationTasks.length
-              ? "调整状态、员工机、账号、日期或关键词筛选。"
-              : "先启用运营目标，再提交给经理 Agent。",
-          )]),
-    );
+    list.replaceChildren(rows.length
+      ? observationTable(["执行任务 / 关联目标", "机器 / 账号", "阶段", "结果摘要", "更新时间", "详情"], rows, "执行记录")
+      : emptyCard(state.operationTasks.length ? "没有符合条件的执行记录" : "等待经理 Agent 下发任务",
+        state.operationTasks.length ? "调整筛选条件查看其他记录。" : "执行计划和结果回收后自动展示。"));
     if (selectedOperationTaskId) renderOperationTaskDetail(selectedOperationTaskId);
   }
 
@@ -1699,7 +1615,7 @@
     const resultList = $("#manager-operation-detail-results");
     resultList?.replaceChildren(
       ...(results.length
-        ? results.map(compactTodayResultCard)
+        ? results.map(operationTaskResultCard)
         : [emptyCard("尚未回收执行结果", "员工机写入 outbox 并被经理机回收后会显示在这里。")]),
     );
     setText("#manager-operation-timeline-total", `${messages.length} 条`);
@@ -1738,13 +1654,11 @@
 
   async function refreshRemoteAccounts(event) {
     const button = event.currentTarget;
-    const targets = selectedAccountNode === "manager"
-      ? []
-      : selectedAccountNode === "all"
-        ? state.machines
-        : state.machines.filter((machine) => machine.machine_id === selectedAccountNode);
+    const targets = selectedAccountNode === "all"
+      ? state.machines
+      : state.machines.filter((machine) => machine.machine_id === selectedAccountNode);
     if (!targets.length) {
-      setMessage("#manager-account-message", "经理机账号由本地账号服务持续更新。", "success");
+      setMessage("#manager-account-message", "等待员工机登记后同步账号。", "success");
       return;
     }
     button.disabled = true;
@@ -1784,76 +1698,109 @@
   function renderMachines() {
     const list = $("#manager-machine-list");
     if (!list) return;
-    setText("#manager-machine-total", state.machines.length);
-    setText(
-      "#manager-ready-total",
-      state.machines.filter((machine) => machine.status === "READY").length,
-    );
+    if (selectedView === "workers" && !selectedMachineId && state.machines.length) {
+      selectedMachineId = state.machines[0].machine_id;
+    }
     setText("#node-total", state.machines.length);
     populateMachineSelects();
     renderMachineNavigation();
-    const machineAttention = state.machines.filter((machine) => machine.status !== "READY").length;
-    const accountAttention = state.alerts.filter((alert) => alert.active !== false).length;
-    const attention = machineAttention + accountAttention;
-    setText(
-      "#manager-attention-badge",
-      attention
-        ? `${machineAttention} 台机器 · ${accountAttention} 个账号需要处理`
-        : "全部可调度",
-    );
-    const attentionBadge = $("#manager-attention-badge");
-    if (attentionBadge) attentionBadge.dataset.tone = attention ? "warning" : "success";
-    if (!state.machines.length) {
-      list.replaceChildren(
-        emptyCard("尚未登记执行机", "前往系统设置填写 SSH 地址、项目目录和允许版本。"),
-      );
-      renderMachineStage();
-      return;
-    }
+    const attention = state.machines.filter((machine) => machine.status !== "READY").length;
+    setText("#manager-attention-badge", state.machines.length
+      ? (attention ? `${attention} 台机器需要关注` : "员工机状态正常") : "等待员工机同步");
+    const badge = $("#manager-attention-badge");
+    if (badge) badge.dataset.tone = attention || !state.machines.length ? "warning" : "success";
     const cards = state.machines.map((machine) => {
-      const card = element("article", "manager-machine-card");
-      const head = element("div", "manager-card-head");
-      const title = element("div", "manager-card-title");
-      const icon = element("span", "manager-machine-icon", "EX");
-      const copy = element("div");
-      append(
-        copy,
-        element("strong", "", machine.host_alias || machine.machine_id),
-        element("small", "", machine.machine_id),
-      );
-      append(title, icon, copy);
-      append(head, title, stateBadge(machine.status));
-      const facts = factList(
-        [
-          ["SSH", `${machine.ssh_user || "—"}@${machine.ssh_host || "—"}:${machine.ssh_port || 22}`],
-          ["连接", labelFor(machine.ssh_state)],
-          ["项目版本", machine.installed_version || "尚未读取"],
-          ["最近检查", formatTime(machine.last_check_at)],
-        ],
-        "manager-machine-facts",
-      );
+      const accounts = state.accounts.filter((account) => account.machine_id === machine.machine_id);
+      const card = element("button", "room-node-card");
+      card.type = "button";
+      card.dataset.managerMachineSelect = machine.machine_id;
+      card.dataset.tone = toneFor(machine.status);
+      card.setAttribute("aria-label", `查看 ${machine.host_alias || machine.machine_id} 员工机详情`);
+      const head = append(element("div", "room-node-head"),
+        append(element("div"), element("small", "", `员工机 · ${machine.machine_id}`),
+          element("h3", "", machine.host_alias || machine.machine_id)), stateBadge(machine.status));
+      const facts = element("dl");
+      [["物理资产", machine.machine_id], ["执行单元", `${accounts.length} 个账号`],
+        ["连接状态", labelFor(machine.ssh_state || "UNKNOWN")],
+        ["运行状态", labelFor(machine.status)], ["项目版本", machine.installed_version || "待同步"]]
+        .forEach(([name, value]) => facts.appendChild(append(element("div"),
+          element("dt", "", name), element("dd", "", value))));
       append(card, head, facts);
-      if (machine.stale_reason) {
-        card.appendChild(element("p", "manager-inline-message", machine.stale_reason));
-      }
-      if (Boolean(machine.desired_paused) !== Boolean(machine.remote_paused)) {
-        card.appendChild(
-          element("p", "manager-inline-message", "暂停状态正在等待执行机回读同步。"),
-        );
-      }
-      if (machine.last_error) {
-        card.appendChild(element("p", "manager-inline-message", machine.last_error));
-      }
-      const actions = machineActionButtons(machine);
-      const detailButton = element("button", "manager-action-button", "查看详情");
-      detailButton.type = "button";
-      detailButton.dataset.managerMachineSelect = machine.machine_id;
-      actions.prepend(detailButton);
-      card.appendChild(actions);
+      accounts.forEach((account) => card.appendChild(append(element("div", "room-node-account"),
+        element("span", "", account.nickname || account.account_slot),
+        element("strong", "", `${account.account_slot} · ${account.current_uid || account.uid || "身份待同步"}`))));
+      if (!accounts.length) card.appendChild(element("p", "room-footnote", "等待账号绑定回执"));
+      card.appendChild(element("small", "room-node-updated",
+        `最近更新 ${formatTime(machine.outbox_collection?.observed_at || machine.updated_at)}`));
       return card;
     });
-    list.replaceChildren(...cards);
+    list.replaceChildren(...(cards.length ? cards
+      : [emptyCard("等待员工机同步", "已登记的员工机及账号状态会显示在这里。")]));
     renderMachineStage();
+  }
+
+  function renderOverviewSummary() {
+    const accounts = state.accounts;
+    setText("#manager-online-total", state.machines.filter((machine) => machine.ssh_state === "ONLINE").length);
+    setText("#manager-machine-caption", `${state.machines.filter((machine) => machine.ssh_state === "ONLINE").length} 台连接正常`);
+    setText("#manager-healthy-total", accounts.filter((account) => account.health_state === "READY").length);
+    setText("#manager-account-caption", `共 ${accounts.length} 个账号`);
+    setText("#manager-completed-goal-total", state.goals.filter((goal) => goal.state === "COMPLETED").length);
+    setText("#manager-overview-result-total", state.results.length);
+    const exceptions = operationalExceptions();
+    setText("#manager-overview-exception-total", exceptions.length);
+    renderControlRoom(exceptions);
+    const results = [...state.results].sort((a, b) => activityTime(b) - activityTime(a)).slice(0, 4);
+    $("#manager-overview-results")?.replaceChildren(...(results.length
+      ? results.map(compactTodayResultCard)
+      : [emptyCard("等待运营成果回收", "经理 Agent 回收执行结果后自动更新。")]));
+    const alerts = exceptions.slice(0, 4).map((item) => append(
+      element("article", "manager-overview-alert"),
+      append(element("div", "manager-card-head"), recordTitle(item.title, item.object),
+        stateBadge(item.state === "SUCCESS" ? "WARNING" : item.state)),
+      element("p", "", item.message), element("small", "", formatTime(item.time))));
+    $("#manager-overview-alerts")?.replaceChildren(...(alerts.length
+      ? alerts : [emptyCard("当前没有待关注异常", "最近同步的机器、账号与结果状态正常。")]));
+  }
+
+  function controlRoomDayMetrics(results) {
+    return ["browse", "like", "comment", "reply", "publish"].map((kind) => ({
+      kind,
+      actual: actionTargetActualText(results, kind).split(" / ")[1],
+    }));
+  }
+
+  function renderControlRoom(exceptions) {
+    const online = state.machines.filter((machine) => machine.ssh_state === "ONLINE").length;
+    const attention = state.machines.filter((machine) => machine.status !== "READY");
+    const today = localDateValue(new Date());
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayDate = localDateValue(yesterday);
+    const todayResults = state.results.filter((result) => resultDate(result) === today);
+    const yesterdayResults = state.results.filter((result) => resultDate(result) === yesterdayDate);
+    const actuals = todayResults.map(actualResultCount).filter((value) => value !== null);
+    setText("#room-machine-total", state.machines.length);
+    setText("#room-node-count", `${state.machines.length} 台机器 · ${state.accounts.length} 个账号`);
+    setText("#room-unbound-total", state.machines.filter((machine) =>
+      !state.accounts.some((account) => account.machine_id === machine.machine_id)).length);
+    setText("#room-today-total", actuals.length ? actuals.reduce((sum, value) => sum + value, 0) : "—");
+    setText("#room-command-title", !state.machines.length ? "等待员工机接入"
+      : attention.length ? `${attention.length} 台员工机需要关注` : "员工机集群运行正常");
+    setText("#room-command-description", `${online} 台员工机在线，${state.accounts.length} 个账号已登记。`
+      + (exceptions.length ? `当前有 ${exceptions.length} 项异常与提醒，可在下方查看详情。`
+        : "执行进度与实际回执随同步更新。"));
+    $("#room-command").dataset.tone = attention.length || exceptions.length ? "warning" : "success";
+    setText("#room-report-date", yesterdayDate);
+    const labels = { browse: "浏览", like: "点赞", comment: "评论", reply: "回复", publish: "发布" };
+    [["#room-yesterday-metrics", yesterdayResults], ["#room-today-metrics", todayResults]]
+      .forEach(([selector, results]) => $(selector).replaceChildren(
+        ...controlRoomDayMetrics(results).map(({ kind, actual }) => append(element("div"),
+          element("span", "", labels[kind]), element("strong", "", actual))),
+      ));
+    setText("#room-yesterday-note", yesterdayResults.length
+      ? `已回收 ${yesterdayResults.length} 条结果；— 表示该项实际数量尚未回传。`
+      : "暂无昨日回执，员工机回收结果后更新日报。");
   }
 
   function taskPrimaryState(task) {
@@ -1887,69 +1834,10 @@
       actions.appendChild(actionButton("读取并对账", "task-reconcile", task.task_id, "primary"));
       return actions;
     }
-    if (dispatchState === "PENDING_DISPATCH") {
-      actions.appendChild(actionButton("暂停任务", "task-pause", task.task_id, "warning"));
-    } else if (["ACCEPTED", "RUNNING", "PAUSE_REQUESTED"].includes(dispatchState)) {
+    if (["ACCEPTED", "RUNNING", "PAUSE_REQUESTED"].includes(dispatchState)) {
       actions.appendChild(actionButton("读取状态", "task-reconcile", task.task_id));
-      actions.appendChild(actionButton("暂停任务", "task-pause", task.task_id, "warning"));
-    } else if (dispatchState === "PAUSED") {
-      actions.appendChild(actionButton("恢复任务", "task-resume", task.task_id, "primary"));
     }
     return actions;
-  }
-
-  function renderTasks() {
-    const list = $("#manager-task-list");
-    if (!list) return;
-    const executingTasks = state.tasks.filter(taskIsExecuting);
-    const active = executingTasks.length;
-    const reconcile = state.tasks.filter(taskNeedsReconciliation).length;
-    setText("#manager-active-task-total", active);
-    setText("#manager-reconcile-total", reconcile);
-    if (!executingTasks.length) {
-      list.replaceChildren(
-        emptyCard("暂无执行中任务", "员工机接收任务并执行后，状态会显示在这里。"),
-      );
-      return;
-    }
-    const cards = executingTasks.map((task) => {
-      const request = task.request || {};
-      const card = element("article", "manager-task-card");
-      const head = element("div", "manager-card-head");
-      const copy = element("div", "manager-record-copy");
-      append(
-        copy,
-        element("strong", "", request.request_summary || task.task_id),
-        element("small", "", `${task.task_id} · ${task.machine_id || "—"}`),
-      );
-      append(head, copy, stateBadge(taskPrimaryState(task)));
-      const facts = factList([
-        ["来源", task.source_type || request.source_type || "Agent"],
-        ["账号", request.account_slot],
-        ["能力", request.capability],
-        ["运营任务", request.operation_task_id],
-        ["运营目标", request.goal_snapshot?.title || request.goal_id],
-        [
-          "人设快照",
-          request.persona_snapshot?.persona_id
-            ? request.persona_snapshot.display_name || request.persona_snapshot.persona_id
-            : "",
-        ],
-        ["目标", [request.target_type, request.target_id].filter(Boolean).join(" · ")],
-        ["参数", taskParameterSummary(request.parameters)],
-        ["派发", labelFor(task.dispatch_state)],
-        ["连接", labelFor(task.connectivity)],
-        ["功能版本", [task.function_id, task.actual_version].filter(Boolean).join(" ")],
-        ["更新时间", formatTime(task.updated_at)],
-      ]);
-      append(card, head, facts);
-      const detail = task.result_summary || task.message || task.recommended_action;
-      if (detail) card.appendChild(element("p", "manager-inline-message", detail));
-      const actions = taskActions(task);
-      if (actions.childElementCount) card.appendChild(actions);
-      return card;
-    });
-    list.replaceChildren(...cards);
   }
 
   function renderSchedules() {
@@ -1997,17 +1885,6 @@
           ["最近运行", formatTime(schedule.last_run_at)],
         ]),
       );
-      const actions = element("div", "manager-card-actions");
-      if (schedule.state === "PAUSED") {
-        actions.appendChild(
-          actionButton("恢复计划", "schedule-resume", schedule.schedule_id, "primary"),
-        );
-      } else {
-        actions.appendChild(
-          actionButton("暂停计划", "schedule-pause", schedule.schedule_id, "warning"),
-        );
-      }
-      card.appendChild(actions);
       return card;
     });
     list.replaceChildren(...cards);
@@ -2131,6 +2008,7 @@
           return total + Number(browsed) + Number(liked);
         }, 0);
       }
+      if (result.item_results.some((item) => !item?.state && !item?.status)) return null;
       return result.item_results.filter((item) =>
         ["SUCCESS", "COMPLETED"].includes(
           String(item?.state || item?.status || "").toUpperCase(),
@@ -2215,6 +2093,25 @@
     return `${target} / ${actual}`;
   }
 
+  function actionTargetActualText(results, kind) {
+    const values = results.flatMap((result) => {
+      if (resultCapability(result) !== "home-engagement") {
+        return resultActionKind(result) === kind ? [result] : [];
+      }
+      if (!["browse", "like"].includes(kind)) return [];
+      const target = numericCount(resultRequest(result).parameters?.[`${kind}_count`]);
+      const observed = resultDataStatus(result, "item_results") === "observed"
+        && Array.isArray(result.item_results);
+      const actual = observed ? result.item_results.filter((item) =>
+        item?.[kind]?.success === true
+        || String(item?.[kind]?.status || "").toUpperCase() === "SUCCESS"
+      ).length : null;
+      return [{capability: "metric", target_count: target, actual_count: actual,
+        item_results_status: "missing"}];
+    });
+    return targetActualText(values);
+  }
+
   function resultDuration(result) {
     const seconds = numericCount(result.duration_seconds, result.elapsed_seconds);
     if (seconds === null) return "未回传";
@@ -2237,10 +2134,11 @@
     }
 
     const feeds = Array.isArray(business.feeds) ? business.feeds : [];
-    const reportedCount = Number(business.count);
-    const count = Number.isFinite(reportedCount) ? reportedCount : feeds.length;
+    const count = numericCount(business.count)
+      ?? (Array.isArray(business.feeds) ? feeds.length : null);
     const panel = element("details", "manager-business-result");
-    panel.appendChild(element("summary", "", `业务数据 · ${count} 条`));
+    panel.appendChild(element("summary", "", count === null
+      ? "业务数据 · 数量未回传" : `业务数据 · ${count} 条`));
 
     if (!feeds.length) {
       panel.appendChild(element("p", "manager-inline-message", "业务结果已回收。"));
@@ -2258,9 +2156,9 @@
       const interaction = feed.interactInfo || feed.interact_info;
       if (interaction && typeof interaction === "object") {
         const metrics = [
-          ["赞", interaction.likedCount || interaction.liked_count],
-          ["藏", interaction.collectedCount || interaction.collected_count],
-          ["评", interaction.commentCount || interaction.comment_count],
+          ["赞", interaction.likedCount ?? interaction.liked_count],
+          ["藏", interaction.collectedCount ?? interaction.collected_count],
+          ["评", interaction.commentCount ?? interaction.comment_count],
         ]
           .filter(([, value]) => value !== undefined && value !== null && value !== "")
           .map(([label, value]) => `${label} ${value}`)
@@ -2308,8 +2206,10 @@
         factList([
           ["作者", item.author_name || item.author || "未回传"],
           ["Feed ID", item.feed_id || item.note_id || item.id],
-          ["打开详情", resultItemValue(browse.opened ?? item.opened ?? item.open_detail)],
-          ["阅读时长", resultItemValue(browse.duration_seconds ?? item.duration_seconds)],
+          ["打开详情", resultItemValue(browse.opened ?? item.opened ?? item.open_detail
+            ?? (browse.status ? labelFor(String(browse.status).toUpperCase()) : undefined))],
+          ["阅读时长", resultItemValue(browse.duration_seconds ?? item.duration_seconds
+            ?? item.read_seconds)],
           ["点赞", resultItemValue(like.success ?? like.status ?? item.liked)],
           ["评论", item.comment_text || item.comment || ""],
           ["结果", item.state || item.status || ""],
@@ -2320,6 +2220,13 @@
     });
     details.appendChild(list);
     return details;
+  }
+
+  function operationTaskResultCard(result) {
+    const card = compactTodayResultCard(result);
+    const details = resultItemDetails(result);
+    if (details) card.appendChild(details);
+    return card;
   }
 
   function resultAuditCard(result) {
@@ -2465,7 +2372,68 @@
     );
   }
 
+  function collectionStatus(machine) {
+    const status = machine.result_sync_status || "NEVER";
+    const observedAt = Date.parse(machine.outbox_collection?.observed_at || "");
+    const interval = Number(state.sync.results?.interval_seconds || 60);
+    const stale = !Number.isFinite(observedAt) || Date.now() - observedAt > interval * 3000;
+    if (["OFFLINE", "BLOCKED", "FAILED", "RESULT_UNKNOWN"].includes(status)) {
+      return { status, cached: true };
+    }
+    return { status: stale ? "UNKNOWN" : status, cached: stale || status === "PARTIAL_SUCCESS" };
+  }
+
+  function renderOutboxCollection() {
+    const list = $("#manager-collection-list");
+    if (!list) return;
+    const sync = state.sync.results;
+    setText("#manager-collection-schedule", sync
+      ? `每 ${sync.interval_seconds || 60} 秒 · 下次 ${formatTime(sync.next_run_at)}`
+      : "等待后台首次收集");
+    const cards = state.machines.map((machine) => {
+      const card = element("article", "manager-result-card");
+      const head = element("div", "manager-card-head");
+      const current = collectionStatus(machine);
+      const receipt = machine.outbox_collection || {};
+      const observed = Number.isFinite(Date.parse(receipt.observed_at || ""));
+      const badge = stateBadge(current.status);
+      if (["IDLE", "SUCCESS"].includes(current.status) && receipt.pending_records === 0) {
+        badge.textContent = "已收齐";
+      }
+      append(head, element("strong", "", machine.machine_id), badge);
+      append(card, head, factList([
+        ["最近尝试", formatTime(machine.last_result_sync_at)],
+        ["最近成功", formatTime(machine.last_result_success_at)],
+        [current.cached ? "上次已知待收" : "待收回执", observed ? String(receipt.pending_records) : "未知"],
+        ["已导入 / 回执总数", observed ? `${receipt.imported_records} / ${receipt.total_records}` : "未知"],
+        ["本轮导入", observed ? `${receipt.batch_records} 份（结果 ${receipt.batch_results}、进度 ${receipt.batch_events}、接收确认 ${receipt.batch_acknowledgements}）` : "尚未收集"],
+      ]));
+      if (current.cached) card.appendChild(element("p", "manager-inline-message", observed
+        ? `以上计数为最近一次读取记录：${formatTime(receipt.observed_at)}。`
+        : "等待首次有效的回执索引。"));
+      if (machine.result_sync_error) {
+        card.appendChild(element("p", "manager-inline-message", current.status === "OFFLINE"
+          ? "暂时无法连接员工机，下一轮将自动重试。" : machine.result_sync_error));
+        if (current.status === "OFFLINE") {
+          const details = element("details", "manager-operation-technical");
+          append(details, element("summary", "", "连接错误详情"),
+            element("p", "manager-inline-message", machine.result_sync_error));
+          card.appendChild(details);
+        }
+      }
+      if (receipt.archive_root) {
+        const details = element("details", "manager-operation-technical");
+        append(details, element("summary", "", "原始回执归档位置"),
+          element("p", "manager-inline-message", receipt.archive_root));
+        card.appendChild(details);
+      }
+      return card;
+    });
+    list.replaceChildren(...(cards.length ? cards : [emptyCard("尚未登记员工机", "登记员工机后自动开始收集回执。")]));
+  }
+
   function renderResults() {
+    renderOutboxCollection();
     const resultList = $("#manager-result-list");
     const incrementalList = $("#manager-incremental-list");
     const auditList = $("#manager-result-audit-list");
@@ -2518,7 +2486,7 @@
     ["browse", "like", "comment", "reply", "publish"].forEach((kind) => {
       setText(
         `#manager-action-${kind}`,
-        targetActualText(results.filter((result) => resultActionKind(result) === kind)),
+        actionTargetActualText(results, kind),
       );
     });
     renderExceptions();
@@ -2577,7 +2545,7 @@
     resultList.replaceChildren(
       ...(resultCards.length
         ? resultCards
-        : [emptyCard("暂无远程结果", "点击“立即回收所选执行机”读取最新结果。")]),
+        : [emptyCard("暂无远程结果", "经理机正在定时收集员工机回执，导入后会自动显示。")]),
     );
 
     const incrementalCards = incremental.map((record) => {
@@ -2678,7 +2646,7 @@
     const list = $("#manager-version-list");
     if (!list) return;
     if (!state.versions.length) {
-      list.replaceChildren(emptyCard("尚未读取执行机版本", "选择执行机后点击“读取执行机版本”。"));
+      list.replaceChildren(emptyCard("暂无功能版本记录", "经理 Agent 同步版本后自动展示。"));
       return;
     }
     const cards = state.versions.map((version) => {
@@ -2711,12 +2679,15 @@
       ? "当前 WebUI 未启用集群管理服务。"
       : `暂时无法读取集群状态：${error?.message || "请求失败"}`;
     const machineList = $("#manager-machine-list");
-    const taskList = $("#manager-task-list");
     const machineNav = $("#manager-machine-nav");
     if (machineList) machineList.replaceChildren(errorCard(message));
-    if (taskList) taskList.replaceChildren(errorCard(message));
     if (machineNav) machineNav.replaceChildren();
     setText("#manager-last-read", "读取失败");
+    setText("#room-live-state", "连接异常");
+    setText("#room-command-title", "集群状态暂时不可用");
+    setText("#room-command-description", message);
+    $("#room-live-dot").dataset.tone = "danger";
+    $("#room-command").dataset.tone = "danger";
     setText("#manager-health-sync", "状态不可用");
     setText("#manager-result-sync", "状态不可用");
     setText("#manager-attention-badge", "状态不可用");
@@ -2728,13 +2699,14 @@
   }
 
   function renderAll() {
+    planning?.render();
     renderMachines();
     renderPublishReviews();
     renderAccountWorkspace();
-    renderPersonas();
+    populateOperationFilters();
     renderGoals();
     renderOperationTasks();
-    renderTasks();
+    renderOverviewSummary();
     renderSchedules();
     renderTransfers();
     renderResults();
@@ -2745,119 +2717,35 @@
   }
 
   function renderSystemSettings() {
-    const system = state.system || {};
+    const system = state.errors.system ? {} : state.system;
     const limits = system.l1_limits || {};
-    const runtimeForm = $("#manager-runtime-settings-form");
-    if (runtimeForm && !runtimeForm.contains(document.activeElement)) {
-      $("#manager-setting-concurrency").value = String(system.global_concurrency || 3);
-      $("#manager-setting-hourly").value = limits.hourly || 20;
-      $("#manager-setting-daily").value = limits.daily || 100;
-      $("#manager-setting-dedup").value = limits.dedup_minutes || 10;
-      $("#manager-setting-failures").value = limits.failure_threshold || 3;
-    }
+    setText("#manager-setting-concurrency", system.global_concurrency);
+    setText("#manager-setting-hourly", limits.hourly);
+    setText("#manager-setting-daily", limits.daily);
+    setText("#manager-setting-dedup", limits.dedup_minutes);
+    setText("#manager-setting-failures", limits.failure_threshold);
     setText("#manager-runtime-version", `版本 ${system.product_version || "—"}`);
-    setText("#manager-system-pause-state", system.global_paused ? "全局暂停" : "正常运行");
+    setText("#manager-system-pause-state", state.errors.system ? "读取失败"
+      : system.global_paused ? "全局暂停" : "正常运行");
     setText("#manager-system-storage", system.storage_root || "—");
-    setText("#manager-system-task-total", system.summary?.tasks_total ?? "—");
-    setText("#manager-system-failure-total", system.summary?.recent_failures ?? "—");
-
-    const model = state.replyModel || {};
-    const modelForm = $("#manager-reply-model-form");
-    if (modelForm && !modelForm.contains(document.activeElement)) {
-      $("#manager-reply-model-base-url").value = model.base_url || "https://api.deepseek.com";
-      $("#manager-reply-model-name").value = model.model || "";
-      $("#manager-reply-model-timeout").value = model.timeout_seconds || 60;
-      $("#manager-reply-model-api-key").value = "";
-    }
-    setText("#manager-reply-model-state", model.configured ? "已配置" : "尚未配置");
-    if (!$("#manager-reply-model-message")?.textContent) {
-      setMessage(
-        "#manager-reply-model-message",
-        model.api_key_saved ? "Key 已保存在本机，页面不回显。" : "首次保存需要填写 API Key。",
-      );
-    }
-  }
-
-  async function submitRuntimeSettings(event) {
-    event.preventDefault();
-    if (!window.confirm("确认更新经理机并发、配额和失败阈值？")) return;
-    const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
-    button.disabled = true;
-    setMessage("#manager-runtime-message", "正在保存运行参数…");
-    try {
-      state.system = await mutateJson(`${api}/system/settings`, "POST", {
-        confirmed: true,
-        global_concurrency: Number($("#manager-setting-concurrency").value),
-        l1_limits: {
-          hourly: Number($("#manager-setting-hourly").value),
-          daily: Number($("#manager-setting-daily").value),
-          dedup_minutes: Number($("#manager-setting-dedup").value),
-          failure_threshold: Number($("#manager-setting-failures").value),
-        },
-      });
-      renderSystemSettings();
-      setMessage("#manager-runtime-message", "运行参数已保存。", "success");
-    } catch (error) {
-      setMessage("#manager-runtime-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  async function submitReplyModelSettings(event) {
-    event.preventDefault();
-    const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
-    button.disabled = true;
-    setMessage("#manager-reply-model-message", "正在保存模型配置…");
-    try {
-      state.replyModel = await mutateJson(`${api}/reply-intelligence/settings`, "POST", {
-        confirmed: true,
-        api_key: $("#manager-reply-model-api-key").value,
-        base_url: $("#manager-reply-model-base-url").value,
-        model: $("#manager-reply-model-name").value,
-        timeout_seconds: Number($("#manager-reply-model-timeout").value),
-      });
-      renderSystemSettings();
-      setMessage("#manager-reply-model-message", "模型配置已保存。", "success");
-    } catch (error) {
-      setMessage("#manager-reply-model-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  async function testReplyModelConnection(button) {
-    button.disabled = true;
-    setMessage("#manager-reply-model-message", "正在测试模型连接…");
-    try {
-      const payload = await mutateJson(`${api}/reply-intelligence/test`, "POST", {});
-      setMessage(
-        "#manager-reply-model-message",
-        `${payload.message || "模型连接成功"} · ${payload.model || ""}`,
-        "success",
-      );
-    } catch (error) {
-      setMessage("#manager-reply-model-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  async function exportDiagnostics(button) {
-    button.disabled = true;
-    setMessage("#manager-diagnostic-message", "正在生成诊断报告…");
-    try {
-      const payload = await mutateJson(`${api}/diagnostics/export`, "POST", {});
-      setMessage(
-        "#manager-diagnostic-message",
-        payload.path || payload.message || "诊断报告已生成。",
-        "success",
-      );
-    } catch (error) {
-      setMessage("#manager-diagnostic-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
+    setText("#manager-system-task-total", system.summary?.tasks_total);
+    setText("#manager-system-failure-total", system.summary?.recent_failures);
+    $("#manager-settings-machines").replaceChildren(...(state.machines.length
+      ? state.machines.map((machine) => append(element("article", "manager-settings-machine"),
+        append(element("div", "manager-card-head"),
+          recordTitle(machine.host_alias || machine.machine_id, machine.machine_id),
+          stateBadge(machine.status)),
+        factList([
+          ["经理机", machine.manager_id],
+          ["SSH 地址", `${machine.ssh_user || "—"}@${machine.ssh_host || "—"}:${machine.ssh_port ?? 22}`],
+          ["连接状态", labelFor(machine.ssh_state || "UNKNOWN")],
+          ["项目版本", machine.installed_version],
+          ["项目目录", machine.working_directory],
+          ["Python", machine.python_executable],
+          ["允许版本", (machine.allowed_versions || []).join("、")],
+          ["最近更新", formatTime(machine.updated_at)],
+        ])))
+      : [emptyCard("等待员工机配置", "经理 Agent 登记员工机后自动展示连接信息。")]));
   }
 
   function syncStatusText(record) {
@@ -2873,12 +2761,15 @@
     const staleMachines = state.machines.filter((machine) => machine.stale).length;
     const staleAccounts = state.accounts.filter((account) => account.stale).length;
     setText("#manager-stale-total", `${staleMachines + staleAccounts} 项`);
+    const records = [state.sync.health_accounts, state.sync.results].filter(Boolean);
+    setText("#room-collection-state", !records.length ? "等待首次同步"
+      : records.some((record) => record.status !== "SUCCESS") ? "同步状态需要关注" : "自动同步正常");
   }
 
   function selectManagerView(viewId, updateHash = true) {
     const allowed = new Set([
       "overview",
-      "operations",
+      "planning",
       "workers",
       "accounts",
       "results",
@@ -2888,6 +2779,13 @@
     const next = allowed.has(viewId) ? viewId : "overview";
     viewScrollPositions.set(selectedView, window.scrollY);
     selectedView = next;
+    $(".control-room").dataset.currentView = next;
+    if (next === "workers" && !selectedMachineId && state.machines.length) {
+      selectedMachineId = state.machines[0].machine_id;
+      localStorage.setItem("auto-xhs:manager-machine", selectedMachineId);
+    }
+    renderMachineNavigation();
+    if (next === "workers") renderMachineStage();
     localStorage.setItem(VIEW_STORAGE_KEY, next);
     document.querySelectorAll("[data-manager-view]").forEach((view) => {
       const active = view.dataset.managerView === next;
@@ -2900,7 +2798,7 @@
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    if (updateHash && window.location.hash !== `#${next}`) {
+    if ((updateHash || viewId === "operations") && window.location.hash !== `#${next}`) {
       window.history.replaceState(null, "", `#${next}`);
     }
     window.requestAnimationFrame(() => window.scrollTo(0, viewScrollPositions.get(next) || 0));
@@ -2921,7 +2819,7 @@
       operationReports: "运营报告",
       personas: "账号人设卡",
       goals: "运营目标",
-      operationTasks: "运营任务收件箱",
+      operationTasks: "执行记录",
     };
     const summary = failed.map((key) => labels[key] || key).join("、");
     setMessage(
@@ -2932,10 +2830,6 @@
     if ((state.errors.accounts || state.errors.alerts) && !state.accounts.length) {
       const grid = $("#manager-remote-account-grid");
       if (grid) grid.replaceChildren(errorCard("员工机账号缓存暂时不可用。"));
-    }
-    if (state.errors.tasks && !state.tasks.length) {
-      const list = $("#manager-task-list");
-      if (list) list.replaceChildren(errorCard("Agent 任务缓存暂时不可用。"));
     }
     if (state.errors.results && !state.results.length) {
       const list = $("#manager-result-list");
@@ -2959,17 +2853,13 @@
       const list = $("#manager-operation-report-list");
       if (list) list.replaceChildren(errorCard("持续运营报告缓存暂时不可用。"));
     }
-    if (state.errors.personas && !state.personas.length) {
-      const list = $("#manager-persona-list");
-      if (list) list.replaceChildren(errorCard("账号人设卡暂时不可用。"));
-    }
     if (state.errors.goals && !state.goals.length) {
       const list = $("#manager-goal-list");
       if (list) list.replaceChildren(errorCard("运营目标暂时不可用。"));
     }
     if (state.errors.operationTasks && !state.operationTasks.length) {
       const list = $("#manager-operation-list");
-      if (list) list.replaceChildren(errorCard("运营任务收件箱暂时不可用。"));
+      if (list) list.replaceChildren(errorCard("执行记录暂时不可用。"));
     }
     if (state.errors.results) {
       setMessage("#manager-collect-message", "执行结果缓存暂时不可用。", "warning");
@@ -2987,16 +2877,12 @@
     state.errors = {};
     const [
       snapshotResult,
-      localAccountsResult,
       localTasksResult,
       systemResult,
-      replyModelResult,
     ] = await Promise.allSettled([
       fetchJson(`${managerApi}/dashboard-snapshot`),
-      fetchJson(`${api}/accounts`),
       fetchJson(`${api}/tasks`),
       fetchJson(`${api}/system/status`),
-      fetchJson(`${api}/reply-intelligence/status`),
     ]);
     if (snapshotResult.status === "rejected") {
       const error = snapshotResult.reason;
@@ -3005,19 +2891,6 @@
       return false;
     }
     const snapshot = snapshotResult.value;
-    if (localAccountsResult.status === "fulfilled") {
-      state.localAccounts = localAccountsResult.value.accounts || [];
-      const statusResults = await Promise.allSettled(
-        state.localAccounts.map((account) =>
-          fetchJson(`${api}/accounts/${encodeURIComponent(account.name)}/status`),
-        ),
-      );
-      state.localStatuses = statusResults.map((result) =>
-        result.status === "fulfilled" ? result.value : { status: "UNKNOWN" },
-      );
-    } else {
-      state.errors.localAccounts = localAccountsResult.reason;
-    }
     if (localTasksResult.status === "fulfilled") {
       state.localTasks = localTasksResult.value.tasks || [];
     } else {
@@ -3028,11 +2901,6 @@
     } else {
       state.errors.system = systemResult.reason;
     }
-    if (replyModelResult.status === "fulfilled") {
-      state.replyModel = replyModelResult.value;
-    } else {
-      state.errors.replyModel = replyModelResult.reason;
-    }
     state.available = true;
     state.snapshot = snapshot;
     state.machines = snapshot.machines || [];
@@ -3040,6 +2908,7 @@
     state.schedules = snapshot.schedules || [];
     state.operationReports = snapshot.operation_reports || [];
     state.transfers = snapshot.transfers || [];
+    state.versions = snapshot.versions || [];
     state.results = snapshot.results || [];
     state.resultHistory = snapshot.result_history || state.results;
     state.incrementalRecords = snapshot.incremental_records || [];
@@ -3049,11 +2918,14 @@
     state.sync = snapshot.collection || {};
     state.personas = snapshot.personas || [];
     state.goals = snapshot.goals || [];
+    state.dailyPlans = snapshot.daily_plans || [];
     state.operationTasks = snapshot.operation_tasks || [];
     state.agentMessages = snapshot.agent_messages || [];
     renderAll();
     const readTime = new Date().toLocaleTimeString("zh-CN", { hour12: false });
     setText("#manager-last-read", readTime);
+    setText("#room-live-state", "自动更新中");
+    $("#room-live-dot").dataset.tone = "success";
     setMessage("#manager-cluster-message", `集群状态已更新 · ${readTime}`, "success");
     setMessage("#manager-account-message", `账号缓存已更新 · ${readTime}`, "success");
     return true;
@@ -3065,6 +2937,8 @@
     const delay = selectedOperationTaskId
       ? TASK_REFRESH_INTERVAL_MS
       : DASHBOARD_REFRESH_INTERVAL_MS;
+    setText("#room-refresh-interval", `每 ${delay / 1000} 秒刷新`);
+    setText("#room-collection-interval", `${delay / 1000} 秒`);
     refreshTimer = window.setTimeout(() => load(), delay);
   }
 
@@ -3142,95 +3016,13 @@
 
   async function handleTaskAction(button) {
     const taskId = button.dataset.managerIdentity;
-    const action = button.dataset.managerAction.replace("task-", "");
-    const labels = {
-      pause: "暂停任务",
-      resume: "恢复任务",
-      reconcile: "读取远程状态",
-    };
-    if (!window.confirm(`确认对任务 ${taskId} 执行“${labels[action]}”？`)) return;
-    const path = `${managerApi}/tasks/${encodeURIComponent(taskId)}/${action}`;
+    const path = `${managerApi}/tasks/${encodeURIComponent(taskId)}/reconcile`;
     await runMutation(
       button,
       path,
       {},
       "#manager-task-message",
-      `正在${labels[action]}…`,
-    );
-  }
-
-  async function handleScheduleAction(button) {
-    const scheduleId = button.dataset.managerIdentity;
-    const action = button.dataset.managerAction.replace("schedule-", "");
-    const labels = { pause: "暂停计划", resume: "恢复计划" };
-    if (!window.confirm(`确认对计划 ${scheduleId} 执行“${labels[action]}”？`)) return;
-    const path = `${managerApi}/schedules/${encodeURIComponent(scheduleId)}/${action}`;
-    await runMutation(
-      button,
-      path,
-      {},
-      "#manager-schedule-message",
-      `正在${labels[action]}…`,
-    );
-  }
-
-  function editPersona(personaId) {
-    const persona = state.personas.find((item) => item.persona_id === personaId);
-    if (!persona) return;
-    $("#manager-persona-id").value = persona.persona_id;
-    $("#manager-persona-machine").value = persona.machine_id || "LOCAL";
-    populateStrategyAccount(
-      "#manager-persona-machine",
-      "#manager-persona-account",
-      persona.account_slot,
-    );
-    $("#manager-persona-name").value = persona.display_name || "";
-    $("#manager-persona-role").value = persona.role || "";
-    $("#manager-persona-audience").value = persona.audience || "";
-    $("#manager-persona-language").value = persona.language || "中文";
-    $("#manager-persona-topics").value = (persona.content_topics || []).join("，");
-    $("#manager-persona-tone").value = persona.tone || "";
-    $("#manager-persona-interaction").value = persona.interaction_style || "";
-    $("#manager-persona-facts").value = persona.fact_boundaries || "";
-    $("#manager-persona-knowledge").value = persona.knowledge || "";
-    setMessage("#manager-persona-message", `正在编辑 ${persona.display_name}。`);
-    $("#manager-persona-form").scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  function editGoal(goalId) {
-    const goal = state.goals.find((item) => item.goal_id === goalId);
-    if (!goal) return;
-    const target = (goal.targets || [])[0] || {};
-    $("#manager-goal-id").value = goal.goal_id;
-    $("#manager-goal-name").value = goal.title || "";
-    $("#manager-goal-machine").value = target.machine_id || "LOCAL";
-    populateStrategyAccount(
-      "#manager-goal-machine",
-      "#manager-goal-account",
-      target.account_slot,
-    );
-    $("#manager-goal-start").value = goal.period_start || "";
-    $("#manager-goal-end").value = goal.period_end || "";
-    $("#manager-goal-outcome").value = goal.desired_outcome || "";
-    $("#manager-goal-topics").value = (goal.content_topics || []).join("，");
-    ["browse", "like", "comment", "reply", "publish"].forEach((name) => {
-      $(`#manager-goal-${name}`).value = Number(goal.target_metrics?.[name] || 0);
-    });
-    setMessage("#manager-goal-message", `正在编辑 ${goal.title} v${goal.version}。`);
-    $("#manager-goal-form").scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  async function handleGoalAction(button) {
-    const goalId = button.dataset.managerIdentity;
-    const action = button.dataset.managerAction.replace("goal-", "");
-    const labels = { activate: "启用目标", pause: "暂停目标", complete: "标记完成" };
-    if (!window.confirm(`确认对目标 ${goalId} 执行“${labels[action]}”？`)) return;
-    await runMutation(
-      button,
-      `${managerApi}/goals/${encodeURIComponent(goalId)}/${action}`,
-      {},
-      "#manager-goal-message",
-      `正在${labels[action]}…`,
+      "正在读取远程状态…",
     );
   }
 
@@ -3272,7 +3064,13 @@
         scheduling_enabled: $("#manager-account-scheduling-enabled").checked,
       });
       state.activeManagedAccount = payload.account;
-      setMessage("#manager-account-management-message", "账号管理信息已保存。", "success");
+      setMessage(
+        "#manager-account-management-message",
+        payload.status === "SUCCESS"
+          ? "账号管理信息已保存并同步到员工机。"
+          : `经理机配置已保存，员工机同步待确认：${payload.message || "等待员工机回执"}`,
+        payload.status === "SUCCESS" ? "success" : "warning",
+      );
       await load();
     } catch (error) {
       setMessage("#manager-account-management-message", error.message, "error");
@@ -3345,156 +3143,6 @@
     );
   }
 
-  async function submitPersona(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = event.submitter || form.querySelector("button[type='submit']");
-    const body = {
-      persona_id: $("#manager-persona-id").value.trim(),
-      machine_id: $("#manager-persona-machine").value,
-      account_slot: $("#manager-persona-account").value,
-      display_name: $("#manager-persona-name").value.trim(),
-      role: $("#manager-persona-role").value.trim(),
-      audience: $("#manager-persona-audience").value.trim(),
-      language: $("#manager-persona-language").value.trim() || "中文",
-      content_topics: splitList($("#manager-persona-topics").value),
-      tone: $("#manager-persona-tone").value.trim(),
-      interaction_style: $("#manager-persona-interaction").value.trim(),
-      fact_boundaries: $("#manager-persona-facts").value.trim(),
-      knowledge: $("#manager-persona-knowledge").value.trim(),
-      status: "ACTIVE",
-    };
-    button.disabled = true;
-    setMessage("#manager-persona-message", "正在保存人设卡…");
-    try {
-      const payload = await mutateJson(`${managerApi}/personas`, "POST", body);
-      form.reset();
-      $("#manager-persona-id").value = "";
-      await load();
-      setMessage(
-        "#manager-persona-message",
-        `${payload.persona.display_name} 已保存并启用。`,
-        "success",
-      );
-    } catch (error) {
-      setMessage("#manager-persona-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  async function submitGoal(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = event.submitter || form.querySelector("button[type='submit']");
-    const targetMetrics = {};
-    ["browse", "like", "comment", "reply", "publish"].forEach((name) => {
-      const value = Number($(`#manager-goal-${name}`).value || 0);
-      if (value > 0) targetMetrics[name] = value;
-    });
-    const body = {
-      goal_id: $("#manager-goal-id").value.trim(),
-      title: $("#manager-goal-name").value.trim(),
-      targets: [{
-        machine_id: $("#manager-goal-machine").value,
-        account_slot: $("#manager-goal-account").value,
-      }],
-      period_start: $("#manager-goal-start").value,
-      period_end: $("#manager-goal-end").value,
-      desired_outcome: $("#manager-goal-outcome").value.trim(),
-      content_topics: splitList($("#manager-goal-topics").value),
-      target_metrics: targetMetrics,
-      priority: "NORMAL",
-    };
-    button.disabled = true;
-    setMessage("#manager-goal-message", "正在保存运营目标…");
-    try {
-      const payload = await mutateJson(`${managerApi}/goals`, "POST", body);
-      form.reset();
-      $("#manager-goal-id").value = "";
-      setGoalDateRange();
-      await load();
-      setMessage(
-        "#manager-goal-message",
-        `${payload.goal.title} v${payload.goal.version} 已保存，等待启用。`,
-        "success",
-      );
-    } catch (error) {
-      setMessage("#manager-goal-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  async function submitOperationTask(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = event.submitter || form.querySelector("button[type='submit']");
-    const body = {
-      goal_id: $("#manager-operation-goal").value,
-      title: $("#manager-operation-name").value.trim(),
-      instructions: $("#manager-operation-instructions").value.trim(),
-      completion_criteria: $("#manager-operation-criteria").value.trim(),
-      requested_by: "WebUI用户",
-    };
-    button.disabled = true;
-    setMessage("#manager-operation-message", "正在提交经理 Agent 任务收件箱…");
-    try {
-      const payload = await mutateJson(`${managerApi}/operation-tasks`, "POST", body);
-      form.reset();
-      await load();
-      setMessage(
-        "#manager-operation-message",
-        `${payload.operation_task.operation_task_id} 已提交，等待经理 Agent 领取。`,
-        "success",
-      );
-    } catch (error) {
-      setMessage("#manager-operation-message", error.message, "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  async function submitMachine(event) {
-    event.preventDefault();
-    const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
-    const versions = splitList($("#manager-machine-versions").value);
-    if (!versions.length) {
-      setMessage("#manager-machine-message", "请至少填写一个允许项目版本。", "error");
-      return;
-    }
-    const body = {
-      manager_id: $("#manager-machine-manager-id").value.trim() || "MILA-MANAGER",
-      machine_id: $("#manager-machine-id").value.trim(),
-      host_alias: $("#manager-machine-alias").value.trim(),
-      ssh_host: $("#manager-machine-host").value.trim(),
-      ssh_port: Number($("#manager-machine-port").value || 22),
-      ssh_user: $("#manager-machine-user").value.trim(),
-      working_directory: $("#manager-machine-workdir").value.trim(),
-      python_executable: $("#manager-machine-python").value.trim(),
-      identity_file: $("#manager-machine-identity").value.trim(),
-      allowed_versions: versions,
-      expected_role: "executor",
-      connect_timeout_seconds: Number($("#manager-machine-connect-timeout").value || 10),
-    };
-    try {
-      const payload = await runMutation(
-        button,
-        `${managerApi}/machines`,
-        body,
-        "#manager-machine-message",
-        "正在保存执行机…",
-      );
-      setMessage(
-        "#manager-machine-message",
-        `${payload.machine?.machine_id || body.machine_id} 已保存，可前往工作台执行连接检查。`,
-        "success",
-      );
-    } catch (_error) {
-      // runMutation has rendered the user-facing error.
-    }
-  }
-
   async function collectSelectedMachine(event) {
     const button = event.currentTarget;
     const machineId = $("#manager-result-machine").value;
@@ -3517,144 +3165,6 @@
     }
   }
 
-  async function submitTransfer(event) {
-    event.preventDefault();
-    const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
-    const machineId = $("#manager-transfer-machine").value;
-    const body = {
-      transfer_id: $("#manager-transfer-id").value.trim(),
-      machine_id: machineId,
-      transfer_type: $("#manager-transfer-type").value,
-      source_path: $("#manager-transfer-source").value.trim(),
-      allowed_versions: splitList($("#manager-transfer-versions").value),
-      timeout_seconds: Number($("#manager-transfer-timeout").value || 600),
-    };
-    const existing = state.transfers.find((item) => item.transfer_id === body.transfer_id);
-    if (
-      existing &&
-      ["PREPARING", "UPLOADING", "RESULT_UNKNOWN"].includes(transferState(existing))
-    ) {
-      setMessage(
-        "#manager-transfer-message",
-        transferState(existing) === "RESULT_UNKNOWN"
-          ? "该传输结果仍待核对，当前页面不会用新编号重复传输。"
-          : "该传输仍在进行，请等待状态回读。",
-        "warning",
-      );
-      return;
-    }
-    if (!window.confirm(`确认把这个包传输到 ${machineId}？`)) return;
-    try {
-      const payload = await runMutation(
-        button,
-        `${managerApi}/transfers`,
-        body,
-        "#manager-transfer-message",
-        "正在准备并传输功能包…",
-      );
-      if (payload.success === true) $("#manager-transfer-id").value = generatedId("TRANSFER");
-      setMessage(
-        "#manager-transfer-message",
-        `${body.transfer_id}：${labelFor(payload.status || payload.transfer?.state)}`,
-        payload.success === false ? "warning" : "success",
-      );
-    } catch (_error) {
-      // runMutation has rendered the user-facing error.
-    }
-  }
-
-  async function submitVersionPolicy(event) {
-    event.preventDefault();
-    const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
-    const machineId = $("#manager-version-machine").value;
-    const status = $("#manager-version-status").value;
-    const machine = state.machines.find((item) => item.machine_id === machineId);
-    const accounts = splitList($("#manager-version-accounts").value);
-    const actions = splitList($("#manager-version-actions").value);
-    if (status !== "DISABLED" && (!accounts.length || !actions.length)) {
-      setMessage("#manager-version-message", "正式版和试用版必须填写账号范围与允许动作。", "error");
-      return;
-    }
-    if (!window.confirm(`确认在 ${machineId} 保存这条功能版本策略？`)) return;
-    const body = {
-      machine_id: machineId,
-      function_id: $("#manager-version-function").value.trim(),
-      version: $("#manager-version-value").value.trim(),
-      status,
-      scope: status === "DISABLED"
-        ? null
-        : {
-            manager_ids: [machine?.manager_id || "MILA-MANAGER"],
-            machine_ids: [machineId],
-            account_slots: accounts,
-            allowed_actions: actions,
-          },
-      set_as_stable: status === "FORMAL" && $("#manager-version-stable").checked,
-    };
-    try {
-      const payload = await runMutation(
-        button,
-        `${managerApi}/version-policies`,
-        body,
-        "#manager-version-message",
-        "正在保存版本策略…",
-      );
-      if (payload.version) {
-        state.versions = [
-          payload.version,
-          ...state.versions.filter(
-            (version) =>
-              version.function_id !== payload.version.function_id ||
-              version.version !== payload.version.version,
-          ),
-        ];
-        renderVersions();
-      }
-    } catch (_error) {
-      // runMutation has rendered the user-facing error.
-    }
-  }
-
-  async function loadVersions(event) {
-    const button = event.currentTarget;
-    const machineId = $("#manager-version-machine").value;
-    if (!machineId) {
-      setMessage("#manager-version-message", "请先选择执行机。", "error");
-      return;
-    }
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-    setMessage("#manager-version-message", "正在连接执行机读取版本…");
-    try {
-      const functionId = $("#manager-version-function").value.trim();
-      const suffix = functionId ? `/${encodeURIComponent(functionId)}` : "";
-      const payload = await fetchJson(
-        `${managerApi}/machines/${encodeURIComponent(machineId)}/versions${suffix}`,
-      );
-      state.versions = payload.versions || [];
-      renderVersions();
-      setMessage(
-        "#manager-version-message",
-        `已读取 ${state.versions.length} 条版本记录。`,
-        "success",
-      );
-    } catch (error) {
-      const payload = businessPayload(error);
-      if (payload?.versions) {
-        state.versions = payload.versions;
-        renderVersions();
-      }
-      setMessage(
-        "#manager-version-message",
-        payload?.message || error.message,
-        payload ? "warning" : "error",
-      );
-    } finally {
-      button.disabled = false;
-      button.removeAttribute("aria-busy");
-    }
-  }
-
   function setResultDateRange() {
     const end = new Date();
     const start = new Date(end);
@@ -3665,17 +3175,35 @@
     if (endInput) endInput.value = localDateValue(end);
   }
 
-  function setGoalDateRange() {
-    const start = new Date();
-    const end = new Date(start);
-    end.setDate(end.getDate() + 29);
-    const startInput = $("#manager-goal-start");
-    const endInput = $("#manager-goal-end");
-    if (startInput) startInput.value = localDateValue(start);
-    if (endInput) endInput.value = localDateValue(end);
-  }
-
   function bindEvents() {
+    planning = window.AutoXhsPlanning({state, mutateJson, managerApi, localDateValue,
+      workerDayMetrics, metricLabels, formatTime});
+    planning.init();
+    accountTools = window.AutoXhsAccountTools({state, mutateJson, fetchJson, managerApi, load});
+    $("#manager-account-add").addEventListener("click", () => accountTools.open("create"));
+    $("#manager-persona-editor-form").addEventListener("submit", savePersonaEditor);
+    $("#manager-persona-editor-close").addEventListener("click", () => {
+      $("#manager-persona-editor").close();
+    });
+    $("#manager-persona-editor").addEventListener("close", () => { editingPersona = null; });
+    document.querySelectorAll("[data-manager-progress-tab]").forEach((button) => {
+      button.addEventListener("click", () => selectProgressTab(button.dataset.managerProgressTab));
+      button.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const tab = event.key === "Home" ? "goals" : event.key === "End" ? "executions"
+          : selectedProgressTab === "goals" ? "executions" : "goals";
+        selectProgressTab(tab);
+        document.querySelector(`[data-manager-progress-tab="${tab}"]`).focus();
+      });
+    });
+    $("#manager-progress-reset")?.addEventListener("click", () => {
+      document.querySelectorAll(".manager-progress-filters input, .manager-progress-filters select")
+        .forEach((control) => { control.value = ""; });
+      renderProgress();
+    });
+    $("#manager-goal-detail-close")?.addEventListener("click", () => $("#manager-goal-detail-dialog").close());
+    $("#manager-goal-detail-dialog")?.addEventListener("close", () => { selectedGoalId = ""; });
     $("#manager-refresh")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
@@ -3684,28 +3212,7 @@
       button.disabled = false;
       button.removeAttribute("aria-busy");
     });
-    $("#manager-machine-form")?.addEventListener("submit", submitMachine);
-    $("#manager-runtime-settings-form")?.addEventListener("submit", submitRuntimeSettings);
-    $("#manager-reply-model-form")?.addEventListener("submit", submitReplyModelSettings);
-    $("#manager-reply-model-test")?.addEventListener("click", (event) => {
-      testReplyModelConnection(event.currentTarget);
-    });
-    $("#manager-export-diagnostics")?.addEventListener("click", (event) => {
-      exportDiagnostics(event.currentTarget);
-    });
-    $("#manager-persona-form")?.addEventListener("submit", submitPersona);
-    $("#manager-goal-form")?.addEventListener("submit", submitGoal);
-    $("#manager-operation-form")?.addEventListener("submit", submitOperationTask);
-    $("#manager-persona-machine")?.addEventListener("change", () => {
-      populateStrategyAccount("#manager-persona-machine", "#manager-persona-account");
-    });
-    $("#manager-goal-machine")?.addEventListener("change", () => {
-      populateStrategyAccount("#manager-goal-machine", "#manager-goal-account");
-    });
     $("#manager-collect-results")?.addEventListener("click", collectSelectedMachine);
-    $("#manager-transfer-form")?.addEventListener("submit", submitTransfer);
-    $("#manager-version-form")?.addEventListener("submit", submitVersionPolicy);
-    $("#manager-load-versions")?.addEventListener("click", loadVersions);
     [
       "#manager-result-machine",
       "#manager-result-account",
@@ -3720,7 +3227,6 @@
       setResultDateRange();
       renderResults();
     });
-    $("#manager-version-status")?.addEventListener("change", updateVersionStableControl);
     $("#manager-account-refresh")?.addEventListener("click", refreshRemoteAccounts);
     $("#manager-account-management-form")?.addEventListener(
       "submit",
@@ -3777,8 +3283,8 @@
       "#manager-operation-filter-machine",
       "#manager-operation-filter-account",
       "#manager-operation-filter-date",
-    ].forEach((selector) => $(selector)?.addEventListener("change", renderOperationTasks));
-    $("#manager-operation-filter-keyword")?.addEventListener("input", renderOperationTasks);
+    ].forEach((selector) => $(selector)?.addEventListener("change", renderProgress));
+    $("#manager-operation-filter-keyword")?.addEventListener("input", renderProgress);
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         window.clearTimeout(refreshTimer);
@@ -3789,16 +3295,15 @@
     window.addEventListener("hashchange", () => {
       selectManagerView(window.location.hash.slice(1), false);
     });
-    window.addEventListener("auto-xhs:local-accounts", (event) => {
-      state.localAccounts = event.detail?.accounts || [];
-      state.localStatuses = event.detail?.statuses || [];
-      renderAccountWorkspace();
-      populateStrategySelects();
-    });
     document.addEventListener("click", (event) => {
       const publishReview = event.target.closest("[data-manager-publish-review]");
       if (publishReview) {
         openPublishDialog(publishReview.dataset.managerPublishReview);
+        return;
+      }
+      const goalDetail = event.target.closest("[data-manager-goal-detail]");
+      if (goalDetail) {
+        renderGoalDetail(goalDetail.dataset.managerGoalDetail, true);
         return;
       }
       const operationDetail = event.target.closest("[data-manager-operation-detail]");
@@ -3826,28 +3331,12 @@
       const button = event.target.closest("[data-manager-action]");
       if (!button) return;
       const action = button.dataset.managerAction || "";
-      if (action === "persona-edit") {
-        editPersona(button.dataset.managerIdentity);
-        return;
-      }
-      if (action === "goal-edit") {
-        editGoal(button.dataset.managerIdentity);
-        return;
-      }
       const operation = action.startsWith("machine-")
         ? handleMachineAction(button)
-        : action.startsWith("schedule-")
-          ? handleScheduleAction(button)
-          : action.startsWith("goal-")
-            ? handleGoalAction(button)
         : handleTaskAction(button);
       operation.catch((error) => {
         const selector = action.startsWith("machine-")
           ? "#manager-cluster-message"
-          : action.startsWith("schedule-")
-            ? "#manager-schedule-message"
-            : action.startsWith("goal-")
-              ? "#manager-goal-message"
           : "#manager-task-message";
         setMessage(selector, error.message, "error");
       });
@@ -3855,23 +3344,11 @@
   }
 
   function initialize() {
-    const transferId = $("#manager-transfer-id");
-    if (transferId && !transferId.value) transferId.value = generatedId("TRANSFER");
     setResultDateRange();
-    setGoalDateRange();
-    updateVersionStableControl();
     bindEvents();
     renderVersions();
     selectManagerView(window.location.hash.slice(1) || selectedView, false);
     load();
-  }
-
-  function updateVersionStableControl() {
-    const status = $("#manager-version-status")?.value || "FORMAL";
-    const stable = $("#manager-version-stable");
-    if (!stable) return;
-    stable.disabled = status !== "FORMAL";
-    stable.checked = status === "FORMAL";
   }
 
   initialize();

@@ -57,6 +57,24 @@ def test_rule_fields_can_be_updated_without_enabling_it(tmp_path) -> None:
     assert updated["manual_categories"] == ["complaint"]
 
 
+def test_rule_update_creates_immutable_version_snapshot(tmp_path) -> None:
+    service = _service(tmp_path)
+    created = service.create(account_slot="alpha", reply_style="natural")
+    enabled = service.set_enabled(created["rule_id"], True)
+    updated = service.update(created["rule_id"], reply_style="professional")
+
+    assert created["rule_version"] == 1
+    assert enabled["rule_version"] == 2
+    assert updated["rule_version"] == 3
+    assert service.get_version(created["rule_id"], 2)["reply_style"] == "natural"
+    assert service.get_version(created["rule_id"], 2)["enabled"] is True
+    assert [item["rule_version"] for item in service.list_versions(created["rule_id"])] == [
+        3,
+        2,
+        1,
+    ]
+
+
 def test_rule_keeps_channel_switches_and_routes_manual_categories_to_pending(
     tmp_path,
 ) -> None:

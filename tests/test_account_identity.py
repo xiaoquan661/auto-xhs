@@ -171,6 +171,46 @@ def test_current_user_identity_extracts_uid_and_nickname():
     assert identity["nickname"] == "新账号昵称"
 
 
+def test_current_user_identity_recovers_from_inaccessible_initial_tab():
+    class FakePage:
+        def __init__(self) -> None:
+            self.url = "chrome://newtab/"
+            self.initial_read = True
+            self.navigations: list[str] = []
+
+        def navigate(self, url: str) -> None:
+            self.navigations.append(url)
+            self.url = url
+
+        def wait_for_load(self) -> None:
+            pass
+
+        def wait_dom_stable(self) -> None:
+            pass
+
+        def has_element(self, selector: str) -> bool:
+            return "login-btn" in selector or "channel" in selector
+
+        def evaluate(self, expression: str):
+            if expression == "location.href":
+                if self.initial_read:
+                    self.initial_read = False
+                    raise RuntimeError("当前页不允许扩展读取")
+                return self.url
+            if "getAttribute('href')" in expression:
+                return "/user/profile/uid-456"
+            if "innerText" in expression:
+                return "恢复后的账号"
+            return ""
+
+    page = FakePage()
+    identity = get_current_user_identity(page)
+
+    assert identity["user_id"] == "uid-456"
+    assert identity["nickname"] == "恢复后的账号"
+    assert page.navigations[0] == "https://www.xiaohongshu.com/explore"
+
+
 def test_current_user_identity_preserves_open_self_profile():
     class FakePage:
         def __init__(self) -> None:

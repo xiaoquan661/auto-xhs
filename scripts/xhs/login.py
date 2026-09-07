@@ -151,6 +151,10 @@ def get_current_user_identity(page: Page) -> dict:
     """Read the currently logged-in XHS UID and nickname."""
     try:
         current_url = str(page.evaluate("location.href") or "")
+    except Exception as exc:
+        logger.debug("当前标签页不可读取，将直接进入探索页: %s", exc)
+        current_url = ""
+    try:
         if _profile_user_id(current_url):
             try:
                 page.wait_for_load()

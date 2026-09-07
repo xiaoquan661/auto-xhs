@@ -105,7 +105,7 @@ def test_reply_cycle_collects_generates_sends_and_records_readback(tmp_path) -> 
         account_slot="alpha",
         private_message_enabled=False,
     )
-    service.reply_rules.set_enabled(rule["rule_id"], True)
+    enabled_rule = service.reply_rules.set_enabled(rule["rule_id"], True)
 
     result = service.run_reply_cycle(
         account_slot="alpha",
@@ -117,9 +117,19 @@ def test_reply_cycle_collects_generates_sends_and_records_readback(tmp_path) -> 
     assert result["cycle"]["summary"]["reply"] == 1
     assert result["decisions"][0]["decision"] == "reply"
     assert result["decisions"][0]["result_state"] == "SUCCESS"
+    assert result["decisions"][0]["rule_id"] == enabled_rule["rule_id"]
+    assert result["decisions"][0]["rule_version"] == enabled_rule["rule_version"]
     records = service.reply_records.list(account_slot="alpha")
     assert len(records) == 1
     assert records[0]["readback_state"] == "VERIFIED"
+    assert records[0]["rule_id"] == enabled_rule["rule_id"]
+    assert records[0]["rule_version"] == enabled_rule["rule_version"]
+    service.reply_rules.update(rule["rule_id"], reply_style="professional")
+    historical = service.reply_rules.get_version(
+        enabled_rule["rule_id"],
+        result["decisions"][0]["rule_version"],
+    )
+    assert historical["reply_style"] == "natural"
     assert service.inbound_events.list(account_slot="alpha")[0]["handling_state"] == "HANDLED"
 
 
