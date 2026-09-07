@@ -51,4 +51,103 @@ def test_webui_only_exposes_existing_publish_preview_confirmation() -> None:
     script = (root / "webui" / "manager-console.js").read_text(encoding="utf-8")
     page = (root / "webui" / "index.html").read_text(encoding="utf-8")
 
+    assert '"fill-publish"' in script
+    assert "function pendingPublishTasks()" in script
+    assert "function openPublishDialog(taskId)" in script
+    assert 'task.parameters?.stage === "preview_ready"' in script
+    assert "`${api}/tasks/${task.task_id}/${action}`" in script
+    assert "任务由 Agent 下发" in page
+    assert "创建发布任务" not in page
     assert "preview_revision: task.parameters?.preview_revision" in script
+    assert 'id="publish-confirm-dialog"' in page
+    assert 'id="publish-preview-confirmed"' in page
+    assert 'id="publish-save-draft"' in page
+    assert 'id="publish-confirm-submit"' in page
+
+
+def test_webui_confirmation_reuses_publish_workflow(tmp_path) -> None:
+    store = ProductStore(tmp_path / "product")
+    calls = []
+    runner = BusinessRunner(
+        executor=lambda account, capability, parameters: calls.append(
+            (account, capability, parameters)
+        )
+        or {
+            "verified": True,
+            "status": "success",
+            "evidence": "platform_response",
+            "note_id": "note-1",
+        }
+    )
+    service = ApplicationService(product_store=store, business_runner=runner)
+    service.get_account_status = lambda account: _ready_status()
+    task = _waiting_publish(store)
+
+    result = service.confirm_publish_task(
+        task["task_id"],
+        account_slot="alpha",
+        verified_uid="owner-1",
+        confirmed=True,
+        preview_confirmed=True,
+        preview_revision=task["parameters"]["preview_revision"],
+    )
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert calls == [("alpha", "click-publish", {"expected_title": "测试标题"})]
+    assert store.list("events")[0]["result"]["note_id"] == "note-1"
+
+
+def test_webui_publish_confirmation_rejects_identity_mismatch(tmp_path) -> None:
+    store = ProductStore(tmp_path / "product")
+    service = ApplicationService(
+        product_store=store,
+        business_runner=BusinessRunner(executor=lambda *_args: {}),
+    )
+    service.get_account_status = lambda account: _ready_status("owner-2")
+    task = _waiting_publish(store)
+
+    with pytest.raises(ServiceError) as exc_info:
+        service.confirm_publish_task(
+            task["task_id"],
+            account_slot="alpha",
+            verified_uid="owner-1",
+            confirmed=True,
+            preview_confirmed=True,
+            preview_revision=task["parameters"]["preview_revision"],
+        )
+
+    assert exc_info.value.code == "CONFIRMATION_MISMATCH"
+    assert store.get("tasks", task["task_id"])["state"] == "WAITING_APPROVAL"
+
+
+def test_webui_can_save_waiting_publish_as_draft(tmp_path) -> None:
+    store = ProductStore(tmp_path / "product")
+    calls = []
+    service = ApplicationService(
+        product_store=store,
+        business_runner=BusinessRunner(
+            executor=lambda account, capability, parameters: calls.append(
+                (account, capability, parameters)
+            )
+            or {
+                "verified": True,
+                "status": "saved_draft",
+                "evidence": "draft_manager_readback",
+                "saved_as_draft": True,
+            }
+        ),
+    )
+    service.get_account_status = lambda account: _ready_status()
+    task = _waiting_publish(store)
+
+    result = service.save_publish_task_as_draft(
+        task["task_id"],
+        account_slot="alpha",
+        verified_uid="owner-1",
+        confirmed=True,
+        preview_revision=task["parameters"]["preview_revision"],
+    )
+
+    assert result["task"]["state"] == "CANCELLED"
+    assert calls == [("alpha", "save-draft", {"expected_title": "测试标题"})]
+    assert store.list("events")[0]["result"]["saved_as_draft"] is True

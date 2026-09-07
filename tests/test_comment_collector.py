@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.collector_service import CollectorService
 from scripts.comment_collector import CommentCollector
 from scripts.inbound_event_service import InboundEventService
@@ -71,3 +73,47 @@ def test_notification_id_is_used_for_dedup_without_inventing_a_comment_id(tmp_pa
     assert event["platform_event_id"] == "notification-1"
     assert event["payload"]["notification_id"] == "notification-1"
     assert event["payload"]["comment_id"] == ""
+
+
+def test_cursor_retry_keeps_event_persisted_before_progress_advances(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    collector = _collector(tmp_path)
+    comment = {
+        "comment_id": "comment-retry-1",
+        "occurred_at": "2026-08-28T10:00:00+00:00",
+        "content": "游标写入前已取得的评论",
+    }
+    original_record_success = collector.collectors.record_success
+
+    def fail_cursor_write(**_values: object) -> dict:
+        raise RuntimeError("cursor write interrupted")
+
+    monkeypatch.setattr(collector.collectors, "record_success", fail_cursor_write)
+    with pytest.raises(RuntimeError, match="cursor write interrupted"):
+        collector.ingest(
+            account_slot="alpha",
+            comments=[comment],
+            cursor_value="comment-retry-1",
+        )
+
+    persisted = collector.events.list(account_slot="alpha")
+    assert len(persisted) == 1
+    assert collector.collectors.get("alpha", "note_comments") is None
+
+    monkeypatch.setattr(
+        collector.collectors,
+        "record_success",
+        original_record_success,
+    )
+    retried = collector.ingest(
+        account_slot="alpha",
+        comments=[comment],
+        cursor_value="comment-retry-1",
+    )
+
+    assert retried["created_count"] == 0
+    assert retried["duplicate_count"] == 1
+    assert retried["cursor"]["cursor_value"] == "comment-retry-1"
+    assert len(collector.events.list(account_slot="alpha")) == 1

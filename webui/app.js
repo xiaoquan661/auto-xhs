@@ -6,7 +6,6 @@ let activeAccountRemoval = null;
 let activePublishTask = null;
 let accountTaskActivityByName = new Map();
 const pendingSubmissionByAccount = new Map();
-const taskMessageByAccount = new Map();
 const commentCollectionMessageByAccount = new Map();
 const privateMessageCollectionMessageByAccount = new Map();
 let taskActivityPollTimer = null;
@@ -14,7 +13,6 @@ let taskSnapshotKey = "";
 let accountStatusPollTimer = null;
 let accountSnapshotKey = "";
 let currentAccountData = { accounts: [] };
-let platformCapabilityById = {};
 let currentAccountStatuses = [];
 let activeAccountSetup = null;
 let accountSetupPollTimer = null;
@@ -22,15 +20,23 @@ let accountSetupPrimaryAction = null;
 let currentServiceInstanceId = "";
 let currentReplyRules = [];
 let currentReplyDecisions = [];
+let currentTasksWithResults = [];
+let currentExecutionRecords = [];
+let currentOperationReports = [];
+const DASHBOARD_REFRESH_INTERVAL_MS = 30_000;
+const DASHBOARD_REFRESH_DEFER_MS = 5_000;
+let dashboardRefreshTimer = null;
+let dashboardRefreshPromise = null;
+let dashboardRefreshQueued = false;
+let dashboardRefreshFailed = false;
+let lastDashboardUpdatedAt = null;
 document.documentElement.classList.add("js-ready");
 
 const {
   taskCapabilities,
   publishMonitorCapabilities,
   agentMonitorCapabilities,
-  taskTemplates,
   draftModes,
-  capabilityTemplate,
 } = window.AutoXhsTaskCatalog;
 
 let commentSuggestionIndex = 0;
@@ -187,26 +193,13 @@ function paintAccountActivity(node, account) {
   }
   copy.append(label, title, detail);
   node.replaceChildren(dot, copy);
-  if (
-    activity
-    && publishMonitorCapabilities.has(activity.capability)
-    && activity.state === "WAITING_APPROVAL"
-    && activity.parameters?.stage === "preview_ready"
-  ) {
-    const review = document.createElement("button");
-    review.type = "button";
-    review.className = "publish-review-button";
-    review.textContent = "查看并确认";
-    review.addEventListener("click", () => openPublishConfirmation(activity));
-    node.append(review);
-  }
   if (activity?.task_id && !activity.locally_submitting) {
     const controls = document.createElement("div");
     controls.className = "account-activity-actions";
     const view = document.createElement("button");
     view.type = "button";
     view.textContent = "查看任务";
-    view.addEventListener("click", () => window.AutoXhsWorkspace?.navigate("tasks", { focus: true }));
+    view.addEventListener("click", () => window.AutoXhsWorkspace?.navigate("records", { focus: true }));
     controls.append(view);
     if (["QUEUED", "RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(activity.state)) {
       const cancel = document.createElement("button");
@@ -233,8 +226,6 @@ function syncAccountActivityUI() {
     const activity = card.querySelector(".account-activity");
     if (activity) paintAccountActivity(activity, card.dataset.account);
   });
-  refreshTaskAccountOptions();
-  updateTaskAvailability();
   updateCommentCollectionAvailability();
   updatePrivateMessageCollectionAvailability();
 }
@@ -257,7 +248,7 @@ function accountCard(account, status) {
   title.textContent = displayName;
   const profile = document.createElement("p");
   profile.className = "profile";
-  profile.textContent = `${accountPlatformLabel(account)} · 固定 Profile · ${account.chrome_profile_directory || "Default"}`;
+  profile.textContent = `经理机 · ${accountPlatformLabel(account)} · 固定 Profile · ${account.chrome_profile_directory || "Default"}`;
   const extensionPath = document.createElement("p");
   extensionPath.className = "profile extension-path";
   extensionPath.textContent = account.name === displayName ? "" : `槽位标识 · ${account.name}`;
@@ -708,91 +699,6 @@ async function logoutAccount(account, messageNode, button) {
     await loadDashboard();
   } catch (error) {
     messageNode.textContent = `退出失败：${error.message}`;
-  } finally {
-    button.disabled = false;
-    button.removeAttribute("aria-busy");
-  }
-}
-
-function openAccountRemoval(account) {
-  activeAccountRemoval = account;
-  $("#remove-account-name").textContent = account.name;
-  $("#remove-account-profile").textContent = `Chrome · ${account.chrome_profile_directory || "Default"}`;
-  $("#remove-confirm-name").value = "";
-  $("#remove-message").textContent = "";
-  $("#remove-account-submit").disabled = true;
-  $("#account-remove-dialog").showModal();
-  $("#remove-confirm-name").focus();
-}
-
-function closeAccountRemoval() {
-  $("#account-remove-dialog").close();
-  activeAccountRemoval = null;
-}
-
-async function removeAccountSlot() {
-  if (!activeAccountRemoval) return;
-  const account = activeAccountRemoval.name;
-  const confirmationName = $("#remove-confirm-name").value.trim();
-  const button = $("#remove-account-submit");
-  const message = $("#remove-message");
-  if (confirmationName !== account) {
-    message.textContent = `请输入完整槽位名称 ${account}`;
-    return;
-  }
-  button.disabled = true;
-  button.setAttribute("aria-busy", "true");
-  message.textContent = "正在停止该槽位服务并保存本机归档…";
-  try {
-    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}`, "DELETE", {
-      confirmed: true,
-      confirmation_name: confirmationName,
-    });
-    closeAccountRemoval();
-    await loadDashboard();
-    $("#setup-message").textContent = `${result.message}；Chrome Profile、登录数据和共享扩展均未删除。`;
-  } catch (error) {
-    message.textContent = `删除失败：${error.message}`;
-  } finally {
-    button.disabled = $("#remove-confirm-name").value.trim() !== account;
-    button.removeAttribute("aria-busy");
-  }
-}
-
-async function updateBridge(account, action, messageNode, button) {
-  const operation = {
-    "start-only": {
-      label: "启动 Bridge",
-      confirmation: `只启动槽位 ${account} 的本地 Bridge？\n\n不会打开或关闭 Chrome。`,
-    },
-    stop: {
-      label: "停止 Bridge",
-      confirmation: `停止槽位 ${account} 的本地 Bridge？\n\n该槽位会暂时断开，但不会关闭 Chrome。`,
-    },
-    restart: {
-      label: "重启账号连接",
-      confirmation: `重启槽位 ${account} 的账号连接？\n\n系统会重启 Bridge；扩展未连接时会按需打开绑定的 Chrome Profile，但不会关闭 Chrome。`,
-    },
-  }[action];
-  if (!operation || !window.confirm(operation.confirmation)) return;
-  button.disabled = true;
-  button.setAttribute("aria-busy", "true");
-  messageNode.textContent = `正在${operation.label}…`;
-  try {
-    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/bridge/${action}`, "POST", {});
-    const lifecycle = result.lifecycle || {};
-    if (action === "start-only") {
-      messageNode.textContent = lifecycle.bridge_running ? "Bridge 已启动；可继续检查扩展连接。" : "Bridge 未能进入运行状态。";
-    } else if (action === "stop") {
-      messageNode.textContent = lifecycle.bridge_running ? "Bridge 仍在运行，请稍后重试。" : "Bridge 已停止；Chrome 保持打开。";
-    } else {
-      messageNode.textContent = lifecycle.ready
-        ? lifecycle.message || "账号连接已恢复，正在刷新状态。"
-        : `账号尚未就绪：${lifecycle.message || "请检查 Bridge、扩展和 Profile 状态"}`;
-    }
-    await loadDashboard();
-  } catch (error) {
-    messageNode.textContent = error.message;
   } finally {
     button.disabled = false;
     button.removeAttribute("aria-busy");
@@ -1260,32 +1166,9 @@ function taskCapabilityLabel(capability) {
   return taskCapabilities[capability]?.label || capability;
 }
 
-function renderTaskTemplateActions(preferredCapability = "") {
-  const template = $("#task-template").value;
-  const select = $("#task-capability");
-  const capabilities = taskTemplates[template] || [];
-  select.replaceChildren();
-  capabilities.forEach((capability) => {
-    const option = document.createElement("option");
-    option.value = capability;
-    option.textContent = taskCapabilityLabel(capability);
-    select.append(option);
-  });
-  if (preferredCapability && capabilities.includes(preferredCapability)) {
-    select.value = preferredCapability;
-  }
-  updateTaskFields();
-}
-
 function showTaskPanel(name) {
-  const route = name === "confirmation" ? "approvals" : "tasks";
+  const route = name === "confirmation" ? "messages" : "overview";
   window.AutoXhsWorkspace?.navigate(route);
-}
-
-function setupTaskPanels() {
-  window.addEventListener("auto-xhs:workspace-change", (event) => {
-    if (event.detail.route === "tasks") updateTaskAvailability();
-  });
 }
 
 function addResultMetric(container, label, value) {
@@ -1293,17 +1176,6 @@ function addResultMetric(container, label, value) {
   const metric = document.createElement("span");
   metric.textContent = `${label} ${value}`;
   container.append(metric);
-}
-
-function useResultAsTask(capability, target, token = "") {
-  const template = capabilityTemplate.get(capability);
-  if (template) $("#task-template").value = template;
-  renderTaskTemplateActions(capability);
-  $("#task-target").value = target || "";
-  $("#task-token").value = token || "";
-  showTaskPanel("immediate");
-  $("#task-form").scrollIntoView({ behavior: "smooth", block: "center" });
-  $("#task-target").focus();
 }
 
 function updateDraftFields() {
@@ -1356,16 +1228,7 @@ function generateCommentDraft() {
   $("#draft-content").focus();
 }
 
-function resultAction(label, capability, target, token) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "result-action";
-  button.textContent = label;
-  button.addEventListener("click", () => useResultAsTask(capability, target, token));
-  return button;
-}
-
-function feedResultRow(feed, { interactive = false } = {}) {
+function feedResultRow(feed) {
   const row = document.createElement("article");
   row.className = "result-feed";
   const body = document.createElement("div");
@@ -1382,15 +1245,6 @@ function feedResultRow(feed, { interactive = false } = {}) {
   identifier.textContent = `笔记 ID：${feed.id || "—"}`;
   body.append(title, author, metrics, identifier);
   row.append(body);
-  if (interactive && feed.id && feed.xsecToken) {
-    const actions = document.createElement("div");
-    actions.className = "result-actions";
-    actions.append(resultAction("查看详情", "get-feed-detail", feed.id, feed.xsecToken));
-    if (feed.user?.userId) {
-      actions.append(resultAction("查看作者", "user-profile", feed.user.userId, feed.xsecToken));
-    }
-    row.append(actions);
-  }
   return row;
 }
 
@@ -1827,28 +1681,10 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
     card.append(state, title, summary);
     if (meta.textContent) card.append(meta);
     appendPublishTaskPreview(card, item);
-    appendTaskResult(card, item, { interactive });
-    if (interactive && publishTaskReadyForConfirmation(item)) {
+    appendTaskResult(card, item, { interactive: false });
+    if (interactive && !agentMonitorCapabilities.has(item.capability) && ["QUEUED", "RUNNING", "CANCEL_REQUESTED", "WAITING_APPROVAL"].includes(item.state)) {
       const actions = document.createElement("div");
       actions.className = "task-actions";
-      const review = document.createElement("button");
-      review.type = "button";
-      review.className = "primary-button";
-      review.textContent = "查看并确认";
-      review.addEventListener("click", () => openPublishConfirmation(item));
-      actions.append(review);
-      card.append(actions);
-    } else if (interactive && !agentMonitorCapabilities.has(item.capability) && ["BLOCKED", "QUEUED", "RUNNING", "CANCEL_REQUESTED", "WAITING_APPROVAL"].includes(item.state)) {
-      const actions = document.createElement("div");
-      actions.className = "task-actions";
-      if (item.state === "BLOCKED") {
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "secondary-button";
-        retry.textContent = "重试";
-        retry.addEventListener("click", () => updateTask(item, "retry", retry));
-        actions.append(retry);
-      }
       if (item.state !== "CANCEL_REQUESTED") {
         const cancel = document.createElement("button");
         cancel.type = "button";
@@ -1861,6 +1697,68 @@ function renderTaskItems(items, target, emptyText, { interactive = false } = {})
     }
     container.append(card);
   });
+}
+
+function executionItemState(item) {
+  return item.state || item.result_state || "UNKNOWN";
+}
+
+function executionMatchesState(item, requestedState) {
+  const state = executionItemState(item);
+  if (!requestedState) return true;
+  if (requestedState === "ACTIVE") {
+    return ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(state);
+  }
+  return state === requestedState;
+}
+
+function executionMatchesQuery(item, query) {
+  if (!query) return true;
+  const haystack = [
+    item.task_id,
+    item.account_slot,
+    item.capability,
+    taskCapabilityLabel(item.capability),
+    item.request_summary,
+    item.result_summary,
+    item.error_code,
+  ].map(text).join(" ").toLocaleLowerCase("zh-CN");
+  return haystack.includes(query.toLocaleLowerCase("zh-CN"));
+}
+
+function populateExecutionAccountFilter(accounts) {
+  const select = $("#execution-account-filter");
+  const previous = select.value;
+  select.replaceChildren(new Option("全部账号", ""));
+  accounts.forEach((account) => select.append(new Option(account.name, account.name)));
+  if (Array.from(select.options).some((option) => option.value === previous)) {
+    select.value = previous;
+  }
+}
+
+function renderExecutionView() {
+  const account = $("#execution-account-filter").value;
+  const requestedState = $("#execution-state-filter").value;
+  const query = $("#execution-search").value.trim();
+  const matches = (item) => (
+    (!account || item.account_slot === account)
+    && executionMatchesState(item, requestedState)
+    && executionMatchesQuery(item, query)
+  );
+  const filteredTasks = currentTasksWithResults.filter(matches);
+  const filteredRecords = currentExecutionRecords.filter(matches);
+  const states = currentTasksWithResults.map(executionItemState);
+  $("#execution-running-total").textContent = states.filter((state) => ["RUNNING", "CANCEL_REQUESTED"].includes(state)).length;
+  $("#execution-queued-total").textContent = states.filter((state) => state === "QUEUED").length;
+  $("#execution-attention-total").textContent = states.filter((state) => ["BLOCKED", "FAILED", "RESULT_UNKNOWN"].includes(state)).length;
+  $("#execution-finished-total").textContent = states.filter((state) => ["SUCCESS", "PARTIAL_SUCCESS", "CANCELLED"].includes(state)).length;
+  renderTaskItems(filteredTasks, "#task-list", "当前筛选条件下暂无任务", { interactive: true });
+  renderTaskItems(filteredRecords, "#record-list", "当前筛选条件下暂无历史结果");
+}
+
+function resetExecutionFilters() {
+  $("#execution-filter-form").reset();
+  renderExecutionView();
 }
 
 function populateAccountSelect(select, accounts, statuses, { readyRequired = false } = {}) {
@@ -1884,56 +1782,6 @@ function populateAccountSelect(select, accounts, statuses, { readyRequired = fal
   else if (selectable[0]) select.value = selectable[0].value;
 }
 
-function refreshTaskAccountOptions() {
-  const select = $("#task-account");
-  if (!select) return;
-  Array.from(select.options).forEach((option) => {
-    const account = option.dataset.account;
-    if (!account) return;
-    const status = accountStatusByName.get(account) || {};
-    const activity = currentAccountTaskActivity(account);
-    option.textContent = activity
-      ? `${account}（${activityShortLabel(activity)} · ${taskCapabilityLabel(activity.capability)}）`
-      : `${account}（${stateLabel(status.status || "ERROR")} · 空闲）`;
-  });
-}
-
-function updateTaskAvailability() {
-  const select = $("#task-account");
-  const button = $("#task-submit");
-  const account = select.value;
-  const status = accountStatusByName.get(account);
-  const ready = Boolean(status?.ready);
-  const activity = currentAccountTaskActivity(account);
-  const config = accountConfig(account);
-  const capability = $("#task-capability").value;
-  const support = platformCapabilityById?.[config.platform || "xiaohongshu"]?.[capability] || "SUPPORTED";
-  const platformUnavailable = ["UNKNOWN", "UNSUPPORTED"].includes(support);
-  button.disabled = !ready || Boolean(activity) || platformUnavailable;
-  setActionButtonLabel(
-    button,
-    !ready
-      ? "账号尚未就绪"
-      : platformUnavailable
-        ? "当前平台暂未开放"
-        : activity
-          ? activityShortLabel(activity)
-          : taskSubmitLabel()
-  );
-  if (!ready) {
-    $("#task-message").textContent = "暂无 READY 账号，请先按账号卡片提示完成连接和 UID 核验。";
-  } else if (platformUnavailable) {
-    $("#task-message").textContent = `${accountPlatformLabel(config)} 的 ${taskCapabilityLabel(capability)} 当前状态为 ${support}，任务没有开放。`;
-  } else if (activity) {
-    $("#task-message").textContent = `账号 ${account} ${activityShortLabel(activity)}：${activity.request_summary || taskCapabilityLabel(activity.capability)}。可选择其他已就绪且空闲的账号并行执行。`;
-  } else {
-    $("#task-message").textContent = taskMessageByAccount.get(account)
-      || ($("#task-capability").value === "random-comment"
-        ? `账号 ${account} 已就绪；点击后会生成并直接发送本次随机评论。`
-        : `账号 ${account} 已就绪且空闲，可以创建并执行任务。`);
-  }
-}
-
 function taskActivityNeedsPolling() {
   return true;
 }
@@ -1951,7 +1799,7 @@ function taskSnapshot(tasks) {
 function scheduleTaskActivityPoll() {
   if (taskActivityPollTimer) clearTimeout(taskActivityPollTimer);
   taskActivityPollTimer = null;
-  if (!taskActivityNeedsPolling()) return;
+  if (!taskActivityNeedsPolling() || document.hidden) return;
   const active = pendingSubmissionByAccount.size > 0 || Array.from(accountTaskActivityByName.values()).some(
     (activity) => ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(activity.state)
   );
@@ -1960,6 +1808,11 @@ function scheduleTaskActivityPoll() {
 
 async function pollTaskActivity() {
   taskActivityPollTimer = null;
+  if (document.hidden) return;
+  if (dashboardRefreshPromise) {
+    scheduleTaskActivityPoll();
+    return;
+  }
   const hadBackendActivity = Array.from(accountTaskActivityByName.values()).some(
     (activity) => ["RUNNING", "CANCEL_REQUESTED"].includes(activity.state)
   );
@@ -2051,11 +1904,186 @@ function renderReplyRecords(items) {
   });
 }
 
-function renderDataRecovery(summary, posts, replies) {
+function reportTypeLabel(reportType) {
+  return {
+    daily: "日报",
+    weekly: "周报",
+    note_review: "单篇复盘",
+  }[reportType] || reportType;
+}
+
+function reportMetricLabel(metric) {
+  return {
+    likes: "点赞",
+    favorites: "收藏",
+    comments: "评论",
+    shares: "分享",
+    followers: "粉丝",
+    following: "关注",
+    views: "浏览",
+    impressions: "曝光",
+    notes: "笔记",
+  }[metric] || metric;
+}
+
+function renderOperationReports(reports) {
+  const container = $("#operation-report-list");
+  container.replaceChildren();
+  if (!reports.length) {
+    recoveryEmpty(container, "暂无运营报告", "先采集指标快照，再按时间范围生成报告。");
+    return;
+  }
+  reports.forEach((report) => {
+    const card = document.createElement("article");
+    card.className = "record-card report-card";
+    const badge = document.createElement("span");
+    badge.className = "badge ready";
+    badge.textContent = reportTypeLabel(report.report_type);
+    const title = document.createElement("strong");
+    title.textContent = `${report.account_slot} · ${reportTypeLabel(report.report_type)} · v${report.revision_number || 1}`;
+    const anomaly = document.createElement("small");
+    anomaly.className = "badge";
+    const anomalyCount = Number(report.summary?.anomaly_count || 0);
+    anomaly.classList.add(anomalyCount ? "blocked" : "ready");
+    anomaly.textContent = anomalyCount ? `${anomalyCount} 项异常` : "数据完整";
+    const metrics = document.createElement("div");
+    metrics.className = "report-summary";
+    const increments = report.summary?.increments || {};
+    Object.entries(increments).forEach(([metric, value]) => {
+      if (value === null || value === undefined) return;
+      const item = document.createElement("span");
+      item.textContent = `${reportMetricLabel(metric)} +${value}`;
+      metrics.append(item);
+    });
+    if (!metrics.childElementCount) {
+      const item = document.createElement("span");
+      item.textContent = `快照 ${report.summary?.snapshot_count || 0} 条`;
+      metrics.append(item);
+    }
+    const meta = document.createElement("small");
+    meta.className = "report-meta";
+    meta.textContent = `${taskTime(report.period_start)} 至 ${taskTime(report.period_end)} · 生成于 ${taskTime(report.created_at)}`;
+    const actions = document.createElement("div");
+    actions.className = "report-actions";
+    const revise = document.createElement("button");
+    revise.type = "button";
+    revise.className = "secondary-button";
+    revise.textContent = "生成修订版";
+    revise.addEventListener("click", () => reviseOperationReport(report, revise));
+    actions.append(revise);
+    card.append(badge, title, anomaly, metrics, meta, actions);
+    container.append(card);
+  });
+}
+
+function renderPublishing(tasks) {
+  const publishTasks = tasks.filter((task) => publishMonitorCapabilities.has(task.capability));
+  const states = publishTasks.map(executionItemState);
+  $("#publish-waiting-total").textContent = publishTasks.filter(publishTaskReadyForConfirmation).length;
+  $("#publish-running-total").textContent = states.filter((state) => ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(state)).length;
+  $("#publish-success-total").textContent = states.filter((state) => state === "SUCCESS").length;
+  $("#publish-attention-total").textContent = states.filter((state) => ["BLOCKED", "FAILED", "RESULT_UNKNOWN"].includes(state)).length;
+  renderTaskItems(publishTasks, "#publish-task-list", "暂无发布任务");
+}
+
+function renderDataAnalysis(summary, posts, replies, inboundEvents, reports) {
   $("#data-published-total").textContent = summary.published_posts?.total || 0;
   $("#data-reply-total").textContent = summary.reply_records?.total || 0;
+  $("#data-inbound-total").textContent = inboundEvents.length;
+  $("#data-report-total").textContent = reports.length;
   renderPublishedPosts(posts);
   renderReplyRecords(replies);
+  renderOperationReports(reports);
+}
+
+function localDateTimeValue(value) {
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function initializeOperationReportForm() {
+  const end = $("#operation-report-end");
+  const start = $("#operation-report-start");
+  if (end.value && start.value) return;
+  const now = new Date();
+  const dayStart = new Date(now);
+  dayStart.setHours(0, 0, 0, 0);
+  start.value = localDateTimeValue(dayStart);
+  end.value = localDateTimeValue(now);
+}
+
+function updateOperationReportFields() {
+  const noteReview = $("#operation-report-type").value === "note_review";
+  $("#operation-report-note-field").hidden = !noteReview;
+  $("#operation-report-note-id").required = noteReview;
+}
+
+async function submitOperationReport(event) {
+  event.preventDefault();
+  const button = $("#operation-report-submit");
+  const message = $("#operation-report-message");
+  const reportType = $("#operation-report-type").value;
+  const accountSlot = $("#operation-report-account").value;
+  const start = new Date($("#operation-report-start").value);
+  const end = new Date($("#operation-report-end").value);
+  if (!accountSlot) {
+    message.textContent = "请先选择账号槽位。";
+    return;
+  }
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    message.textContent = "请选择有效的报告开始和结束时间。";
+    return;
+  }
+  const noteId = $("#operation-report-note-id").value.trim();
+  if (reportType === "note_review" && !noteId) {
+    message.textContent = "单篇复盘需要填写笔记 ID。";
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "正在生成…";
+  try {
+    await mutateJson(`${api}/operation-reports`, "POST", {
+      report_type: reportType,
+      account_slot: accountSlot,
+      period_start: start.toISOString(),
+      period_end: end.toISOString(),
+      ...(reportType === "note_review" ? { entity_type: "note", entity_id: noteId } : {}),
+    });
+    message.textContent = "运营报告已生成并保留为新的历史版本。";
+    await loadDashboard();
+    window.AutoXhsWorkspace?.navigate("data");
+    showSubpage("data", "reports");
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "生成运营报告";
+  }
+}
+
+async function reviseOperationReport(report, button) {
+  const reason = window.prompt("填写本次修订原因。新版本会保留原始报告。", "补充最新指标快照");
+  if (reason === null) return;
+  if (!reason.trim()) {
+    window.alert("请填写修订原因。");
+    return;
+  }
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在生成…";
+  try {
+    await mutateJson(`${api}/operation-reports/${encodeURIComponent(report.report_id)}/revisions`, "POST", {
+      revision_reason: reason.trim(),
+    });
+    await loadDashboard();
+    window.AutoXhsWorkspace?.navigate("data");
+    showSubpage("data", "reports");
+  } catch (error) {
+    window.alert(error.message);
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 async function loadWorkData(accountData, statuses) {
@@ -2070,6 +2098,7 @@ async function loadWorkData(accountData, statuses) {
     replyRecords,
     replyRules,
     replyDecisions,
+    operationReports,
   ] = await Promise.all([
     fetchJson(`${api}/tasks`),
     fetchJson(`${api}/records`),
@@ -2081,29 +2110,34 @@ async function loadWorkData(accountData, statuses) {
     fetchJson(`${api}/data-recovery/reply-records`),
     fetchJson(`${api}/reply-rules`),
     fetchJson(`${api}/reply-decisions`),
+    fetchJson(`${api}/operation-reports`),
   ]);
   const resultByTask = new Map(records.records.filter((record) => record.result && Object.keys(record.result).length).map((record) => [record.task_id, record.result]));
   const tasksWithResults = tasks.tasks.map((task) => ({ ...task, result: resultByTask.get(task.task_id) || task.result || {} }));
+  currentTasksWithResults = tasksWithResults;
+  currentExecutionRecords = records.records;
+  currentOperationReports = operationReports.reports;
   taskSnapshotKey = taskSnapshot(tasks.tasks);
   rebuildAccountTaskActivity(tasksWithResults);
-  renderTaskItems(tasksWithResults, "#task-list", "暂无任务", { interactive: true });
+  populateExecutionAccountFilter(accountData.accounts);
+  renderExecutionView();
   renderTaskItems(
     tasksWithResults.filter(publishTaskReadyForConfirmation),
     "#publish-confirmation-list",
-    "暂无待确认发布",
-    { interactive: true }
+    "暂无待确认发布"
   );
-  renderTaskItems(records.records, "#record-list", "暂无执行记录");
+  renderPublishing(tasksWithResults);
   accountStatusByName = new Map(accountData.accounts.map((account, index) => [account.name, statuses[index]]));
   syncAccountActivityUI();
-  populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
   populateAccountSelect($("#reply-rule-account"), accountData.accounts, statuses);
-  refreshTaskAccountOptions();
-  updateTaskAvailability();
+  populateAccountSelect($("#operation-report-account"), accountData.accounts, statuses);
+  initializeOperationReportForm();
   scheduleTaskActivityPoll();
   const publishConfirmations = tasks.tasks.filter(publishTaskReadyForConfirmation).length;
-  $("#confirmation-count").textContent = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length + publishConfirmations;
+  const messageConfirmations = drafts.drafts.filter((draft) => ["DRAFT", "CONFIRMED"].includes(draft.status)).length;
+  $("#message-pending-count").textContent = messageConfirmations;
+  $("#publish-pending-count").textContent = publishConfirmations;
   renderDrafts(drafts.drafts);
   renderIntelligentReplyEvents(inboundEvents.events, replyIntelligence);
   renderIntelligentPrivateMessageEvents(inboundEvents.events, replyIntelligence);
@@ -2112,10 +2146,12 @@ async function loadWorkData(accountData, statuses) {
   currentReplyDecisions = replyDecisions.decisions;
   renderReplyRuleForm();
   renderReplyDecisions(currentReplyDecisions);
-  renderDataRecovery(
+  renderDataAnalysis(
     recoverySummary.summary,
     publishedPosts.posts,
     replyRecords.records,
+    inboundEvents.events,
+    currentOperationReports,
   );
 }
 
@@ -2149,7 +2185,13 @@ function replyDecisionCard(item) {
   content.textContent = item.reply_text || "未生成回复文本";
   const meta = document.createElement("div");
   meta.className = "task-meta";
-  meta.textContent = `${item.reason || "—"}${item.result_state ? ` · ${stateLabel(item.result_state)}` : ""} · ${taskTime(item.updated_at)}`;
+  const eventReference = item.inbound_event_id
+    ? `事件 ${item.inbound_event_id.slice(0, 8)}`
+    : "事件未关联";
+  const ruleReference = item.rule_id && item.rule_version
+    ? `规则 v${item.rule_version} · ${item.rule_id.slice(0, 8)}`
+    : "规则未关联";
+  meta.textContent = `${eventReference} · ${ruleReference} · ${item.reason || "—"}${item.result_state ? ` · ${stateLabel(item.result_state)}` : ""} · ${taskTime(item.updated_at)}`;
   card.append(badge, title, content, meta);
   return card;
 }
@@ -2406,11 +2448,9 @@ async function collectNewComments(event) {
     const executed = await mutateJson(`${api}/tasks/${created.task.task_id}/execute`, "POST", {});
     const summary = commentCollectionSummary(executed);
     commentCollectionMessageByAccount.set(account, summary);
-    taskMessageByAccount.set(account, summary);
   } catch (error) {
     const summary = `采集失败：${error.message}`;
     commentCollectionMessageByAccount.set(account, summary);
-    taskMessageByAccount.set(account, summary);
   } finally {
     pendingSubmissionByAccount.delete(account);
     await loadDashboard();
@@ -2465,11 +2505,9 @@ async function collectPrivateMessages(event) {
     const executed = await mutateJson(`${api}/tasks/${created.task.task_id}/execute`, "POST", {});
     const summary = privateMessageCollectionSummary(executed);
     privateMessageCollectionMessageByAccount.set(account, summary);
-    taskMessageByAccount.set(account, summary);
   } catch (error) {
     const summary = `采集失败：${error.message}`;
     privateMessageCollectionMessageByAccount.set(account, summary);
-    taskMessageByAccount.set(account, summary);
   } finally {
     pendingSubmissionByAccount.delete(account);
     await loadDashboard();
@@ -2525,12 +2563,12 @@ function renderAccountRoster(accountData, statuses) {
   $("#connected-total").textContent = statuses.filter((item) => item.extension_connected).length;
   $("#blocked-total").textContent = statuses.filter((item) => item.status !== "READY").length;
   $("#ready-total").textContent = statuses.filter((item) => item.status === "READY").length;
-  populateAccountSelect($("#task-account"), accountData.accounts, statuses, { readyRequired: true });
   populateAccountSelect($("#draft-account"), accountData.accounts, statuses);
   populateCommentCollectionAccounts(accountData.accounts, statuses);
   populatePrivateMessageCollectionAccounts(accountData.accounts, statuses);
-  refreshTaskAccountOptions();
-  updateTaskAvailability();
+  window.dispatchEvent(new CustomEvent("auto-xhs:local-accounts", {
+    detail: { accounts: accountData.accounts, statuses },
+  }));
 }
 
 async function refreshAccountRoster() {
@@ -2545,13 +2583,18 @@ async function refreshAccountRoster() {
 function scheduleAccountStatusPoll() {
   if (accountStatusPollTimer) clearTimeout(accountStatusPollTimer);
   accountStatusPollTimer = null;
-  if (activeAccountSetup) return;
+  if (activeAccountSetup || document.hidden) return;
   const allReady = currentAccountStatuses.length > 0 && currentAccountStatuses.every((item) => item.status === "READY");
   accountStatusPollTimer = setTimeout(pollAccountStatuses, allReady ? 5000 : 1000);
 }
 
 async function pollAccountStatuses() {
   accountStatusPollTimer = null;
+  if (document.hidden) return;
+  if (dashboardRefreshPromise) {
+    scheduleAccountStatusPoll();
+    return;
+  }
   try {
     await refreshAccountRoster();
   } catch (_error) {
@@ -2585,11 +2628,6 @@ function renderDrafts(drafts) {
       meta.textContent = `AI 草稿 · ${intelligent.intent || "other"} · 置信度 ${confidence}${intelligent.quality_flags?.length ? ` · 需留意 ${intelligent.quality_flags.join(", ")}` : ""}`;
       card.append(meta);
     }
-    if (["DRAFT", "CONFIRMED"].includes(draft.status)) {
-      const confirm = document.createElement("button"); confirm.className = "primary-button"; confirm.type = "button"; confirm.textContent = draft.status === "CONFIRMED" ? "重新核对并执行" : "核对并确认";
-      confirm.addEventListener("click", () => confirmDraft(draft, card, confirm));
-      card.append(confirm);
-    }
     container.append(card);
   });
 }
@@ -2598,7 +2636,7 @@ function renderIntelligentReplyEvents(events, status) {
   const container = $("#intelligent-reply-list");
   const statusLine = $("#reply-intelligence-status");
   statusLine.textContent = status.configured
-    ? `模型 ${status.model} 已配置；这里用于人工接管单条评论。`
+    ? `模型 ${status.model} 已配置；Agent 可继续处理采集到的评论。`
     : `尚未配置：${(status.missing || []).join("、")}`;
   container.replaceChildren();
   const candidates = events
@@ -2607,7 +2645,7 @@ function renderIntelligentReplyEvents(events, status) {
   if (!candidates.length) {
     const empty = emptyAccounts();
     empty.querySelector("strong").textContent = "暂无待处理新评论";
-    empty.querySelector("span").textContent = "采集到新评论后可在这里生成智能回复。";
+    empty.querySelector("span").textContent = "Agent 采集到新评论后会显示在这里。";
     container.append(empty);
     return;
   }
@@ -2615,16 +2653,11 @@ function renderIntelligentReplyEvents(events, status) {
     const payload = event.payload || {};
     const card = document.createElement("article");
     card.className = "record-card";
-    const badge = document.createElement("span"); badge.className = "badge warning"; badge.textContent = "待生成";
+    const badge = document.createElement("span"); badge.className = "badge warning"; badge.textContent = "待 Agent 处理";
     const title = document.createElement("strong"); title.textContent = `${event.account_slot} · ${payload.nickname || payload.user_id || "用户"}`;
     const content = document.createElement("p"); content.textContent = payload.content || "评论内容为空";
     const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = payload.note_title || payload.feed_id || event.object_id || "未知笔记";
-    const actions = document.createElement("div"); actions.className = "task-actions";
-    const button = document.createElement("button"); button.type = "button"; button.className = "secondary-button"; button.textContent = "生成 AI 回复草稿";
-    button.disabled = !status.configured;
-    button.addEventListener("click", () => generateIntelligentReplyDraft(event, card, button));
-    actions.append(button);
-    card.append(badge, title, content, meta, actions);
+    card.append(badge, title, content, meta);
     container.append(card);
   });
 }
@@ -2633,7 +2666,7 @@ function renderIntelligentPrivateMessageEvents(events, status) {
   const container = $("#intelligent-private-message-list");
   const statusLine = $("#private-message-intelligence-status");
   statusLine.textContent = status.configured
-    ? `模型 ${status.model} 已配置；这里用于人工接管单轮私信。`
+    ? `模型 ${status.model} 已配置；Agent 可继续处理采集到的私信。`
     : `尚未配置：${(status.missing || []).join("、")}`;
   container.replaceChildren();
   const candidates = events
@@ -2647,7 +2680,7 @@ function renderIntelligentPrivateMessageEvents(events, status) {
   if (!candidates.length) {
     const empty = emptyAccounts();
     empty.querySelector("strong").textContent = "暂无待处理新私信";
-    empty.querySelector("span").textContent = "采集到对方最新文字后可在这里生成智能回复。";
+    empty.querySelector("span").textContent = "Agent 采集到新私信后会显示在这里。";
     container.append(empty);
     return;
   }
@@ -2655,16 +2688,11 @@ function renderIntelligentPrivateMessageEvents(events, status) {
     const payload = event.payload || {};
     const card = document.createElement("article");
     card.className = "record-card";
-    const badge = document.createElement("span"); badge.className = "badge warning"; badge.textContent = "待生成";
+    const badge = document.createElement("span"); badge.className = "badge warning"; badge.textContent = "待 Agent 处理";
     const title = document.createElement("strong"); title.textContent = `${event.account_slot} · ${payload.nickname || payload.user_id || "用户"}`;
     const content = document.createElement("p"); content.textContent = payload.content || "私信内容为空";
     const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = payload.display_time || `会话 ${payload.message_count || "—"} 条消息`;
-    const actions = document.createElement("div"); actions.className = "task-actions";
-    const button = document.createElement("button"); button.type = "button"; button.className = "secondary-button"; button.textContent = "生成 AI 私信草稿";
-    button.disabled = !status.configured;
-    button.addEventListener("click", () => generateIntelligentReplyDraft(event, card, button));
-    actions.append(button);
-    card.append(badge, title, content, meta, actions);
+    card.append(badge, title, content, meta);
     container.append(card);
   });
 }
@@ -2711,6 +2739,7 @@ async function submitDraft(event) {
     resetDraftForm();
     await loadDashboard();
     showTaskPanel("confirmation");
+    showSubpage("messages", "drafts");
   } catch (error) {
     message.textContent = error.message;
   } finally {
@@ -2762,112 +2791,11 @@ async function confirmDraft(draft, card, button) {
   }
 }
 
-async function submitTask(event) {
-  event.preventDefault();
-  const account = $("#task-account").value;
-  if (!accountStatusByName.get(account)?.ready) {
-    $("#task-message").textContent = "目标账号尚未 READY，任务没有创建。";
-    return;
-  }
-  if (accountHasUnfinishedTask(account)) {
-    $("#task-message").textContent = `账号 ${account} 已有未完成任务，请等待完成或先在任务列表中处理。`;
-    updateTaskAvailability();
-    return;
-  }
-  const capability = $("#task-capability").value;
-  const target = $("#task-target").value.trim();
-  const token = $("#task-token").value.trim();
-  const durationMinutes = Number($("#task-duration").value);
-  const browseCount = Number($("#task-count").value);
-  const engagementAction = $("#task-engagement-action").value;
-  const engagementCount = Number($("#task-engagement-count").value);
-  const candidatePoolSize = Number($("#task-candidate-pool").value);
-  const collectionMinutes = Number($("#task-collection-minutes").value);
-  const commentStyle = $("#task-comment-style").value;
-  const commentCount = Number($("#task-comment-count").value);
-  const commentCandidatePool = Number($("#task-comment-candidate-pool").value);
-  const commentCollectionMinutes = Number($("#task-comment-collection-minutes").value);
-  const homeBrowseCount = Number($("#task-home-browse-count").value);
-  const homeLikeCount = Number($("#task-home-like-count").value);
-  const homeDuration = Number($("#task-home-duration").value);
-  const homeMinRead = Number($("#task-home-min-read").value);
-  const homeMaxRead = Number($("#task-home-max-read").value);
-  const parameters = capability === "browse-feeds"
-    ? { duration_minutes: durationMinutes, count: browseCount }
-    : capability === "search-feeds"
-      ? { keyword: target }
-      : capability === "keyword-engagement"
-        ? { keyword: target, action: engagementAction, count: engagementCount, candidate_pool_size: candidatePoolSize, collection_minutes: collectionMinutes }
-      : capability === "random-comment"
-        ? { count: commentCount, candidate_pool_size: commentCandidatePool, collection_minutes: commentCollectionMinutes, style: commentStyle, direct_send_authorized: true }
-      : capability === "home-engagement"
-        ? { browse_count: homeBrowseCount, like_count: homeLikeCount, duration_minutes: homeDuration, min_read_seconds: homeMinRead, max_read_seconds: homeMaxRead }
-      : capability === "list-feeds"
-        ? {}
-        : capability === "user-profile"
-          ? { user_id: target, xsec_token: token }
-          : { feed_id: target, xsec_token: token };
-  const capabilityName = taskCapabilityLabel(capability);
-  const requestSummary = capability === "browse-feeds"
-    ? `${capabilityName}：${durationMinutes} 分钟 / ${browseCount} 篇`
-    : capability === "keyword-engagement"
-      ? `${capabilityName}：${target} / 抽取 ${engagementCount} 篇 / 候选池 ${candidatePoolSize} 篇`
-    : capability === "random-comment"
-      ? `${capabilityName}：直接发送 ${commentCount} 条 / 候选池 ${commentCandidatePool} 篇`
-    : capability === "home-engagement"
-      ? `${capabilityName}：浏览 ${homeBrowseCount} 篇 / 点赞 ${homeLikeCount} 篇`
-    : target ? `${capabilityName}：${target}` : capabilityName;
-  pendingSubmissionByAccount.set(account, {
-    capability,
-    request_summary: requestSummary,
-  });
-  taskMessageByAccount.set(account, `正在为账号 ${account} 创建并执行任务…`);
-  syncAccountActivityUI();
-  scheduleTaskActivityPoll();
-  try {
-    const created = await mutateJson(`${api}/tasks`, "POST", { source: "webui", account_slot: account, capability, request_summary: requestSummary, parameters });
-    const executed = await mutateJson(`${api}/tasks/${created.task.task_id}/execute`, "POST", {});
-    taskMessageByAccount.set(
-      account,
-      executed.task.result_summary || executed.task.recommended_action || stateLabel(executed.task.state)
-    );
-  } catch (error) {
-    taskMessageByAccount.set(account, `任务失败：${error.message}`);
-  } finally {
-    pendingSubmissionByAccount.delete(account);
-    await loadDashboard();
-    syncAccountActivityUI();
-    scheduleTaskActivityPoll();
-  }
-}
-
 function setActionButtonLabel(button, label) {
   const arrow = document.createElement("span");
   arrow.setAttribute("aria-hidden", "true");
   arrow.textContent = "→";
   button.replaceChildren(document.createTextNode(label), arrow);
-}
-
-function taskSubmitLabel() {
-  return $("#task-capability").value === "random-comment" ? "创建并直接发送" : "创建并执行";
-}
-
-function updateTaskFields() {
-  const capability = $("#task-capability").value;
-  const config = taskCapabilities[capability] || taskCapabilities["browse-feeds"];
-  const target = $("#task-target");
-  target.required = config.targetRequired;
-  target.placeholder = config.placeholder;
-  $("#task-target-field").hidden = !config.targetVisible;
-  $("#task-target-label").textContent = config.targetLabel;
-  $("#task-capability-help").textContent = config.help;
-  $("#browse-settings").hidden = !config.browseSettings;
-  $("#engagement-settings").hidden = !config.engagementSettings;
-  $("#random-comment-settings").hidden = !config.commentSettings;
-  $("#home-engagement-settings").hidden = !config.homeEngagementSettings;
-  $("#token-field").hidden = !config.tokenRequired;
-  $("#task-token").required = config.tokenRequired;
-  updateTaskAvailability();
 }
 
 function renderDiagnosis(diagnosis) {
@@ -2883,6 +2811,24 @@ function renderDiagnosis(diagnosis) {
     : "发现配置或运行问题，请查看账号卡片中的下一步提示。";
 }
 
+function renderLocalNode(healthData) {
+  const hostname = window.location.hostname || "localhost";
+  const address = window.location.host || hostname;
+  const localLabel = ["localhost", "127.0.0.1", "::1"].includes(hostname)
+    ? "本机节点"
+    : `节点 ${hostname}`;
+  const online = healthData.status === "ok";
+  const running = currentTasksWithResults.filter((task) => ["RUNNING", "CANCEL_REQUESTED"].includes(task.state)).length;
+  $("#local-node-name").textContent = localLabel;
+  $("#node-address").textContent = address;
+  $("#sidebar-node-address").textContent = address;
+  $("#node-service-state").textContent = online ? "连接正常" : "连接异常";
+  $("#node-service-state").dataset.state = online ? "online" : "offline";
+  $("#node-runtime-id").textContent = (healthData.runtime_instance_id || "—").slice(0, 8);
+  $("#node-running-total").textContent = running;
+  $("#node-total").textContent = "1";
+}
+
 async function loadDiagnosis() {
   const badge = $("#diagnosis-state");
   badge.textContent = "检查中";
@@ -2896,10 +2842,117 @@ async function loadDiagnosis() {
   }
 }
 
-async function loadDashboard() {
+function dashboardRefreshTime(value) {
+  return value.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function renderDashboardRefreshStatus(state, title, detail) {
+  const status = $("#auto-refresh-status");
+  status.dataset.state = state;
+  status.setAttribute("aria-label", `${title}：${detail}`);
+  $("#auto-refresh-state").textContent = title;
+  $("#last-updated").textContent = detail;
+}
+
+function clearDashboardRefreshTimer() {
+  if (dashboardRefreshTimer) clearTimeout(dashboardRefreshTimer);
+  dashboardRefreshTimer = null;
+}
+
+function scheduleDashboardRefresh(delay = DASHBOARD_REFRESH_INTERVAL_MS) {
+  clearDashboardRefreshTimer();
+  if (document.hidden) {
+    renderDashboardRefreshStatus("paused", "自动更新已暂停", "返回页面后立即更新");
+    return;
+  }
+  const seconds = Math.round(delay / 1000);
+  if (dashboardRefreshFailed) {
+    const lastSuccess = lastDashboardUpdatedAt
+      ? `${dashboardRefreshTime(lastDashboardUpdatedAt)} 最近成功`
+      : "尚无成功记录";
+    renderDashboardRefreshStatus("error", "自动更新等待重试", `${lastSuccess} · ${seconds} 秒后重试`);
+  } else {
+    const detail = lastDashboardUpdatedAt
+      ? `${dashboardRefreshTime(lastDashboardUpdatedAt)} 更新 · 每 ${seconds} 秒`
+      : `每 ${seconds} 秒更新`;
+    renderDashboardRefreshStatus("ready", "自动更新中", detail);
+  }
+  dashboardRefreshTimer = window.setTimeout(() => loadDashboard("auto"), delay);
+}
+
+function dashboardEditorIsActive() {
+  const active = document.activeElement;
+  const editing = active?.matches?.("input, textarea, select, [contenteditable='true']");
+  return Boolean(editing || document.querySelector("dialog[open]"));
+}
+
+function pauseVisibleDataPolls() {
+  clearDashboardRefreshTimer();
+  if (taskActivityPollTimer) clearTimeout(taskActivityPollTimer);
+  if (accountStatusPollTimer) clearTimeout(accountStatusPollTimer);
+  taskActivityPollTimer = null;
+  accountStatusPollTimer = null;
+}
+
+function handleDashboardVisibilityChange() {
+  if (document.hidden) {
+    pauseVisibleDataPolls();
+    renderDashboardRefreshStatus("paused", "自动更新已暂停", "返回页面后立即更新");
+    return;
+  }
+  loadDashboard("resume");
+}
+
+function loadDashboard(reason = "manual") {
+  if (reason === "auto" && document.hidden) {
+    scheduleDashboardRefresh();
+    return Promise.resolve(false);
+  }
+  if (reason === "auto" && dashboardEditorIsActive()) {
+    renderDashboardRefreshStatus("paused", "编辑中暂缓更新", "完成编辑后自动继续");
+    clearDashboardRefreshTimer();
+    dashboardRefreshTimer = window.setTimeout(() => loadDashboard("auto"), DASHBOARD_REFRESH_DEFER_MS);
+    return Promise.resolve(false);
+  }
+  if (dashboardRefreshPromise) {
+    if (reason !== "auto") dashboardRefreshQueued = true;
+    return dashboardRefreshPromise;
+  }
+  clearDashboardRefreshTimer();
+  dashboardRefreshPromise = (async () => {
+    try {
+      return await performDashboardLoad(reason);
+    } finally {
+      dashboardRefreshPromise = null;
+      if (dashboardRefreshQueued && !document.hidden) {
+        dashboardRefreshQueued = false;
+        window.setTimeout(() => loadDashboard("trailing"), 0);
+      } else {
+        dashboardRefreshQueued = false;
+        scheduleDashboardRefresh();
+      }
+    }
+  })();
+  return dashboardRefreshPromise;
+}
+
+async function performDashboardLoad(reason = "manual") {
   const refresh = $("#refresh");
   const health = $("#health");
   const grid = $("#account-grid");
+  const lastSuccess = lastDashboardUpdatedAt
+    ? `${dashboardRefreshTime(lastDashboardUpdatedAt)} 最近更新`
+    : "正在读取最新数据";
+  renderDashboardRefreshStatus(
+    "refreshing",
+    reason === "auto" ? "正在自动同步" : "正在同步",
+    lastSuccess,
+  );
   refresh.disabled = true;
   refresh.setAttribute("aria-busy", "true");
   try {
@@ -2913,18 +2966,26 @@ async function loadDashboard() {
     health.lastElementChild.textContent = healthData.status === "ok" ? "本地服务正常" : "本地服务异常";
     currentServiceInstanceId = healthData.runtime_instance_id || "";
     $("#capability-count").textContent = capabilityData.summary.enabled_in_v1;
-    platformCapabilityById = capabilityData.platform_capabilities || {};
     renderSystem(systemData);
 
     const statuses = await fetchAccountStatuses(accountData);
     renderAccountRoster(accountData, statuses);
     await loadWorkData(accountData, statuses);
-    await window.AutoXhsManagerConsole?.load();
+    renderLocalNode(healthData);
+    await window.AutoXhsManagerConsole?.load({ reason });
     scheduleAccountStatusPoll();
     loadDiagnosis();
+    dashboardRefreshFailed = false;
+    lastDashboardUpdatedAt = new Date();
+    return true;
   } catch (error) {
+    dashboardRefreshFailed = true;
     health.dataset.state = "error";
     health.lastElementChild.textContent = "本地服务不可用";
+    $("#node-service-state").textContent = "连接异常";
+    $("#node-service-state").dataset.state = "offline";
+    $("#node-address").textContent = window.location.host || "当前地址";
+    $("#sidebar-node-address").textContent = window.location.host || "当前地址";
     const empty = emptyAccounts();
     empty.querySelector("strong").textContent = "控制台暂时无法读取状态";
     empty.querySelector("span").textContent = error.message;
@@ -2932,10 +2993,67 @@ async function loadDashboard() {
     $("#diagnosis-state").textContent = "连接失败";
     $("#diagnosis-state").className = "diagnosis-badge warn";
     $("#diagnosis-note").textContent = "请确认本地 WebUI 服务仍在运行。";
+    return false;
   } finally {
     refresh.disabled = false;
     refresh.removeAttribute("aria-busy");
   }
+}
+
+function showSubpage(group, target) {
+  document.querySelectorAll(`[data-subpage-panel="${group}"]`).forEach((panel) => {
+    const active = panel.dataset.subpageName === target;
+    panel.hidden = !active;
+    panel.classList.toggle("active", active);
+  });
+  document.querySelectorAll(`[data-subpage-group="${group}"]`).forEach((button) => {
+    const active = button.dataset.subpageTarget === target;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+}
+
+function setupSubpageTabs() {
+  document.querySelectorAll("[data-subpage-tabs]").forEach((tabs) => {
+    const group = tabs.dataset.subpageTabs;
+    const buttons = [...tabs.querySelectorAll("[data-subpage-target]")];
+    buttons.forEach((button) => {
+      const target = button.dataset.subpageTarget;
+      const safeTarget = `${group}-${target}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+      const panel = document.querySelector(
+        `[data-subpage-panel="${group}"][data-subpage-name="${target}"]`,
+      );
+      button.id ||= `${safeTarget}-tab`;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-controls", panel?.id || `${safeTarget}-panel`);
+      if (panel) {
+        panel.id ||= `${safeTarget}-panel`;
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", button.id);
+      }
+    });
+    tabs.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const current = buttons.indexOf(document.activeElement);
+      if (current < 0) return;
+      event.preventDefault();
+      let next = current;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = buttons.length - 1;
+      if (event.key === "ArrowLeft") next = (current - 1 + buttons.length) % buttons.length;
+      if (event.key === "ArrowRight") next = (current + 1) % buttons.length;
+      buttons[next].focus();
+      showSubpage(group, buttons[next].dataset.subpageTarget);
+    });
+    const active = buttons.find((button) => button.classList.contains("active")) || buttons[0];
+    if (active) showSubpage(group, active.dataset.subpageTarget);
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-subpage-group][data-subpage-target]");
+    if (!button) return;
+    showSubpage(button.dataset.subpageGroup, button.dataset.subpageTarget);
+  });
 }
 
 function renderSystem(system) {
@@ -2963,7 +3081,7 @@ async function toggleGlobalPause() {
 }
 
 async function restartLocalService() {
-  if (!window.confirm("确认安全重启本地服务？执行中的任务会阻止重启。")) return;
+  if (!window.confirm("确认安全重启当前节点服务？执行中的任务会阻止重启。")) return;
   const button = $("#restart-service");
   const health = $("#health");
   const previousInstanceId = currentServiceInstanceId;
@@ -2975,7 +3093,7 @@ async function restartLocalService() {
     await mutateJson(`${api}/system/restart`, "POST", {});
   } catch (error) {
     button.disabled = false;
-    button.textContent = "重启服务";
+    button.textContent = "重启当前节点";
     health.dataset.state = "error";
     health.lastElementChild.textContent = "重启未执行";
     window.alert(error.message);
@@ -2999,7 +3117,7 @@ async function restartLocalService() {
     }
   }
   button.disabled = false;
-  button.textContent = "重启服务";
+  button.textContent = "重启当前节点";
   health.dataset.state = "error";
   health.lastElementChild.textContent = "重启状态待确认";
   window.alert("本地服务未在预期时间内恢复，请运行 restart-auto-xhs.cmd 查看结果。");
@@ -3071,7 +3189,8 @@ async function exportDiagnostics() {
   } catch (error) { message.textContent = error.message; }
 }
 
-$("#refresh").addEventListener("click", loadDashboard);
+$("#refresh").addEventListener("click", () => loadDashboard("manual"));
+document.addEventListener("visibilitychange", handleDashboardVisibilityChange);
 $("#open-account-create").addEventListener("click", () => setAccountCreatePanel(true));
 $("#close-account-create").addEventListener("click", () => setAccountCreatePanel(false));
 $("#account-setup-close").addEventListener("click", closeGuidedAccountSetup);
@@ -3101,11 +3220,6 @@ $("#remove-account-cancel").addEventListener("click", closeAccountRemoval);
 $("#remove-account-submit").addEventListener("click", removeAccountSlot);
 $("#publish-confirm-close").addEventListener("click", closePublishConfirmation);
 $("#publish-confirm-dismiss").addEventListener("click", closePublishConfirmation);
-$("#publish-confirm-submit").addEventListener("click", () => executePublishConfirmation("publish-confirm"));
-$("#publish-save-draft").addEventListener("click", () => executePublishConfirmation("save-draft"));
-$("#publish-preview-confirmed").addEventListener("change", (event) => {
-  $("#publish-confirm-submit").disabled = !event.target.checked;
-});
 $("#publish-confirm-dialog").addEventListener("cancel", (event) => {
   event.preventDefault();
   closePublishConfirmation();
@@ -3118,56 +3232,117 @@ $("#remove-confirm-name").addEventListener("input", (event) => {
 $("#global-pause").addEventListener("click", toggleGlobalPause);
 $("#restart-service").addEventListener("click", restartLocalService);
 $("#settings-form").addEventListener("submit", saveSettings);
+$("#execution-filter-form").addEventListener("submit", (event) => event.preventDefault());
+$("#execution-account-filter").addEventListener("change", renderExecutionView);
+$("#execution-state-filter").addEventListener("change", renderExecutionView);
+$("#execution-search").addEventListener("input", renderExecutionView);
+$("#execution-filter-reset").addEventListener("click", resetExecutionFilters);
+$("#operation-report-form").addEventListener("submit", submitOperationReport);
+$("#operation-report-type").addEventListener("change", updateOperationReportFields);
 $("#reply-model-form").addEventListener("submit", saveReplyModelSettings);
 $("#reply-rule-form").addEventListener("submit", saveReplyRule);
 $("#reply-rule-account").addEventListener("change", () => {
   renderReplyRuleForm();
   renderReplyDecisions(currentReplyDecisions);
 });
-$("#run-reply-cycle").addEventListener("click", runReplyCycle);
 $("#test-reply-model").addEventListener("click", testReplyModelConnection);
 $("#export-diagnostics").addEventListener("click", exportDiagnostics);
 $("#discover-profiles").addEventListener("click", discoverProfiles);
 $("#profile-select").addEventListener("change", syncSelectedProfileName);
 $("#account-form").addEventListener("submit", submitAccount);
-$("#task-form").addEventListener("submit", submitTask);
-$("#task-account").addEventListener("change", updateTaskAvailability);
-$("#task-template").addEventListener("change", () => {
-  $("#task-target").value = "";
-  $("#task-token").value = "";
-  $("#task-engagement-action").value = "like";
-  $("#task-engagement-count").value = "3";
-  $("#task-candidate-pool").value = "20";
-  $("#task-collection-minutes").value = "2";
-  $("#task-comment-style").value = "natural";
-  $("#task-comment-count").value = "1";
-  $("#task-comment-candidate-pool").value = "20";
-  $("#task-comment-collection-minutes").value = "2";
-  renderTaskTemplateActions();
-});
-$("#task-capability").addEventListener("change", updateTaskFields);
-$("#task-engagement-count").addEventListener("input", (event) => {
-  const pool = $("#task-candidate-pool");
-  const count = Math.max(1, Number(event.target.value) || 1);
-  pool.min = String(count);
-  if (Number(pool.value) < count) pool.value = String(count);
-});
-$("#task-comment-count").addEventListener("input", (event) => {
-  const pool = $("#task-comment-candidate-pool");
-  const count = Math.max(1, Number(event.target.value) || 1);
-  pool.min = String(count);
-  if (Number(pool.value) < count) pool.value = String(count);
-});
-$("#draft-form").addEventListener("submit", submitDraft);
-$("#comment-collection-form").addEventListener("submit", collectNewComments);
 $("#comment-collection-account").addEventListener("change", updateCommentCollectionAvailability);
-$("#private-message-collection-form").addEventListener("submit", collectPrivateMessages);
 $("#private-message-collection-account").addEventListener("change", updatePrivateMessageCollectionAvailability);
 $("#draft-action").addEventListener("change", updateDraftFields);
-$("#draft-generate").addEventListener("click", generateCommentDraft);
 $("#account-mode").addEventListener("change", syncAccountMode);
 syncAccountMode();
-renderTaskTemplateActions();
 resetDraftForm();
+initializeOperationReportForm();
+updateOperationReportFields();
+setupSubpageTabs();
 setupTaskPanels();
-loadDashboard();
+loadDashboard("initial");
+
+function openAccountRemoval(account) {
+  activeAccountRemoval = account;
+  $("#remove-account-name").textContent = account.name;
+  $("#remove-account-profile").textContent = `Chrome · ${account.chrome_profile_directory || "Default"}`;
+  $("#remove-confirm-name").value = "";
+  $("#remove-message").textContent = "";
+  $("#remove-account-submit").disabled = true;
+  $("#account-remove-dialog").showModal();
+  $("#remove-confirm-name").focus();
+}
+
+function closeAccountRemoval() {
+  $("#account-remove-dialog").close();
+  activeAccountRemoval = null;
+}
+
+async function removeAccountSlot() {
+  if (!activeAccountRemoval) return;
+  const account = activeAccountRemoval.name;
+  const confirmationName = $("#remove-confirm-name").value.trim();
+  const button = $("#remove-account-submit");
+  const message = $("#remove-message");
+  if (confirmationName !== account) {
+    message.textContent = `请输入完整槽位名称 ${account}`;
+    return;
+  }
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  message.textContent = "正在停止该槽位服务并保存本机归档…";
+  try {
+    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}`, "DELETE", {
+      confirmed: true,
+      confirmation_name: confirmationName,
+    });
+    closeAccountRemoval();
+    await loadDashboard();
+    $("#setup-message").textContent = `${result.message}；Chrome Profile、登录数据和共享扩展均未删除。`;
+  } catch (error) {
+    message.textContent = `删除失败：${error.message}`;
+  } finally {
+    button.disabled = $("#remove-confirm-name").value.trim() !== account;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+async function updateBridge(account, action, messageNode, button) {
+  const operation = {
+    "start-only": {
+      label: "启动 Bridge",
+      confirmation: `只启动槽位 ${account} 的本地 Bridge？\n\n不会打开或关闭 Chrome。`,
+    },
+    stop: {
+      label: "停止 Bridge",
+      confirmation: `停止槽位 ${account} 的本地 Bridge？\n\n该槽位会暂时断开，但不会关闭 Chrome。`,
+    },
+    restart: {
+      label: "重启账号连接",
+      confirmation: `重启槽位 ${account} 的账号连接？\n\n系统会重启 Bridge；扩展未连接时会按需打开绑定的 Chrome Profile，但不会关闭 Chrome。`,
+    },
+  }[action];
+  if (!operation || !window.confirm(operation.confirmation)) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  messageNode.textContent = `正在${operation.label}…`;
+  try {
+    const result = await mutateJson(`${api}/accounts/${encodeURIComponent(account)}/bridge/${action}`, "POST", {});
+    const lifecycle = result.lifecycle || {};
+    if (action === "start-only") {
+      messageNode.textContent = lifecycle.bridge_running ? "Bridge 已启动；可继续检查扩展连接。" : "Bridge 未能进入运行状态。";
+    } else if (action === "stop") {
+      messageNode.textContent = lifecycle.bridge_running ? "Bridge 仍在运行，请稍后重试。" : "Bridge 已停止；Chrome 保持打开。";
+    } else {
+      messageNode.textContent = lifecycle.ready
+        ? lifecycle.message || "账号连接已恢复，正在刷新状态。"
+        : `账号尚未就绪：${lifecycle.message || "请检查 Bridge、扩展和 Profile 状态"}`;
+    }
+    await loadDashboard();
+  } catch (error) {
+    messageNode.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}

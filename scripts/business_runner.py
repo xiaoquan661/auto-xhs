@@ -11,7 +11,6 @@ from run_lock import for_account
 from service_errors import ServiceError
 from xhs.bridge import BridgePage
 
-
 def _serialize(value):
     if hasattr(value, "to_dict"):
         return value.to_dict()
@@ -178,9 +177,7 @@ class BusinessRunner:
                 str(parameters.get("xsec_token") or ""),
                 str(parameters.get("content") or ""),
                 expected_nickname=str(parameters.get("nickname") or ""),
-                expected_conversation_type=str(
-                    parameters.get("conversation_type") or ""
-                ),
+                expected_conversation_type=str(parameters.get("conversation_type") or ""),
                 expected_peer_turn=(
                     list(parameters.get("expected_peer_turn") or [])
                     if "expected_peer_turn" in parameters

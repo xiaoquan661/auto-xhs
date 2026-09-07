@@ -1,46 +1,48 @@
 (() => {
   const definitions = {
     overview: {
-      breadcrumb: "本地工作台 · 今日",
-      title: "今日总览",
-      description: "先处理异常和待确认事项，再开始新的运营任务。",
+      breadcrumb: "节点工作台 · 当前节点",
+      title: "工作台",
+      description: "查看经理机、执行节点、账号健康状态和 Agent 任务概览。",
     },
     accounts: {
-      breadcrumb: "本地工作台 · 账号",
-      title: "账号",
-      description: "查看每个槽位的连接、Profile、扩展与身份状态。",
-    },
-    tasks: {
-      breadcrumb: "本地工作台 · 任务",
-      title: "任务",
-      description: "按运营目标创建任务，并持续查看执行状态。",
-    },
-    approvals: {
-      breadcrumb: "本地工作台 · 人工确认",
-      title: "确认中心",
-      description: "集中核对账号、目标与最终文本，再决定是否执行。",
+      breadcrumb: "节点工作台 · 账号",
+      title: "账号管理",
+      description: "管理当前节点上的账号槽位、Profile、扩展连接与身份状态。",
     },
     records: {
-      breadcrumb: "本地工作台 · 结果",
+      breadcrumb: "节点工作台 · 执行",
       title: "执行记录",
-      description: "查看任务终态、结果摘要和失败原因。",
+      description: "统一查看 Agent 任务、历史结果、平台回读和异常原因。",
+    },
+    messages: {
+      breadcrumb: "节点工作台 · 互动",
+      title: "消息互动",
+      description: "查看 Agent 采集的评论、私信、回复草稿和处理状态。",
+    },
+    publishing: {
+      breadcrumb: "节点工作台 · 发布",
+      title: "发布管理",
+      description: "查看 Agent 发布任务、真实预览状态和最终平台回读。",
     },
     data: {
-      breadcrumb: "本地工作台 · 数据回收",
-      title: "数据回收",
-      description: "查看发布台账、操作流水以及私信和评论回复记录。",
+      breadcrumb: "节点工作台 · 数据",
+      title: "数据分析",
+      description: "查看运营台账、指标汇总，并生成可追溯的运营报告。",
     },
     system: {
-      breadcrumb: "本地工作台 · 系统",
-      title: "系统",
-      description: "诊断运行环境，并管理并发、配额和熔断规则。",
+      breadcrumb: "节点工作台 · 系统",
+      title: "系统设置",
+      description: "诊断当前节点，并管理并发、配额、模型和熔断规则。",
     },
   };
 
   const aliases = {
     top: "overview",
-    work: "tasks",
+    work: "overview",
+    tasks: "overview",
     setup: "accounts",
+    approvals: "messages",
     diagnosis: "system",
   };
 
