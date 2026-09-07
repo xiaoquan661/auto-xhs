@@ -47,6 +47,8 @@ def dispatch_request(
             str(payload.get("account") or ""),
             str(payload.get("account_action") or ""),
         )
+    if action == "account-lifecycle":
+        return service.account_lifecycle(payload)
     if action == "account-field-request":
         return service.request_account_field_action(
             str(payload.get("account") or ""),

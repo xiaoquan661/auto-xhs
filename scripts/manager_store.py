@@ -32,6 +32,7 @@ def _default_state() -> dict:
         "account_alerts": {},
         "personas": {},
         "goals": {},
+        "daily_plans": {},
         "operation_tasks": {},
         "agent_messages": {},
         "tasks": {},
@@ -80,6 +81,10 @@ class ManagerStore:
             return copy.deepcopy(item)
 
         return self._transaction(mutate, write=True)
+
+    def delete(self, collection: str, item_id: str) -> None:
+        self._check_collection(collection)
+        self._transaction(lambda state: state[collection].pop(item_id, None), write=True)
 
     def update(
         self,
@@ -183,6 +188,7 @@ class ManagerStore:
             "account_alerts",
             "personas",
             "goals",
+            "daily_plans",
             "operation_tasks",
             "agent_messages",
             "tasks",

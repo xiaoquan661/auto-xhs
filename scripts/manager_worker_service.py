@@ -648,6 +648,37 @@ class ManagerWorkerService:
             "diagnosis": diagnosis,
         }
 
+    def account_lifecycle(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Execute account setup and maintenance through the worker-local API."""
+        action = str(request.get("action") or "")
+        slot = str(request.get("account") or "").strip()
+        encoded = quote(slot, safe="")
+        routes = {
+            "create": ("POST", "/accounts"),
+            "import": ("POST", "/accounts/import"),
+            "profiles": ("GET", "/accounts/profiles"),
+            "delete": ("DELETE", f"/accounts/{encoded}"),
+            "pair-begin": ("POST", f"/accounts/{encoded}/pairing/begin"),
+            "pair-status": ("GET", f"/accounts/{encoded}/pairing"),
+            "switch-begin": ("POST", f"/accounts/{encoded}/switch/begin"),
+            "switch-complete": ("POST", f"/accounts/{encoded}/switch/complete"),
+            "logout": ("POST", f"/accounts/{encoded}/auth/logout"),
+            "bridge-stop": ("POST", f"/accounts/{encoded}/bridge/stop"),
+        }
+        if action not in routes or (not slot and action not in {"create", "import", "profiles"}):
+            raise WorkerServiceError("INVALID_ACCOUNT_ACTION", "请选择有效的账号管理操作")
+        method, path = routes[action]
+        if method == "GET":
+            return self._local_api_request(method, path)
+        session = self._local_api_request("GET", "/session")
+        return self._local_api_request(
+            method,
+            path,
+            request.get("values") or {},
+            token=session["session_token"],
+            timeout_seconds=90,
+        )
+
     def account_action(self, account: str, action: str) -> dict[str, Any]:
         """通过 API-only 服务执行受控账号恢复动作并回读状态。"""
 

@@ -16,7 +16,7 @@ def test_manager_console_exposes_six_product_views() -> None:
     for view, label in (
         ("overview", "运营总览"),
         ("workers", "员工机"),
-        ("accounts", "账号设置"),
+        ("accounts", "账号管理"),
         ("results", "数据回收"),
         ("exceptions", "异常中心"),
         ("settings", "系统设置"),
@@ -110,6 +110,9 @@ def test_personas_are_displayed_with_their_worker_account() -> None:
     assert 'id="manager-persona-form"' not in html
     assert 'id="manager-persona-machine"' not in html
     assert "function accountPersonaPanel(account)" in script
+    assert 'id="manager-persona-editor-form"' in html
+    assert "function openPersonaEditor(account)" in script
+    assert 'mutateJson(`${managerApi}/personas`, "POST", body)' in script
     assert "card.appendChild(accountPersonaPanel(account))" in script
     assert "function submitPersona(" not in script
     assert "item.account_slot === account.account_slot" in script
@@ -193,7 +196,7 @@ def test_manager_console_applies_card_and_control_styles_to_new_forms() -> None:
     html = _source("index.html")
     stylesheet = _source("workspace.css")
 
-    assert "20260907-unified-overview-1" in html
+    assert "20260907-worker-progress-1" in html
     assert ".manager-app-shell .subpage-panel" in stylesheet
     assert '.manager-app-shell input:not([type="checkbox"]):not([type="radio"])' in stylesheet
     assert ".manager-app-shell textarea" in stylesheet
