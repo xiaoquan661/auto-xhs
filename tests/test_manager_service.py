@@ -446,6 +446,32 @@ def test_account_management_is_preserved_across_worker_refreshes(tmp_path: Path)
     assert account["management_updated_at"]
 
 
+def test_account_management_sync_preserves_new_worker_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    transport.queue("list-accounts", {"success": True, "accounts": [remote_account()]})
+    manager.list_machine_accounts("PC001")
+
+    def invoke(_machine: dict, _action: str, _payload: dict, **_kwargs: object) -> dict:
+        manager.store.update(
+            "accounts",
+            "PC001:brand-a",
+            lambda current: {**current, "health_state": "WARNING", "actual_uid": "new-receipt"},
+        )
+        return {"success": True}
+
+    monkeypatch.setattr(transport, "invoke", invoke)
+    updated = manager.update_account_management(
+        "PC001", "brand-a", {"account_note": "运营备注", "scheduling_enabled": False}
+    )["account"]
+    assert updated["actual_uid"] == "new-receipt"
+    assert updated["health_state"] == "WARNING"
+    assert updated["account_note"] == "运营备注"
+    assert updated["management_sync_status"] == "SUCCESS"
+
+
 def test_disabled_account_cannot_receive_a_new_task(tmp_path: Path) -> None:
     manager, transport = service(tmp_path)
     register_ready(manager)
@@ -498,6 +524,7 @@ def test_manager_requests_worker_account_field_action_and_caches_status(
     account = manager.list_accounts("PC001")["accounts"][0]
 
     assert requested["account"]["field_request"]["state"] == "PENDING"
+    assert requested["field_request"] == {"request_id": "ACCOUNT-001", "state": "PENDING"}
     assert account["field_request"]["request_id"] == "ACCOUNT-001"
     assert transport.calls[-1] == (
         "account-field-request",
@@ -1265,6 +1292,17 @@ def test_persona_goal_schedule_and_recovery_keep_versioned_context(tmp_path: Pat
     assert dispatched["task"]["request"]["goal_id"] == saved_goal["goal_id"]
     assert dispatched["task"]["request"]["persona_snapshot"]["version"] == 2
 
+    manager.save_persona(
+        {
+            **persona_request(),
+            "persona_id": created_persona["persona_id"],
+            "tone": "任务开始后的新人设语气",
+        }
+    )
+    frozen_task = manager.get_task(dispatched["task"]["task_id"])["task"]
+    assert frozen_task["request"]["persona_snapshot"]["version"] == 2
+    assert frozen_task["request"]["persona_snapshot"]["tone"] == "自然、克制、有具体场景"
+
     transport.queue(
         "collect-results",
         {
@@ -2027,6 +2065,24 @@ def test_result_summary_does_not_turn_missing_data_into_observed_zero() -> None:
 
 def test_result_summary_does_not_assign_states_to_discovery_rows() -> None:
     feeds = [{"id": "feed-1", "displayTitle": "露营🏕️"}]
+    assert (
+        ManagerService._result_actual_count(
+            {
+                "item_results": feeds,
+                "item_results_status": "observed",
+            }
+        )
+        is None
+    )
+    assert (
+        ManagerService._result_actual_count(
+            {
+                "item_results": [],
+                "item_results_status": "observed",
+            }
+        )
+        == 0
+    )
 
     summary = ManagerService._summarize_results(
         [

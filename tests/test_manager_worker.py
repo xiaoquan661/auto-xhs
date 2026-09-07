@@ -490,6 +490,9 @@ def test_account_field_request_is_visible_and_completed_after_identity_readback(
     assert created["field_request"]["state"] == "PENDING"
     assert started["field_request"]["state"] == "IN_PROGRESS"
     assert completed["field_request"]["state"] == "COMPLETED"
+    refreshed = service.account_status("alpha")["account"]
+    assert refreshed["field_request"]["state"] == "COMPLETED"
+    assert refreshed["management"]["scheduling_enabled"] is False
     assert completed["field_request"]["identity"]["live_user_id"] == "uid-1"
     assert management["management"]["account_note"] == "经理机备注"
     assert snapshot["account_requests"][0]["request_id"] == "ACCOUNT-001"
@@ -1714,11 +1717,17 @@ def test_manager_service_and_worker_share_health_transfer_task_and_cursor_protoc
     assert collected["next_cursor"] == 4
     assert manager.store.get_collection_cursor("PC001:sftp_outbox") == 4
     assert collected["transport"] == "sftp_outbox"
+    collection = collected["outbox_collection"]
+    assert collection["total_records"] == collection["imported_records"] == 4
+    assert collection["pending_records"] == 0
+    assert len(list(Path(collection["archive_root"]).rglob("*.json"))) == 4
     if batch:
         assert batches == [4]
     repeated = manager.collect_results("PC001", download_evidence=False)
     assert repeated["collected"] == 0
     assert repeated["next_cursor"] == 4
+    assert repeated["outbox_collection"]["batch_records"] == 0
+    assert repeated["outbox_collection"]["imported_records"] == 4
     assert not any(item[0] == "collect-results" for item in transport.calls)
     assert "RESULT_ACK" in {
         item["message_type"] for item in manager.list_agent_messages()["agent_messages"]

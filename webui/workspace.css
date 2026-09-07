@@ -1986,3 +1986,9 @@ summary:focus-visible {
     padding-inline: 14px;
   }
 }
+
+:root .manager-collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 12px;
+}

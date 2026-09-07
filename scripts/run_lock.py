@@ -82,11 +82,7 @@ class RunLock:
         try:
             with open(self.lock_file) as f:
                 pid = int(f.read().strip())
-            if os.name == "nt":
-                return not _windows_process_is_running(pid)
-            # POSIX: signal 0 only checks whether the process exists.
-            os.kill(pid, 0)
-            return False
+            return not process_is_running(pid)
         except (ValueError, OSError):
             return True
 
@@ -109,6 +105,21 @@ def for_account(account: str) -> RunLock:
     from account_manager import account_lock_path
 
     return RunLock(account_lock_path(account))
+
+
+def process_is_running(pid: int) -> bool:
+    """Check process ownership without sending a signal on Windows."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        return _windows_process_is_running(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _windows_process_is_running(pid: int) -> bool:

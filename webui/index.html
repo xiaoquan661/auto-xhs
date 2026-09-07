@@ -282,6 +282,11 @@
         <section class="workspace-view" id="results" data-manager-view="results" hidden>
           <header class="page-topbar"><div><p class="eyebrow">DATA COLLECTION</p><h1>数据回收</h1><p>当前结果采用最高修订版本，原始回执保留在审计历史。</p></div></header>
           <section class="manager-result-workspace">
+            <section class="subpage-panel" aria-label="员工机回执自动收集">
+              <div class="lane-heading"><h2>员工机回执自动收集</h2><span id="manager-collection-schedule">等待首次收集</span></div>
+              <p class="manager-inline-message">经理机后台定时收集并导入员工机回执。当前结果、逐项记录和审计历史随收集更新。</p>
+              <div class="manager-collection-grid" id="manager-collection-list"></div>
+            </section>
             <div class="manager-result-toolbar">
               <label><span>员工机</span><select id="manager-result-machine"></select></label>
               <label><span>账号</span><select id="manager-result-account"></select></label>

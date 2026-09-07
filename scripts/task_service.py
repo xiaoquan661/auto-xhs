@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from datetime import UTC, datetime
 from capability_registry import get_operation_policy
 from platforms import DEFAULT_PLATFORM, normalize_platform
 from product_store import ProductStore
+from run_lock import for_account, process_is_running
 from service_errors import ServiceError
 
 TASK_STATES = {
@@ -118,6 +120,7 @@ class TaskService:
             "request_summary": request_summary.strip(),
             "parameters": dict(parameters or {}),
             "state": "WAITING_APPROVAL" if policy.requires_confirmation else "QUEUED",
+            "owner_pid": os.getpid(),
             "created_at": now,
             "started_at": None,
             "finished_at": None,
@@ -223,6 +226,8 @@ class TaskService:
                 )
             now = utc_now()
             task["state"] = state
+            if state in {"QUEUED", "RUNNING"}:
+                task["owner_pid"] = os.getpid()
             if state == "QUEUED":
                 task["started_at"] = None
                 task["finished_at"] = None
@@ -348,6 +353,7 @@ class TaskService:
                 task["recommended_action"] = f"等待任务 {running['task_id'][:8]} 完成后再重试"
             else:
                 task["state"] = "RUNNING"
+                task["owner_pid"] = os.getpid()
                 task["started_at"] = now
                 task["finished_at"] = None
                 task["result_summary"] = ""
@@ -358,48 +364,57 @@ class TaskService:
         return self.store.mutate(mutate)
 
     def recover_interrupted(self) -> list[dict]:
-        recovered: list[dict] = []
-        for task in self.list():
-            if task["state"] == "QUEUED":
-                recovered.append(
-                    self.transition(
-                        task["task_id"],
-                        "BLOCKED",
-                        result_summary="任务在本地服务上次运行期间未开始",
-                        error_code="SERVICE_INTERRUPTED_BEFORE_START",
-                        recommended_action="请在 WebUI 中查看后重试或取消",
+        """Recover tasks whose owning process has exited, under the store lock."""
+
+        def recover(state: dict) -> list[dict]:
+            recovered: list[dict] = []
+            for task in state["tasks"].values():
+                previous = task["state"]
+                if previous not in {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}:
+                    continue
+                owner_pid = task.get("owner_pid")
+                if owner_pid:
+                    if process_is_running(int(owner_pid)):
+                        continue
+                else:
+                    # Earlier task records use the account execution lock as ownership evidence.
+                    lock = for_account(task["account_slot"])
+                    if os.path.exists(lock.lock_file) and not lock._is_stale():
+                        continue
+                if previous == "QUEUED":
+                    target = "BLOCKED"
+                    summary = "任务在本地服务上次运行期间未开始"
+                    code = "SERVICE_INTERRUPTED_BEFORE_START"
+                    action = "请在 WebUI 中查看后重试或取消"
+                else:
+                    policy = get_operation_policy(task["capability"], task.get("operation"))
+                    cancelling = previous == "CANCEL_REQUESTED"
+                    target = (
+                        "RESULT_UNKNOWN"
+                        if policy.requires_result_verification
+                        else "CANCELLED"
+                        if cancelling
+                        else "FAILED"
                     )
-                )
-                continue
-            if task["state"] not in {"RUNNING", "CANCEL_REQUESTED"}:
-                continue
-            policy = get_operation_policy(task["capability"], task.get("operation"))
-            target = "RESULT_UNKNOWN" if policy.requires_result_verification else "FAILED"
-            if task["state"] == "CANCEL_REQUESTED":
-                target = "RESULT_UNKNOWN" if policy.requires_result_verification else "CANCELLED"
-            recovered.append(
-                self.transition(
-                    task["task_id"],
-                    target,
-                    result_summary=(
-                        "本地服务在终止任务期间中断"
-                        if task["state"] == "CANCEL_REQUESTED"
-                        else "本地服务在任务执行期间中断"
-                    ),
-                    error_code=(
-                        "TASK_TERMINATION_INTERRUPTED"
-                        if task["state"] == "CANCEL_REQUESTED"
-                        else "SERVICE_INTERRUPTED"
-                    ),
-                    recommended_action=(
+                    summary = (
+                        "本地服务在终止任务期间中断" if cancelling else "本地服务在任务执行期间中断"
+                    )
+                    code = "TASK_TERMINATION_INTERRUPTED" if cancelling else "SERVICE_INTERRUPTED"
+                    action = (
                         "先回读平台当前状态，再决定是否重新执行"
                         if target == "RESULT_UNKNOWN"
-                        else (
-                            "任务已经停止，可按需重新创建"
-                            if target == "CANCELLED"
-                            else "检查账号状态后重新发起任务"
-                        )
-                    ),
+                        else "任务已经停止，可按需重新创建"
+                        if target == "CANCELLED"
+                        else "检查账号状态后重新发起任务"
+                    )
+                task.update(
+                    state=target,
+                    finished_at=utc_now(),
+                    result_summary=summary,
+                    error_code=code,
+                    recommended_action=action,
                 )
-            )
-        return recovered
+                recovered.append(copy.deepcopy(task))
+            return recovered
+
+        return self.store.mutate(recover)

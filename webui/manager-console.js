@@ -946,7 +946,7 @@
     setText("#manager-detail-reconcile", tasks.filter(taskNeedsReconciliation).length);
     setText("#manager-detail-incremental", incremental.length);
 
-    const accountCards = accounts.map(compactAccountCard);
+    const accountCards = accounts.map((account) => compactAccountCard(account));
     accountList.replaceChildren(
       ...(accountCards.length
         ? accountCards
@@ -1085,7 +1085,7 @@
       return (
         task.machine_id === account.machine_id &&
         request.account_slot === account.account_slot &&
-        taskIsActive(task)
+        taskIsExecuting(task)
       );
     });
   }
@@ -1224,7 +1224,7 @@
     setText("#manager-account-unknown", counts.get("UNKNOWN") || 0);
     setText(
       "#manager-account-running",
-      accounts.filter((account) => account.agent_task_status === "RUNNING").length,
+      accounts.filter(accountHasActiveTask).length,
     );
     const localAttention = state.localStatuses.filter(
       (status) => String(status?.status || "UNKNOWN").toUpperCase() !== "READY",
@@ -1233,7 +1233,7 @@
       "#blocked-total",
       localAttention + state.alerts.filter((alert) => alert.active !== false).length,
     );
-    const cards = remoteAccounts.map(compactAccountCard);
+    const cards = remoteAccounts.map((account) => compactAccountCard(account));
     grid.replaceChildren(
       ...(cards.length
         ? cards
@@ -1699,7 +1699,7 @@
     const resultList = $("#manager-operation-detail-results");
     resultList?.replaceChildren(
       ...(results.length
-        ? results.map(compactTodayResultCard)
+        ? results.map(operationTaskResultCard)
         : [emptyCard("尚未回收执行结果", "员工机写入 outbox 并被经理机回收后会显示在这里。")]),
     );
     setText("#manager-operation-timeline-total", `${messages.length} 条`);
@@ -2131,6 +2131,7 @@
           return total + Number(browsed) + Number(liked);
         }, 0);
       }
+      if (result.item_results.some((item) => !item?.state && !item?.status)) return null;
       return result.item_results.filter((item) =>
         ["SUCCESS", "COMPLETED"].includes(
           String(item?.state || item?.status || "").toUpperCase(),
@@ -2215,6 +2216,25 @@
     return `${target} / ${actual}`;
   }
 
+  function actionTargetActualText(results, kind) {
+    const values = results.flatMap((result) => {
+      if (resultCapability(result) !== "home-engagement") {
+        return resultActionKind(result) === kind ? [result] : [];
+      }
+      if (!["browse", "like"].includes(kind)) return [];
+      const target = numericCount(resultRequest(result).parameters?.[`${kind}_count`]);
+      const observed = resultDataStatus(result, "item_results") === "observed"
+        && Array.isArray(result.item_results);
+      const actual = observed ? result.item_results.filter((item) =>
+        item?.[kind]?.success === true
+        || String(item?.[kind]?.status || "").toUpperCase() === "SUCCESS"
+      ).length : null;
+      return [{capability: "metric", target_count: target, actual_count: actual,
+        item_results_status: "missing"}];
+    });
+    return targetActualText(values);
+  }
+
   function resultDuration(result) {
     const seconds = numericCount(result.duration_seconds, result.elapsed_seconds);
     if (seconds === null) return "未回传";
@@ -2237,10 +2257,11 @@
     }
 
     const feeds = Array.isArray(business.feeds) ? business.feeds : [];
-    const reportedCount = Number(business.count);
-    const count = Number.isFinite(reportedCount) ? reportedCount : feeds.length;
+    const count = numericCount(business.count)
+      ?? (Array.isArray(business.feeds) ? feeds.length : null);
     const panel = element("details", "manager-business-result");
-    panel.appendChild(element("summary", "", `业务数据 · ${count} 条`));
+    panel.appendChild(element("summary", "", count === null
+      ? "业务数据 · 数量未回传" : `业务数据 · ${count} 条`));
 
     if (!feeds.length) {
       panel.appendChild(element("p", "manager-inline-message", "业务结果已回收。"));
@@ -2258,9 +2279,9 @@
       const interaction = feed.interactInfo || feed.interact_info;
       if (interaction && typeof interaction === "object") {
         const metrics = [
-          ["赞", interaction.likedCount || interaction.liked_count],
-          ["藏", interaction.collectedCount || interaction.collected_count],
-          ["评", interaction.commentCount || interaction.comment_count],
+          ["赞", interaction.likedCount ?? interaction.liked_count],
+          ["藏", interaction.collectedCount ?? interaction.collected_count],
+          ["评", interaction.commentCount ?? interaction.comment_count],
         ]
           .filter(([, value]) => value !== undefined && value !== null && value !== "")
           .map(([label, value]) => `${label} ${value}`)
@@ -2308,8 +2329,10 @@
         factList([
           ["作者", item.author_name || item.author || "未回传"],
           ["Feed ID", item.feed_id || item.note_id || item.id],
-          ["打开详情", resultItemValue(browse.opened ?? item.opened ?? item.open_detail)],
-          ["阅读时长", resultItemValue(browse.duration_seconds ?? item.duration_seconds)],
+          ["打开详情", resultItemValue(browse.opened ?? item.opened ?? item.open_detail
+            ?? (browse.status ? labelFor(String(browse.status).toUpperCase()) : undefined))],
+          ["阅读时长", resultItemValue(browse.duration_seconds ?? item.duration_seconds
+            ?? item.read_seconds)],
           ["点赞", resultItemValue(like.success ?? like.status ?? item.liked)],
           ["评论", item.comment_text || item.comment || ""],
           ["结果", item.state || item.status || ""],
@@ -2320,6 +2343,13 @@
     });
     details.appendChild(list);
     return details;
+  }
+
+  function operationTaskResultCard(result) {
+    const card = compactTodayResultCard(result);
+    const details = resultItemDetails(result);
+    if (details) card.appendChild(details);
+    return card;
   }
 
   function resultAuditCard(result) {
@@ -2465,7 +2495,68 @@
     );
   }
 
+  function collectionStatus(machine) {
+    const status = machine.result_sync_status || "NEVER";
+    const observedAt = Date.parse(machine.outbox_collection?.observed_at || "");
+    const interval = Number(state.sync.results?.interval_seconds || 60);
+    const stale = !Number.isFinite(observedAt) || Date.now() - observedAt > interval * 3000;
+    if (["OFFLINE", "BLOCKED", "FAILED", "RESULT_UNKNOWN"].includes(status)) {
+      return { status, cached: true };
+    }
+    return { status: stale ? "UNKNOWN" : status, cached: stale || status === "PARTIAL_SUCCESS" };
+  }
+
+  function renderOutboxCollection() {
+    const list = $("#manager-collection-list");
+    if (!list) return;
+    const sync = state.sync.results;
+    setText("#manager-collection-schedule", sync
+      ? `每 ${sync.interval_seconds || 60} 秒 · 下次 ${formatTime(sync.next_run_at)}`
+      : "等待后台首次收集");
+    const cards = state.machines.map((machine) => {
+      const card = element("article", "manager-result-card");
+      const head = element("div", "manager-card-head");
+      const current = collectionStatus(machine);
+      const receipt = machine.outbox_collection || {};
+      const observed = Number.isFinite(Date.parse(receipt.observed_at || ""));
+      const badge = stateBadge(current.status);
+      if (["IDLE", "SUCCESS"].includes(current.status) && receipt.pending_records === 0) {
+        badge.textContent = "已收齐";
+      }
+      append(head, element("strong", "", machine.machine_id), badge);
+      append(card, head, factList([
+        ["最近尝试", formatTime(machine.last_result_sync_at)],
+        ["最近成功", formatTime(machine.last_result_success_at)],
+        [current.cached ? "上次已知待收" : "待收回执", observed ? String(receipt.pending_records) : "未知"],
+        ["已导入 / 回执总数", observed ? `${receipt.imported_records} / ${receipt.total_records}` : "未知"],
+        ["本轮导入", observed ? `${receipt.batch_records} 份（结果 ${receipt.batch_results}、进度 ${receipt.batch_events}、接收确认 ${receipt.batch_acknowledgements}）` : "尚未收集"],
+      ]));
+      if (current.cached) card.appendChild(element("p", "manager-inline-message", observed
+        ? `以上计数为最近一次读取记录：${formatTime(receipt.observed_at)}。`
+        : "等待首次有效的回执索引。"));
+      if (machine.result_sync_error) {
+        card.appendChild(element("p", "manager-inline-message", current.status === "OFFLINE"
+          ? "暂时无法连接员工机，下一轮将自动重试。" : machine.result_sync_error));
+        if (current.status === "OFFLINE") {
+          const details = element("details", "manager-operation-technical");
+          append(details, element("summary", "", "连接错误详情"),
+            element("p", "manager-inline-message", machine.result_sync_error));
+          card.appendChild(details);
+        }
+      }
+      if (receipt.archive_root) {
+        const details = element("details", "manager-operation-technical");
+        append(details, element("summary", "", "原始回执归档位置"),
+          element("p", "manager-inline-message", receipt.archive_root));
+        card.appendChild(details);
+      }
+      return card;
+    });
+    list.replaceChildren(...(cards.length ? cards : [emptyCard("尚未登记员工机", "登记员工机后自动开始收集回执。")]));
+  }
+
   function renderResults() {
+    renderOutboxCollection();
     const resultList = $("#manager-result-list");
     const incrementalList = $("#manager-incremental-list");
     const auditList = $("#manager-result-audit-list");
@@ -2518,7 +2609,7 @@
     ["browse", "like", "comment", "reply", "publish"].forEach((kind) => {
       setText(
         `#manager-action-${kind}`,
-        targetActualText(results.filter((result) => resultActionKind(result) === kind)),
+        actionTargetActualText(results, kind),
       );
     });
     renderExceptions();
@@ -2577,7 +2668,7 @@
     resultList.replaceChildren(
       ...(resultCards.length
         ? resultCards
-        : [emptyCard("暂无远程结果", "点击“立即回收所选执行机”读取最新结果。")]),
+        : [emptyCard("暂无远程结果", "经理机正在定时收集员工机回执，导入后会自动显示。")]),
     );
 
     const incrementalCards = incremental.map((record) => {
@@ -3272,7 +3363,13 @@
         scheduling_enabled: $("#manager-account-scheduling-enabled").checked,
       });
       state.activeManagedAccount = payload.account;
-      setMessage("#manager-account-management-message", "账号管理信息已保存。", "success");
+      setMessage(
+        "#manager-account-management-message",
+        payload.status === "SUCCESS"
+          ? "账号管理信息已保存并同步到员工机。"
+          : `经理机配置已保存，员工机同步待确认：${payload.message || "等待员工机回执"}`,
+        payload.status === "SUCCESS" ? "success" : "warning",
+      );
       await load();
     } catch (error) {
       setMessage("#manager-account-management-message", error.message, "error");

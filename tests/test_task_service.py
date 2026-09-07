@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from service_errors import ServiceError
 
@@ -212,7 +217,7 @@ def test_requeue_clears_previous_attempt_timestamps_and_error(tmp_path) -> None:
     assert queued["recommended_action"] == ""
 
 
-def test_recovery_marks_read_only_failed_and_l1_result_unknown(tmp_path) -> None:
+def test_recovery_marks_read_only_failed_and_l1_result_unknown(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path)
     read_task = service.create(
         source="codex",
@@ -229,6 +234,7 @@ def test_recovery_marks_read_only_failed_and_l1_result_unknown(tmp_path) -> None
     service.transition(read_task["task_id"], "RUNNING")
     service.transition(like_task["task_id"], "RUNNING")
 
+    monkeypatch.setattr("scripts.task_service.process_is_running", lambda pid: False)
     recovered = service.recover_interrupted()
     states = {item["task_id"]: item["state"] for item in recovered}
 
@@ -236,7 +242,7 @@ def test_recovery_marks_read_only_failed_and_l1_result_unknown(tmp_path) -> None
     assert states[like_task["task_id"]] == "RESULT_UNKNOWN"
 
 
-def test_recovery_marks_never_started_queue_as_blocked(tmp_path) -> None:
+def test_recovery_marks_never_started_queue_as_blocked(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path)
     task = service.create(
         source="codex",
@@ -245,9 +251,79 @@ def test_recovery_marks_never_started_queue_as_blocked(tmp_path) -> None:
         request_summary="搜索",
     )
 
+    monkeypatch.setattr("scripts.task_service.process_is_running", lambda pid: False)
     recovered = service.recover_interrupted()
 
     assert recovered[0]["task_id"] == task["task_id"]
     assert recovered[0]["state"] == "BLOCKED"
     assert recovered[0]["error_code"] == "SERVICE_INTERRUPTED_BEFORE_START"
     assert "重试或取消" in recovered[0]["recommended_action"]
+
+
+@pytest.mark.parametrize("finish", [True, False])
+def test_new_application_preserves_live_process_tasks_and_recovers_exit(tmp_path, finish) -> None:
+    from scripts.application_service import ApplicationService
+
+    scripts_path = Path(__file__).resolve().parents[1] / "scripts"
+    code = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from product_store import ProductStore
+from task_service import TaskService
+s = TaskService(ProductStore(sys.argv[2]))
+running = s.create(source='codex', account_slot='alpha', capability='like-feed',
+                   request_summary='process recovery regression')
+s.claim_for_execution(running['task_id'])
+queued = s.create(source='codex', account_slot='beta', capability='search-feeds',
+                  request_summary='queued process regression')
+print(json.dumps([running['task_id'], queued['task_id']]), flush=True)
+if sys.stdin.readline().strip() == 'finish':
+    s.record_progress(running['task_id'], {'metrics': {'like': {'actual': 1}}})
+    s.transition(running['task_id'], 'SUCCESS')
+"""
+    store = ProductStore(tmp_path / "process-product")
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, str(scripts_path), str(store.root)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+    try:
+        running_id, queued_id = json.loads(process.stdout.readline())
+        service = ApplicationService(product_store=store)
+        assert service.get_task(running_id)["task"]["state"] == "RUNNING"
+        assert service.get_task(queued_id)["task"]["state"] == "QUEUED"
+        _, errors = process.communicate("finish\n" if finish else "exit\n", timeout=20)
+        assert process.returncode == 0, errors
+        restarted = ApplicationService(product_store=store)
+        result = restarted.get_task(running_id)["task"]
+        assert result["state"] == ("SUCCESS" if finish else "RESULT_UNKNOWN")
+        if finish:
+            assert result["progress_events"][0]["metrics"]["like"]["actual"] == 1
+        assert restarted.get_task(queued_id)["task"]["state"] == "BLOCKED"
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+
+
+def test_legacy_running_task_preserves_live_account_lock(tmp_path, monkeypatch) -> None:
+    from scripts.run_lock import RunLock
+
+    service = _service(tmp_path)
+    task = service.create(
+        source="codex", account_slot="alpha", capability="like-feed", request_summary="旧任务恢复"
+    )
+    service.claim_for_execution(task["task_id"])
+    service.store.update(
+        "tasks",
+        task["task_id"],
+        lambda current: {k: v for k, v in current.items() if k != "owner_pid"},
+    )
+    lock = RunLock(str(tmp_path / "account.lock"))
+    monkeypatch.setattr("scripts.task_service.for_account", lambda account: lock)
+    with lock:
+        assert service.recover_interrupted() == []
+    assert service.recover_interrupted()[0]["state"] == "RESULT_UNKNOWN"

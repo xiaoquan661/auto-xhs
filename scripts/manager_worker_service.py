@@ -629,6 +629,9 @@ class ManagerWorkerService:
         config = status.get("account") if isinstance(status.get("account"), dict) else {}
         snapshot = self._account_snapshot(config, status, checked_at=checked_at)
         snapshot["name"] = account_name
+        state = self._store.snapshot()
+        snapshot["field_request"] = self._latest_account_request(state, account_name)
+        snapshot["management"] = copy.deepcopy(state["account_management"].get(account_name))
         return {"success": True, "checked_at": checked_at, "account": snapshot}
 
     def account_doctor(self, account: str) -> dict[str, Any]:
