@@ -181,14 +181,22 @@ Agent 从已浏览结果中选定笔记，使用 `feed_id` 和 `xsec_token` 读�
 
 经理机负责调度和数据汇总，账号槽位设在员工机。用户通过经理 Agent 对话配置账号人设、运营目标
 和任务，经理 Agent 保存配置、记录计划，通过 SSH 下发执行并回收结果。WebUI 展示员工机账号、
-账号人设、目标进展与执行记录。
+账号人设、目标进展与执行记录，账号管理支持手动编辑专属人设。员工机详情按账号展示今日目标、
+实际完成情况及往日记录，并展示最近一个已规划的未来运营日。
+
+“明日任务规划”按日期保存每个员工机账号的参与状态、浏览、点赞、评论、发布数量和说明。
+经理 Agent 在安排当日任务前使用 `daily-plan list` 读取对应日期的已保存规划，按参与账号的
+确切数量创建运营目标和执行计划，并沿用账号人设。保存数量规划只更新经理机规划数据，
+执行仍通过运营任务领取、计划和下发流程完成。
 
 每个“员工机编号 + 账号槽位”对应一份人设。配置前先用 `persona list` 读取现有人设，后续调整更新
-同一 `persona_id` 并保留版本；已下发任务使用创建时的人设快照。人设内容以用户对话确认为准，
+同一 `persona_id` 并保留版本；已下发任务使用创建时的人设快照。人设内容以用户配置为准，
 通过 UTF-8 JSON 文件调用 `persona save --input-file <绝对路径>` 保存。以下命令用于配置和复核：
 
 ```powershell
 python scripts/manager_cli.py persona list
+python scripts/manager_cli.py daily-plan list
+python scripts/manager_cli.py daily-plan save --input-file "C:\manager-input\daily-plan.json"
 python scripts/manager_cli.py persona save --input-file "C:\manager-input\account-persona.json"
 python scripts/manager_cli.py operation-task list --state WAITING_AGENT
 python scripts/manager_cli.py operation-task claim `

@@ -468,6 +468,8 @@ def _dispatch_manager_api(
         return manager.list_accounts()
     if path == f"{prefix}/personas":
         return manager.list_personas()
+    if path == f"{prefix}/daily-plans":
+        return manager.list_daily_plans()
     if path == f"{prefix}/goals":
         return manager.list_goals()
     if path == f"{prefix}/operation-tasks":
@@ -542,6 +544,8 @@ def _dispatch_manager_mutation(
         return manager.dispatch_task(body)
     if method in {"POST", "PATCH"} and path == f"{prefix}/personas":
         return manager.save_persona(body)
+    if method == "POST" and path == f"{prefix}/daily-plans":
+        return manager.save_daily_plan(body)
     if method in {"POST", "PATCH"} and path == f"{prefix}/goals":
         return manager.save_goal(body)
     if method == "POST" and path == f"{prefix}/operation-tasks":
@@ -556,6 +560,13 @@ def _dispatch_manager_mutation(
         return manager.set_function_version_policy(body)
 
     parts = [unquote(part) for part in path.split("/") if part]
+    if (
+        method == "POST"
+        and len(parts) == 6
+        and parts[:4] == ["api", "v1", "manager", "machines"]
+        and parts[5] == "account-lifecycle"
+    ):
+        return manager.manage_remote_account(parts[4], body)
     if (
         len(parts) == 8
         and parts[:4] == ["api", "v1", "manager", "machines"]

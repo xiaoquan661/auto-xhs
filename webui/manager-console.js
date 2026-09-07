@@ -28,12 +28,17 @@
     system: {},
     personas: [],
     goals: [],
+    dailyPlans: [],
     operationTasks: [],
     agentMessages: [],
     snapshot: {},
   };
   const pendingActions = new Set();
   const expandedPersonas = new Set();
+  const expandedWorkerDays = new Set();
+  let editingPersona = null;
+  let planning = null;
+  let accountTools = null;
   let selectedMachineId = localStorage.getItem("auto-xhs:manager-machine") || "";
   let selectedAccountNode = localStorage.getItem("auto-xhs:manager-account-node") || "all";
   let selectedOperationTaskId = "";
@@ -701,6 +706,18 @@
         accountActionButton("检查身份", "identity-check", account),
       );
       card.appendChild(actions);
+      const more = element("details", "manager-account-more");
+      more.appendChild(element("summary", "", "更多账号管理"));
+      const tools = element("div", "manager-card-actions");
+      for (const [label, action] of [["扩展配对", "pair-begin"], ["切换账号", "switch-begin"],
+        ["完成换号", "switch-complete"], ["退出登录", "logout"],
+        ["停止 Bridge", "bridge-stop"], ["删除账号槽位", "delete"]]) {
+        const button = element("button", "secondary-button", label);
+        button.type = "button";
+        button.addEventListener("click", () => accountTools.open(action, account));
+        tools.appendChild(button);
+      }
+      append(more, tools); card.appendChild(more);
     }
     card.appendChild(accountPersonaPanel(account));
     return card;
@@ -766,159 +783,170 @@
     return card;
   }
 
+  function workerMetric(record, kind) {
+    const capability = resultCapability(record);
+    if (/^(collect-|prepare-|generate-|fill-|save-|check-|list-|search-)/.test(capability)) {
+      return { target: null, actual: null };
+    }
+    const [target, actual] = actionTargetActualText([record], kind).split(" / ");
+    return { target: numericCount(target === "—" ? null : target),
+      actual: numericCount(actual === "—" ? null : actual) };
+  }
+
+  function workerTaskDate(task) {
+    return localDateValue(task.created_at || task.request?.created_at);
+  }
+
+  function workerDayMetrics(machineId, accountSlot, date) {
+    const plan = (state.dailyPlans || []).find((item) => item.plan_date === date)
+      ?.accounts.find((row) => row.machine_id === machineId && row.account_slot === accountSlot);
+    const tasks = state.tasks.filter((task) => task.machine_id === machineId
+      && task.request?.account_slot === accountSlot && workerTaskDate(task) === date
+      && taskPrimaryState(task) !== "CANCELLED");
+    const results = state.results.filter((result) => result.machine_id === machineId
+      && resultAccount(result) === accountSlot && resultDate(result) === date);
+    const goals = state.goals.filter((goal) => goal.period_start === date && goal.period_end === date
+      && !["DRAFT", "CANCELLED"].includes(goal.state) && goal.targets?.length === 1
+      && goal.targets[0].machine_id === machineId && goal.targets[0].account_slot === accountSlot);
+    const planned = tasks.map((task) => ({ task_request: task.request }));
+    // A receipt can outlive its task in the manager cache; count its request only once.
+    const taskIds = new Set(state.tasks.filter((task) => task.machine_id === machineId)
+      .map((task) => task.task_id));
+    results.filter((result) => !taskIds.has(result.task_id))
+      .forEach((result) => planned.push(result));
+    return Object.keys(metricLabels).map((kind) => {
+      const targets = goals.map((goal) => numericCount(goal.target_metrics?.[kind]));
+      targets.push(...planned.filter((record) => !goals.some((goal) =>
+        goal.goal_id === (record.goal_id || resultRequest(record).goal_id)
+        && numericCount(goal.target_metrics?.[kind]) !== null))
+        .map((record) => workerMetric(record, kind).target));
+      const knownTargets = targets.filter((value) => value !== null);
+      const observations = results.map((result) => workerMetric(result, kind));
+      const knownActuals = observations.map((item) => item.actual).filter((value) => value !== null);
+      const target = plan ? (plan.participating ? numericCount(plan.metrics[kind]) : 0)
+        : knownTargets.length ? knownTargets.reduce((sum, n) => sum + n, 0) : null;
+      const actual = knownActuals.length ? knownActuals.reduce((sum, n) => sum + n, 0) : null;
+      const incomplete = observations.some((item) => item.target !== null && item.actual === null);
+      let status = "未设置目标";
+      let tone = "info";
+      if (incomplete || (actual === null && target !== null)) status = "等待回执";
+      else if (target !== null && actual !== null) {
+        status = actual >= target ? "完成" : `${actual === 0 ? "未开始" : "进行中"} · 差 ${target - actual}`;
+        tone = actual >= target ? "success" : "warning";
+      } else if (actual !== null) status = "已回传";
+      return { kind, target, actual, status, tone, incomplete };
+    });
+  }
+
+  function workerDayCard(machineId, accountSlot, date) {
+    const account = state.accounts.find((item) => item.machine_id === machineId
+      && item.account_slot === accountSlot);
+    const card = element("section", "worker-day-account");
+    append(card, append(element("div", "worker-account-strip"),
+      element("span", "", "执行账号"), element("strong", "", account?.nickname || accountSlot),
+      element("small", "", `${machineId} / ${accountSlot}`)));
+    const rows = workerDayMetrics(machineId, accountSlot, date).map((metric) => {
+      const badge = element("span", "manager-state-badge", metric.status);
+      badge.dataset.tone = metric.tone;
+      const actual = metric.actual === null ? "—"
+        : metric.incomplete ? `${metric.actual}（部分回传）` : metric.actual;
+      return [metricLabels[metric.kind], metric.target ?? "—", actual, badge];
+    });
+    card.appendChild(observationTable(["指标", "目标", "实际", "状态"], rows,
+      `${date} ${accountSlot} 目标与实际完成情况`));
+    return card;
+  }
+
+  function workerDayAccounts(machineId, date) {
+    const accounts = new Set();
+    (state.dailyPlans || []).filter((plan) => plan.plan_date === date)
+      .forEach((plan) => plan.accounts.filter((row) => row.machine_id === machineId)
+        .forEach((row) => accounts.add(row.account_slot)));
+    state.tasks.filter((task) => task.machine_id === machineId && workerTaskDate(task) === date)
+      .forEach((task) => accounts.add(task.request?.account_slot));
+    state.results.filter((result) => result.machine_id === machineId && resultDate(result) === date)
+      .forEach((result) => accounts.add(resultAccount(result)));
+    state.goals.filter((goal) => goal.period_start === date && goal.period_end === date)
+      .forEach((goal) => (goal.targets || []).filter((target) => target.machine_id === machineId)
+        .forEach((target) => accounts.add(target.account_slot)));
+    if (date === localDateValue(new Date())) {
+      state.accounts.filter((account) => account.machine_id === machineId)
+        .forEach((account) => accounts.add(account.account_slot));
+    }
+    return [...accounts].filter(Boolean).sort();
+  }
+
+  function nextWorkerPlan(machineId, today) {
+    return [...(state.dailyPlans || [])].filter((plan) => plan.plan_date > today
+      && plan.accounts.some((row) => row.machine_id === machineId && row.participating))
+      .sort((a, b) => a.plan_date.localeCompare(b.plan_date))[0];
+  }
+
+  function renderWorkerNextDay(machineId, today) {
+    const plan = nextWorkerPlan(machineId, today);
+    const host = $("#worker-next-day");
+    $("#worker-next-plan-link").onclick = () => {
+      if (plan) planning.selectDate(plan.plan_date);
+    };
+    if (!plan) {
+      host.replaceChildren(emptyCard("待规划", "保存该员工机的未来计划后，在这里展示操作数量。"));
+      return;
+    }
+    host.replaceChildren(...plan.accounts.filter((row) => row.machine_id === machineId
+      && row.participating).map((row) => {
+      const account = state.accounts.find((item) => item.machine_id === machineId
+        && item.account_slot === row.account_slot);
+      const card = element("article", "worker-next-account");
+      const heading = element("div", "room-section-head");
+      const badge = element("span", "manager-state-badge", "已规划");
+      badge.dataset.tone = "success";
+      append(heading, element("h3", "", `${plan.plan_date} · ${account?.nickname || row.account_slot}`), badge);
+      const metrics = element("div", "daily-plan-numbers");
+      ["browse", "like", "comment", "publish"].forEach((kind) => {
+        append(metrics, append(element("div"), element("span", "", metricLabels[kind]),
+          element("strong", "", String(row.metrics[kind] ?? 0))));
+      });
+      append(card, heading, metrics,
+        element("p", "room-footnote", row.notes || `${machineId} / ${row.account_slot} · 由经理 Agent 安排执行`));
+      return card;
+    }));
+  }
+
   function renderMachineDetail(machine) {
-    const hero = $("#manager-detail-hero");
-    const accountList = $("#manager-machine-account-list");
-    const taskList = $("#manager-machine-task-list");
-    const agentList = $("#manager-machine-agent-list");
-    const todayList = $("#manager-machine-today-list");
-    const activityList = $("#manager-machine-activity-list");
-    const alertList = $("#manager-machine-alert-list");
-    if (!hero || !accountList || !taskList || !todayList || !activityList || !alertList) return;
-
-    setText("#manager-machine-detail-kicker", `EXECUTOR · ${machine.machine_id}`);
+    setText("#manager-machine-detail-kicker", `员工机 · ${machine.machine_id}`);
     setText("#manager-machine-detail-title", machine.host_alias || machine.machine_id);
-    setText(
-      "#manager-machine-detail-description",
-      `${machine.machine_id} 的连接、调度、任务与回读状态。`,
-    );
-
-    const head = element("div", "manager-detail-hero-head");
-    const title = element("div", "manager-card-title");
-    const copy = element("div");
-    append(
-      copy,
-      element("strong", "", machine.host_alias || machine.machine_id),
-      element("small", "", machine.machine_id),
-    );
-    append(title, element("span", "manager-machine-icon", machineAvatar(machine)), copy);
-    append(head, title, stateBadge(machine.status));
-    const facts = factList(
-      [
-        ["SSH 地址", `${machine.ssh_user || "—"}@${machine.ssh_host || "—"}:${machine.ssh_port || 22}`],
-        ["连接状态", labelFor(machine.ssh_state)],
-        ["项目版本", machine.installed_version || "尚未读取"],
-        ["允许版本", (machine.allowed_versions || []).join("、") || "—"],
-        ["工作目录", machine.working_directory],
-        ["最近检查", formatTime(machine.last_check_at)],
-      ],
-      "manager-detail-facts",
-    );
-    hero.replaceChildren(head, facts);
-    if (Boolean(machine.desired_paused) !== Boolean(machine.remote_paused)) {
-      hero.appendChild(element("p", "manager-inline-message", "暂停状态正在等待执行机回读同步。"));
-    }
-    if (machine.last_error) {
-      hero.appendChild(element("p", "manager-inline-message", machine.last_error));
-    }
-    hero.appendChild(machineActionButtons(machine));
-
-    const tasks = recordsForMachine(state.tasks, machine.machine_id);
-    const results = recordsForMachine(state.results, machine.machine_id);
-    const transfers = recordsForMachine(state.transfers, machine.machine_id);
-    const incremental = recordsForMachine(state.incrementalRecords, machine.machine_id);
-    const accounts = recordsForMachine(state.accounts, machine.machine_id);
-    const alerts = alertsForMachine(machine.machine_id);
-    const todayResults = results.filter((result) =>
-      sameLocalDay(result.recorded_at || result.collected_at || result.updated_at),
-    );
-    setText("#manager-detail-account-total", accounts.length);
-    setText(
-      "#manager-detail-today",
-      todayResults.reduce((total, result) => total + resultOperationCount(result), 0),
-    );
-    setText(
-      "#manager-detail-pending",
-      tasks.filter((task) => String(task.dispatch_state || "").toUpperCase() === "PENDING_DISPATCH")
-        .length,
-    );
-    setText(
-      "#manager-detail-running",
-      tasks.filter(taskIsExecuting).length,
-    );
-    setText(
-      "#manager-detail-paused",
-      tasks.filter((task) => String(task.dispatch_state || "").toUpperCase() === "PAUSED").length,
-    );
-    setText(
-      "#manager-detail-success",
-      results.filter((result) => String(result.state || result.status).toUpperCase() === "SUCCESS")
-        .length,
-    );
-    setText("#manager-detail-reconcile", tasks.filter(taskNeedsReconciliation).length);
-    setText("#manager-detail-incremental", incremental.length);
-
-    const accountCards = accounts.map((account) => compactAccountCard(account));
-    accountList.replaceChildren(
-      ...(accountCards.length
-        ? accountCards
-        : [emptyCard("暂无账号缓存", "运行连接检查或在账号管理页同步这台员工机。")]),
-    );
-
-    const taskCards = tasks
-      .sort((left, right) => Number(taskIsActive(right)) - Number(taskIsActive(left))
-        || activityTime(right) - activityTime(left))
-      .slice(0, 6)
-      .map(compactTaskCard);
-    taskList.replaceChildren(
-      ...(taskCards.length
-        ? taskCards
-        : [emptyCard("暂无 Agent 任务", "Agent 向这台执行机下发后会显示在这里。")]),
-    );
-
-    const taskIds = new Set(tasks.map((task) => task.task_id));
-    const agentName = `${machine.machine_id}-AGENT`;
-    const messages = state.agentMessages.filter((message) =>
-      message.payload?.machine_id === machine.machine_id
-      || taskIds.has(message.task_id)
-      || message.from_agent === agentName
-      || message.to_agent === agentName,
-    ).sort((left, right) => activityTime(right) - activityTime(left));
-    agentList?.replaceChildren(
-      ...(messages.length
-        ? messages.slice(0, 12).reverse().map(operationTimelineItem)
-        : [emptyCard("暂无协作记录", "这台员工机的 ACK、执行进度和结果回执会显示在这里。")]),
-    );
-    const latestAck = messages.find((message) => message.message_type === "TASK_ACK");
-    hero.appendChild(factList([
-      ["最近 ACK", formatTime(latestAck?.created_at)],
-      ["最近回收", formatTime(machine.last_result_success_at)],
-    ]));
-
-    const todayCards = [...todayResults]
-      .sort((left, right) => activityTime(right) - activityTime(left))
-      .slice(0, 8)
-      .map(compactTodayResultCard);
-    todayList.replaceChildren(
-      ...(todayCards.length
-        ? todayCards
-        : [emptyCard("今日暂无结果", "平台结果回读后会按动作显示在这里。")]),
-    );
-
-    const activity = [
-      ...results.map((record) => ({ record, type: "result" })),
-      ...transfers.map((record) => ({ record, type: "transfer" })),
-    ]
-      .sort((left, right) => activityTime(right.record) - activityTime(left.record))
-      .slice(0, 6)
-      .map(({ record, type }) => compactActivityCard(record, type));
-    activityList.replaceChildren(
-      ...(activity.length
-        ? activity
-        : [emptyCard("暂无结果或传输", "回收结果或传输功能包后会显示在这里。")]),
-    );
-    const alertCards = alerts.map(compactAlertCard);
-    if (machine.status !== "READY" && machine.status !== "PAUSED") {
-      alertCards.unshift(emptyCard(
-        `机器${labelFor(machine.status)}`,
-        machine.stale_reason || machine.last_error || "请检查这台员工机的连接和执行服务。",
-      ));
-    }
-    alertList.replaceChildren(
-      ...(alertCards.length
-        ? alertCards
-        : [emptyCard("当前状态正常", "当前没有需要处理的机器或账号告警。")]),
-    );
+    setText("#manager-machine-detail-description", "按账号查看运营目标与实际完成情况。");
+    const today = localDateValue(new Date());
+    renderWorkerNextDay(machine.machine_id, today);
+    setText("#worker-today-date", today);
+    const accounts = workerDayAccounts(machine.machine_id, today);
+    $("#worker-today-progress").replaceChildren(...(accounts.length
+      ? accounts.map((slot) => workerDayCard(machine.machine_id, slot, today))
+      : [emptyCard("暂无当日运营记录", "账号和目标下发后自动展示完成情况。")]));
+    const dates = new Set([
+      ...(state.dailyPlans || []).filter((plan) => plan.accounts.some((row) =>
+        row.machine_id === machine.machine_id)).map((plan) => plan.plan_date),
+      ...state.tasks.filter((task) => task.machine_id === machine.machine_id).map(workerTaskDate),
+      ...state.results.filter((result) => result.machine_id === machine.machine_id).map(resultDate),
+      ...state.goals.filter((goal) => goal.period_start === goal.period_end
+        && goal.targets?.some((target) => target.machine_id === machine.machine_id))
+        .map((goal) => goal.period_start),
+    ].filter((date) => date && date < today));
+    setText("#worker-history-count", `${dates.size} 天`);
+    $("#worker-history-list").replaceChildren(...(dates.size
+      ? [...dates].sort().reverse().map((date) => {
+        const detail = element("details", "worker-history-day");
+        const key = `${machine.machine_id}:${date}`;
+        detail.open = expandedWorkerDays.has(key);
+        detail.addEventListener("toggle", () => {
+          if (detail.open) expandedWorkerDays.add(key);
+          else expandedWorkerDays.delete(key);
+        });
+        append(detail, element("summary", "", date),
+          ...workerDayAccounts(machine.machine_id, date)
+            .map((slot) => workerDayCard(machine.machine_id, slot, date)));
+        return detail;
+      }) : [element("p", "manager-inline-message", "暂无往日记录。") ]));
   }
 
   function renderMachineStage() {
@@ -1094,13 +1122,17 @@
       if (panel.open) expandedPersonas.add(accountKey);
       else expandedPersonas.delete(accountKey);
     });
-    const title = persona?.display_name || "等待经理 Agent 配置";
+    const title = persona?.display_name || "待配置";
     panel.appendChild(element("summary", "", `账号人设 · ${title}`));
+    const edit = element("button", "secondary-button", persona ? "编辑人设" : "配置人设");
+    edit.type = "button";
+    edit.addEventListener("click", () => openPersonaEditor(account));
+    panel.appendChild(append(element("div", "manager-persona-toolbar"),
+      persona ? stateBadge(persona.status) : element("span", "", "为此账号配置专属人设"), edit));
     if (!persona) {
-      panel.appendChild(element("p", "manager-inline-message", "在经理 Agent 对话中配置此账号的人设。"));
       return panel;
     }
-    append(panel, stateBadge(persona.status), factList([
+    append(panel, factList([
       ["角色定位", persona.role], ["目标受众", persona.audience],
       ["内容主题", (persona.content_topics || []).join("、")], ["语言", persona.language],
       ["表达语气", persona.tone], ["互动方式", persona.interaction_style],
@@ -1108,6 +1140,54 @@
       ["版本", `v${persona.version || 1}`], ["更新时间", formatTime(persona.updated_at)],
     ]));
     return panel;
+  }
+
+  function openPersonaEditor(account) {
+    const persona = state.personas.find((item) => item.machine_id === account.machine_id
+      && item.account_slot === account.account_slot) || {};
+    editingPersona = { machine_id: account.machine_id, account_slot: account.account_slot,
+      persona_id: persona.persona_id || "" };
+    const form = $("#manager-persona-editor-form");
+    form.reset();
+    for (const field of ["display_name", "role", "audience", "language", "tone",
+      "interaction_style", "fact_boundaries", "knowledge", "status", "content_topics"]) {
+      const value = persona[field];
+      form.elements.namedItem(field).value = Array.isArray(value) ? value.join("、")
+        : value || (field === "language" ? "中文" : field === "status" ? "ACTIVE" : "");
+    }
+    setText("#manager-persona-editor-account", `${account.machine_id} / ${account.account_slot}`);
+    setText("#manager-persona-editor-version", persona.version ? `当前版本 v${persona.version}` : "首次配置");
+    setMessage("#manager-persona-editor-message", "");
+    $("#manager-persona-editor").showModal();
+  }
+
+  async function savePersonaEditor(event) {
+    event.preventDefault();
+    if (!editingPersona) return;
+    const form = event.currentTarget;
+    const button = form.querySelector("button[type='submit']");
+    const body = { ...editingPersona };
+    for (const field of ["display_name", "role", "audience", "language", "tone",
+      "interaction_style", "fact_boundaries", "knowledge", "status"]) {
+      body[field] = form.elements.namedItem(field).value.trim();
+    }
+    body.content_topics = form.elements.namedItem("content_topics").value
+      .split(/[、，,\n]/).map((value) => value.trim()).filter(Boolean);
+    button.disabled = true;
+    setMessage("#manager-persona-editor-message", "正在保存人设…");
+    try {
+      const payload = await mutateJson(`${managerApi}/personas`, "POST", body);
+      state.personas = [...state.personas.filter((item) => item.persona_id !== payload.persona.persona_id),
+        payload.persona];
+      expandedPersonas.add(`${body.machine_id}:${body.account_slot}`);
+      $("#manager-persona-editor").close();
+      renderAccountWorkspace();
+      setMessage("#manager-account-message", `人设已保存 · v${payload.persona.version}`, "success");
+    } catch (error) {
+      setMessage("#manager-persona-editor-message", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function metricSummary(metrics, emptyLabel = "以期望成果为准") {
@@ -2619,6 +2699,7 @@
   }
 
   function renderAll() {
+    planning?.render();
     renderMachines();
     renderPublishReviews();
     renderAccountWorkspace();
@@ -2688,6 +2769,7 @@
   function selectManagerView(viewId, updateHash = true) {
     const allowed = new Set([
       "overview",
+      "planning",
       "workers",
       "accounts",
       "results",
@@ -2836,6 +2918,7 @@
     state.sync = snapshot.collection || {};
     state.personas = snapshot.personas || [];
     state.goals = snapshot.goals || [];
+    state.dailyPlans = snapshot.daily_plans || [];
     state.operationTasks = snapshot.operation_tasks || [];
     state.agentMessages = snapshot.agent_messages || [];
     renderAll();
@@ -3093,6 +3176,16 @@
   }
 
   function bindEvents() {
+    planning = window.AutoXhsPlanning({state, mutateJson, managerApi, localDateValue,
+      workerDayMetrics, metricLabels, formatTime});
+    planning.init();
+    accountTools = window.AutoXhsAccountTools({state, mutateJson, fetchJson, managerApi, load});
+    $("#manager-account-add").addEventListener("click", () => accountTools.open("create"));
+    $("#manager-persona-editor-form").addEventListener("submit", savePersonaEditor);
+    $("#manager-persona-editor-close").addEventListener("click", () => {
+      $("#manager-persona-editor").close();
+    });
+    $("#manager-persona-editor").addEventListener("close", () => { editingPersona = null; });
     document.querySelectorAll("[data-manager-progress-tab]").forEach((button) => {
       button.addEventListener("click", () => selectProgressTab(button.dataset.managerProgressTab));
       button.addEventListener("keydown", (event) => {

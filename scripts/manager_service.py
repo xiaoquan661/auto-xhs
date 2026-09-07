@@ -370,6 +370,7 @@ class ManagerService:
             "alerts": alerts,
             "personas": personas_payload["personas"],
             "goals": goals_payload["goals"],
+            "daily_plans": self.list_daily_plans()["plans"],
             "operation_tasks": operation_tasks_payload["operation_tasks"],
             "agent_messages": messages_payload["agent_messages"],
             "versions": self.store.list("versions"),
@@ -436,6 +437,76 @@ class ManagerService:
         saved = self.store.put("agent_messages", message_id, record)
         return {"success": True, "agent_message": saved}
 
+    def list_daily_plans(self) -> dict:
+        plans = sorted(self.store.list("daily_plans"), key=lambda item: item["plan_date"])
+        return {"success": True, "plans": plans}
+
+    def save_daily_plan(self, request: dict) -> dict:
+        """Save dated account quantities for subsequent Agent planning."""
+        try:
+            plan_date = date.fromisoformat(str(request.get("plan_date") or "")).isoformat()
+        except ValueError as exc:
+            raise ServiceError("INVALID_PLAN_DATE", "请选择有效的计划日期") from exc
+        entries = request.get("accounts")
+        if not isinstance(entries, list):
+            raise ServiceError("INVALID_PLAN", "计划需要包含账号列表")
+        accounts = []
+        seen = set()
+        for entry in entries:
+            machine = self._get_machine(str(entry.get("machine_id") or ""))
+            slot = str(entry.get("account_slot") or "").strip()
+            key = self._account_key(machine["machine_id"], slot)
+            if key in seen or not self.store.get("accounts", key):
+                raise ServiceError("INVALID_PLAN_ACCOUNT", "请选择已登记且不重复的员工机账号")
+            seen.add(key)
+            metrics = {}
+            for kind in ("browse", "like", "comment", "publish"):
+                value = (entry.get("metrics") or {}).get(kind, 0)
+                if type(value) is not int or value < 0:
+                    raise ServiceError("INVALID_PLAN_COUNT", "操作数量必须为非负整数")
+                metrics[kind] = value
+            accounts.append(
+                {
+                    "machine_id": machine["machine_id"],
+                    "account_slot": slot,
+                    "participating": entry.get("participating") is True,
+                    "metrics": metrics,
+                    "notes": str(entry.get("notes") or "").strip(),
+                }
+            )
+        previous = self.store.get("daily_plans", plan_date) or {}
+        plan = self.store.put(
+            "daily_plans",
+            plan_date,
+            {
+                "plan_date": plan_date,
+                "accounts": accounts,
+                "status": "SAVED",
+                "version": int(previous.get("version", 0)) + 1,
+                "updated_at": utc_now(),
+            },
+        )
+        return {"success": True, "plan": plan}
+
+    def manage_remote_account(self, machine_id: str, request: dict) -> dict:
+        """Forward account lifecycle controls to the selected worker's local service."""
+        machine = self._get_machine(machine_id)
+        try:
+            response = self.transport.invoke(
+                machine, "account-lifecycle", request, timeout_seconds=90
+            )
+        except ManagerTransportError as exc:
+            raise ServiceError("ACCOUNT_ACTION_UNKNOWN", f"操作结果待核对：{exc}", 409) from exc
+        remote_error = self._remote_error(response)
+        if remote_error:
+            code, message = remote_error
+            raise ServiceError(code, message, 409)
+        if request.get("action") == "delete" and response.get("archived"):
+            key = self._account_key(machine["machine_id"], str(request.get("account") or ""))
+            self.store.delete("accounts", key)
+            self.store.delete("account_alerts", key)
+        return {"success": True, "operation": response, "machine_id": machine["machine_id"]}
+
     def save_persona(self, request: dict) -> dict:
         """Create or update the stable persona configuration bound to an account unit."""
 
@@ -463,8 +534,7 @@ class ManagerService:
             (
                 item
                 for item in self.store.list("personas")
-                if item.get("account_key") == account_key
-                and item.get("persona_id") != persona_id
+                if item.get("account_key") == account_key and item.get("persona_id") != persona_id
             ),
             None,
         )
@@ -2078,14 +2148,19 @@ class ManagerService:
         next_cursor = cursor
         collection_error = ""
         archive_root = (
-            self.store.root / "daily_receipts" / datetime.now().astimezone().date().isoformat()
-            / "raw" / self._safe_path_component(machine_id)
+            self.store.root
+            / "daily_receipts"
+            / datetime.now().astimezone().date().isoformat()
+            / "raw"
+            / self._safe_path_component(machine_id)
         )
 
         def archive_receipt(metadata: dict, local_record: Path) -> None:
-            target = archive_root / self._safe_path_component(
-                str(metadata.get("task_id") or "unassigned")
-            ) / f"{int(metadata['sequence']):012d}.json"
+            target = (
+                archive_root
+                / self._safe_path_component(str(metadata.get("task_id") or "unassigned"))
+                / f"{int(metadata['sequence']):012d}.json"
+            )
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(local_record, target)

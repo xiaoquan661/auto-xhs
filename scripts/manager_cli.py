@@ -85,6 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--machine-id", required=True, help="执行机编号")
         command.set_defaults(handler=handler)
 
+    daily = resources.add_parser("daily-plan", help="保存和读取每日账号操作计划")
+    daily_actions = daily.add_subparsers(dest="action", required=True)
+    daily_save = daily_actions.add_parser("save", help="保存每日数量计划")
+    _add_input_file(daily_save, "包含日期和账号操作数量的 UTF-8 JSON 绝对路径")
+    daily_save.set_defaults(handler=_daily_plan_save)
+    daily_list = daily_actions.add_parser("list", help="读取每日数量计划")
+    daily_list.set_defaults(handler=_daily_plan_list)
+
     persona = resources.add_parser("persona", help="保存和读取账号人设卡")
     persona_actions = persona.add_subparsers(dest="action", required=True)
     persona_save = persona_actions.add_parser("save", help="新建或更新账号人设卡")
@@ -296,6 +304,14 @@ def _machine_resume(args: argparse.Namespace, service: ManagerService) -> dict:
 
 def _task_dispatch(args: argparse.Namespace, service: ManagerService) -> dict:
     return service.dispatch_task(load_json_object(args.input_file))
+
+
+def _daily_plan_save(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.save_daily_plan(load_json_object(args.input_file))
+
+
+def _daily_plan_list(_args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.list_daily_plans()
 
 
 def _persona_save(args: argparse.Namespace, service: ManagerService) -> dict:

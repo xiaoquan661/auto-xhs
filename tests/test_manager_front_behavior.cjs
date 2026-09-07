@@ -207,3 +207,127 @@ assert.equal(dayMetrics.find((item) => item.kind === "publish").actual, "—");
 assert.equal(resultContext.controlRoomDayMetrics([{capability: "like-feed", actual_count: 0}])
   .find((item) => item.kind === "like").actual, "0");
 console.log("PASS: dashboard daily metrics preserve observed zero and missing quantities");
+
+resultContext.state = {tasks: [], results: [], goals: [], accounts: []};
+resultContext.metricLabels = {browse: "浏览", like: "点赞", comment: "评论",
+  reply: "回复", publish: "发布"};
+for (const name of ["taskForResult", "taskPrimaryState", "localDateValue", "resultDate",
+  "resultAccount", "workerMetric", "workerTaskDate", "workerDayMetrics", "workerDayAccounts"]) {
+  vm.runInContext(extract(name), resultContext);
+}
+const dailyRequest = {account_slot: "account-a", goal_id: "daily-goal",
+  capability: "home-engagement", parameters: {browse_count: 5, like_count: 2}};
+resultContext.state.tasks = [{task_id: "daily-task", machine_id: "QA-A",
+  created_at: "2026-09-06T17:00:00Z", request: dailyRequest}];
+resultContext.state.goals = [{goal_id: "daily-goal", state: "ACTIVE",
+  period_start: "2026-09-07", period_end: "2026-09-07",
+  targets: [{machine_id: "QA-A", account_slot: "account-a"}], target_metrics: {browse: 5}}];
+resultContext.state.results = [{...engagement[0], task_id: "daily-task", machine_id: "QA-A",
+  recorded_at: "2026-09-07T02:00:00Z", task_request: dailyRequest}];
+const workerMetric = (kind) => resultContext.workerDayMetrics("QA-A", "account-a", "2026-09-07")
+  .find((item) => item.kind === kind);
+assert.equal(workerMetric("browse").target, 5);
+assert.equal(workerMetric("browse").actual, 2);
+assert.equal(workerMetric("browse").status, "进行中 · 差 3");
+assert.equal(workerMetric("like").target, 2);
+assert.equal(workerMetric("like").actual, 1);
+assert.equal(resultContext.workerDayMetrics("QA-A", "account-b", "2026-09-07")[0].actual, null);
+assert.equal(resultContext.workerDayMetrics("QA-B", "account-a", "2026-09-07")[0].target, null);
+assert.equal(resultContext.workerDayMetrics("QA-A", "account-a", "2026-09-06")[0].target, null);
+assert.deepEqual(Array.from(resultContext.workerDayAccounts("QA-A", "2026-09-07")), ["account-a"]);
+
+// A receipt without item counts keeps the total visibly incomplete.
+resultContext.state.results.push({task_id: "pending-receipt", machine_id: "QA-A",
+  recorded_at: "2026-09-07T03:00:00Z", task_request: dailyRequest});
+assert.equal(workerMetric("browse").target, 5);
+assert.equal(workerMetric("browse").actual, 2);
+assert.equal(workerMetric("browse").incomplete, true);
+assert.equal(workerMetric("browse").status, "等待回执");
+resultContext.state.results = [{task_id: "daily-task", machine_id: "QA-A",
+  recorded_at: "2026-09-07T03:00:00Z", task_request: dailyRequest, item_results: []}];
+assert.equal(workerMetric("browse").actual, 0);
+assert.equal(workerMetric("browse").status, "未开始 · 差 5");
+resultContext.state.results[0].item_results = undefined;
+assert.equal(workerMetric("browse").actual, null);
+assert.equal(workerMetric("browse").status, "等待回执");
+
+resultContext.state.goals[0].period_start = "2026-09-01";
+resultContext.state.goals[0].target_metrics.browse = 100;
+assert.equal(workerMetric("browse").target, 5);
+for (const capability of ["collect-private-messages", "collect-note-comments", "prepare-private-messages",
+  "generate-reply-draft", "fill-publish", "list-feeds"]) {
+  for (const kind of Object.keys(resultContext.metricLabels)) {
+    assert.equal(resultContext.workerMetric({capability, target_count: 20, actual_count: 20}, kind)
+      .actual, null);
+  }
+}
+console.log("PASS: worker daily targets, account/date isolation, receipt completeness and history");
+
+vm.runInContext(extract("nextWorkerPlan"), resultContext);
+const dailyRow = {machine_id: "QA-A", account_slot: "account-a", participating: true,
+  metrics: {browse: 30, like: 6, comment: 3, reply: 0, publish: 1}};
+resultContext.state.dailyPlans = [
+  {plan_date: "2026-09-10", accounts: [dailyRow]},
+  {plan_date: "2026-09-08", accounts: [{...dailyRow, participating: false}]},
+  {plan_date: "2026-09-09", accounts: [dailyRow]},
+  {plan_date: "2026-09-07", accounts: [dailyRow]},
+];
+assert.equal(resultContext.nextWorkerPlan("QA-A", "2026-09-07").plan_date, "2026-09-09");
+assert.equal(resultContext.nextWorkerPlan("QA-B", "2026-09-07"), undefined);
+assert.equal(workerMetric("browse").target, 30);
+assert.deepEqual(Array.from(resultContext.workerDayAccounts("QA-A", "2026-09-09")), ["account-a"]);
+console.log("PASS: next operating day selects the nearest participating plan and uses saved quantities");
+
+async function checkPersonaEditor() {
+  const fields = Object.fromEntries(["display_name", "role", "audience", "language", "tone",
+    "interaction_style", "fact_boundaries", "knowledge", "status", "content_topics"]
+    .map((field) => [field, {value: ""}]));
+  const submit = {disabled: false};
+  const form = {reset() {}, elements: {namedItem: (field) => fields[field]},
+    querySelector: () => submit};
+  const dialog = {open: false, showModal() {this.open = true;}, close() {this.open = false;}};
+  const messages = {};
+  let saved;
+  const editor = vm.createContext({
+    editingPersona: null, expandedPersonas: new Set(), managerApi: "/api/v1/manager",
+    state: {personas: [{persona_id: "persona-a", machine_id: "QA-A", account_slot: "account-a",
+      display_name: "自然浏览者", version: 3, content_topics: ["生活", "阅读"]}]},
+    $: (selector) => selector.endsWith("-form") ? form : dialog,
+    setText() {}, setMessage: (selector, message) => {messages[selector] = message;},
+    renderAccountWorkspace() {},
+    mutateJson: async (url, method, body) => {
+      saved = {url, method, body};
+      return {persona: {...body, version: 4}};
+    },
+  });
+  // Include the async save handler following the editor's opening function.
+  vm.runInContext(extract("openPersonaEditor"), editor);
+  editor.openPersonaEditor({machine_id: "QA-A", account_slot: "account-a"});
+  assert.equal(dialog.open, true);
+  assert.equal(fields.display_name.value, "自然浏览者");
+  assert.equal(fields.content_topics.value, "生活、阅读");
+  fields.display_name.value = "  阅读分享者  ";
+  fields.content_topics.value = "生活、阅读，旅行\n摄影";
+  await editor.savePersonaEditor({preventDefault() {}, currentTarget: form});
+  assert.equal(saved.url, "/api/v1/manager/personas");
+  assert.equal(saved.method, "POST");
+  assert.equal(saved.body.machine_id, "QA-A");
+  assert.equal(saved.body.account_slot, "account-a");
+  assert.equal(saved.body.persona_id, "persona-a");
+  assert.equal(saved.body.display_name, "阅读分享者");
+  assert.deepEqual(Array.from(saved.body.content_topics), ["生活", "阅读", "旅行", "摄影"]);
+  assert.equal(editor.state.personas.length, 1);
+  assert.equal(editor.state.personas[0].version, 4);
+  assert.equal(dialog.open, false);
+  assert.equal(submit.disabled, false);
+  editor.openPersonaEditor({machine_id: "QA-A", account_slot: "account-a"});
+  fields.role.value = "编辑中的内容";
+  editor.mutateJson = async () => {throw new Error("保存失败，请重试");};
+  await editor.savePersonaEditor({preventDefault() {}, currentTarget: form});
+  assert.equal(dialog.open, true);
+  assert.equal(fields.role.value, "编辑中的内容");
+  assert.equal(submit.disabled, false);
+  assert.equal(messages["#manager-persona-editor-message"], "保存失败，请重试");
+  console.log("PASS: account-bound persona editing, version refresh and retained drafts on failure");
+}
+checkPersonaEditor().catch((error) => {console.error(error); process.exitCode = 1;});

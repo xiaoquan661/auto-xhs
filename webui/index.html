@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <title>auto-xhs · 经理机运营控制台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260907-unified-overview-1" />
-    <link rel="stylesheet" href="/workspace.css?v=20260907-unified-overview-1" />
-    <link rel="stylesheet" href="/control-room.css?v=20260907-unified-overview-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260907-worker-progress-1" />
+    <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
+    <link rel="stylesheet" href="/control-room.css?v=20260907-worker-progress-1" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -21,7 +21,7 @@
       </header>
       <section class="room-command" id="room-command" data-tone="info">
         <div><p class="room-eyebrow">现在整体情况</p><div class="room-command-title"><h2 id="room-command-title">正在读取员工机集群</h2><span class="manager-state-badge" id="manager-attention-badge">等待读取</span></div><p id="room-command-description">经理 Agent 下发运营目标，执行进度和回收结果集中展示。</p></div>
-        <div class="room-command-seal"><span>运营调度</span><strong>经理 Agent</strong><small>目标与人设通过对话配置</small></div>
+        <div class="room-command-seal"><span>运营调度</span><strong>经理 Agent</strong><small>目标由经理 Agent 下发</small></div>
       </section>
       <section class="room-collection" aria-label="数据同步状态">
         <div class="room-collection-title"><span class="room-dot"></span><div><small>AUTOMATIC PROGRESS COLLECTION</small><strong id="room-collection-state">正在读取同步状态</strong></div></div>
@@ -44,12 +44,15 @@
           <a class="nav-item active" href="#overview" data-manager-view-link="overview">
             <span class="nav-icon">⌂</span><span>运营总览</span>
           </a>
+          <a class="nav-item" href="#planning" data-manager-view-link="planning">
+            <span class="nav-icon">▣</span><span>明日任务规划</span>
+          </a>
           <a class="nav-item" href="#workers" data-manager-view-link="workers">
             <span class="nav-icon">▦</span><span>员工机</span>
             <b class="nav-badge" id="node-total">—</b>
           </a>
           <a class="nav-item" href="#accounts" data-manager-view-link="accounts">
-            <span class="nav-icon">◎</span><span>账号设置</span>
+            <span class="nav-icon">◎</span><span>账号管理</span>
             <b class="nav-badge" id="blocked-total" title="员工机账号总数">—</b>
           </a>
           <a class="nav-item" href="#results" data-manager-view-link="results">
@@ -129,9 +132,27 @@
           </section>
         </section>
 
+        <section class="workspace-view" id="planning" data-manager-view="planning" hidden>
+          <form id="daily-plan-form">
+            <header class="daily-plan-heading">
+              <div><p class="eyebrow">运营策略</p><h1>明日任务规划</h1><p>为每个员工机账号规划操作数量，保存后由经理 Agent 读取并安排执行。</p></div>
+              <div class="daily-plan-tools">
+                <label><span>计划日期</span><input id="daily-plan-date" type="date" required /></label>
+                <button id="daily-plan-fill" class="secondary-button" type="button">按最近目标填充</button>
+                <button id="daily-plan-save" class="primary-button" type="submit">保存计划</button>
+              </div>
+            </header>
+            <p id="daily-plan-message" class="action-message" role="status"></p>
+            <div id="daily-plan-summary" class="daily-plan-summary"></div>
+            <div class="daily-plan-guidance"><span>按账号制定数量</span><span>执行时使用账号专属人设</span><span>经理 Agent 统一下发</span><strong id="daily-plan-state"></strong></div>
+            <p id="daily-plan-empty" class="room-panel">登记员工机账号后，即可在这里制定计划。</p>
+            <div id="daily-plan-cards" class="daily-plan-grid"></div>
+          </form>
+        </section>
+
         <section class="workspace-view" id="workers" data-manager-view="workers" hidden>
           <header class="page-topbar"><div><p class="eyebrow">WORKER MACHINES</p><h1>员工机</h1>
-            <p>左侧选择员工机，右侧查看账号、连接、任务、结果、回收和异常。</p></div></header>
+            <p>选择员工机，查看今日目标、实际完成情况和往日记录。</p></div></header>
           <section class="manager-dashboard-layout">
             <div class="manager-cluster-stage">
               <section class="manager-cluster-overview-panel" id="manager-cluster-overview-panel">
@@ -140,34 +161,28 @@
               </section>
               <section class="manager-machine-detail" id="manager-machine-detail" hidden>
                 <div class="manager-stage-heading"><div><small id="manager-machine-detail-kicker">EXECUTOR</small><h2 id="manager-machine-detail-title">员工机详情</h2><small id="manager-machine-detail-description"></small></div></div>
-                <div class="manager-detail-hero" id="manager-detail-hero"></div>
-                <div class="manager-detail-progress">
-                  <article><span>账号槽位</span><strong id="manager-detail-account-total">0</strong></article>
-                  <article><span>今日结果</span><strong id="manager-detail-today">0</strong></article>
-                  <article><span>待派发</span><strong id="manager-detail-pending">0</strong></article>
-                  <article><span>执行中</span><strong id="manager-detail-running">0</strong></article>
-                  <article><span>已暂停</span><strong id="manager-detail-paused">0</strong></article>
-                  <article><span>成功结果</span><strong id="manager-detail-success">0</strong></article>
-                  <article><span>等待对账</span><strong id="manager-detail-reconcile">0</strong></article>
-                  <article><span>增量记录</span><strong id="manager-detail-incremental">0</strong></article>
-                </div>
-                <section class="manager-detail-panel manager-detail-account-panel"><div class="lane-heading"><h3>账号与身份</h3></div><div class="manager-account-detail-list" id="manager-machine-account-list"></div></section>
-                <div class="manager-detail-columns">
-                  <section class="manager-detail-panel"><div class="lane-heading"><h3>当前和最近任务</h3></div><div class="manager-compact-list" id="manager-machine-task-list"></div></section>
-                  <section class="manager-detail-panel"><div class="lane-heading"><h3>Agent 协作</h3></div><div class="manager-agent-timeline" id="manager-machine-agent-list"></div></section>
-                  <section class="manager-detail-panel"><div class="lane-heading"><h3>今日结果</h3></div><div class="manager-compact-list" id="manager-machine-today-list"></div></section>
-                  <section class="manager-detail-panel"><div class="lane-heading"><h3>回收与活动</h3></div><div class="manager-compact-list" id="manager-machine-activity-list"></div></section>
-                  <section class="manager-detail-panel manager-alert-panel"><div class="lane-heading"><h3>异常与建议</h3></div><div class="manager-compact-list" id="manager-machine-alert-list"></div></section>
-                </div>
+                <section class="room-panel worker-next-panel">
+                  <div class="room-section-head"><h2>下一个运营日</h2><a id="worker-next-plan-link" href="#planning" data-manager-view-link="planning">查看任务规划 →</a></div>
+                  <div id="worker-next-day"></div>
+                </section>
+                <section class="room-panel worker-progress-panel">
+                  <div class="room-section-head"><h2>今日目标 / 实际</h2><span id="worker-today-date">—</span></div>
+                  <p class="room-footnote">目标优先采用已保存的当日计划，其次为单日目标和当日下发任务。实际数量来自执行回执，— 表示未设置或尚未回传。</p>
+                  <div id="worker-today-progress"></div>
+                </section>
+                <details class="room-overview-details worker-history-panel">
+                  <summary>往日目标 / 实际 <span id="worker-history-count">0 天</span></summary>
+                  <div id="worker-history-list"></div>
+                </details>
               </section>
             </div>
           </section>
         </section>
 
         <section class="workspace-view" id="accounts" data-manager-view="accounts" hidden>
-          <header class="page-topbar"><div><p class="eyebrow">ACCOUNT SETTINGS</p><h1>账号设置</h1>
-            <p>查看员工机账号与专属人设，人设由经理 Agent 在对话中配置。</p></div>
-            <button class="secondary-button" id="manager-account-refresh" type="button">刷新所选节点</button></header>
+          <header class="page-topbar"><div><p class="eyebrow">ACCOUNT MANAGEMENT</p><h1>账号管理</h1>
+            <p>管理员工机账号与专属人设，支持手动编辑和经理 Agent 对话配置。</p></div>
+            <div class="manager-card-actions"><button class="primary-button" id="manager-account-add" type="button">新增账号</button><button class="secondary-button" id="manager-account-refresh" type="button">刷新所选节点</button></div></header>
           <p class="action-message" id="manager-account-message" role="status"></p>
           <section class="manager-account-layout">
             <aside class="manager-account-node-rail">
@@ -278,6 +293,30 @@
       <footer class="room-footer"><span>auto-xhs 运营看板 · 经理 Agent 统一调度</span><p class="action-message" id="manager-cluster-message" role="status"></p></footer>
     </div>
 
+    <dialog class="manager-persona-editor" id="manager-persona-editor" aria-labelledby="manager-persona-editor-title">
+      <div class="manager-persona-editor-heading">
+        <div><h2 id="manager-persona-editor-title">编辑账号人设</h2><p id="manager-persona-editor-account"></p></div>
+        <button class="icon-button" id="manager-persona-editor-close" type="button" aria-label="关闭人设编辑">×</button>
+      </div>
+      <form id="manager-persona-editor-form">
+        <div class="manager-persona-editor-grid">
+          <label><span>人设名称</span><input name="display_name" required /></label>
+          <label><span>语言</span><input name="language" required /></label>
+          <label><span>状态</span><select name="status"><option value="ACTIVE">启用</option><option value="INACTIVE">停用</option></select></label>
+          <label><span>角色定位</span><textarea name="role" rows="3"></textarea></label>
+          <label><span>目标受众</span><textarea name="audience" rows="3"></textarea></label>
+          <label><span>内容主题</span><textarea name="content_topics" rows="3" placeholder="多个主题用顿号或换行分隔"></textarea></label>
+          <label><span>表达语气</span><textarea name="tone" rows="3"></textarea></label>
+          <label><span>互动方式</span><textarea name="interaction_style" rows="3"></textarea></label>
+          <label><span>事实边界</span><textarea name="fact_boundaries" rows="3"></textarea></label>
+          <label class="manager-persona-knowledge"><span>知识说明</span><textarea name="knowledge" rows="3"></textarea></label>
+        </div>
+        <div class="manager-persona-toolbar"><small id="manager-persona-editor-version"></small><button class="primary-button" type="submit">保存人设</button></div>
+        <p class="action-message" id="manager-persona-editor-message" role="status"></p>
+        <p class="room-footnote">保存后用于后续下发任务，已下发任务保留原人设快照。</p>
+      </form>
+    </dialog>
+
     <dialog class="manager-operation-detail-dialog" id="manager-operation-detail-dialog" aria-labelledby="manager-operation-detail-title">
       <div class="manager-operation-detail-head"><div><p class="eyebrow">OPERATION TASK</p><h2 id="manager-operation-detail-title">运营任务详情</h2><p id="manager-operation-detail-subtitle"></p></div><button class="icon-button" id="manager-operation-detail-close" type="button" aria-label="关闭运营任务详情">×</button></div>
       <div class="manager-operation-detail-body"><div class="manager-detail-progress" id="manager-operation-detail-summary"></div><div class="manager-operation-detail-columns"><section class="manager-operation-detail-panel"><h3>目标</h3><div id="manager-operation-detail-goal"></div></section><section class="manager-operation-detail-panel"><h3>计划</h3><div id="manager-operation-detail-plan"></div></section><section class="manager-operation-detail-panel"><h3>执行</h3><div class="manager-detail-list" id="manager-operation-detail-executions"></div></section><section class="manager-operation-detail-panel"><h3>结果</h3><div class="manager-detail-list" id="manager-operation-detail-results"></div></section><section class="manager-operation-detail-panel manager-operation-timeline-panel"><div class="lane-heading"><h3>Agent 协作时间线</h3><span id="manager-operation-timeline-total">0 条</span></div><div class="manager-agent-timeline" id="manager-operation-timeline"></div></section></div><details class="manager-operation-technical"><summary>技术详情</summary><pre id="manager-operation-technical-json"></pre></details></div>
@@ -345,6 +384,8 @@
     </dialog>
 
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
-    <script src="/manager-console.js?v=20260907-unified-overview-1" defer></script>
+    <script src="/manager-planning.js?v=20260907-daily-plan-1" defer></script>
+    <script src="/manager-account-tools.js?v=20260907-daily-plan-1" defer></script>
+    <script src="/manager-console.js?v=20260907-daily-plan-1" defer></script>
   </body>
 </html>
