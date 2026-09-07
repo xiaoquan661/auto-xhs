@@ -973,6 +973,9 @@ class ApplicationService:
             return {"success": True, "task": task}
         parameters = dict(task.get("parameters") or {})
         parameters["platform"] = task_platform
+        persona_snapshot = task.get("persona_snapshot")
+        if isinstance(persona_snapshot, dict) and persona_snapshot:
+            parameters["persona_context"] = dict(persona_snapshot)
         if task["capability"] in {
             "collect-note-comments",
             "collect-private-messages",
@@ -1021,9 +1024,12 @@ class ApplicationService:
             self._record_task_event(claimed, target_key)
             return {"success": True, "task": claimed}
         try:
-            result = self.runner.execute(
-                task["account_slot"], task["capability"], parameters
-            )
+            from xhs.progress import record_progress_with
+
+            with record_progress_with(lambda event: self.tasks.record_progress(task_id, event)):
+                result = self.runner.execute(
+                    task["account_slot"], task["capability"], parameters
+                )
         except Exception as exc:
             terminated = self._finalize_requested_task_termination(task_id, target_key)
             if terminated is not None:

@@ -10,6 +10,8 @@ import time
 logger = logging.getLogger(__name__)
 
 _DEFAULT_LOCK_FILE = os.path.join(os.path.expanduser("~"), ".xhs", "run.lock")
+_RELEASE_RETRY_ATTEMPTS = 20
+_RELEASE_RETRY_DELAY_SECONDS = 0.05
 
 
 class RunLock:
@@ -58,10 +60,22 @@ class RunLock:
                 os.close(self._fd)
             self._fd = None
 
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(self.lock_file)
+        self._remove_lock_file()
 
         logger.debug("释放锁: %s", self.lock_file)
+
+    def _remove_lock_file(self) -> None:
+        """删除锁文件，并兼容 Windows 上短暂存在的共享冲突。"""
+        for attempt in range(_RELEASE_RETRY_ATTEMPTS):
+            try:
+                os.remove(self.lock_file)
+                return
+            except FileNotFoundError:
+                return
+            except PermissionError:
+                if attempt == _RELEASE_RETRY_ATTEMPTS - 1:
+                    raise
+                time.sleep(_RELEASE_RETRY_DELAY_SECONDS)
 
     def _is_stale(self) -> bool:
         """检查锁文件是否已过时（持有进程已退出）。"""
@@ -78,8 +92,7 @@ class RunLock:
 
     def _force_release(self) -> None:
         """强制释放过时的锁。"""
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(self.lock_file)
+        self._remove_lock_file()
         logger.info("强制释放过时锁: %s", self.lock_file)
 
     def __enter__(self) -> RunLock:

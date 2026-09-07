@@ -122,6 +122,7 @@ def test_home_engagement_cli_has_no_comment_options():
     option_dests = {action.dest for action in subparsers.choices["home-engagement"]._actions}
     assert "comment_count" not in option_dests
     assert "style" not in option_dests
+    assert "video_only" in option_dests
     assert get_capability_policy("send-private-messages").requires_confirmation is False
     assert get_capability_policy("send-private-messages").supports_scheduling is False
     assert get_operation_policy(

@@ -288,7 +288,10 @@ class FakeService:
         return {"success": True, "identity": {"account": account, **body}}
 
     def replace_account_identity(self, account: str, **body) -> dict:
-        return {"success": True, "identity": {"account": account, "event": "identity-replaced", **body}}
+        return {
+            "success": True,
+            "identity": {"account": account, "event": "identity-replaced", **body},
+        }
 
     def get_account_switch(self, account: str) -> dict:
         return {"success": True, "account": account, "pending": None, "history": []}
@@ -612,7 +615,26 @@ def test_draft_execute_api_routes_to_shared_service() -> None:
     assert result["task"]["approval_id"] == "approval-1"
 
 
-def test_webui_contains_account_setup_and_product_navigation() -> None:
+def test_webui_contains_manager_operations_and_account_workspace() -> None:
+    web_root = Path(__file__).resolve().parents[1] / "webui"
+    html = (web_root / "index.html").read_text(encoding="utf-8")
+    controller_script = (web_root / "manager-console.js").read_text(encoding="utf-8")
+
+    assert "运营总览" in html
+    assert "员工机" in html
+    assert "账号与人设" in html
+    assert "运营任务" in html
+    assert "数据回收" in html
+    assert "异常中心" in html
+    assert 'id="manager-operation-detail-dialog"' in html
+    assert 'id="manager-account-node-list"' in html
+    assert 'src="/manager-console.js' in html
+    assert 'href="/workspace.css' in html
+    assert "dashboard-snapshot" in controller_script
+    assert "function renderAccountWorkspace()" in controller_script
+
+
+def _legacy_webui_contains_account_setup_and_product_navigation() -> None:
     web_root = Path(__file__).resolve().parents[1] / "webui"
     html = (web_root / "index.html").read_text(encoding="utf-8")
     controller_script = (web_root / "app.js").read_text(encoding="utf-8")
@@ -620,21 +642,48 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     script = f"{catalog_script}\n{controller_script}"
     workspace_script = (web_root / "workspace.js").read_text(encoding="utf-8")
 
-    for label in ("今日总览", "账号", "任务", "确认中心", "执行记录", "系统"):
+    for label in (
+        "工作台",
+        "账号管理",
+        "执行记录",
+        "消息互动",
+        "发布管理",
+        "数据分析",
+        "系统设置",
+    ):
         assert label in html
     for workspace in (
         "overview",
         "accounts",
-        "tasks",
-        "approvals",
         "records",
+        "messages",
+        "publishing",
         "data",
         "system",
     ):
         assert f'data-workspace="{workspace}"' in html
         assert f'data-workspace-link="{workspace}"' in html
+    assert 'data-workspace="tasks"' not in html
+    assert 'data-workspace="approvals"' not in html
+    assert 'data-workspace-link="tasks"' not in html
+    assert 'data-workspace-link="approvals"' not in html
+    nav_positions = [
+        html.index(f'data-workspace-link="{workspace}"')
+        for workspace in (
+            "overview",
+            "accounts",
+            "records",
+            "messages",
+            "publishing",
+            "data",
+            "system",
+        )
+    ]
+    assert nav_positions == sorted(nav_positions)
     assert "hashchange" in workspace_script
     assert "window.AutoXhsWorkspace" in workspace_script
+    assert 'tasks: "overview"' in workspace_script
+    assert 'approvals: "messages"' in workspace_script
     assert 'id="account-create-panel" hidden' in html
     assert 'id="open-account-create"' in html
     assert 'id="account-form"' in html
@@ -668,7 +717,7 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "我已登录，完成核验" in script
     assert "终止当前任务" in script
     assert "取消等待" in script
-    assert 'window.AutoXhsWorkspace?.navigate("tasks"' in script
+    assert 'window.AutoXhsWorkspace?.navigate("records"' in script
     assert 'id="account-remove-dialog"' in html
     assert "删除槽位" in script
     assert '"DELETE"' in script
@@ -682,47 +731,50 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "data-recovery/reply-records" in script
     assert 'id="operation-record-list"' not in html
     assert "data-recovery/operation-records" not in script
-    assert 'id="task-submit"' in html
+    assert 'id="task-submit"' not in html
     assert "account-activity" in script
     assert "pendingSubmissionByAccount" in script
     assert "pollTaskActivity" in script
     assert "pollAccountStatuses" in script
     assert "active ? 1000 : 3000" in script
-    assert "可选择其他已就绪且空闲的账号并行执行" in script
-    for capability in ("browse-feeds", "search-feeds", "get-feed-detail", "user-profile", "like-feed", "favorite-feed", "keyword-engagement"):
-        assert f'"{capability}"' in script
-    assert 'engagement: ["home-engagement", "keyword-engagement"]' in script
+    assert "async function submitTask" not in script
     assert 'id="task-undo"' not in html
-    assert 'id="task-engagement-action"' in html
-    assert 'id="task-engagement-count"' in html
-    assert 'id="task-candidate-pool"' in html
-    assert 'id="task-collection-minutes"' in html
+    assert 'id="task-engagement-action"' not in html
+    assert 'id="task-engagement-count"' not in html
+    assert 'id="task-candidate-pool"' not in html
+    assert 'id="task-collection-minutes"' not in html
     assert "collection_stop_reason" in script
     for template in ("browse", "search", "analysis", "engagement"):
-        assert f'value="{template}"' in html
-    assert 'id="task-duration"' in html
-    assert 'id="task-count"' in html
+        assert f'value="{template}"' not in html
+    assert 'id="task-duration"' not in html
+    assert 'id="task-count"' not in html
     assert 'id="task-tab-immediate"' not in html
     assert 'id="task-tab-confirmation"' not in html
-    assert 'id="task-template"' in html
-    assert "renderTaskTemplateActions" in script
+    assert 'id="task-template"' not in html
+    assert "renderTaskTemplateActions" not in script
     assert "showTaskPanel" in script
     assert "appendBrowseResults" in script
     assert "appendTaskResult" in script
     assert "resultByTask" in script
-    assert "立即任务" in html
-    assert 'data-workspace="approvals"' in html
+    assert 'id="task-launch"' not in html
+    assert 'id="open-task-launch"' not in html
+    assert 'data-workspace="messages"' in html
+    assert 'data-workspace="publishing"' in html
     assert 'id="task-tab-plan"' not in html
     assert 'id="task-panel-plan"' not in html
     assert "批量／定时计划" not in html
-    assert "评论／回复确认" in html
-    assert "新评论智能回复" in html
+    assert "评论与私信" in html
+    assert "新评论处理状态" in html
     assert 'id="intelligent-reply-list"' in html
-    assert 'id="comment-collection-form"' in html
+    assert 'id="comment-collection-form" hidden' in html
     assert 'id="comment-collection-account"' in html
     assert 'id="collect-comments"' in html
     assert 'id="record-list"' in html
-    assert 'id="draft-form"' in html
+    assert 'id="draft-form" hidden' in html
+    assert 'id="run-reply-cycle" hidden' in html
+    assert '$("#task-form").addEventListener("submit", submitTask)' not in script
+    assert '$("#draft-form").addEventListener("submit", submitDraft)' not in script
+    assert '$("#run-reply-cycle").addEventListener("click", runReplyCycle)' not in script
     assert html.index('value="post-comment"') < html.index('value="reply-comment"')
     assert 'id="draft-action-help"' in html
     assert 'id="draft-generate"' in html
@@ -738,17 +790,17 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "function useResultAsComment" not in script
     assert '$("#draft-action").value = "post-comment"' in script
     assert 'draft.action_type === "post-comment"' in script
-    assert '<option value="comment">随机评论</option>' in html
-    assert 'id="random-comment-settings"' in html
-    assert 'id="home-engagement-settings"' in html
-    assert 'id="task-comment-count"' in html
+    assert '<option value="comment">随机评论</option>' not in html
+    assert 'id="random-comment-settings"' not in html
+    assert 'id="home-engagement-settings"' not in html
+    assert 'id="task-comment-count"' not in html
     assert 'id="task-home-comment-count"' not in html
     assert 'id="task-home-style"' not in html
     assert "homeCommentCount" not in script
     assert "homeStyle" not in script
-    assert "direct_send_authorized: true" in script
+    assert "direct_send_authorized: true" not in script
     assert "function appendRandomCommentResults" in script
-    assert "创建并直接发送" in script
+    assert "创建并直接发送" not in script
     assert "drafts/${draft.draft_id}/execute" in script
     assert 'id="global-pause"' in html
     assert 'id="restart-service"' in html
@@ -762,6 +814,21 @@ def test_webui_contains_account_setup_and_product_navigation() -> None:
     assert "diagnostics/export" in script
     assert "bridge/${action}" in script
     assert "account.extension_dir" in script
+    assert 'id="node-address"' in html
+    assert 'id="node-running-total"' in html
+    assert 'id="execution-filter-form"' in html
+    assert 'id="task-list"' in html
+    assert 'id="publish-task-list"' in html
+    assert 'id="operation-report-form"' in html
+    assert 'id="operation-report-list"' in html
+    assert "operation-reports" in script
+    for panel in ("drafts", "comments", "private-messages", "rules"):
+        assert f'data-subpage-target="{panel}"' in html
+        assert f'data-subpage-name="{panel}"' in html
+    for panel in ("ledgers", "reports"):
+        assert f'data-subpage-target="{panel}"' in html
+        assert f'data-subpage-name="{panel}"' in html
+    assert "function showSubpage" in script
 
 
 def test_webui_stops_guided_uid_polling_when_profile_is_logged_out() -> None:
@@ -830,26 +897,17 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
             assert payload["status"] == "ok"
 
         with urlopen(f"{base_url}/", timeout=3) as response:
-            assert "先清理阻塞" in response.read().decode("utf-8")
+            assert "经理机运营控制台" in response.read().decode("utf-8")
             assert response.headers[SESSION_HEADER] == token
 
-        with urlopen(f"{base_url}/styles.css", timeout=3) as response:
-            assert ".overview" in response.read().decode("utf-8")
+        with urlopen(f"{base_url}/workspace.css", timeout=3) as response:
+            assert ".manager-account-layout" in response.read().decode("utf-8")
 
-        with urlopen(f"{base_url}/app.js", timeout=3) as response:
-            assert "loadDashboard" in response.read().decode("utf-8")
-
-        with urlopen(f"{base_url}/workspace.js", timeout=3) as response:
-            assert "AutoXhsWorkspace" in response.read().decode("utf-8")
+        with urlopen(f"{base_url}/manager-console.js", timeout=3) as response:
+            assert "dashboard-snapshot" in response.read().decode("utf-8")
 
         with urlopen(f"{base_url}/api-client.js", timeout=3) as response:
             assert "AutoXhsApi" in response.read().decode("utf-8")
-
-        with urlopen(f"{base_url}/task-catalog.js", timeout=3) as response:
-            assert "AutoXhsTaskCatalog" in response.read().decode("utf-8")
-
-        with urlopen(f"{base_url}/workspace.css", timeout=3) as response:
-            assert ".workspace-view" in response.read().decode("utf-8")
 
         request = Request(f"{base_url}/api/v1/accounts", method="POST")
         with pytest.raises(HTTPError) as exc_info:

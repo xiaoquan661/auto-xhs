@@ -26,6 +26,21 @@ def test_task_creation_uses_policy_and_persists(tmp_path) -> None:
     assert service.get(task["task_id"])["request_summary"] == "搜索露营"
 
 
+def test_blank_operation_uses_capability_policy(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    task = service.create(
+        source="manager",
+        account_slot="alpha",
+        capability="list-feeds",
+        operation="",
+        request_summary="经理机只读任务",
+    )
+
+    assert task["state"] == "QUEUED"
+    assert task["risk_level"] == "L0"
+
+
 def test_task_records_active_or_passive_source_metadata(tmp_path) -> None:
     service = _service(tmp_path)
 
@@ -50,6 +65,28 @@ def test_task_records_active_or_passive_source_metadata(tmp_path) -> None:
     assert passive["source_event_id"] == "event-1"
     assert passive["target_type"] == "comment"
     assert passive["target_id"] == "comment-1"
+
+
+def test_task_keeps_goal_and_persona_snapshots_from_manager(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    task = service.create(
+        source="manager",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="执行运营目标计划",
+        schedule_id="schedule-1",
+        operation_task_id="operation-1",
+        goal_id="goal-1",
+        goal_snapshot={"goal_id": "goal-1", "version": 3, "title": "稳定增长"},
+        persona_snapshot={"persona_id": "persona-1", "version": 2},
+    )
+
+    assert task["schedule_id"] == "schedule-1"
+    assert task["operation_task_id"] == "operation-1"
+    assert task["goal_id"] == "goal-1"
+    assert task["goal_snapshot"]["version"] == 3
+    assert task["persona_snapshot"]["version"] == 2
 
 
 def test_external_output_waits_for_approval(tmp_path) -> None:

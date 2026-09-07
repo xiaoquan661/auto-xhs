@@ -5,6 +5,7 @@
     "role": "executor",
     "project_version": "0.1.0",
     "package_root": "C:\\auto-xhs\\manager-packages",
-    "task_inbox_root": "C:\\auto-xhs\\manager-task-inbox"
+    "task_inbox_root": "C:\\auto-xhs\\manager-task-inbox",
+    "task_outbox_root": "C:\\auto-xhs\\manager-task-outbox"
   }
 }

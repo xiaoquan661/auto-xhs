@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
 from capability_registry import get_operation_policy
-from product_store import ProductStore
 from platforms import DEFAULT_PLATFORM, normalize_platform
+from product_store import ProductStore
 from service_errors import ServiceError
 
 TASK_STATES = {
@@ -70,10 +71,15 @@ class TaskService:
         parent_task_id: str | None = None,
         target_type: str = "",
         target_id: str = "",
+        schedule_id: str = "",
+        operation_task_id: str = "",
+        goal_id: str = "",
+        goal_snapshot: dict | None = None,
+        persona_snapshot: dict | None = None,
         platform: str | None = None,
     ) -> dict:
         try:
-            policy = get_operation_policy(capability, operation)
+            policy = get_operation_policy(capability, operation or None)
         except KeyError as exc:
             raise ServiceError("CAPABILITY_NOT_FOUND", str(exc), 404) from exc
         if not policy.enabled_in_v1:
@@ -103,6 +109,11 @@ class TaskService:
             "operation": operation,
             "target_type": target_type.strip(),
             "target_id": target_id.strip(),
+            "schedule_id": schedule_id.strip(),
+            "operation_task_id": operation_task_id.strip(),
+            "goal_id": goal_id.strip(),
+            "goal_snapshot": dict(goal_snapshot or {}),
+            "persona_snapshot": dict(persona_snapshot or {}),
             "risk_level": str(policy.risk_level),
             "request_summary": request_summary.strip(),
             "parameters": dict(parameters or {}),
@@ -129,6 +140,11 @@ class TaskService:
         parent_task_id: str | None = None,
         target_type: str = "",
         target_id: str = "",
+        schedule_id: str = "",
+        operation_task_id: str = "",
+        goal_id: str = "",
+        goal_snapshot: dict | None = None,
+        persona_snapshot: dict | None = None,
         platform: str | None = None,
     ) -> dict:
         """Create a queued multi-step task whose confirmation happens mid-workflow."""
@@ -143,6 +159,11 @@ class TaskService:
             parent_task_id=parent_task_id,
             target_type=target_type,
             target_id=target_id,
+            schedule_id=schedule_id,
+            operation_task_id=operation_task_id,
+            goal_id=goal_id,
+            goal_snapshot=goal_snapshot,
+            persona_snapshot=persona_snapshot,
             platform=platform,
         )
         if task["state"] == "WAITING_APPROVAL":
@@ -165,6 +186,20 @@ class TaskService:
             key=lambda item: item["created_at"],
             reverse=True,
         )
+
+    def record_progress(self, task_id: str, event: dict) -> None:
+        def append(task: dict) -> dict:
+            events = task.setdefault("progress_events", [])
+            events.append(
+                {
+                    **copy.deepcopy(event),
+                    "sequence": len(events) + 1,
+                    "created_at": utc_now(),
+                }
+            )
+            return task
+
+        self.store.update("tasks", task_id, append)
 
     def transition(
         self,
@@ -310,9 +345,7 @@ class TaskService:
                 task["finished_at"] = now
                 task["result_summary"] = "同一账号已有任务正在执行"
                 task["error_code"] = "ACCOUNT_BUSY"
-                task["recommended_action"] = (
-                    f"等待任务 {running['task_id'][:8]} 完成后再重试"
-                )
+                task["recommended_action"] = f"等待任务 {running['task_id'][:8]} 完成后再重试"
             else:
                 task["state"] = "RUNNING"
                 task["started_at"] = now

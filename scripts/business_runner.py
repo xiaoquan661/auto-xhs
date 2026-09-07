@@ -118,6 +118,8 @@ class BusinessRunner:
                 page,
                 browse_count=int(parameters.get("browse_count") or 6),
                 like_count=int(parameters.get("like_count") or 0),
+                video_only=parameters.get("video_only") is True,
+                excluded_feed_ids=parameters.get("excluded_feed_ids") or [],
                 duration_seconds=int(parameters.get("duration_minutes") or 3) * 60,
                 min_read_seconds=float(parameters.get("min_read_seconds") or 8),
                 max_read_seconds=float(parameters.get("max_read_seconds") or 15),

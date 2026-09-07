@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from .comment import post_comment
 from .feed_detail import get_feed_detail
 from .feeds import extract_current_feeds
+from .progress import emit_progress
 from .types import Feed, FeedDetail
 from .urls import HOME_URL
 
@@ -45,25 +46,24 @@ def generate_comment_content(
         raise ValueError("评论风格必须是 natural、praise 或 question")
     title = _clean_text(note.title, 28) or "这篇内容"
     focus = _content_focus(note)
+    if not focus:
+        raise ValueError("笔记正文缺少可用于评论的具体细节，已跳过")
 
     if style == "praise":
         choices = [
-            f"这篇关于「{title}」的分享整理得很清楚，很有参考价值。",
-            f"「{title}」这个角度很有启发，感谢认真整理。",
+            f"“{focus}”这个细节讲得很清楚，也把「{title}」说明白了。",
+            f"看到“{focus}”这一段，能感受到你在「{title}」上整理得很认真。",
         ]
-        if focus:
-            choices.append(f"「{title}」讲得很清楚，尤其是“{focus}”这一点，很有启发。")
     elif style == "question":
-        choices = [f"关于「{title}」，实际操作时最需要注意的是什么？"]
-        if focus:
-            choices.append(f"关于「{title}」，想请教一下“{focus}”在实际操作中还要注意什么？")
+        choices = [
+            f"看到你在「{title}」里提到“{focus}”，这个细节后面还有什么变化吗？",
+            f"关于“{focus}”这一点，实际做的时候还有需要特别注意的吗？",
+        ]
     else:
         choices = [
-            f"看完对「{title}」有了更具体的理解，感谢分享。",
-            f"「{title}」这个角度很有启发，内容也整理得很清楚。",
+            f"“{focus}”这个细节让我对「{title}」更有画面了。",
+            f"看到你提到“{focus}”，一下就抓住了「{title}」里最具体的部分。",
         ]
-        if focus:
-            choices.append(f"这篇「{title}」很有参考价值，“{focus}”这个细节讲得很清楚。")
     return chooser(choices)
 
 
@@ -187,12 +187,31 @@ def random_comment(
             "success": False,
         }
         try:
+            emit_progress("reading_context", "正在读取笔记上下文", feed_id=feed.id)
             detail = read_detail(page, feed.id, feed.xsec_token)
             item["title"] = detail.note.title or item["title"]
             item["author"] = detail.note.user.nickname or item["author"]
             item["content"] = make_content(detail.note, style=style)
+            emit_progress(
+                "comment_generated",
+                "已生成本篇评论",
+                feed_id=feed.id,
+                title=item["title"],
+                content=item["content"],
+            )
             send_comment(page, feed.id, feed.xsec_token, item["content"])
             item.update(status="success", message="评论发送成功", success=True)
+            emit_progress(
+                "platform_submitted",
+                "评论提交已完成",
+                feed_id=feed.id,
+                metrics={
+                    "comment": {
+                        "actual": sum(bool(entry["success"]) for entry in items) + 1,
+                        "target": count,
+                    }
+                },
+            )
         except Exception as exc:
             item["message"] = str(exc)
         items.append(item)
@@ -204,7 +223,10 @@ def random_comment(
     if not selected:
         message = "首页没有找到可评论的候选笔记"
     elif partial:
-        message = f"随机评论部分完成：成功 {succeeded} 篇，失败 {failed} 篇，候选不足 {count - len(selected)} 篇"
+        shortage_count = count - len(selected)
+        message = (
+            f"随机评论部分完成：成功 {succeeded} 篇，失败 {failed} 篇，候选不足 {shortage_count} 篇"
+        )
     else:
         message = f"随机评论完成，共发送 {succeeded} 条评论"
     return {

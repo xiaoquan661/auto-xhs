@@ -20,6 +20,7 @@ dev = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = ["output"]
 
 [tool.ruff.lint]
 select = [
@@ -52,4 +53,5 @@ pythonpath = ["scripts"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.9.0",
 ]

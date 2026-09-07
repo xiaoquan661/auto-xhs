@@ -28,12 +28,21 @@ def _default_state() -> dict:
     return {
         "schema_version": MANAGER_STORE_SCHEMA_VERSION,
         "machines": {},
+        "accounts": {},
+        "account_alerts": {},
+        "personas": {},
+        "goals": {},
+        "operation_tasks": {},
+        "agent_messages": {},
         "tasks": {},
+        "schedules": {},
+        "operation_reports": {},
         "transfers": {},
         "versions": {},
         "results": {},
         "incremental_records": {},
         "evidence_downloads": {},
+        "sync_status": {},
         "collection_cursors": {},
     }
 
@@ -170,11 +179,20 @@ class ManagerStore:
     def _check_collection(collection: str) -> None:
         if collection not in {
             "machines",
+            "accounts",
+            "account_alerts",
+            "personas",
+            "goals",
+            "operation_tasks",
+            "agent_messages",
             "tasks",
+            "schedules",
+            "operation_reports",
             "transfers",
             "versions",
             "results",
             "incremental_records",
             "evidence_downloads",
+            "sync_status",
         }:
             raise ValueError(f"未知经理机数据集合: {collection}")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -84,6 +85,60 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--machine-id", required=True, help="执行机编号")
         command.set_defaults(handler=handler)
 
+    persona = resources.add_parser("persona", help="保存和读取账号人设卡")
+    persona_actions = persona.add_subparsers(dest="action", required=True)
+    persona_save = persona_actions.add_parser("save", help="新建或更新账号人设卡")
+    _add_input_file(persona_save, "包含账号人设卡的 UTF-8 JSON 绝对路径")
+    persona_save.set_defaults(handler=_persona_save)
+    persona_list = persona_actions.add_parser("list", help="列出账号人设卡")
+    persona_list.set_defaults(handler=_persona_list)
+    persona_show = persona_actions.add_parser("show", help="读取一张账号人设卡")
+    persona_show.add_argument("--persona-id", required=True, help="人设卡编号")
+    persona_show.set_defaults(handler=_persona_show)
+
+    goal = resources.add_parser("goal", help="保存和管理运营目标")
+    goal_actions = goal.add_subparsers(dest="action", required=True)
+    goal_save = goal_actions.add_parser("save", help="保存运营目标草稿")
+    _add_input_file(goal_save, "包含运营目标的 UTF-8 JSON 绝对路径")
+    goal_save.set_defaults(handler=_goal_save)
+    goal_list = goal_actions.add_parser("list", help="列出运营目标")
+    goal_list.set_defaults(handler=_goal_list)
+    goal_show = goal_actions.add_parser("show", help="读取一个运营目标")
+    goal_show.add_argument("--goal-id", required=True, help="运营目标编号")
+    goal_show.set_defaults(handler=_goal_show)
+    for action, help_text, handler in (
+        ("activate", "启用目标供 Agent 规划", _goal_activate),
+        ("pause", "暂停运营目标", _goal_pause),
+        ("complete", "完成运营目标", _goal_complete),
+    ):
+        command = goal_actions.add_parser(action, help=help_text)
+        command.add_argument("--goal-id", required=True, help="运营目标编号")
+        command.set_defaults(handler=handler)
+
+    operation_task = resources.add_parser("operation-task", help="管理WebUI提交的运营任务")
+    operation_task_actions = operation_task.add_subparsers(dest="action", required=True)
+    operation_submit = operation_task_actions.add_parser("submit", help="提交运营任务")
+    _add_input_file(operation_submit, "包含运营任务的 UTF-8 JSON 绝对路径")
+    operation_submit.set_defaults(handler=_operation_task_submit)
+    operation_list = operation_task_actions.add_parser("list", help="列出经理Agent任务收件箱")
+    operation_list.add_argument("--state", help="仅查看指定状态")
+    operation_list.set_defaults(handler=_operation_task_list)
+    operation_show = operation_task_actions.add_parser("show", help="读取一个运营任务")
+    operation_show.add_argument("--operation-task-id", required=True, help="运营任务编号")
+    operation_show.set_defaults(handler=_operation_task_show)
+    operation_claim = operation_task_actions.add_parser("claim", help="经理Agent领取运营任务")
+    operation_claim.add_argument("--operation-task-id", required=True, help="运营任务编号")
+    operation_claim.add_argument("--agent-id", required=True, help="经理Agent编号")
+    operation_claim.set_defaults(handler=_operation_task_claim)
+    for action, help_text, handler in (
+        ("plan", "记录经理Agent运营计划", _operation_task_plan),
+        ("finish", "记录运营任务最终状态", _operation_task_finish),
+    ):
+        command = operation_task_actions.add_parser(action, help=help_text)
+        command.add_argument("--operation-task-id", required=True, help="运营任务编号")
+        _add_input_file(command, "包含经理Agent编号和计划或结果的 UTF-8 JSON 绝对路径")
+        command.set_defaults(handler=handler)
+
     task = resources.add_parser("task", help="派发和控制远程任务")
     task_actions = task.add_subparsers(dest="action", required=True)
     task_dispatch = task_actions.add_parser("dispatch", help="派发任务")
@@ -103,6 +158,37 @@ def build_parser() -> argparse.ArgumentParser:
         command = task_actions.add_parser(action, help=help_text)
         command.add_argument("--task-id", required=True, help="经理机任务编号")
         command.set_defaults(handler=handler)
+
+    schedule = resources.add_parser("schedule", help="登记和观察Agent调度计划")
+    schedule_actions = schedule.add_subparsers(dest="action", required=True)
+    schedule_register = schedule_actions.add_parser("register", help="登记Agent调度计划")
+    _add_input_file(schedule_register, "包含Agent调度计划的 UTF-8 JSON 绝对路径")
+    schedule_register.set_defaults(handler=_schedule_register)
+    schedule_list = schedule_actions.add_parser("list", help="列出Agent调度计划")
+    schedule_list.set_defaults(handler=_schedule_list)
+    for action, help_text, handler in (
+        ("pause", "暂停调度计划", _schedule_pause),
+        ("resume", "恢复调度计划", _schedule_resume),
+    ):
+        command = schedule_actions.add_parser(action, help=help_text)
+        command.add_argument("--schedule-id", required=True, help="Agent调度计划编号")
+        command.set_defaults(handler=handler)
+    schedule_run = schedule_actions.add_parser("record-run", help="记录调度运行结果")
+    schedule_run.add_argument("--schedule-id", required=True, help="Agent调度计划编号")
+    _add_input_file(schedule_run, "包含调度运行结果的 UTF-8 JSON 绝对路径")
+    schedule_run.set_defaults(handler=_schedule_record_run)
+
+    report = resources.add_parser("operation-report", help="生成和查看经理机运营报告")
+    report_actions = report.add_subparsers(dest="action", required=True)
+    report_generate = report_actions.add_parser("generate", help="生成运营报告")
+    _add_input_file(report_generate, "包含报告筛选范围的 UTF-8 JSON 绝对路径")
+    report_generate.set_defaults(handler=_operation_report_generate)
+    report_list = report_actions.add_parser("list", help="列出运营报告")
+    report_list.set_defaults(handler=_operation_report_list)
+    report_revise = report_actions.add_parser("revise", help="生成报告修订版")
+    report_revise.add_argument("--report-id", required=True, help="原报告编号")
+    _add_input_file(report_revise, "包含修订原因的 UTF-8 JSON 绝对路径")
+    report_revise.set_defaults(handler=_operation_report_revise)
 
     transfer = resources.add_parser("transfer", help="传输任务包或功能包")
     _add_input_file(transfer, "包含传输请求的 UTF-8 JSON 绝对路径")
@@ -212,6 +298,75 @@ def _task_dispatch(args: argparse.Namespace, service: ManagerService) -> dict:
     return service.dispatch_task(load_json_object(args.input_file))
 
 
+def _persona_save(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.save_persona(load_json_object(args.input_file))
+
+
+def _persona_list(_args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.list_personas()
+
+
+def _persona_show(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.get_persona(args.persona_id)
+
+
+def _goal_save(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.save_goal(load_json_object(args.input_file))
+
+
+def _goal_list(_args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.list_goals()
+
+
+def _goal_show(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.get_goal(args.goal_id)
+
+
+def _goal_activate(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.activate_goal(args.goal_id)
+
+
+def _goal_pause(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.pause_goal(args.goal_id)
+
+
+def _goal_complete(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.complete_goal(args.goal_id)
+
+
+def _operation_task_submit(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.create_operation_task(load_json_object(args.input_file))
+
+
+def _operation_task_list(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.list_operation_tasks(args.state)
+
+
+def _operation_task_show(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.get_operation_task(args.operation_task_id)
+
+
+def _operation_task_claim(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.claim_operation_task(
+        args.operation_task_id,
+        {"manager_agent_id": args.agent_id},
+    )
+
+
+def _operation_task_plan(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.record_operation_plan(
+        args.operation_task_id,
+        load_json_object(args.input_file),
+    )
+
+
+def _operation_task_finish(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.finish_operation_task(
+        args.operation_task_id,
+        load_json_object(args.input_file),
+    )
+
+
 def _task_list(_args: argparse.Namespace, service: ManagerService) -> dict:
     return service.list_tasks()
 
@@ -230,6 +385,38 @@ def _task_resume(args: argparse.Namespace, service: ManagerService) -> dict:
 
 def _task_reconcile(args: argparse.Namespace, service: ManagerService) -> dict:
     return service.reconcile_task(args.task_id)
+
+
+def _schedule_register(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.register_schedule(load_json_object(args.input_file))
+
+
+def _schedule_list(_args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.list_schedules()
+
+
+def _schedule_pause(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.pause_schedule(args.schedule_id)
+
+
+def _schedule_resume(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.resume_schedule(args.schedule_id)
+
+
+def _schedule_record_run(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.record_schedule_run(args.schedule_id, load_json_object(args.input_file))
+
+
+def _operation_report_generate(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.generate_operation_report(load_json_object(args.input_file))
+
+
+def _operation_report_list(_args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.list_operation_reports()
+
+
+def _operation_report_revise(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.revise_operation_report(args.report_id, load_json_object(args.input_file))
 
 
 def _transfer(args: argparse.Namespace, service: ManagerService) -> dict:
@@ -256,6 +443,9 @@ def _result_list(args: argparse.Namespace, service: ManagerService) -> dict:
 
 
 def _output(payload: dict) -> None:
+    encoding = (sys.stdout.encoding or "").lower().replace("-", "")
+    if encoding != "utf8" and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

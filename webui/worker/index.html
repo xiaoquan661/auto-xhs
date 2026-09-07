@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>员工机执行台</title>
+    <link rel="stylesheet" href="/worker.css" />
+    <script src="/worker.js" defer></script>
+  </head>
+  <body>
+    <aside class="worker-sidebar" aria-label="员工机导航">
+      <div class="worker-brand">
+        <span class="brand-mark">W</span>
+        <div><strong>员工机执行台</strong><small>本机观察与处置</small></div>
+      </div>
+      <nav>
+        <button type="button" data-worker-view-link="overview">执行概览</button>
+        <button type="button" data-worker-view-link="current">当前任务</button>
+        <button type="button" data-worker-view-link="history">执行记录</button>
+        <button type="button" data-worker-view-link="outbox">回传队列</button>
+        <button type="button" data-worker-view-link="local">本机状态</button>
+      </nav>
+      <p class="sidebar-note">仅展示和控制当前机器，不跨机器创建或重发任务。</p>
+    </aside>
+
+    <div class="worker-shell">
+      <header class="worker-header">
+        <div>
+          <p>WORKER CONSOLE</p>
+          <h1 id="worker-machine-title">员工机执行台</h1>
+          <span id="worker-generated-at">正在读取本机执行状态…</span>
+        </div>
+        <button id="worker-refresh" type="button">刷新本机状态</button>
+      </header>
+
+      <main>
+        <section class="worker-view" data-worker-view="overview">
+          <div class="view-heading">
+            <div><p>OVERVIEW</p><h2>执行概览</h2></div>
+            <span>5 秒刷新当前任务，后台页面暂停轮询</span>
+          </div>
+          <div class="summary-grid" aria-label="本机执行概览">
+            <article><span>执行器</span><strong id="worker-health">—</strong><small id="worker-version">版本 —</small></article>
+            <article><span>经理机回执</span><strong id="worker-manager">—</strong><small>最近一次回传确认</small></article>
+            <article><span>inbox 待领取</span><strong id="worker-inbox-total">0</strong><small id="worker-inbox-path">—</small></article>
+            <article><span>outbox 待回传</span><strong id="worker-outbox-total">0</strong><small id="worker-outbox-path">—</small></article>
+          </div>
+          <div class="worker-columns">
+            <section class="worker-panel">
+              <div class="panel-head"><div><p>ACTIVE</p><h2>当前执行</h2></div><span id="worker-overview-current-state" class="badge">空闲</span></div>
+              <div id="worker-overview-current" class="current-task"></div>
+            </section>
+            <section class="worker-panel">
+              <div class="panel-head"><div><p>RECENT</p><h2>最近 Agent 交接</h2></div><span>接收、进度与回传</span></div>
+              <div id="worker-overview-agent-list" class="timeline"></div>
+            </section>
+          </div>
+          <section class="worker-panel attention-panel" id="worker-alert-panel" hidden>
+            <div class="panel-head"><div><p>ATTENTION</p><h2>本机异常</h2></div><span id="worker-alert-total">0 项</span></div>
+            <div id="worker-alert-list" class="record-list"></div>
+          </section>
+        </section>
+
+        <section class="worker-view" data-worker-view="current" hidden>
+          <div class="view-heading"><div><p>CURRENT TASK</p><h2>当前任务</h2></div><span id="worker-current-state" class="badge">空闲</span></div>
+          <section class="worker-panel">
+            <div id="worker-current-task" class="current-task"></div>
+          </section>
+          <section class="worker-panel">
+            <div class="panel-head"><div><p>AGENT EVENTS</p><h2>完整执行时间线</h2></div><span>只读执行记录</span></div>
+            <div id="worker-agent-list" class="timeline"></div>
+          </section>
+        </section>
+
+        <section class="worker-view" data-worker-view="history" hidden>
+          <div class="view-heading"><div><p>EXECUTIONS</p><h2>本机执行记录</h2></div><span>不提供任务创建和重复执行</span></div>
+          <section class="worker-panel">
+            <form id="worker-history-filter" class="filter-grid">
+              <label>账号槽位<select id="worker-filter-account"><option value="">全部账号</option></select></label>
+              <label>状态<select id="worker-filter-state"><option value="">全部状态</option></select></label>
+              <label>能力<input id="worker-filter-capability" type="search" placeholder="搜索能力" /></label>
+              <label>日期<input id="worker-filter-date" type="date" /></label>
+              <button type="reset">清除筛选</button>
+            </form>
+            <p id="worker-history-summary" class="section-message">共 0 条记录</p>
+            <div id="worker-execution-list" class="record-grid"></div>
+          </section>
+        </section>
+
+        <section class="worker-view" data-worker-view="outbox" hidden>
+          <div class="view-heading"><div><p>OUTBOX</p><h2>回传队列</h2></div><span id="worker-outbox-summary">等待状态</span></div>
+          <section class="worker-panel">
+            <div id="worker-outbox-facts" class="summary-grid compact-summary"></div>
+            <div id="worker-outbox-list" class="record-grid"></div>
+          </section>
+        </section>
+
+        <section class="worker-view" data-worker-view="local" hidden>
+          <div class="view-heading"><div><p>LOCAL MACHINE</p><h2>本机状态与处置</h2></div><span>动作只作用于当前机器</span></div>
+          <section class="worker-panel">
+            <div class="panel-head"><div><p>MACHINE</p><h2>执行器控制</h2></div><span id="worker-local-machine-state">—</span></div>
+            <div class="action-row">
+              <button type="button" data-worker-action="pause">暂停接收新任务</button>
+              <button type="button" data-worker-action="resume">恢复接收任务</button>
+              <button type="button" data-worker-action="restart">重启执行服务</button>
+              <button type="button" data-worker-action="refresh">刷新状态</button>
+            </div>
+            <p id="worker-action-message" class="section-message" aria-live="polite"></p>
+          </section>
+          <section class="worker-panel">
+            <div class="panel-head"><div><p>LOCAL ACCOUNTS</p><h2>本机账号槽位</h2></div><span>诊断和恢复动作均绑定当前槽位</span></div>
+            <div id="worker-account-list" class="record-grid"></div>
+          </section>
+          <section class="worker-panel" id="worker-field-request-panel" hidden>
+            <div class="panel-head"><div><p>FIELD REQUESTS</p><h2>经理机现场处理请求</h2></div><span>登录与身份核对在本机真实浏览器中完成</span></div>
+            <div id="worker-field-request-list" class="record-list"></div>
+          </section>
+          <section class="worker-panel">
+            <div class="panel-head"><div><p>LOCAL ALERTS</p><h2>本机告警</h2></div><span>未知执行结果只提示人工核对</span></div>
+            <div id="worker-local-alert-list" class="record-list"></div>
+          </section>
+          <section class="worker-panel">
+            <div class="panel-head"><div><p>LOCAL LOG</p><h2>本机执行日志</h2></div><span>最近 30 条 Agent 事件</span></div>
+            <div id="worker-local-log-list" class="timeline"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

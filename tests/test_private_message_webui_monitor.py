@@ -3,21 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_webui_monitors_outbound_batches_and_supports_reviewed_inbox_replies() -> None:
+def test_webui_reports_message_and_reply_modules_without_message_operations() -> None:
     root = Path(__file__).parents[1]
-    script = "\n".join(
-        (root / "webui" / name).read_text(encoding="utf-8")
-        for name in ("task-catalog.js", "app.js")
-    )
+    script = (root / "webui" / "manager-console.js").read_text(encoding="utf-8")
     html = (root / "webui" / "index.html").read_text(encoding="utf-8")
+    combined = f"{html}\n{script}"
 
-    assert '"send-private-messages": { label: "个性化私信" }' in script
-    assert 'agentMonitorCapabilities = new Set([...publishMonitorCapabilities, "send-private-messages"])' in script
-    assert "!agentMonitorCapabilities.has(item.capability)" in script
-    assert 'result.result_type === "private_message_batch"' in script
-    assert "appendPrivateMessageResults(content, result)" in script
-    assert 'id="private-message-collection-form"' in html
-    assert 'id="intelligent-private-message-list"' in html
-    assert 'capability: "collect-private-messages"' in script
-    assert "function renderIntelligentPrivateMessageEvents" in script
-    assert 'draft.action_type === "send-private-messages"' in script
+    assert "回复 目标/实际" in html
+    assert "function resultActionKind(result)" in script
+    assert 'capability.includes("reply")' in script
+    assert 'capability.includes("comment")' in script
+    assert '["browse", "like", "comment", "reply", "publish"]' in script
+
+    for removed in (
+        "private-message-collection-form",
+        "intelligent-private-message-list",
+        "collect-private-messages",
+        "send-private-messages",
+        "reply-rule-form",
+    ):
+        assert removed not in combined

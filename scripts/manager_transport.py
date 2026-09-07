@@ -7,6 +7,7 @@ import ntpath
 import os
 import shutil
 import subprocess
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,6 +111,8 @@ class OpenSSHTransport:
         self._environ = os.environ if environ is None else environ
         self._which = which
         self._executables: dict[str, str] = {}
+        self._machine_locks: dict[str, threading.Lock] = {}
+        self._machine_locks_guard = threading.Lock()
 
     def invoke(
         self,
@@ -124,12 +127,13 @@ class OpenSSHTransport:
         command = [*self._ssh_command(config), self._remote_worker_command(config)]
         request = {"action": action, "payload": dict(payload)}
         input_text = json.dumps(request, ensure_ascii=False, separators=(",", ":")) + "\n"
-        result = self._run(
-            command,
-            input_text=input_text,
-            action="远程任务",
-            timeout_seconds=timeout_seconds,
-        )
+        with self._machine_lock(config):
+            result = self._run(
+                command,
+                input_text=input_text,
+                action="远程任务",
+                timeout_seconds=timeout_seconds,
+            )
         output = (result.stdout or "").strip()
         try:
             response = json.loads(output)
@@ -154,7 +158,8 @@ class OpenSSHTransport:
         if Path(source).is_dir():
             command.append("-r")
         command.extend([str(source), remote])
-        self._run(command, action="上传文件", timeout_seconds=timeout_seconds)
+        with self._machine_lock(config):
+            self._run(command, action="上传文件", timeout_seconds=timeout_seconds)
         return {"success": True, "source": str(source), "remote_path": remote_path}
 
     def download(
@@ -169,8 +174,96 @@ class OpenSSHTransport:
         config = self._machine_config(machine)
         remote = f"{self._destination(config)}:{remote_path}"
         command = [*self._scp_command(config), remote, str(destination)]
-        self._run(command, action="下载文件", timeout_seconds=timeout_seconds)
+        with self._machine_lock(config):
+            self._run(command, action="下载文件", timeout_seconds=timeout_seconds)
         return {"success": True, "remote_path": remote_path, "destination": str(destination)}
+
+    def sftp_upload_atomic(
+        self,
+        machine: ManagerMachineConfig | Mapping[str, object],
+        source: str | Path,
+        remote_path: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
+        """Upload one complete task file and expose it with a final SFTP rename."""
+
+        config = self._machine_config(machine)
+        source_path = Path(source)
+        if not source_path.is_file():
+            raise RemoteFailedError("SFTP任务包必须是已存在的文件")
+        temporary_path = f"{remote_path}.uploading"
+        batch = (
+            f"put {self._sftp_quote(str(source_path))} "
+            f"{self._sftp_quote(self._sftp_path(temporary_path))}\n"
+            f"rename {self._sftp_quote(self._sftp_path(temporary_path))} "
+            f"{self._sftp_quote(self._sftp_path(remote_path))}\n"
+        )
+        with self._machine_lock(config):
+            self._run(
+                self._sftp_command(config),
+                input_text=batch,
+                action="SFTP上传任务包",
+                timeout_seconds=timeout_seconds,
+            )
+        return {"success": True, "source": str(source_path), "remote_path": remote_path}
+
+    def sftp_download(
+        self,
+        machine: ManagerMachineConfig | Mapping[str, object],
+        remote_path: str,
+        destination: str | Path,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
+        """Download one employee outbox file through the SFTP data channel."""
+
+        config = self._machine_config(machine)
+        destination_path = Path(destination)
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        batch = (
+            f"get {self._sftp_quote(self._sftp_path(remote_path))} "
+            f"{self._sftp_quote(str(destination_path))}\n"
+        )
+        with self._machine_lock(config):
+            self._run(
+                self._sftp_command(config),
+                input_text=batch,
+                action="SFTP回收员工机数据",
+                timeout_seconds=timeout_seconds,
+            )
+        return {
+            "success": True,
+            "remote_path": remote_path,
+            "destination": str(destination_path),
+        }
+
+    def sftp_download_many(
+        self,
+        machine: ManagerMachineConfig | Mapping[str, object],
+        files: list[tuple[str, Path]],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
+        """Collect a batch of immutable outbox records in one SFTP connection."""
+        if not files:
+            return {"success": True, "downloaded": 0}
+        config = self._machine_config(machine)
+        commands = []
+        for remote_path, destination in files:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            commands.append(
+                f"get {self._sftp_quote(self._sftp_path(remote_path))} "
+                f"{self._sftp_quote(str(destination))}\n"
+            )
+        with self._machine_lock(config):
+            self._run(
+                self._sftp_command(config),
+                input_text="".join(commands),
+                action="SFTP批量回收员工机事件",
+                timeout_seconds=timeout_seconds,
+            )
+        return {"success": True, "downloaded": len(files)}
 
     def _machine_config(
         self,
@@ -190,8 +283,22 @@ class OpenSSHTransport:
         command.append(str(machine.ssh_port))
         return command
 
+    def _sftp_command(self, machine: ManagerMachineConfig) -> list[str]:
+        command = [self._find_executable("sftp"), *self._common_options(machine), "-P"]
+        command.extend([str(machine.ssh_port), "-b", "-", self._destination(machine)])
+        return command
+
+    @staticmethod
+    def _sftp_path(value: str) -> str:
+        return value.replace("\\", "/")
+
+    @staticmethod
+    def _sftp_quote(value: str) -> str:
+        return f'"{value.replace(chr(34), chr(34) * 2)}"'
+
     def _common_options(self, machine: ManagerMachineConfig) -> list[str]:
         options = [
+            "-4",
             "-o",
             "BatchMode=yes",
             "-o",
@@ -200,11 +307,16 @@ class OpenSSHTransport:
             f"ConnectTimeout={machine.connect_timeout_seconds or self.connect_timeout}",
         ]
         if machine.identity_file:
-            options.extend(["-i", machine.identity_file])
+            options.extend(["-i", machine.identity_file, "-o", "IdentitiesOnly=yes"])
         return options
 
     def _destination(self, machine: ManagerMachineConfig) -> str:
         return f"{machine.ssh_user}@{machine.ssh_host}"
+
+    def _machine_lock(self, machine: ManagerMachineConfig) -> threading.Lock:
+        key = f"{self._destination(machine)}:{machine.ssh_port}"
+        with self._machine_locks_guard:
+            return self._machine_locks.setdefault(key, threading.Lock())
 
     def _remote_worker_command(self, machine: ManagerMachineConfig) -> str:
         worker = ntpath.join(

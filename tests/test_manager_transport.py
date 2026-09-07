@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -74,8 +77,9 @@ def test_invoke_builds_ssh_command_and_sends_payload_only_through_stdin() -> Non
 
     command, kwargs = runner.calls[0]
     assert result == {"task_id": "task-1", "status": "SUCCESS"}
-    assert command[:7] == [
+    assert command[:8] == [
         r"C:\OpenSSH\ssh.exe",
+        "-4",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -85,6 +89,7 @@ def test_invoke_builds_ssh_command_and_sends_payload_only_through_stdin() -> Non
     ]
     assert command[command.index("-p") + 1] == "2222"
     assert command[command.index("-i") + 1] == r"C:\keys\manager_ed25519"
+    assert "IdentitiesOnly=yes" in command
     assert "EDY@192.168.1.28" in command
     assert command[-1] == (r'C:\Python312\python.exe "C:\manager worker\scripts\manager_worker.py"')
     assert (
@@ -139,6 +144,34 @@ def test_invoke_rejects_missing_or_non_object_json(stdout: str) -> None:
 
     with pytest.raises(ResultUnknownError, match="JSON"):
         client.invoke(machine(), "run_task", {"task_id": "task-1"})
+
+
+def test_same_machine_invocations_are_serialized() -> None:
+    active = 0
+    max_active = 0
+    state_lock = threading.Lock()
+
+    def runner(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal active, max_active
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with state_lock:
+            active -= 1
+        return subprocess.CompletedProcess(command, 0, stdout='{"status":"SUCCESS"}', stderr="")
+
+    client = OpenSSHTransport(
+        runner=runner,
+        environ={},
+        which=lambda name: rf"C:\OpenSSH\{name}",
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: client.invoke(machine(), "health", {}), range(2)))
+
+    assert results == [{"status": "SUCCESS"}, {"status": "SUCCESS"}]
+    assert max_active == 1
 
 
 def test_upload_builds_scp_command() -> None:
@@ -199,6 +232,53 @@ def test_download_builds_scp_command() -> None:
         r"C:\results\result.json",
     ]
     assert result["destination"] == r"C:\results\result.json"
+
+
+def test_sftp_upload_uses_temporary_name_then_atomic_rename(tmp_path: Path) -> None:
+    source = tmp_path / "任务.json"
+    source.write_text('{"task_id":"task-1"}', encoding="utf-8")
+    runner = RecordingRunner(stdout="")
+    client = transport(runner)
+
+    result = client.sftp_upload_atomic(
+        machine(),
+        source,
+        r"C:\manager-worker\task-inbox\pending\task-1.json",
+    )
+
+    command, kwargs = runner.calls[0]
+    assert command[0] == r"C:\OpenSSH\sftp.exe"
+    assert command[-2:] == ["-", "EDY@192.168.1.28"]
+    assert "task-1.json.uploading" in kwargs["input"]
+    assert 'rename "C:/manager-worker/task-inbox/pending/task-1.json.uploading"' in kwargs["input"]
+    assert result["remote_path"].endswith(r"pending\task-1.json")
+
+
+def test_sftp_download_uses_data_channel(tmp_path: Path) -> None:
+    destination = tmp_path / "collector" / "index.json"
+    runner = RecordingRunner(stdout="")
+    client = transport(runner)
+
+    client.sftp_download(
+        machine(),
+        r"C:\manager-worker\task-outbox\index.json",
+        destination,
+    )
+
+    command, kwargs = runner.calls[0]
+    assert command[0] == r"C:\OpenSSH\sftp.exe"
+    assert 'get "C:/manager-worker/task-outbox/index.json"' in kwargs["input"]
+    assert str(destination) in kwargs["input"]
+
+
+def test_sftp_batch_download_uses_one_connection(tmp_path: Path) -> None:
+    runner = RecordingRunner(stdout="")
+    client = transport(runner)
+    files = [(f"C:/outbox/{index}.json", tmp_path / f"{index}.json") for index in range(5)]
+    result = client.sftp_download_many(machine(), files)
+    assert len(runner.calls) == 1
+    assert runner.calls[0][1]["input"].count("get ") == 5
+    assert result["downloaded"] == 5
 
 
 def test_discovers_ssh_from_xhs_openssh_home(tmp_path: Path) -> None:

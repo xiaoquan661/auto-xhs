@@ -1,0 +1,8 @@
+{
+  "operation_task_id": "OPERATION-SEPTEMBER-001",
+  "goal_id": "GOAL-XXXXXXXXXX",
+  "title": "执行九月城市周末运营",
+  "instructions": "由经理 Agent 拆解每日采集、互动和发布节奏，再分配给目标员工机",
+  "completion_criteria": "完成目标指标，回收员工机操作记录和业务数据并完成对账",
+  "requested_by": "WebUI用户"
+}

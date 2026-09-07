@@ -7,6 +7,8 @@
   "working_directory": "C:\\auto-xhs\\xiaohongshu-skills",
   "python_executable": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\python.exe",
   "identity_file": "",
+  "task_inbox_root": "C:\\auto-xhs\\manager-task-inbox",
+  "task_outbox_root": "C:\\auto-xhs\\manager-task-outbox",
   "allowed_versions": [
     "0.1.0"
   ],

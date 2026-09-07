@@ -4,23 +4,32 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
 import shutil
 import socket
+import subprocess
+import sys
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 try:
+    from .executor_lifecycle import restart_executor_service, start_executor_service
     from .run_lock import RunLock
+    from .worker_callback import OpenSSHManagerCallback, WorkerCallbackError
 except ImportError:
+    from executor_lifecycle import restart_executor_service, start_executor_service
     from run_lock import RunLock
+    from worker_callback import OpenSSHManagerCallback, WorkerCallbackError
 
 
 STATE_SCHEMA_VERSION = 1
@@ -90,6 +99,7 @@ def _default_config(root: Path) -> dict[str, Any]:
         "project_version": "0.1.0",
         "package_root": str((root / "packages").resolve()),
         "task_inbox_root": str((root / "task-inbox").resolve()),
+        "task_outbox_root": str((root / "task-outbox").resolve()),
     }
 
 
@@ -105,6 +115,10 @@ def _default_state(root: Path) -> dict[str, Any]:
         "function_versions": {},
         "results": [],
         "next_sequence": 1,
+        "outbox_records": {},
+        "next_outbox_sequence": 1,
+        "account_requests": {},
+        "account_management": {},
     }
 
 
@@ -157,8 +171,14 @@ class _JsonWorkerStore:
             "function_versions",
             "results",
             "next_sequence",
+            "outbox_records",
+            "next_outbox_sequence",
+            "account_requests",
+            "account_management",
         ):
             state.setdefault(key, copy.deepcopy(defaults[key]))
+        for key, value in defaults["config"].items():
+            state["config"].setdefault(key, copy.deepcopy(value))
         return state
 
     def _write_state(self, state: dict[str, Any]) -> None:
@@ -248,16 +268,31 @@ class ManagerWorkerService:
         local_api_url: str | None = None,
         local_control: Callable[[str, str | None], dict[str, Any]] | None = None,
         local_service_probe: Callable[[], dict[str, Any]] | None = None,
+        executor_starter: Callable[[], dict[str, Any]] | None = None,
+        executor_restarter: Callable[[], dict[str, Any]] | None = None,
+        webui_starter: Callable[[], dict[str, Any]] | None = None,
+        webui_restarter: Callable[[], dict[str, Any]] | None = None,
+        process_starter: Callable[..., subprocess.Popen] = subprocess.Popen,
+        callback_sender: Callable[[dict[str, Any], str, dict[str, Any]], dict[str, Any]]
+        | None = None,
     ) -> None:
         self._store = _JsonWorkerStore(root)
         self.root = self._store.root
         self._executor = executor
+        self._account_summary_reader_injected = account_summary_reader is not None
         self._account_summary_reader = account_summary_reader or _default_account_summary
         self._local_control = local_control
         self._local_service_probe = local_service_probe
         self._local_api_url = (
-            local_api_url or os.getenv("XHS_LOCAL_API_URL") or "http://127.0.0.1:8765/api/v1"
+            local_api_url
+            or os.getenv("XHS_EXECUTOR_API_URL")
+            or os.getenv("XHS_LOCAL_API_URL")
+            or "http://127.0.0.1:8766/api/v1"
         ).rstrip("/")
+        self._executor_starter = executor_starter or webui_starter
+        self._executor_restarter = executor_restarter or webui_restarter
+        self._process_starter = process_starter
+        self._callback_sender = callback_sender or OpenSSHManagerCallback().send
 
     def configure(
         self,
@@ -277,6 +312,7 @@ class ManagerWorkerService:
                 "project_version",
                 "package_root",
                 "task_inbox_root",
+                "task_outbox_root",
             ):
                 if name in requested:
                     updated[name] = str(requested[name]).strip()
@@ -286,7 +322,7 @@ class ManagerWorkerService:
             if updated["role"] != "executor":
                 raise WorkerServiceError("INVALID_CONFIG", "执行机role必须是executor")
             updated["machine_id"] = updated["machine_id"].upper()
-            for name in ("package_root", "task_inbox_root"):
+            for name in ("package_root", "task_inbox_root", "task_outbox_root"):
                 if not updated.get(name):
                     raise WorkerServiceError("INVALID_CONFIG", f"config.{name}不能为空")
                 updated[name] = str(Path(updated[name]).expanduser().resolve())
@@ -301,13 +337,19 @@ class ManagerWorkerService:
                     "存在未结束任务时不能修改project_version",
                 )
             if state["transfers"] and any(
-                updated[name] != current[name] for name in ("package_root", "task_inbox_root")
+                updated[name] != current.get(name) for name in ("package_root", "task_inbox_root")
             ):
                 raise WorkerServiceError("CONFIG_IN_USE", "已有传输记录时不能修改包目录")
+            if state["outbox_records"] and updated["task_outbox_root"] != current.get(
+                "task_outbox_root"
+            ):
+                raise WorkerServiceError("CONFIG_IN_USE", "已有回传记录时不能修改回传目录")
             state["config"] = updated
             return copy.deepcopy(updated)
 
-        return {"success": True, "config": self._store.mutate(mutate)}
+        config = self._store.mutate(mutate)
+        self._ensure_exchange_directories(config)
+        return {"success": True, "config": config}
 
     def health(self) -> dict[str, Any]:
         """只读返回执行机与账号槽位摘要。"""
@@ -342,6 +384,18 @@ class ManagerWorkerService:
             local_service_error = "本地应用服务不可用"
         if not local_service_ready:
             health = "DEGRADED"
+        elif not self._account_summary_reader_injected:
+            try:
+                remote_accounts = self.list_accounts()
+                slots = remote_accounts["accounts"]
+            except WorkerServiceError as exc:
+                summary_error = exc.message
+                health = "DEGRADED"
+        service_status = {
+            "ready": local_service_ready,
+            "url": self._local_api_url,
+            "error": local_service_error,
+        }
         health_payload = {
             "machine_id": config["machine_id"],
             "role": config["role"],
@@ -349,21 +403,613 @@ class ManagerWorkerService:
             "paused": bool(state["machine"]["paused"]),
             "healthy": health != "DEGRADED",
             "status": health,
-            "local_service": {
-                "ready": local_service_ready,
-                "url": self._local_api_url,
-                "error": local_service_error,
-            },
+            "executor_service": copy.deepcopy(service_status),
+            "local_service": copy.deepcopy(service_status),
             "account_slots": {
                 "count": len(slots),
                 "items": copy.deepcopy(slots),
                 "error": summary_error,
+            },
+            "task_exchange": {
+                "transport": "sftp",
+                "inbox_root": config["task_inbox_root"],
+                "outbox_root": config["task_outbox_root"],
             },
         }
         return {
             "success": True,
             "health": health_payload,
         }
+
+    def dashboard_snapshot(self) -> dict[str, Any]:
+        """Return one read-only snapshot for the optional local worker console."""
+
+        state = self._store.snapshot()
+        config = state["config"]
+        account_error = ""
+        try:
+            account_slots = self._account_summary_reader()
+        except WorkerServiceError as exc:
+            account_slots = []
+            account_error = exc.message
+        except Exception:
+            account_slots = []
+            account_error = "账号槽位摘要读取失败"
+        account_slots = [
+            {
+                **copy.deepcopy(item),
+                "account_slot": item.get("account_slot") or item.get("name"),
+                "health_state": item.get("health_state") or "UNKNOWN",
+                "field_request": self._latest_account_request(
+                    state,
+                    str(item.get("account_slot") or item.get("name") or ""),
+                ),
+                "management": copy.deepcopy(
+                    state["account_management"].get(
+                        str(item.get("account_slot") or item.get("name") or ""),
+                    )
+                ),
+            }
+            for item in account_slots
+        ]
+        health = {
+            "machine_id": config["machine_id"],
+            "role": config["role"],
+            "project_version": config["project_version"],
+            "paused": bool(state["machine"]["paused"]),
+            "healthy": not account_error,
+            "status": "PAUSED"
+            if state["machine"]["paused"]
+            else "DEGRADED"
+            if account_error
+            else "READY",
+            "executor_service": {"ready": True, "error": ""},
+            "account_slots": {
+                "count": len(account_slots),
+                "items": account_slots,
+                "error": account_error,
+            },
+            "task_exchange": {
+                "transport": "sftp",
+                "inbox_root": config["task_inbox_root"],
+                "outbox_root": config["task_outbox_root"],
+            },
+        }
+        executions = sorted(
+            (self._public_execution(item) for item in state["executions"].values()),
+            key=lambda item: str(item.get("updated_at") or ""),
+            reverse=True,
+        )
+        execution_by_id = {str(item.get("remote_execution_id") or ""): item for item in executions}
+        outbox_records = sorted(
+            (copy.deepcopy(item) for item in state["outbox_records"].values()),
+            key=lambda item: int(item.get("sequence") or 0),
+            reverse=True,
+        )
+        for record in outbox_records:
+            execution = execution_by_id.get(str(record.get("remote_execution_id") or ""), {})
+            record["delivery_state"] = (
+                "COLLECTED" if execution.get("callback_status") == "RESULT_ACK" else "PENDING"
+            )
+            if execution:
+                execution["outbox_status"] = record["delivery_state"]
+                execution["outbox_recorded_at"] = record.get("recorded_at")
+        agent_messages = sorted(
+            (
+                copy.deepcopy(message)
+                for execution in executions
+                for message in execution.get("agent_messages") or []
+            ),
+            key=lambda item: str(item.get("created_at") or ""),
+            reverse=True,
+        )
+        pending_inbox = len(list((Path(config["task_inbox_root"]) / "pending").glob("*.json")))
+        collected = sum(item["delivery_state"] == "COLLECTED" for item in outbox_records)
+        callback_states = [str(item.get("callback_status") or "") for item in executions]
+        manager_connection = (
+            "CONNECTED"
+            if "RESULT_ACK" in callback_states
+            else "WARNING"
+            if any(item.get("callback_error") for item in executions)
+            else "PENDING"
+            if executions
+            else "UNKNOWN"
+        )
+        active_states = {"ACCEPTED", "RUNNING", "PAUSED", "PAUSE_REQUESTED"}
+        current = next(
+            (item for item in executions if str(item.get("state") or "") in active_states),
+            None,
+        )
+        alerts = [
+            {
+                "task_id": item.get("task_id"),
+                "state": item.get("state"),
+                "message": item.get("message") or item.get("callback_error"),
+                "recommended_action": item.get("recommended_action"),
+                "updated_at": item.get("updated_at"),
+            }
+            for item in executions
+            if item.get("manual_action_required")
+            or item.get("callback_error")
+            or str(item.get("state") or "") in {"BLOCKED", "FAILED", "RESULT_UNKNOWN"}
+        ]
+        return {
+            "success": True,
+            "generated_at": utc_now(),
+            "machine": {
+                **health,
+                "manager_connection": manager_connection,
+            },
+            "exchange": {
+                **health["task_exchange"],
+                "pending_inbox": pending_inbox,
+                "pending_outbox": len(outbox_records) - collected,
+                "collected_outbox": collected,
+                "high_watermark": int(state["next_outbox_sequence"]) - 1,
+                "last_written_at": outbox_records[0].get("recorded_at") if outbox_records else None,
+                "last_collected_at": max(
+                    (
+                        str(item.get("callback_ack_at") or "")
+                        for item in executions
+                        if item.get("callback_ack_at")
+                    ),
+                    default="",
+                ),
+                "last_failure": next(
+                    (
+                        item.get("callback_error") or item.get("message")
+                        for item in executions
+                        if item.get("callback_error")
+                        or str(item.get("state") or "") in {"FAILED", "RESULT_UNKNOWN"}
+                    ),
+                    "",
+                ),
+            },
+            "current_execution": copy.deepcopy(current),
+            "executions": executions,
+            "agent_messages": agent_messages,
+            "outbox_records": outbox_records,
+            "account_requests": sorted(
+                (copy.deepcopy(item) for item in state["account_requests"].values()),
+                key=lambda item: str(item.get("updated_at") or ""),
+                reverse=True,
+            ),
+            "alerts": alerts,
+        }
+
+    def list_accounts(self) -> dict[str, Any]:
+        """通过 API-only 执行服务读取账号清单与逐账号状态。"""
+
+        checked_at = utc_now()
+        payload = self._local_api_request("GET", "/accounts")
+        raw_accounts = payload.get("accounts")
+        if not isinstance(raw_accounts, list):
+            raise WorkerServiceError("INVALID_LOCAL_RESPONSE", "本地账号清单返回格式不正确")
+        accounts: list[dict[str, Any]] = []
+        for raw in raw_accounts:
+            if not isinstance(raw, dict):
+                continue
+            account = dict(raw)
+            name = str(account.get("name") or "").strip()
+            if not name:
+                continue
+            try:
+                status = self._read_account_status(name)
+                accounts.append(self._account_snapshot(account, status, checked_at=checked_at))
+            except WorkerServiceError as exc:
+                accounts.append(
+                    self._account_snapshot(
+                        account,
+                        {
+                            "status": "UNKNOWN",
+                            "ready": False,
+                            "error_code": exc.code,
+                            "message": exc.message,
+                            "next_action": "检查执行服务、Bridge 和账号槽位配置",
+                        },
+                        checked_at=checked_at,
+                    )
+                )
+        state = self._store.snapshot()
+        for account in accounts:
+            account_name = str(account.get("name") or account.get("account_slot") or "")
+            account["field_request"] = self._latest_account_request(
+                state,
+                account_name,
+            )
+            account["management"] = copy.deepcopy(state["account_management"].get(account_name))
+        return {"success": True, "checked_at": checked_at, "accounts": accounts}
+
+    def account_status(self, account: str) -> dict[str, Any]:
+        """读取一个账号的连接、Profile 和身份状态。"""
+
+        account_name = _required_text({"account": account}, "account", "account")
+        checked_at = utc_now()
+        status = self._read_account_status(account_name)
+        config = status.get("account") if isinstance(status.get("account"), dict) else {}
+        snapshot = self._account_snapshot(config, status, checked_at=checked_at)
+        snapshot["name"] = account_name
+        return {"success": True, "checked_at": checked_at, "account": snapshot}
+
+    def account_doctor(self, account: str) -> dict[str, Any]:
+        """运行单账号只读诊断并附带诊断后的状态快照。"""
+
+        account_name = _required_text({"account": account}, "account", "account")
+        encoded = quote(account_name, safe="")
+        diagnosis = self._local_api_request("GET", f"/accounts/{encoded}/doctor")
+        status = self.account_status(account_name)
+        return {
+            "success": True,
+            "checked_at": status["checked_at"],
+            "account": status["account"],
+            "diagnosis": diagnosis,
+        }
+
+    def account_action(self, account: str, action: str) -> dict[str, Any]:
+        """通过 API-only 服务执行受控账号恢复动作并回读状态。"""
+
+        account_name = _required_text({"account": account}, "account", "account")
+        normalized_action = str(action or "").strip().lower()
+        routes = {
+            "profile-start": ("/setup/begin", {"confirmed": True}),
+            "bridge-start": ("/bridge/start-only", {}),
+            "bridge-restart": ("/bridge/restart", {}),
+            "identity-check": ("/identity/check", {}),
+        }
+        route = routes.get(normalized_action)
+        if route is None:
+            raise WorkerServiceError("INVALID_ACCOUNT_ACTION", "未知账号恢复动作")
+        encoded = quote(account_name, safe="")
+        session = self._local_api_request("GET", "/session")
+        token = str(session.get("session_token") or "")
+        if not token:
+            raise WorkerServiceError("LOCAL_SERVICE_UNAVAILABLE", "本地服务没有返回会话令牌")
+        path, body = route
+        if normalized_action == "identity-check":
+            operation = self._local_api_request(
+                "POST",
+                f"/accounts/{encoded}{path}",
+                body,
+                token=token,
+                timeout_seconds=90.0,
+            )
+        else:
+            operation = self._local_api_request(
+                "POST",
+                f"/accounts/{encoded}{path}",
+                body,
+                token=token,
+            )
+        try:
+            status = self.account_status(account_name)
+        except WorkerServiceError as exc:
+            return {
+                "success": False,
+                "status": "UNKNOWN",
+                "error_code": "ACCOUNT_ACTION_RESULT_UNKNOWN",
+                "message": f"账号动作已提交，但状态回读失败：{exc.message}",
+                "operation": operation,
+                "account": {
+                    "name": account_name,
+                    "status": "UNKNOWN",
+                    "checked_at": utc_now(),
+                    "error_code": exc.code,
+                    "message": exc.message,
+                },
+            }
+        return {
+            "success": True,
+            "status": status["account"].get("status") or "UNKNOWN",
+            "checked_at": status["checked_at"],
+            "operation": operation,
+            "account": status["account"],
+        }
+
+    def request_account_field_action(
+        self,
+        account: str,
+        request: dict[str, Any] | None = None,
+        **values: Any,
+    ) -> dict[str, Any]:
+        """Persist a manager-requested account step for a person at this worker."""
+
+        requested = _request_values(request, values)
+        account_name = _required_text({"account": account}, "account", "account")
+        request_id = _safe_component(
+            _required_text(requested, "request_id", "request_id"),
+            "request_id",
+        )
+        request_type = str(requested.get("request_type") or "LOGIN").strip().upper()
+        if request_type not in {"LOGIN", "IDENTITY_CHECK"}:
+            raise WorkerServiceError("INVALID_REQUEST_TYPE", "不支持的现场处理类型")
+        instructions = str(requested.get("instructions") or "").strip()
+        if not instructions:
+            instructions = (
+                "请在当前账号绑定的 Chrome Profile 中完成登录并确认昵称与 UID"
+                if request_type == "LOGIN"
+                else "请在当前账号绑定的 Chrome Profile 中核对昵称与 UID"
+            )
+
+        def mutate(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+            existing = state["account_requests"].get(request_id)
+            definition = {
+                "request_id": request_id,
+                "account_slot": account_name,
+                "request_type": request_type,
+                "instructions": instructions,
+            }
+            if existing is not None:
+                if any(existing.get(key) != value for key, value in definition.items()):
+                    raise WorkerServiceError(
+                        "ACCOUNT_REQUEST_CONFLICT",
+                        "现场处理请求编号已用于其他内容",
+                    )
+                return copy.deepcopy(existing), True
+            now = utc_now()
+            record = {
+                **definition,
+                "state": "PENDING",
+                "result_status": "UNKNOWN",
+                "result_summary": "",
+                "identity": {},
+                "created_at": now,
+                "started_at": "",
+                "completed_at": "",
+                "updated_at": now,
+            }
+            state["account_requests"][request_id] = record
+            return copy.deepcopy(record), False
+
+        field_request, idempotent = self._store.mutate(mutate)
+        try:
+            account_payload = self.account_status(account_name)["account"]
+        except WorkerServiceError:
+            account_payload = {
+                "name": account_name,
+                "account_slot": account_name,
+                "status": "UNKNOWN",
+            }
+        account_payload["field_request"] = field_request
+        return {
+            "success": True,
+            "status": field_request["state"],
+            "idempotent": idempotent,
+            "account": account_payload,
+            "field_request": field_request,
+        }
+
+    def update_account_management(
+        self,
+        account: str,
+        request: dict[str, Any] | None = None,
+        **values: Any,
+    ) -> dict[str, Any]:
+        requested = _request_values(request, values)
+        account_name = _required_text({"account": account}, "account", "account")
+        scheduling_enabled = requested.get("scheduling_enabled", True)
+        if not isinstance(scheduling_enabled, bool):
+            raise WorkerServiceError("INVALID_SCHEDULING_STATE", "调度启用状态必须是布尔值")
+        note = str(requested.get("account_note") or "").strip()
+        now = utc_now()
+        management = {
+            "account_slot": account_name,
+            "account_note": note,
+            "scheduling_enabled": scheduling_enabled,
+            "source_label": "经理机配置",
+            "updated_at": str(requested.get("management_updated_at") or now),
+            "received_at": now,
+        }
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            state["account_management"][account_name] = management
+            return copy.deepcopy(management)
+
+        stored = self._store.mutate(mutate)
+        return {"success": True, "management": stored}
+
+    def start_account_field_action(self, request_id: str) -> dict[str, Any]:
+        field_request = self._update_account_field_request(
+            request_id,
+            state="IN_PROGRESS",
+            started_at=utc_now(),
+        )
+        return {"success": True, "field_request": field_request}
+
+    def complete_account_field_action(self, request_id: str) -> dict[str, Any]:
+        current = self._get_account_field_request(request_id)
+        account_name = str(current["account_slot"])
+        try:
+            account = self.account_status(account_name)["account"]
+            result_status = str(account.get("status") or "UNKNOWN").upper()
+            completed = result_status == "READY"
+            summary = (
+                "账号身份与连接状态已核验"
+                if completed
+                else str(account.get("message") or account.get("next_action") or "账号仍需现场处理")
+            )
+        except WorkerServiceError as exc:
+            account = {"name": account_name, "status": "UNKNOWN", "message": exc.message}
+            result_status = "UNKNOWN"
+            completed = False
+            summary = exc.message
+        field_request = self._update_account_field_request(
+            request_id,
+            state="COMPLETED" if completed else "ACTION_REQUIRED",
+            result_status=result_status,
+            result_summary=summary,
+            identity=copy.deepcopy(account.get("identity") or {}),
+            completed_at=utc_now(),
+        )
+        account["field_request"] = field_request
+        return {
+            "success": True,
+            "status": field_request["state"],
+            "message": summary,
+            "account": account,
+            "field_request": field_request,
+        }
+
+    def _get_account_field_request(self, request_id: str) -> dict[str, Any]:
+        normalized = _safe_component(str(request_id or "").strip(), "request_id")
+        field_request = self._store.snapshot()["account_requests"].get(normalized)
+        if field_request is None:
+            raise WorkerServiceError("ACCOUNT_REQUEST_NOT_FOUND", "现场处理请求不存在")
+        return copy.deepcopy(field_request)
+
+    def _update_account_field_request(
+        self,
+        request_id: str,
+        **values: Any,
+    ) -> dict[str, Any]:
+        normalized = _safe_component(str(request_id or "").strip(), "request_id")
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            current = state["account_requests"].get(normalized)
+            if current is None:
+                raise WorkerServiceError("ACCOUNT_REQUEST_NOT_FOUND", "现场处理请求不存在")
+            updated = {**current, **copy.deepcopy(values), "updated_at": utc_now()}
+            state["account_requests"][normalized] = updated
+            return copy.deepcopy(updated)
+
+        return self._store.mutate(mutate)
+
+    @staticmethod
+    def _latest_account_request(
+        state: dict[str, Any],
+        account: str,
+    ) -> dict[str, Any] | None:
+        requests = [
+            item
+            for item in state["account_requests"].values()
+            if item.get("account_slot") == account
+        ]
+        requests.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        return copy.deepcopy(requests[0]) if requests else None
+
+    def _read_account_status(self, account: str) -> dict[str, Any]:
+        encoded = quote(account, safe="")
+        return self._local_api_request("GET", f"/accounts/{encoded}/status")
+
+    @staticmethod
+    def _account_snapshot(
+        config: dict[str, Any],
+        status: dict[str, Any],
+        *,
+        checked_at: str,
+    ) -> dict[str, Any]:
+        nested_config = status.get("account")
+        account = {**config, **(nested_config if isinstance(nested_config, dict) else {})}
+        for name in (
+            "status",
+            "ready",
+            "server_running",
+            "extension_connected",
+            "profile_verified",
+            "connection_ready",
+            "runtime",
+            "identity",
+            "bridge",
+            "next_action",
+            "error_code",
+            "message",
+        ):
+            if name in status:
+                account[name] = copy.deepcopy(status[name])
+        account["checked_at"] = checked_at
+        return account
+
+    def executor_status(self) -> dict[str, Any]:
+        """返回无页面执行服务状态与执行机健康快照。"""
+
+        health = self.health()["health"]
+        ready = bool(health["executor_service"]["ready"])
+        return {
+            "success": True,
+            "status": "RUNNING" if ready else "STOPPED",
+            "executor_service": copy.deepcopy(health["executor_service"]),
+            "health": health,
+        }
+
+    def start_executor_service(self) -> dict[str, Any]:
+        """启动执行机执行服务并回读健康状态。"""
+
+        return self._control_executor_service("start")
+
+    def restart_executor_service(self) -> dict[str, Any]:
+        """在没有执行中任务时重启执行机执行服务。"""
+
+        return self._control_executor_service("restart")
+
+    def _control_executor_service(self, action: str) -> dict[str, Any]:
+        if action == "start":
+            lifecycle = (
+                self._executor_starter()
+                if self._executor_starter
+                else start_executor_service(
+                    python_executable=sys.executable,
+                    project_root=Path(__file__).resolve().parent.parent,
+                    port=self._executor_service_port(),
+                )
+            )
+        else:
+            lifecycle = (
+                self._executor_restarter()
+                if self._executor_restarter
+                else restart_executor_service(
+                    python_executable=sys.executable,
+                    project_root=Path(__file__).resolve().parent.parent,
+                    port=self._executor_service_port(),
+                )
+            )
+        health = self.health()["health"]
+        ready = bool(health["executor_service"]["ready"])
+        lifecycle_success = lifecycle.get("success") is not False
+        success = lifecycle_success and ready
+        result = {
+            "success": success,
+            "status": "READY" if success else "BLOCKED",
+            "operation": copy.deepcopy(lifecycle),
+            "executor_service": copy.deepcopy(health["executor_service"]),
+            "health": health,
+        }
+        if success:
+            result["message"] = (
+                "执行机执行服务已启动" if action == "start" else "执行机执行服务已重启"
+            )
+            return result
+        result["error_code"] = (
+            "EXECUTOR_HEALTH_CHECK_FAILED" if lifecycle_success else "EXECUTOR_CONTROL_FAILED"
+        )
+        result["message"] = str(
+            lifecycle.get("message")
+            or health["executor_service"].get("error")
+            or "执行机执行服务操作后未通过健康检查"
+        )
+        return result
+
+    def webui_status(self) -> dict[str, Any]:
+        """兼容旧 SSH 动作，返回当前执行服务状态。"""
+
+        result = self.executor_status()
+        result["webui"] = copy.deepcopy(result["executor_service"])
+        return result
+
+    def start_webui(self) -> dict[str, Any]:
+        """兼容旧 SSH 动作，启动当前执行服务。"""
+
+        result = self.start_executor_service()
+        result["webui"] = copy.deepcopy(result["executor_service"])
+        return result
+
+    def restart_webui(self) -> dict[str, Any]:
+        """兼容旧 SSH 动作，重启当前执行服务。"""
+
+        result = self.restart_executor_service()
+        result["webui"] = copy.deepcopy(result["executor_service"])
+        return result
+
+    def _executor_service_port(self) -> int:
+        return urlsplit(self._local_api_url).port or 8766
 
     def list_function_versions(
         self,
@@ -533,10 +1179,18 @@ class ManagerWorkerService:
                     "parent_task_id",
                     "target_type",
                     "target_id",
+                    "schedule_id",
+                    "operation_task_id",
+                    "goal_id",
+                    "goal_snapshot",
+                    "persona_snapshot",
                     "platform",
                     "authorization",
                     "write_intent",
+                    "timeout_seconds",
                     "manager_id",
+                    "manager_agent_id",
+                    "manager_callback",
                     "function_id",
                     "allowed_function_versions",
                 )
@@ -609,14 +1263,415 @@ class ManagerWorkerService:
                 "message": "任务已接收",
                 "reconciliation_required": False,
                 "paused_by_machine": False,
+                "runner_started_at": None,
+                "runner_pid": None,
+                "callback_status": "PENDING",
+                "callback_error": "",
+                "agent_messages": [],
             }
+            self._append_agent_message(
+                execution,
+                message_type="TASK_ACK",
+                status="ACCEPTED",
+                summary="员工Agent已接收任务",
+                from_agent=f"{config['machine_id']}-AGENT",
+                to_agent=str(task_payload.get("manager_agent_id") or "MANAGER-AGENT-01"),
+            )
             state["executions"][remote_execution_id] = execution
             state["task_index"][task_id] = remote_execution_id
             state["dispatch_index"][dispatch_id] = remote_execution_id
             return copy.deepcopy(execution), False
 
         execution, idempotent = self._store.mutate(mutate)
-        return self._execution_response(execution, idempotent=idempotent)
+        response = self._execution_response(execution, idempotent=idempotent)
+        response["status"] = "TASK_ACK"
+        response["agent_messages"] = [
+            copy.deepcopy(item)
+            for item in execution.get("agent_messages") or []
+            if item.get("message_type") == "TASK_ACK"
+        ]
+        return response
+
+    def wake_task(
+        self,
+        task_id: str | None = None,
+        *,
+        file_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Claim one SFTP task file, start its detached runner, and return a fast ACK."""
+
+        normalized_task_id = _safe_component(str(task_id or "").strip(), "task_id")
+        normalized_file_name = str(file_name or f"{normalized_task_id}.json").strip()
+        if Path(normalized_file_name).name != normalized_file_name:
+            raise WorkerServiceError("INVALID_TASK_FILE", "任务包文件名无效")
+        config = self._store.snapshot()["config"]
+        inbox_root = Path(config["task_inbox_root"])
+        pending_path = inbox_root / "pending" / normalized_file_name
+        claimed_path = inbox_root / "claimed" / normalized_file_name
+        source_path = pending_path if pending_path.is_file() else claimed_path
+        if not source_path.is_file():
+            raise WorkerServiceError("TASK_FILE_NOT_FOUND", "员工机 inbox 中没有找到任务包")
+        try:
+            envelope = json.loads(source_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise WorkerServiceError("TASK_FILE_INVALID", "员工机任务包无法读取") from exc
+        if not isinstance(envelope, dict):
+            raise WorkerServiceError("TASK_FILE_INVALID", "员工机任务包必须是JSON对象")
+        if str(envelope.get("task_id") or "") != normalized_task_id:
+            raise WorkerServiceError("TASK_FILE_MISMATCH", "任务包编号与唤醒编号不一致")
+
+        accepted = self.accept_task(envelope)
+        if pending_path.is_file():
+            claimed_path.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(pending_path, claimed_path)
+        execution = self._extract_execution(accepted)
+        started = self.start_task(
+            normalized_task_id,
+            remote_execution_id=str(execution.get("remote_execution_id") or ""),
+        )
+        execution = self._extract_execution(started)
+        messages = [
+            copy.deepcopy(item)
+            for item in execution.get("agent_messages") or []
+            if item.get("message_type") == "TASK_ACK"
+        ]
+        acknowledgement = {
+            "schema_version": "xhs_worker_task_ack_v1",
+            "status": "ACCEPTED",
+            "task_id": normalized_task_id,
+            "dispatch_id": execution["dispatch_id"],
+            "machine_id": execution["machine_id"],
+            "remote_execution_id": execution["remote_execution_id"],
+            "runner_pid": execution.get("runner_pid"),
+            "accepted_at": execution.get("accepted_at") or utc_now(),
+            "agent_messages": messages,
+        }
+        self._publish_outbox_record(
+            "acknowledgement",
+            normalized_task_id,
+            str(execution["remote_execution_id"]),
+            acknowledgement,
+            record_id=f"{execution['dispatch_id']}:task-ack",
+        )
+        return {
+            "success": True,
+            "status": "TASK_ACK",
+            "acknowledgement": acknowledgement,
+            "execution": execution,
+            "agent_messages": messages,
+        }
+
+    def start_task(
+        self,
+        task_id: str | None = None,
+        *,
+        remote_execution_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Start a detached employee Agent runner and return without waiting for browser work."""
+
+        def reserve(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+            execution = self._find_execution(state, task_id, remote_execution_id)
+            if execution["state"] in TASK_FINAL_STATES | {
+                "RUNNING",
+                "PAUSED",
+                "PAUSE_REQUESTED",
+                "RECONCILIATION_REQUIRED",
+            }:
+                return copy.deepcopy(execution), False
+            if execution["state"] != "ACCEPTED":
+                raise WorkerServiceError("INVALID_TASK_STATE", "当前任务状态不能启动")
+            if state["machine"]["paused"]:
+                return copy.deepcopy(execution), False
+            if execution.get("runner_started_at"):
+                return copy.deepcopy(execution), False
+            execution["runner_started_at"] = utc_now()
+            execution["updated_at"] = execution["runner_started_at"]
+            execution["message"] = "任务已进入员工Agent执行队列"
+            return copy.deepcopy(execution), True
+
+        execution, should_start = self._store.mutate(reserve)
+        if not should_start:
+            response = self._execution_response(execution, idempotent=True)
+            response["status"] = "TASK_ACK"
+            return response
+
+        log_root = self.root / "logs"
+        log_root.mkdir(parents=True, exist_ok=True)
+        log_path = log_root / f"employee-agent-{execution['remote_execution_id']}.log"
+        log_stream = log_path.open("a", encoding="utf-8")
+        kwargs: dict[str, Any] = {
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "stdin": subprocess.DEVNULL,
+            "stdout": log_stream,
+            "stderr": subprocess.STDOUT,
+            "close_fds": True,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.CREATE_BREAKAWAY_FROM_JOB
+            )
+        else:
+            kwargs["start_new_session"] = True
+        try:
+            process = self._process_starter(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("manager_worker_async.py")),
+                    "--state-root",
+                    str(self.root),
+                    "--task-id",
+                    execution["task_id"],
+                    "--remote-execution-id",
+                    execution["remote_execution_id"],
+                ],
+                **kwargs,
+            )
+        except OSError as exc:
+
+            def release(state: dict[str, Any]) -> None:
+                current = self._find_execution(
+                    state,
+                    execution["task_id"],
+                    execution["remote_execution_id"],
+                )
+                current["runner_started_at"] = None
+                current["runner_pid"] = None
+                current["message"] = "员工Agent执行进程启动失败"
+                current["updated_at"] = utc_now()
+
+            self._store.mutate(release)
+            raise WorkerServiceError("AGENT_START_FAILED", "员工Agent执行进程启动失败") from exc
+        finally:
+            log_stream.close()
+
+        def record_pid(state: dict[str, Any]) -> dict[str, Any]:
+            current = self._find_execution(
+                state,
+                execution["task_id"],
+                execution["remote_execution_id"],
+            )
+            current["runner_pid"] = int(process.pid)
+            current["updated_at"] = utc_now()
+            return copy.deepcopy(current)
+
+        queued = self._store.mutate(record_pid)
+        response = self._execution_response(queued)
+        response["status"] = "TASK_ACK"
+        response["runner_pid"] = int(process.pid)
+        return response
+
+    def send_task_progress(
+        self,
+        task_id: str | None = None,
+        *,
+        remote_execution_id: str | None = None,
+        stage: str = "",
+        summary: str = "员工Agent开始执行任务",
+        metrics: dict[str, Any] | None = None,
+        details: dict[str, Any] | None = None,
+        status: str = "RUNNING",
+        event_key: str = "",
+    ) -> dict[str, Any]:
+        payload = dict(details or {})
+        if stage:
+            payload["stage"] = stage
+        if metrics:
+            payload["metrics"] = copy.deepcopy(metrics)
+        return self._send_agent_callback(
+            task_id,
+            remote_execution_id=remote_execution_id,
+            message_type="TASK_PROGRESS",
+            status=status,
+            summary=summary,
+            payload=payload,
+            event_key=event_key or (f"progress:{stage}" if stage else ""),
+        )
+
+    def record_outcome_progress(
+        self,
+        task_id: str | None = None,
+        *,
+        remote_execution_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist capability-specific progress messages before the final result callback."""
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            execution = self._find_execution(state, task_id, remote_execution_id)
+            messages: list[dict[str, Any]] = []
+            for event in self._outcome_progress_events(execution):
+                messages.append(
+                    copy.deepcopy(
+                        self._append_agent_message(
+                            execution,
+                            message_type="TASK_PROGRESS",
+                            status=str(event.get("status") or "RUNNING"),
+                            summary=str(event.get("summary") or "员工Agent更新执行进度"),
+                            from_agent=f"{execution['machine_id']}-AGENT",
+                            to_agent=str(
+                                execution["task"].get("manager_agent_id") or "MANAGER-AGENT-01"
+                            ),
+                            payload=dict(event.get("payload") or {}),
+                            event_key=str(event.get("event_key") or ""),
+                        )
+                    )
+                )
+            return {
+                "execution": copy.deepcopy(execution),
+                "agent_messages": messages,
+            }
+
+        recorded = self._store.mutate(mutate)
+        return {"success": True, **recorded}
+
+    def push_task_result(
+        self,
+        task_id: str | None = None,
+        *,
+        remote_execution_id: str | None = None,
+    ) -> dict[str, Any]:
+        def prepare(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+            execution = self._find_execution(state, task_id, remote_execution_id)
+            result = next(
+                (
+                    item
+                    for item in reversed(state["results"])
+                    if item.get("remote_execution_id") == execution["remote_execution_id"]
+                ),
+                None,
+            )
+            if result is None:
+                raise WorkerServiceError("RESULT_NOT_READY", "员工Agent任务结果尚未生成")
+            self._append_agent_message(
+                execution,
+                message_type="TASK_RESULT",
+                status=str(execution["state"]),
+                summary=str(execution.get("message") or "员工Agent任务已结束"),
+                from_agent=f"{execution['machine_id']}-AGENT",
+                to_agent=str(execution["task"].get("manager_agent_id") or "MANAGER-AGENT-01"),
+            )
+            result["agent_messages"] = copy.deepcopy(execution.get("agent_messages") or [])
+            return copy.deepcopy(execution), copy.deepcopy(result)
+
+        execution, result = self._store.mutate(prepare)
+        self._publish_outbox_record(
+            "result",
+            str(execution["task_id"]),
+            str(execution["remote_execution_id"]),
+            {"result": result},
+            record_id=(
+                f"{execution['dispatch_id']}:result:"
+                f"{result.get('result_revision') or result.get('sequence') or 1}"
+            ),
+        )
+        self.send_task_progress(
+            str(execution["task_id"]),
+            remote_execution_id=str(execution["remote_execution_id"]),
+            stage="outbox_written",
+            summary="员工机结果已写入 outbox，等待经理机回收",
+            status="PENDING",
+            details={"outbox_state": "WRITTEN"},
+        )
+        callback = execution["task"].get("manager_callback")
+        if not isinstance(callback, dict) or not callback:
+            self._record_callback_status(execution["remote_execution_id"], "OUTBOX_READY", "")
+            return {
+                "success": True,
+                "status": "RESULT_READY",
+                "task_id": execution["task_id"],
+                "remote_execution_id": execution["remote_execution_id"],
+            }
+        try:
+            response = self._callback_sender(
+                callback,
+                "task-result",
+                {
+                    "machine_id": execution["machine_id"],
+                    "manager_id": execution["task"].get("manager_id", ""),
+                    "result": result,
+                    "agent_message": result["agent_messages"][-1],
+                },
+            )
+        except WorkerCallbackError as exc:
+            self._record_callback_status(execution["remote_execution_id"], "PENDING", str(exc))
+            return {"success": False, "status": "PENDING_PULL", "message": str(exc)}
+        self._record_callback_status(execution["remote_execution_id"], "RESULT_ACK", "")
+        ack = response.get("agent_message")
+        if isinstance(ack, dict):
+            self._store.mutate(
+                lambda state: self._store_received_agent_message(
+                    state,
+                    execution["remote_execution_id"],
+                    ack,
+                )
+            )
+        return response
+
+    def _send_agent_callback(
+        self,
+        task_id: str | None,
+        *,
+        remote_execution_id: str | None,
+        message_type: str,
+        status: str,
+        summary: str,
+        payload: dict[str, Any] | None = None,
+        event_key: str = "",
+    ) -> dict[str, Any]:
+        def prepare(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+            execution = self._find_execution(state, task_id, remote_execution_id)
+            message = self._append_agent_message(
+                execution,
+                message_type=message_type,
+                status=status,
+                summary=summary,
+                from_agent=f"{execution['machine_id']}-AGENT",
+                to_agent=str(execution["task"].get("manager_agent_id") or "MANAGER-AGENT-01"),
+                payload=payload,
+                event_key=event_key,
+            )
+            return copy.deepcopy(execution), copy.deepcopy(message)
+
+        execution, message = self._store.mutate(prepare)
+        self._publish_outbox_record(
+            "event",
+            str(execution["task_id"]),
+            str(execution["remote_execution_id"]),
+            {"agent_message": message, "execution": self._public_execution(execution)},
+            record_id=str(message["message_id"]),
+        )
+        callback = execution["task"].get("manager_callback")
+        if not isinstance(callback, dict) or not callback:
+            return {"success": True, "status": "OUTBOX_READY", "agent_message": message}
+        try:
+            return self._callback_sender(
+                callback,
+                "agent-message",
+                {
+                    "machine_id": execution["machine_id"],
+                    "manager_id": execution["task"].get("manager_id", ""),
+                    "agent_message": message,
+                },
+            )
+        except WorkerCallbackError as exc:
+            return {"success": False, "status": "PENDING_PULL", "message": str(exc)}
+
+    def _record_callback_status(
+        self,
+        remote_execution_id: str,
+        status: str,
+        error: str,
+    ) -> None:
+        def mutate(state: dict[str, Any]) -> None:
+            execution = self._find_execution(state, None, remote_execution_id)
+            execution["callback_status"] = status
+            execution["callback_error"] = error
+            execution["callback_attempted_at"] = utc_now()
+            if status == "RESULT_ACK":
+                execution["callback_ack_at"] = execution["callback_attempted_at"]
+
+        self._store.mutate(mutate)
 
     def task_status(
         self,
@@ -630,6 +1685,7 @@ class ManagerWorkerService:
             "RUNNING",
             "PAUSE_REQUESTED",
             "RECONCILIATION_REQUIRED",
+            "RESULT_UNKNOWN",
         }:
             execution = self._reconcile_execution_status(execution)
         return self._execution_response(execution)
@@ -1261,18 +2317,7 @@ class ManagerWorkerService:
             if not local_task_id:
                 return execution
             try:
-                session = self._local_api_request("GET", "/session")
-                token = str(session.get("session_token") or "")
-                if not token:
-                    raise WorkerServiceError(
-                        "LOCAL_SERVICE_UNAVAILABLE",
-                        "本地服务没有返回会话令牌",
-                    )
-                raw_outcome = self._local_api_request(
-                    "GET",
-                    f"/tasks/{local_task_id}",
-                    token=token,
-                )
+                raw_outcome = self._read_local_task_outcome(local_task_id)
             except WorkerServiceError as exc:
                 if execution["state"] != "RUNNING":
                     return execution
@@ -1291,20 +2336,23 @@ class ManagerWorkerService:
             return execution
         outcome = self._normalize_outcome(raw_outcome)
 
-        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+        def mutate(
+            state: dict[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any] | None]:
             current = self._find_execution(
                 state,
                 execution["task_id"],
                 execution["remote_execution_id"],
             )
-            if current["state"] in TASK_FINAL_STATES:
-                return copy.deepcopy(current)
+            if current["state"] in TASK_FINAL_STATES and current["state"] != "RESULT_UNKNOWN":
+                return copy.deepcopy(current), None
             if current["state"] not in {
                 "RUNNING",
                 "PAUSE_REQUESTED",
                 "RECONCILIATION_REQUIRED",
+                "RESULT_UNKNOWN",
             }:
-                return copy.deepcopy(current)
+                return copy.deepcopy(current), None
             now = utc_now()
             current.update(
                 {
@@ -1329,9 +2377,71 @@ class ManagerWorkerService:
                 }
             )
             self._append_result(state, current)
-            return copy.deepcopy(current)
+            return copy.deepcopy(current), copy.deepcopy(state["results"][-1])
 
-        return self._store.mutate(mutate)
+        updated, revised_result = self._store.mutate(mutate)
+        if revised_result is not None:
+            result_revision = (
+                revised_result.get("result_revision") or revised_result.get("sequence") or 1
+            )
+            self._publish_outbox_record(
+                "result",
+                str(updated["task_id"]),
+                str(updated["remote_execution_id"]),
+                {"result": revised_result},
+                record_id=f"{updated['dispatch_id']}:result:{result_revision}",
+            )
+        return updated
+
+    def _read_local_task_outcome(self, local_task_id: str) -> dict[str, Any]:
+        """Read a local terminal task and attach its persisted operation result."""
+
+        session = self._local_api_request("GET", "/session")
+        token = str(session.get("session_token") or "")
+        if not token:
+            raise WorkerServiceError(
+                "LOCAL_SERVICE_UNAVAILABLE",
+                "本地服务没有返回会话令牌",
+            )
+        outcome = self._local_api_request(
+            "GET",
+            f"/tasks/{local_task_id}",
+            token=token,
+        )
+        if self._outcome_state(outcome) not in LOCAL_TASK_FINAL_STATES:
+            return outcome
+
+        recovered = self._local_api_request("GET", "/operation-events", token=token)
+        events = recovered.get("events")
+        if not isinstance(events, list):
+            return outcome
+        event = next(
+            (
+                item
+                for item in events
+                if isinstance(item, dict) and str(item.get("task_id") or "") == local_task_id
+            ),
+            None,
+        )
+        platform_result = event.get("platform_result") if isinstance(event, dict) else None
+        if not isinstance(platform_result, dict):
+            return outcome
+        task = outcome.get("task") if isinstance(outcome.get("task"), dict) else {}
+        return {
+            **outcome,
+            "state": str(task.get("state") or outcome.get("state") or ""),
+            "message": str(
+                task.get("result_summary")
+                or event.get("result_summary")
+                or outcome.get("message")
+                or ""
+            ),
+            "error_code": str(task.get("error_code") or outcome.get("error_code") or ""),
+            "recommended_action": str(
+                task.get("recommended_action") or outcome.get("recommended_action") or ""
+            ),
+            "result": copy.deepcopy(platform_result),
+        }
 
     def _execute_via_local_api(self, payload: dict[str, Any]) -> dict[str, Any]:
         """通过常驻本地服务执行，避免在 SSH 请求中重建 ApplicationService。"""
@@ -1350,6 +2460,11 @@ class ManagerWorkerService:
                 "parent_task_id",
                 "target_type",
                 "target_id",
+                "schedule_id",
+                "operation_task_id",
+                "goal_id",
+                "goal_snapshot",
+                "persona_snapshot",
                 "platform",
             )
             if key in payload
@@ -1383,11 +2498,17 @@ class ManagerWorkerService:
                     "local_task_id": local_task_id,
                 }
             try:
-                executed = self._local_api_request(
-                    "POST",
-                    f"/tasks/{local_task_id}/execute",
-                    {},
-                    token=token,
+                with self._relay_local_progress(payload, local_task_id, token):
+                    executed = self._local_api_request(
+                        "POST",
+                        f"/tasks/{local_task_id}/execute",
+                        {},
+                        token=token,
+                        timeout_seconds=float(payload.get("timeout_seconds") or 300) + 30,
+                    )
+                self._forward_progress_events(
+                    payload,
+                    (executed.get("task") or {}).get("progress_events") or [],
                 )
             except WorkerServiceError as exc:
                 return {
@@ -1411,6 +2532,53 @@ class ManagerWorkerService:
                 "error_code": "LOCAL_SERVICE_UNAVAILABLE",
                 "message": "本地应用服务不可用",
             }
+
+    def _forward_progress_events(self, task: dict, events: list[dict]) -> None:
+        execution_id = str(task.get("remote_execution_id") or "")
+        if not execution_id or not events:
+            return
+        execution = self._store.snapshot()["executions"].get(execution_id) or {}
+        known = {message["message_id"] for message in execution.get("agent_messages") or []}
+        for event in events:
+            event_key = f"progress:local:{event['sequence']}"
+            if f"{execution.get('dispatch_id')}:{event_key}" in known:
+                continue
+            self.send_task_progress(
+                remote_execution_id=execution_id,
+                stage=str(event.get("stage") or ""),
+                summary=str(event.get("summary") or "执行进度已更新"),
+                metrics=event.get("metrics") or {},
+                details={**event, "evidence_mode": "live"},
+                event_key=event_key,
+            )
+
+    @contextmanager
+    def _relay_local_progress(self, task: dict, local_task_id: str, token: str) -> Iterator[None]:
+        stopped = threading.Event()
+
+        def relay() -> None:
+            while not stopped.wait(1):
+                try:
+                    response = self._local_api_request(
+                        "GET",
+                        f"/tasks/{local_task_id}",
+                        token=token,
+                        timeout_seconds=3,
+                    )
+                    self._forward_progress_events(
+                        task,
+                        (response.get("task") or {}).get("progress_events") or [],
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception("员工机进度同步失败")
+
+        thread = threading.Thread(target=relay, name="worker-progress", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join()
 
     def _record_local_task_id(self, remote_execution_id: str, local_task_id: str) -> None:
         if not remote_execution_id:
@@ -1472,6 +2640,7 @@ class ManagerWorkerService:
         body: dict[str, Any] | None = None,
         *,
         token: str = "",
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         data = None
         headers = {"Accept": "application/json"}
@@ -1487,10 +2656,13 @@ class ManagerWorkerService:
             method=method,
             headers=headers,
         )
-        try:
-            timeout = float(os.getenv("XHS_LOCAL_API_TIMEOUT", "10"))
-        except ValueError:
-            timeout = 10.0
+        if timeout_seconds is None:
+            try:
+                timeout = float(os.getenv("XHS_LOCAL_API_TIMEOUT", "10"))
+            except ValueError:
+                timeout = 10.0
+        else:
+            timeout = timeout_seconds
         try:
             with urlopen(request, timeout=timeout) as response:
                 value = json.loads(response.read().decode("utf-8"))
@@ -1661,6 +2833,97 @@ class ManagerWorkerService:
         return str(value.get("state") or value.get("status") or task.get("state") or "").upper()
 
     @staticmethod
+    def _extract_execution(response: dict[str, Any]) -> dict[str, Any]:
+        execution = response.get("execution")
+        if not isinstance(execution, dict):
+            raise WorkerServiceError("INVALID_TASK_STATE", "员工机任务状态无效")
+        return execution
+
+    @staticmethod
+    def _ensure_exchange_directories(config: dict[str, Any]) -> None:
+        inbox_root = Path(config["task_inbox_root"])
+        outbox_root = Path(config["task_outbox_root"])
+        for directory in (
+            inbox_root / "pending",
+            inbox_root / "claimed",
+            outbox_root / "acknowledgements",
+            outbox_root / "events",
+            outbox_root / "results",
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+        index_path = outbox_root / "index.json"
+        if not index_path.exists():
+            _write_json_atomic(
+                index_path,
+                {
+                    "schema_version": "xhs_worker_outbox_index_v1",
+                    "machine_id": config["machine_id"],
+                    "high_watermark": 0,
+                    "updated_at": utc_now(),
+                    "records": [],
+                },
+            )
+
+    def _publish_outbox_record(
+        self,
+        record_type: str,
+        task_id: str,
+        remote_execution_id: str,
+        payload: dict[str, Any],
+        *,
+        record_id: str,
+    ) -> dict[str, Any]:
+        folders = {
+            "acknowledgement": "acknowledgements",
+            "event": "events",
+            "result": "results",
+        }
+        folder = folders.get(record_type)
+        if folder is None:
+            raise WorkerServiceError("INVALID_OUTBOX_RECORD", "员工机 outbox 记录类型无效")
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            existing = state["outbox_records"].get(record_id)
+            if isinstance(existing, dict):
+                return copy.deepcopy(existing)
+            config = state["config"]
+            self._ensure_exchange_directories(config)
+            sequence = int(state["next_outbox_sequence"])
+            state["next_outbox_sequence"] = sequence + 1
+            relative_path = f"{folder}/{sequence:012d}-{task_id}.json"
+            metadata = {
+                "record_id": record_id,
+                "record_type": record_type,
+                "sequence": sequence,
+                "task_id": task_id,
+                "remote_execution_id": remote_execution_id,
+                "relative_path": relative_path,
+                "recorded_at": utc_now(),
+            }
+            body = {
+                "schema_version": "xhs_worker_outbox_record_v1",
+                **metadata,
+                "payload": copy.deepcopy(payload),
+            }
+            outbox_root = Path(config["task_outbox_root"])
+            _write_json_atomic(outbox_root / Path(relative_path), body)
+            state["outbox_records"][record_id] = metadata
+            index = {
+                "schema_version": "xhs_worker_outbox_index_v1",
+                "machine_id": config["machine_id"],
+                "high_watermark": sequence,
+                "updated_at": metadata["recorded_at"],
+                "records": sorted(
+                    (copy.deepcopy(item) for item in state["outbox_records"].values()),
+                    key=lambda item: int(item["sequence"]),
+                ),
+            }
+            _write_json_atomic(outbox_root / "index.json", index)
+            return copy.deepcopy(metadata)
+
+        return self._store.mutate(mutate)
+
+    @staticmethod
     def _find_execution(
         state: dict[str, Any],
         task_id: str | None,
@@ -1708,9 +2971,164 @@ class ManagerWorkerService:
                 "risk_level": execution.get("risk_level", ""),
                 "message": execution.get("message", ""),
                 "result_summary": execution.get("message", ""),
+                "agent_messages": copy.deepcopy(execution.get("agent_messages") or []),
                 "recorded_at": utc_now(),
             }
         )
+
+    @staticmethod
+    def _append_agent_message(
+        execution: dict[str, Any],
+        *,
+        message_type: str,
+        status: str,
+        summary: str,
+        from_agent: str,
+        to_agent: str,
+        payload: dict[str, Any] | None = None,
+        event_key: str = "",
+    ) -> dict[str, Any]:
+        message_suffix = event_key.strip() or message_type.lower()
+        message_id = f"{execution['dispatch_id']}:{message_suffix}"
+        messages = execution.setdefault("agent_messages", [])
+        existing = next(
+            (item for item in messages if item.get("message_id") == message_id),
+            None,
+        )
+        if existing is not None:
+            return existing
+        task = execution.get("task") if isinstance(execution.get("task"), dict) else {}
+        message = {
+            "message_id": message_id,
+            "operation_task_id": str(task.get("operation_task_id") or ""),
+            "task_id": execution["task_id"],
+            "from_agent": from_agent,
+            "to_agent": to_agent,
+            "message_type": message_type,
+            "status": status,
+            "summary": summary,
+            "payload": {
+                "machine_id": execution["machine_id"],
+                "remote_execution_id": execution["remote_execution_id"],
+                **copy.deepcopy(payload or {}),
+            },
+            "created_at": utc_now(),
+        }
+        messages.append(message)
+        return message
+
+    @staticmethod
+    def _outcome_progress_events(execution: dict[str, Any]) -> list[dict[str, Any]]:
+        if any(
+            message.get("payload", {}).get("evidence_mode") == "live"
+            for message in execution.get("agent_messages") or []
+        ):
+            return []
+        task = execution.get("task") if isinstance(execution.get("task"), dict) else {}
+        capability = str(task.get("capability") or "")
+        parameters = task.get("parameters") if isinstance(task.get("parameters"), dict) else {}
+        raw = execution.get("raw_result") if isinstance(execution.get("raw_result"), dict) else {}
+        result = raw.get("result") if isinstance(raw.get("result"), dict) else raw
+        item_results = (
+            execution.get("item_results") if isinstance(execution.get("item_results"), list) else []
+        )
+
+        if capability == "home-engagement":
+            counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
+            requested = result.get("requested") if isinstance(result.get("requested"), dict) else {}
+            browse_actual = int(counts.get("browsed") or len(item_results))
+            like_actual = int(
+                counts.get("liked")
+                or sum(
+                    bool((item.get("like") or {}).get("success"))
+                    for item in item_results
+                    if isinstance(item, dict)
+                )
+            )
+            browse_target = int(
+                requested.get("browse_count") or parameters.get("browse_count") or browse_actual
+            )
+            like_target = int(
+                requested.get("like_count") or parameters.get("like_count") or like_actual
+            )
+            return [
+                {
+                    "event_key": "progress:browsing:complete",
+                    "summary": (
+                        f"首页浏览进度 {browse_actual}/{browse_target}，"
+                        f"点赞进度 {like_actual}/{like_target}"
+                    ),
+                    "payload": {
+                        "stage": "browsing",
+                        "metrics": {
+                            "browse": {"actual": browse_actual, "target": browse_target},
+                            "like": {"actual": like_actual, "target": like_target},
+                        },
+                    },
+                }
+            ]
+
+        if capability == "random-comment":
+            successful = [
+                item
+                for item in item_results
+                if isinstance(item, dict)
+                and (item.get("success") is True or str(item.get("status") or "") == "success")
+            ]
+            events: list[dict[str, Any]] = []
+            target = int(parameters.get("count") or len(successful) or 1)
+            for index, item in enumerate(successful, start=1):
+                target_payload = {
+                    "feed_id": str(item.get("feed_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "author": str(item.get("author") or ""),
+                }
+                events.extend(
+                    [
+                        {
+                            "event_key": f"progress:reading-context:{index}",
+                            "summary": (
+                                "已读取评论目标上下文："
+                                f"{target_payload['title'] or target_payload['feed_id']}"
+                            ),
+                            "payload": {"stage": "reading_context", **target_payload},
+                        },
+                        {
+                            "event_key": f"progress:comment-generated:{index}",
+                            "summary": "已根据笔记内容生成评论文本",
+                            "payload": {
+                                "stage": "comment_generated",
+                                **target_payload,
+                                "content": str(item.get("content") or ""),
+                            },
+                        },
+                        {
+                            "event_key": f"progress:platform-submitted:{index}",
+                            "summary": f"评论提交进度 {index}/{target}",
+                            "payload": {
+                                "stage": "platform_submitted",
+                                **target_payload,
+                                "metrics": {"comment": {"actual": index, "target": target}},
+                            },
+                        },
+                    ]
+                )
+            return events
+        return []
+
+    @classmethod
+    def _store_received_agent_message(
+        cls,
+        state: dict[str, Any],
+        remote_execution_id: str,
+        message: dict[str, Any],
+    ) -> dict[str, Any]:
+        execution = cls._find_execution(state, None, remote_execution_id)
+        messages = execution.setdefault("agent_messages", [])
+        message_id = str(message.get("message_id") or "")
+        if message_id and not any(item.get("message_id") == message_id for item in messages):
+            messages.append(copy.deepcopy(message))
+        return copy.deepcopy(execution)
 
     @staticmethod
     def _public_execution(execution: dict[str, Any]) -> dict[str, Any]:
