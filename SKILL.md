@@ -172,12 +172,34 @@ Agent 从已浏览结果中选定笔记，使用 `feed_id` 和 `xsec_token` 读�
 
 经理机使用 `python scripts/manager_cli.py` 登记和检查 Windows 执行机，通过 SSH 固定调用
 `scripts/manager_worker.py`。执行机固定入口只负责任务协议、版本、暂停恢复、对账和结果回收；真实
-小红书任务继续交给执行机本地 WebUI 应用服务，因此不得绕过账号身份、账号锁、配额、确认和页面
+小红书任务继续交给执行机无页面执行服务，因此不得绕过账号身份、账号锁、配额、确认和页面
 回读规则。
 
 经理机与执行机之间不得传输 Chrome Profile、Cookie 或登录数据。SSH 响应超时的在途任务进入
 `RECONCILIATION_REQUIRED`，先对账再继续；`RESULT_UNKNOWN` 不得自动重发。部署、配置样例和完整
 命令见 `docs/MANAGER-SSH-OPERATIONS.md`。
+
+账号人设与运营目标由经理机集中保存。用户在 WebUI 提交运营任务后，常驻经理 Agent 自动从收件箱
+领取任务、记录计划，再通过 SSH 向员工机 Agent 派发任务，回收结果并核销目标。控制台同时展示
+经理 Agent 与员工 Agent 的任务、确认、结果和结算交接记录。以下命令用于故障恢复和人工复核：
+
+```powershell
+python scripts/manager_cli.py operation-task list --state WAITING_AGENT
+python scripts/manager_cli.py operation-task claim `
+  --operation-task-id <运营任务编号> --agent-id MANAGER-AGENT-01
+python scripts/manager_cli.py operation-task show --operation-task-id <运营任务编号>
+python scripts/manager_cli.py operation-task plan `
+  --operation-task-id <运营任务编号> `
+  --input-file "C:\manager-input\manager-operation-plan.json"
+python scripts/manager_cli.py schedule register `
+  --input-file "C:\manager-input\manager-schedule.json"
+python scripts/manager_cli.py task dispatch --input-file "C:\manager-input\task.json"
+```
+
+计划输入使用 `operation_task_id` 关联 WebUI 任务，并继承目标和账号人设快照。领取前不能生成员工机
+计划或执行任务。结果回收后，按 `operation_task_id` 汇总操作记录与业务数据，同时保留
+`schedule_id`、`goal_id`、目标版本、`persona_id` 和人设版本。完成对账后常驻经理 Agent 自动
+结算运营任务；人工恢复时可以使用 `operation-task finish`。
 
 功能包安装后先登记为停用状态，再通过 `manager_cli.py version set` 明确正式或试用状态以及允许的
 经理、设备、账号和动作范围。带 `function_id` 的任务必须同时给出

@@ -227,6 +227,8 @@ WebUI 是普通用户的主要入口，负责：
 - Bridge、Chrome 和登录状态管理；
 - 热登录连接检查、人工恢复提示和安全配置；
 - 权限、限速和风控规则；
+- 每个账号的版本化人设卡与运营目标配置；
+- 面向经理 Agent 的运营任务创建与进度查看；
 - 草稿编辑、发送确认、最小执行结果、诊断；
 - 版本和本地更新状态。
 
@@ -237,6 +239,9 @@ WebUI 是普通用户的主要入口，负责：
 Agent 负责：
 
 - 理解自然语言运营目标；
+- 读取启用中的运营目标及其账号人设快照；
+- 领取 WebUI 提交的运营任务并记录执行计划；
+- 将运营目标拆成持续计划和具体任务；
 - 从已注册能力中选择命令；
 - 拆解复合任务；
 - 明确目标账号；
@@ -244,6 +249,8 @@ Agent 负责：
 - 读取执行结果并反馈。
 
 Agent 默认读取已有配置，不应在用户未要求时自动创建槽位、更换 Profile、撤销配对或修改限速规则。
+WebUI 保存或启用运营目标只更新经理机配置。用户提交运营任务后进入经理 Agent 收件箱；具体计划
+登记和员工机任务派发仍由经理 Agent 发起。
 
 ### 7.3 Python CLI：标准执行接口
 
@@ -253,19 +260,20 @@ CLI 面向 Agent、测试、自动化调度和高级诊断。CLI 与 WebUI 必�
 ## 8. 总体架构
 
 ```text
-Codex / Agent ──→ CLI Adapter ─┐
-                               ├→ Application Service Layer
-Local WebUI ──→ Local API ─────┘          │
-                                           ├→ Account / Profile Manager
-                                           ├→ Task / Approval / Audit
-                                           ├→ Bridge Lifecycle Manager
-                                           └→ XHS Business Adapters
-                                                      │
-                                            Local WebSocket Bridge
-                                                      │
-                                            Universal Chrome Extension
-                                                      │
-                                            Target Chrome Profile / XHS
+Local WebUI ──→ 运营任务收件箱 ──→ 经理 Agent
+                                  │
+                                  ├→ 计划与任务服务
+                                  │        │
+                                  │       SSH
+                                  │        │
+                                  │        ▼
+                                  │   员工机 Agent
+                                  │        │
+                                  │   本地应用服务
+                                  │        │
+                                  │   Bridge / Chrome / 平台页面
+                                  │        │
+                                  └← 操作记录与业务数据回收
 ```
 
 本地 API 和 WebUI 只监听 `127.0.0.1`。所有高风险规则必须在服务层强制执行，不能只依赖 WebUI
@@ -500,19 +508,23 @@ Agent 和 WebUI 只能读取该元数据，不能自行降低权限等级。
 标准任务流程：
 
 ```text
-用户提出运营目标
-→ 系统拆解任务
+WebUI 维护账号人设并设定运营目标
+→ 启用目标并冻结账号人设快照
+→ WebUI 提交运营任务到经理 Agent 收件箱
+→ 经理 Agent 领取并拆解持续计划和具体任务
 → 展示执行计划
 → 按风险等级处理确认
-→ 调度执行
-→ 验证结果
-→ 保存证据
-→ 反馈结果
+→ 通过 SSH 下发员工机 Agent
+→ 员工机执行并保存操作记录
+→ 通过 SSH 回收结果、证据和业务数据
+→ 经理 Agent 汇总、对账并反馈结果
 ```
 
 每个任务必须包含：
 
 - 用户原始目标；
+- 运营目标编号、目标版本、计划编号和账号人设快照；
+- WebUI 运营任务编号、经理 Agent 领取记录；
 - 明确的账号槽位；
 - 预期结果和完成标准；
 - 子步骤和依赖关系；

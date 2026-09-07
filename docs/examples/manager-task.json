@@ -1,5 +1,8 @@
 {
   "task_id": "manager-demo-001",
+  "schedule_id": "schedule-goal-001",
+  "operation_task_id": "OPERATION-SEPTEMBER-001",
+  "goal_id": "GOAL-XXXXXXXXXX",
   "machine_id": "EXECUTOR-01",
   "account_slot": "brand-a",
   "capability": "search-feeds",

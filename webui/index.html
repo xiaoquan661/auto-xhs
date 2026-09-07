@@ -3,794 +3,427 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f6f6f5" />
-    <meta name="description" content="自动多账号小红书运营系统本地控制台" />
-    <title>auto-xhs · 本地运营中枢</title>
-    <link rel="stylesheet" href="/styles.css?v=20260821-publish-confirm-1" />
-    <link rel="stylesheet" href="/workspace.css?v=20260820-workspace-1" />
+    <meta name="color-scheme" content="light" />
+    <title>auto-xhs · 经理机运营控制台</title>
+    <link rel="stylesheet" href="/styles.css?v=20260904-manager-console-3" />
+    <link rel="stylesheet" href="/workspace.css?v=20260904-manager-console-3" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
-    <div class="page-noise" aria-hidden="true"></div>
-    <div class="app-shell">
-      <aside class="sidebar" aria-label="主导航">
-        <a class="brand" href="#overview" data-workspace-link="overview" aria-label="auto-xhs 首页">
-          <span class="brand-mark">小</span>
+    <div class="app-shell manager-app-shell">
+      <header class="sidebar manager-top-navigation" aria-label="Manager Console 导航">
+        <a class="brand" href="#overview" data-manager-view-link="overview">
+          <span class="brand-mark" aria-hidden="true"></span>
           <span class="brand-copy">
             <strong>auto-xhs</strong>
-            <small>本地运营台</small>
+            <small>MANAGER CONSOLE</small>
           </span>
         </a>
-
-        <p class="nav-caption">运营工作台</p>
         <nav class="nav-list">
-          <a class="nav-item active" href="#overview" data-workspace-link="overview" aria-label="今日总览"><span class="nav-icon">⌂</span><span>今日总览</span></a>
-          <a class="nav-item" href="#accounts" data-workspace-link="accounts" aria-label="账号"><span class="nav-icon">◎</span><span>账号</span></a>
-          <a class="nav-item" href="#tasks" data-workspace-link="tasks" aria-label="任务"><span class="nav-icon">▷</span><span>任务</span></a>
-          <a class="nav-item" href="#approvals" data-workspace-link="approvals" aria-label="确认中心"><span class="nav-icon">✓</span><span>确认中心</span><b class="nav-badge" id="confirmation-count">0</b></a>
-          <a class="nav-item" href="#records" data-workspace-link="records" aria-label="执行记录"><span class="nav-icon">◷</span><span>执行记录</span></a>
-          <a class="nav-item" href="#data" data-workspace-link="data" aria-label="数据回收"><span class="nav-icon">▤</span><span>数据回收</span></a>
-          <a class="nav-item" href="#system" data-workspace-link="system" aria-label="系统"><span class="nav-icon">⌘</span><span>系统</span></a>
+          <a class="nav-item active" href="#overview" data-manager-view-link="overview">
+            <span class="nav-icon">⌂</span><span>运营总览</span>
+          </a>
+          <a class="nav-item" href="#operations" data-manager-view-link="operations">
+            <span class="nav-icon">◇</span><span>运营任务</span>
+          </a>
+          <a class="nav-item" href="#workers" data-manager-view-link="workers">
+            <span class="nav-icon">▦</span><span>员工机</span>
+            <b class="nav-badge" id="node-total">—</b>
+          </a>
+          <a class="nav-item" href="#accounts" data-manager-view-link="accounts">
+            <span class="nav-icon">◎</span><span>账号与人设</span>
+            <b class="nav-badge" id="blocked-total">—</b>
+          </a>
+          <a class="nav-item" href="#results" data-manager-view-link="results">
+            <span class="nav-icon">▤</span><span>数据回收</span>
+          </a>
+          <a class="nav-item" href="#exceptions" data-manager-view-link="exceptions">
+            <span class="nav-icon">!</span><span>异常中心</span>
+            <b class="nav-badge" id="manager-exception-total">—</b>
+          </a>
+          <a class="nav-item" href="#settings" data-manager-view-link="settings">
+            <span class="nav-icon">⌘</span><span>系统设置</span>
+          </a>
         </nav>
-
         <div class="sidebar-foot">
-          <span class="privacy-dot"></span>
-          <div><strong>仅在本机运行</strong><small>127.0.0.1 · PRIVATE</small></div>
+          <span>经理机缓存</span>
+          <strong id="manager-last-read">等待读取</strong>
+          <button class="secondary-button" id="manager-refresh" type="button">刷新数据</button>
         </div>
-      </aside>
+      </header>
 
       <main class="main" id="main-content">
-        <header class="topbar" id="top">
-          <div class="topbar-title">
-            <p class="breadcrumb" id="workspace-breadcrumb">本地工作台 · 今日</p>
-            <h1 id="workspace-title" tabindex="-1">今日总览</h1>
-            <p class="topbar-description" id="workspace-description">先处理异常和待确认事项，再开始新的运营任务。</p>
-          </div>
-          <div class="topbar-actions">
-            <button class="pause-button" id="global-pause" type="button">暂停全部任务</button>
-            <div class="service-health" id="health" data-state="loading" role="status">
-              <span class="status-pulse"></span><span>正在连接本地服务</span>
+        <section class="workspace-view active" id="overview" data-manager-view="overview">
+          <header class="page-topbar">
+            <div>
+              <p class="eyebrow">OPERATIONS OVERVIEW</p>
+              <h1>运营总览</h1>
+              <p>查看员工机、账号、任务、目标完成量和当前异常。</p>
             </div>
-            <button class="service-restart-button" id="restart-service" type="button">重启服务</button>
-            <button class="icon-button" id="refresh" type="button" aria-label="刷新全部状态" title="刷新全部状态">
-              <span aria-hidden="true">↻</span>
-            </button>
-          </div>
-        </header>
-
-        <div class="workspace-view active" id="overview" data-workspace="overview">
-        <section class="overview" aria-labelledby="overview-title">
-          <div class="overview-index" aria-hidden="true">TODAY · LOCAL</div>
-          <div class="overview-copy">
-            <p class="eyebrow">今日工作顺序</p>
-            <h2 id="overview-title">先清理阻塞，<br />再创建新任务。</h2>
-            <p>系统把异常账号、待确认内容和任务状态集中到首屏。所有状态来自本地服务回读，数据只保存在本机。</p>
-            <div class="overview-actions">
-              <a class="primary-action" href="#accounts" data-workspace-link="accounts"><span>处理账号状态</span><i aria-hidden="true">→</i></a>
-              <a class="text-action" href="#tasks" data-workspace-link="tasks">创建运营任务 <span aria-hidden="true">→</span></a>
-            </div>
-          </div>
-          <div class="overview-priorities" aria-label="今日需要处理">
-            <a href="#accounts" data-workspace-link="accounts"><span><i class="priority-dot warn"></i>需要处理的账号</span><strong id="blocked-total">—</strong><small>查看唯一恢复动作</small></a>
-            <a href="#approvals" data-workspace-link="approvals"><span><i class="priority-dot accent"></i>待人工确认</span><strong id="waiting-draft-total">—</strong><small>核对账号、目标与文本</small></a>
-            <a href="#records" data-workspace-link="records"><span><i class="priority-dot danger"></i>近期异常结果</span><strong id="recent-failure-total">—</strong><small>查看原因和建议动作</small></a>
-          </div>
-        </section>
-
-        <section class="metric-grid" aria-label="运行概览">
-          <article class="metric-card">
-            <div class="metric-label">账号槽位</div>
-            <strong id="account-total">—</strong>
-            <small>本机已配置</small>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label">扩展在线</div>
-            <strong id="connected-total">—</strong>
-            <small>当前热连接</small>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label">READY 账号</div>
-            <strong id="ready-total">—</strong>
-            <small>可以执行任务</small>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label">开放能力</div>
-            <strong id="capability-count">—</strong>
-            <small>CLI 与 WebUI 共用</small>
-          </article>
-        </section>
-
-        <section class="manager-cluster" aria-labelledby="manager-cluster-title">
-          <div class="section-heading">
-            <div><p class="section-kicker">CLUSTER CONTROL</p><h2 id="manager-cluster-title">执行机集群</h2></div>
-            <div class="section-heading-actions">
-              <p>读取各执行机的最近状态；连接检查、暂停、恢复和结果回收只在明确点击后执行。</p>
-              <button class="secondary-button" id="manager-refresh" type="button">刷新集群状态</button>
-            </div>
-          </div>
-          <div class="manager-summary" aria-label="集群概览">
-            <article><span>已登记执行机</span><strong id="manager-machine-total">0</strong><small>当前经理机管理范围</small></article>
-            <article><span>可调度</span><strong id="manager-ready-total">0</strong><small>状态为 READY</small></article>
-            <article><span>远程任务</span><strong id="manager-active-task-total">0</strong><small>等待、运行或暂停</small></article>
-            <article><span>需要对账</span><strong id="manager-reconcile-total">0</strong><small>不会自动重复派发</small></article>
-          </div>
-          <div class="manager-machine-grid" id="manager-machine-list" aria-live="polite">
-            <article class="loading-card"><span></span><span></span><span></span></article>
-          </div>
-          <p class="manager-inline-message" id="manager-cluster-message" role="status" aria-live="polite">正在读取集群状态…</p>
-        </section>
-        </div>
-
-        <div class="workspace-view" data-workspace="accounts" hidden>
-        <section class="content-section account-section">
-          <div class="section-heading">
-            <div><p class="section-kicker">02 / ACCOUNT ROSTER</p><h2>账号运行状态</h2></div>
-            <div class="section-heading-actions">
-              <p>每个槽位都是一条独立运营线路。只有连接和身份全部通过，才会进入 READY。</p>
-              <button class="primary-button" id="open-account-create" type="button" aria-controls="account-create-panel" aria-expanded="false">添加账号</button>
-            </div>
-          </div>
-          <div id="account-grid" class="account-grid" aria-live="polite">
-            <article class="loading-card"><span></span><span></span><span></span></article>
-          </div>
-        </section>
-
-        <section class="content-section setup-section account-create-panel" id="account-create-panel" hidden>
-          <div class="section-heading">
-            <div><p class="section-kicker">03 / SLOT INTAKE</p><h2>添加账号</h2></div>
-            <div class="section-heading-actions">
-              <p>绑定本机已有 Chrome Profile，或创建独立槽位。提交后进入分步配置向导。</p>
-              <button class="secondary-button" id="close-account-create" type="button">收起</button>
-            </div>
-          </div>
-          <div class="setup-grid">
-            <form class="setup-card composer-card" id="account-form">
-              <div class="card-number" aria-hidden="true">A</div>
-              <label>平台
-                <select id="account-platform" name="platform">
-                  <option value="xiaohongshu">小红书</option>
-                  <option value="rednote">RedNote</option>
-                </select>
-              </label>
-              <label><span id="account-name-label">槽位名称（跟随 Profile）</span><input id="account-name" name="name" required maxlength="80" placeholder="请先扫描并选择 Profile" readonly /><small class="field-help" id="account-name-help">选择已有 Profile 后自动使用它的名称，避免槽位与 Profile 对不上。</small></label>
-              <input id="account-key" name="account_key" type="hidden" />
-              <label>添加方式
-                <select id="account-mode" name="mode">
-                  <option value="existing">绑定已有 Chrome Profile</option>
-                  <option value="managed">新建独立槽位</option>
-                </select>
-              </label>
-              <label id="profile-field">Chrome Profile
-                <select id="profile-select" name="profile"><option value="">点击“扫描 Profile”</option></select>
-              </label>
-              <div class="setup-actions">
-                <button class="secondary-button" id="discover-profiles" type="button">扫描 Profile</button>
-                <button class="primary-button" type="submit">添加并开始配置</button>
+            <span class="manager-stage-badge" id="manager-attention-badge">等待读取</span>
+          </header>
+          <section class="manager-cluster">
+            <div class="manager-collection-strip" aria-label="经理机缓存状态">
+              <div class="manager-collection-label">
+                <span class="manager-collection-dot"></span>
+                <div><small>MANAGER CACHE</small><strong>统一快照</strong></div>
               </div>
-              <p class="form-note" id="setup-message" role="status">创建槽位会保存本地配置，不会打开或关闭 Chrome。</p>
+              <div><span>账号健康</span><strong id="manager-health-sync">等待首次同步</strong></div>
+              <div><span>结果回收</span><strong id="manager-result-sync">等待首次同步</strong></div>
+              <div><span>缓存状态</span><strong id="manager-stale-total">—</strong></div>
+            </div>
+            <div class="manager-summary">
+              <article><span>员工机</span><strong id="manager-machine-total">—</strong><small>已登记</small></article>
+              <article><span>可调度</span><strong id="manager-ready-total">—</strong><small>READY</small></article>
+              <article><span>执行中任务</span><strong id="manager-active-task-total">—</strong><small>当前执行</small></article>
+              <article><span>等待对账</span><strong id="manager-reconcile-total">—</strong><small>需要处理</small></article>
+              <article><span>当前结果</span><strong id="manager-result-total">—</strong><small>最新有效回执</small></article>
+              <article><span>数据缺口</span><strong id="manager-data-gap-total">—</strong><small>完整性检查</small></article>
+            </div>
+            <p class="action-message" id="manager-cluster-message" role="status"></p>
+            <div class="manager-overview-columns">
+              <section class="subpage-panel">
+                <div class="lane-heading"><div><small>CURRENT TASKS</small><h2>当前执行任务</h2></div></div>
+                <div class="record-list" id="manager-task-list"></div>
+              </section>
+              <section class="subpage-panel">
+                <div class="lane-heading"><div><small>WORKERS</small><h2>员工机摘要</h2></div></div>
+                <div class="manager-machine-grid" id="manager-machine-list"></div>
+              </section>
+            </div>
+            <section class="subpage-panel" id="manager-publish-review-panel" hidden>
+              <div class="lane-heading">
+                <div><small>PUBLISH APPROVALS</small><h2>待确认发布</h2></div>
+                <span>任务由 Agent 下发，确认后才执行发布</span>
+              </div>
+              <div class="record-list" id="manager-publish-review-list"></div>
+            </section>
+          </section>
+        </section>
+
+        <section class="workspace-view" id="operations" data-manager-view="operations" hidden>
+          <header class="page-topbar">
+            <div><p class="eyebrow">OPERATION TASKS</p><h1>运营任务</h1>
+              <p>创建业务目标和运营任务，查看 Manager Agent 的领取、计划、派发与结果。</p></div>
+          </header>
+          <section class="manager-strategy-layout">
+            <form class="subpage-panel manager-strategy-form" id="manager-goal-form">
+              <div class="manager-form-heading"><strong>运营目标</strong><small>定义账号、周期和目标指标</small></div>
+              <input id="manager-goal-id" type="hidden" />
+              <label><span>目标名称</span><input id="manager-goal-name" required /></label>
+              <div class="manager-strategy-date-row">
+                <label><span>员工机</span><select id="manager-goal-machine" required></select></label>
+                <label><span>账号槽位</span><select id="manager-goal-account" required></select></label>
+              </div>
+              <div class="manager-strategy-date-row">
+                <label><span>开始日期</span><input id="manager-goal-start" type="date" required /></label>
+                <label><span>结束日期</span><input id="manager-goal-end" type="date" required /></label>
+              </div>
+              <label><span>期望成果</span><textarea id="manager-goal-outcome" required></textarea></label>
+              <label><span>内容主题</span><input id="manager-goal-topics" placeholder="多个主题用逗号分隔" /></label>
+              <div class="manager-goal-metrics">
+                <label><span>浏览</span><input id="manager-goal-browse" min="0" type="number" value="0" /></label>
+                <label><span>点赞</span><input id="manager-goal-like" min="0" type="number" value="0" /></label>
+                <label><span>评论</span><input id="manager-goal-comment" min="0" type="number" value="0" /></label>
+                <label><span>回复</span><input id="manager-goal-reply" min="0" type="number" value="0" /></label>
+                <label><span>发布</span><input id="manager-goal-publish" min="0" type="number" value="0" /></label>
+              </div>
+              <button class="primary-button" type="submit">保存运营目标</button>
+              <p class="action-message" id="manager-goal-message" role="status"></p>
             </form>
-            <article class="setup-card steps-card">
-              <p class="section-kicker light">ONBOARDING SEQUENCE</p>
-              <h3>四步进入 READY</h3>
-              <ol>
-                <li><span>01</span><div><strong>选择 Profile</strong><small>绑定已有环境或创建独立槽位</small></div></li>
-                <li><span>02</span><div><strong>自动准备连接</strong><small>启动 Bridge 并复制配对信息</small></div></li>
-                <li><span>03</span><div><strong>确认扩展配对</strong><small>只需在目标 Profile 中确认一次</small></div></li>
-                <li><span>04</span><div><strong>确认首次身份</strong><small>以后恢复连接会自动核对 UID</small></div></li>
-              </ol>
-              <p id="pairing-guidance">添加后，账号卡片会给出唯一的下一步操作。</p>
-            </article>
-          </div>
-        </section>
-        </div>
-
-        <section class="content-section work-section workspace-view" data-workspace="tasks" hidden>
-          <div class="section-heading">
-            <div><p class="section-kicker">03 / TASK DESK</p><h2>任务中心</h2></div>
-            <p>按运营目标创建任务，并在同一页面持续查看运行状态。只有 READY 账号可以开始执行。</p>
-          </div>
-          <div class="task-panel active" id="task-panel-immediate">
-          <div class="work-lane direct-lane">
-            <div class="lane-heading">
-              <div><span class="lane-index">A</span><div><p>RUN NOW</p><h3>立即任务</h3></div></div>
-              <span class="lane-rule">“创建并执行”即授权本次明确动作</span>
-            </div>
-            <div class="setup-grid task-grid">
-              <form class="setup-card task-composer" id="task-form">
-                <label>目标账号<select id="task-account" required><option value="">请先配置账号</option></select></label>
-                <label>任务模板
-                  <select id="task-template">
-                    <option value="browse">自动浏览</option>
-                    <option value="search">搜索与收集</option>
-                    <option value="analysis">内容与账号分析</option>
-                    <option value="engagement">首页互动</option>
-                    <option value="comment">随机评论</option>
-                    <option value="creation" disabled>内容创作（后续阶段）</option>
-                    <option value="insight" disabled>数据与状态读取（后续阶段）</option>
-                  </select>
-                </label>
-                <label>具体动作<select id="task-capability"></select></label>
-                <p class="field-help" id="task-capability-help">在一个首页会话中自动滚动、点开并阅读笔记；达到时间或数量任一上限即停止。</p>
-                <fieldset class="browse-settings" id="browse-settings">
-                  <legend>浏览上限</legend>
-                  <label>浏览时间<input id="task-duration" type="number" min="1" max="120" value="5" required /><span>分钟</span></label>
-                  <label>点开数量<input id="task-count" type="number" min="1" max="50" value="5" required /><span>篇</span></label>
-                </fieldset>
-                <fieldset class="browse-settings engagement-settings" id="engagement-settings" hidden>
-                  <legend>随机互动设置</legend>
-                  <label>互动方式
-                    <select id="task-engagement-action">
-                      <option value="like">随机点赞</option>
-                      <option value="favorite">随机收藏</option>
-                      <option value="both">随机点赞并收藏</option>
-                    </select>
-                  </label>
-                  <label>抽取数量<input id="task-engagement-count" type="number" min="1" max="20" value="3" /><span>篇</span></label>
-                  <label>候选池数量<input id="task-candidate-pool" type="number" min="3" max="100" value="20" /><span>篇</span></label>
-                  <label>最长搜集时间<input id="task-collection-minutes" type="number" min="1" max="10" value="2" /><span>分钟</span></label>
-                </fieldset>
-                <fieldset class="browse-settings random-comment-settings" id="random-comment-settings" hidden>
-                  <legend>随机评论设置</legend>
-                  <label>评论风格
-                    <select id="task-comment-style">
-                      <option value="natural">自然互动</option>
-                      <option value="praise">友好认可</option>
-                      <option value="question">提问互动</option>
-                    </select>
-                  </label>
-                  <label>发送数量<input id="task-comment-count" type="number" min="1" max="3" value="1" /><span>篇</span></label>
-                  <label>候选池数量<input id="task-comment-candidate-pool" type="number" min="1" max="100" value="20" /><span>篇</span></label>
-                  <label>最长搜集时间<input id="task-comment-collection-minutes" type="number" min="1" max="10" value="2" /><span>分钟</span></label>
-                  <p class="direct-send-note">点击下方按钮即授权当前账号完成本次随机评论，生成后将直接发送，不进入逐条确认。</p>
-                </fieldset>
-                <fieldset class="browse-settings home-engagement-settings" id="home-engagement-settings" hidden>
-                  <legend>首页浏览点赞</legend>
-                  <label>点开数量<input id="task-home-browse-count" type="number" min="1" max="50" value="6" /><span>篇</span></label>
-                  <label>点赞数量<input id="task-home-like-count" type="number" min="0" max="50" value="2" /><span>篇</span></label>
-                  <label>最长执行时间<input id="task-home-duration" type="number" min="1" max="10" value="3" /><span>分钟</span></label>
-                  <label class="home-read-range"><span class="field-label">单篇阅读</span><span class="range-inputs"><input id="task-home-min-read" aria-label="单篇最短阅读秒数" type="number" min="0" max="60" value="8" /><span>至</span><input id="task-home-max-read" aria-label="单篇最长阅读秒数" type="number" min="0" max="60" value="15" /><span>秒</span></span></label>
-                  <p class="form-note">一次提交会在同一首页会话完成浏览和点赞，并按篇记录结果。</p>
-                </fieldset>
-                <label id="task-target-field"><span id="task-target-label">任务目标</span><input id="task-target" /></label>
-                <label id="token-field"><span id="task-token-label">XSEC Token</span><input id="task-token" placeholder="查看详情或互动时需要" /></label>
-                <button class="primary-button wide-button" id="task-submit" type="submit">创建并执行 <span aria-hidden="true">→</span></button>
-                <p class="form-note" id="task-message" role="status">任务只会在账号 READY 时执行。</p>
-              </form>
-              <div class="record-list task-ledger" id="task-list"><article class="empty-card"><div><strong>暂无任务</strong><span>WebUI 会统一展示由 Agent 和本控制台创建的任务。</span></div></article></div>
-            </div>
-          </div>
-          </div>
-
-          <section class="manager-remote-tasks" aria-labelledby="manager-task-title">
-            <div class="lane-heading">
-              <div><p class="section-kicker">REMOTE TASKS</p><h3 id="manager-task-title">远程任务调度</h3></div>
-              <span>派发到已登记执行机</span>
-            </div>
-            <div class="manager-operation-layout">
-              <form class="setup-card manager-form" id="manager-task-form">
-                <div class="manager-form-heading"><strong>新建远程任务</strong><small>写操作需要勾选本次明确授权</small></div>
-                <div class="manager-form-grid">
-                  <label>任务编号<input id="manager-task-id" required maxlength="120" /></label>
-                  <label>目标执行机<select id="manager-task-machine" required><option value="">暂无执行机</option></select></label>
-                  <label>账号槽位<input id="manager-task-account" required maxlength="120" placeholder="brand-a" /></label>
-                  <label>具体能力<input id="manager-task-capability" required maxlength="120" placeholder="search-feeds" /></label>
-                  <label class="manager-span-2">任务摘要<input id="manager-task-summary" required maxlength="240" placeholder="说明本次任务目的" /></label>
-                  <label>目标类型<input id="manager-task-target-type" maxlength="80" placeholder="keyword / feed" /></label>
-                  <label>目标标识<input id="manager-task-target-id" maxlength="500" /></label>
-                </div>
-                <details class="manager-advanced-fields">
-                  <summary>版本与参数</summary>
-                  <div class="manager-form-grid">
-                    <label>功能编号<input id="manager-task-function-id" maxlength="120" placeholder="EXPLORE-02" /></label>
-                    <label>功能版本<input id="manager-task-function-versions" maxlength="240" placeholder="1.0，多个用逗号分隔" /></label>
-                    <label>项目版本<input id="manager-task-project-versions" maxlength="240" placeholder="0.1.0，留空继承执行机策略" /></label>
-                    <label>超时时间<input id="manager-task-timeout" type="number" min="1" max="7200" value="300" /><span class="field-suffix">秒</span></label>
-                    <label class="manager-span-2">参数 JSON<textarea id="manager-task-parameters" rows="4">{}</textarea></label>
-                  </div>
-                </details>
-                <label class="manager-confirm-check"><input id="manager-task-write-intent" type="checkbox" />本任务会修改平台状态，我确认授权执行</label>
-                <button class="primary-button wide-button" type="submit">派发远程任务</button>
-                <p class="form-note" id="manager-task-message" role="status" aria-live="polite">只会向所选执行机派发一次；待对账任务不会自动重发。</p>
-              </form>
-              <div class="manager-task-ledger" id="manager-task-list" aria-live="polite">
-                <article class="empty-card"><div><strong>暂无远程任务</strong><span>登记执行机后可从这里派发与跟踪。</span></div></article>
+            <section class="subpage-panel">
+              <div class="lane-heading"><div><small>GOALS</small><h2>运营目标</h2></div></div>
+              <div class="manager-summary compact-summary">
+                <article><span>全部</span><strong id="manager-goal-total">0</strong></article>
+                <article><span>草稿</span><strong id="manager-goal-draft">0</strong></article>
+                <article><span>运行中</span><strong id="manager-goal-active">0</strong></article>
+                <article><span>已暂停</span><strong id="manager-goal-paused">0</strong></article>
               </div>
+              <div class="manager-strategy-list" id="manager-goal-list"></div>
+            </section>
+          </section>
+          <section class="manager-operation-layout agent-task-ledger-only">
+            <form class="subpage-panel manager-form" id="manager-operation-form">
+              <div class="manager-form-heading"><strong>创建运营任务</strong><small>提交给 Manager Agent</small></div>
+              <div class="manager-form-grid">
+                <label><span>运营目标</span><select id="manager-operation-goal" required></select></label>
+                <label><span>任务名称</span><input id="manager-operation-name" required /></label>
+                <label class="manager-span-2"><span>执行说明</span><textarea id="manager-operation-instructions" required></textarea></label>
+                <label class="manager-span-2"><span>完成条件</span><textarea id="manager-operation-criteria" required></textarea></label>
+              </div>
+              <button class="primary-button" type="submit">提交给 Manager Agent</button>
+              <p class="action-message" id="manager-operation-message" role="status"></p>
+            </form>
+            <section class="subpage-panel">
+              <div class="lane-heading"><div><small>AGENT INBOX</small><h2>运营任务列表</h2></div></div>
+              <div class="manager-summary compact-summary">
+                <article><span>全部</span><strong id="manager-operation-total">0</strong></article>
+                <article><span>等待 Agent</span><strong id="manager-operation-waiting">0</strong></article>
+                <article><span>执行中</span><strong id="manager-operation-running">0</strong></article>
+                <article><span>等待对账</span><strong id="manager-operation-reconcile">0</strong></article>
+              </div>
+              <div class="manager-result-toolbar" aria-label="运营任务筛选">
+                <label><span>状态</span><select id="manager-operation-filter-state"><option value="">全部状态</option></select></label>
+                <label><span>员工机</span><select id="manager-operation-filter-machine"><option value="">全部员工机</option></select></label>
+                <label><span>账号</span><select id="manager-operation-filter-account"><option value="">全部账号</option></select></label>
+                <label><span>日期</span><input id="manager-operation-filter-date" type="date" /></label>
+                <label><span>关键词</span><input id="manager-operation-filter-keyword" type="search" /></label>
+              </div>
+              <div class="manager-strategy-list" id="manager-operation-list"></div>
+            </section>
+          </section>
+        </section>
+
+        <section class="workspace-view" id="workers" data-manager-view="workers" hidden>
+          <header class="page-topbar"><div><p class="eyebrow">WORKER MACHINES</p><h1>员工机</h1>
+            <p>左侧选择员工机，右侧查看账号、连接、任务、结果、回收和异常。</p></div></header>
+          <section class="manager-dashboard-layout">
+            <aside class="manager-unit-rail">
+              <div class="manager-rail-heading"><div><strong>员工机导航</strong><small>动态拓扑</small></div><span id="manager-rail-total">0 个</span></div>
+              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-manager-machine-select="">
+                <span class="manager-rail-avatar manager-rail-avatar-all">ALL</span>
+                <span><strong>全部机器</strong><small>集群摘要</small></span><b id="manager-overview-count">0</b>
+              </button>
+              <div class="manager-machine-nav" id="manager-machine-nav"></div>
+            </aside>
+            <div class="manager-cluster-stage">
+              <section class="manager-cluster-overview-panel" id="manager-cluster-overview-panel">
+                <div class="manager-stage-heading"><div><h2>全部员工机</h2><small>选择卡片进入单机详情</small></div></div>
+                <p>员工机卡片和当前状态已汇总在运营总览。</p>
+              </section>
+              <section class="manager-machine-detail" id="manager-machine-detail" hidden>
+                <div class="manager-stage-heading"><div><small id="manager-machine-detail-kicker">EXECUTOR</small><h2 id="manager-machine-detail-title">员工机详情</h2><small id="manager-machine-detail-description"></small></div></div>
+                <div class="manager-detail-hero" id="manager-detail-hero"></div>
+                <div class="manager-detail-progress">
+                  <article><span>账号槽位</span><strong id="manager-detail-account-total">0</strong></article>
+                  <article><span>今日结果</span><strong id="manager-detail-today">0</strong></article>
+                  <article><span>待派发</span><strong id="manager-detail-pending">0</strong></article>
+                  <article><span>执行中</span><strong id="manager-detail-running">0</strong></article>
+                  <article><span>已暂停</span><strong id="manager-detail-paused">0</strong></article>
+                  <article><span>成功结果</span><strong id="manager-detail-success">0</strong></article>
+                  <article><span>等待对账</span><strong id="manager-detail-reconcile">0</strong></article>
+                  <article><span>增量记录</span><strong id="manager-detail-incremental">0</strong></article>
+                </div>
+                <section class="manager-detail-panel manager-detail-account-panel"><div class="lane-heading"><h3>账号与身份</h3></div><div class="manager-account-detail-list" id="manager-machine-account-list"></div></section>
+                <div class="manager-detail-columns">
+                  <section class="manager-detail-panel"><div class="lane-heading"><h3>当前和最近任务</h3></div><div class="manager-compact-list" id="manager-machine-task-list"></div></section>
+                  <section class="manager-detail-panel"><div class="lane-heading"><h3>Agent 协作</h3></div><div class="manager-agent-timeline" id="manager-machine-agent-list"></div></section>
+                  <section class="manager-detail-panel"><div class="lane-heading"><h3>今日结果</h3></div><div class="manager-compact-list" id="manager-machine-today-list"></div></section>
+                  <section class="manager-detail-panel"><div class="lane-heading"><h3>回收与活动</h3></div><div class="manager-compact-list" id="manager-machine-activity-list"></div></section>
+                  <section class="manager-detail-panel manager-alert-panel"><div class="lane-heading"><h3>异常与建议</h3></div><div class="manager-compact-list" id="manager-machine-alert-list"></div></section>
+                </div>
+              </section>
             </div>
           </section>
         </section>
 
-        <section class="content-section approvals-section workspace-view" data-workspace="approvals" hidden>
-          <div class="section-heading">
-            <div><p class="section-kicker">04 / APPROVAL CENTER</p><h2>确认中心</h2></div>
-            <p>所有需要人工核对的内容集中在这里。保存草稿不会发送，只有确认后才进入执行链。</p>
-          </div>
-          <div class="task-panel active" id="task-panel-confirmation">
-          <div class="work-lane approval-lane">
-            <div class="lane-heading">
-              <div><span class="lane-index">B</span><div><p>REVIEW & APPROVE</p><h3>发布／评论／回复确认</h3></div></div>
-              <span class="lane-rule">核对账号、UID、目标和最终文本</span>
-            </div>
-            <article class="setup-card publish-confirmation-panel">
-              <div class="section-heading compact-heading">
-                <div><p class="section-kicker">PUBLISH PREVIEWS</p><h3>待确认发布</h3></div>
-                <p>只显示已经进入真实浏览器最终预览的任务。</p>
+        <section class="workspace-view" id="accounts" data-manager-view="accounts" hidden>
+          <header class="page-topbar"><div><p class="eyebrow">ACCOUNTS & PERSONAS</p><h1>账号与人设</h1>
+            <p>以“机器编号 + 账号槽位”为唯一键统一管理，真实身份以员工机回执为准。</p></div>
+            <button class="secondary-button" id="manager-account-refresh" type="button">刷新所选节点</button></header>
+          <p class="action-message" id="manager-account-message" role="status"></p>
+          <section class="manager-account-layout">
+            <aside class="manager-account-node-rail">
+              <div class="manager-account-node-heading"><h2>账号分组</h2><small>经理机配置与员工机回执</small></div>
+              <div class="manager-account-node-list">
+                <button class="manager-account-node active" type="button" data-manager-account-node="all"><span><strong>全部账号</strong><small>所有已登记节点</small></span><b id="manager-account-node-all-count">0</b></button>
+                <button class="manager-account-node" type="button" data-manager-account-node="manager"><span><strong>本机环境</strong><small>经理机调试账号</small></span><b id="manager-account-node-manager-count">0</b></button>
               </div>
-              <div class="record-list" id="publish-confirmation-list"><article class="empty-card"><div><strong>暂无待确认发布</strong><span>Agent/CLI 填写好真实预览后会显示在这里。</span></div></article></div>
-            </article>
-            <div class="draft-layout">
-              <form class="setup-card draft-composer" id="draft-form">
-                <label>目标账号<select id="draft-account" required></select></label>
-                <label>动作<select id="draft-action" autocomplete="off"><option value="post-comment">评论笔记</option><option value="reply-comment">回复评论</option></select></label>
-                <p class="draft-mode-help" id="draft-action-help">对目标笔记发表一条新评论，不需要选择已有评论。</p>
-                <label><span id="draft-target-label">目标笔记 ID</span><input id="draft-target" required autocomplete="off" placeholder="填写要评论的笔记 ID" /></label>
-                <label><span id="draft-summary-label">笔记内容说明</span><input id="draft-summary" autocomplete="off" placeholder="例如：露营装备清单与避坑建议" /></label>
-                <div class="draft-content-field">
-                  <div class="draft-field-heading">
-                    <label id="draft-content-label" for="draft-content">评论内容</label>
-                    <button class="draft-generate-button" id="draft-generate" type="button">生成基础评论草稿</button>
-                  </div>
-                  <textarea id="draft-content" required maxlength="1000" rows="5" placeholder="填写评论，或先补充笔记内容说明后生成草稿"></textarea>
-                  <p class="draft-generation-note" id="draft-generation-help">生成内容只使用你填写的笔记说明；发送前请结合原笔记核对。</p>
+              <div class="manager-account-node-list" id="manager-account-node-list"></div>
+            </aside>
+            <div class="manager-account-stage">
+              <section class="manager-account-summary-section">
+                <div class="lane-heading"><div><small>ACCOUNT DIRECTORY</small><h2 id="manager-account-view-title">全部节点账号</h2></div></div>
+                <div class="manager-result-toolbar" aria-label="账号筛选">
+                  <label><span>账号状态</span><select id="manager-account-filter-status"><option value="">全部状态</option></select></label>
+                  <label><span>绑定人设</span><select id="manager-account-filter-persona"><option value="">全部人设</option></select></label>
+                  <label><span>当前任务</span><select id="manager-account-filter-task"><option value="">全部账号</option><option value="active">执行中</option><option value="idle">空闲</option></select></label>
                 </div>
-                <button class="primary-button wide-button" id="draft-submit" type="submit">保存为待确认草稿 <span aria-hidden="true">→</span></button>
-                <p class="form-note" id="draft-message" role="status">保存不会向小红书发送任何内容。</p>
-              </form>
-              <div class="record-list draft-ledger" id="draft-list"><article class="empty-card"><div><strong>暂无草稿</strong><span>最终确认后才能执行。</span></div></article></div>
+                <div class="manager-account-summary">
+                  <article><span>全部</span><strong id="manager-account-total">0</strong></article>
+                  <article data-tone="success"><span>可调度</span><strong id="manager-account-ready">0</strong></article>
+                  <article data-tone="warning"><span>需要关注</span><strong id="manager-account-warning">0</strong></article>
+                  <article data-tone="danger"><span>已阻塞</span><strong id="manager-account-blocked">0</strong></article>
+                  <article><span>状态未知</span><strong id="manager-account-unknown">0</strong></article>
+                  <article data-tone="info"><span>执行中</span><strong id="manager-account-running">0</strong></article>
+                </div>
+              </section>
+              <section class="subpage-panel" id="manager-local-account-section">
+                <div class="lane-heading"><div><h2>本机环境</h2><small>经理机本地账号独立分组</small></div></div>
+                <div class="manager-remote-account-grid" id="manager-local-account-grid"></div>
+              </section>
+              <section class="subpage-panel manager-remote-account-section" id="manager-remote-account-section">
+                <div class="lane-heading"><div><h2>员工机账号</h2><small>身份和连接来自员工机回执</small></div></div>
+                <div class="manager-remote-account-grid" id="manager-remote-account-grid"></div>
+              </section>
             </div>
-            <form class="setup-card intelligent-reply-panel" id="reply-rule-form">
-              <div class="section-heading compact-heading">
-                <div><p class="section-kicker">AUTOMATIC REPLY CYCLE</p><h3>账号回复规则</h3></div>
-                <p>每次运行只处理一批新事件；只有规则判定为“回复”的内容会直接发送并回读。</p>
-              </div>
-              <label>账号槽位<select id="reply-rule-account" required></select></label>
-              <div class="inline-checks">
-                <label><input id="reply-rule-enabled" type="checkbox" /> 启用自动回复规则</label>
-                <label><input id="reply-rule-comment-enabled" type="checkbox" checked /> 评论回复</label>
-                <label><input id="reply-rule-private-message-enabled" type="checkbox" checked /> 私信回复</label>
-              </div>
-              <div class="form-grid">
-                <label>生效时段<input id="reply-rule-active-time" placeholder="例如 09:00-22:00；留空表示全天" /></label>
-                <label>每小时上限<input id="reply-rule-hourly-limit" type="number" min="0" value="0" /></label>
-                <label>每天上限<input id="reply-rule-daily-limit" type="number" min="0" value="0" /></label>
-                <label>回复风格<input id="reply-rule-style" value="natural" /></label>
-              </div>
-              <label>账号人设<textarea id="reply-rule-profile" rows="3" placeholder="账号长期语气、称呼和表达习惯"></textarea></label>
-              <label>可确认知识<textarea id="reply-rule-knowledge" rows="4" placeholder="价格、时间、服务范围等可用于回答的确定事实"></textarea></label>
-              <div class="task-actions">
-                <button class="secondary-button" type="submit" id="save-reply-rule">保存规则</button>
-                <button class="primary-button" type="button" id="run-reply-cycle">立即运行一轮</button>
-              </div>
-              <p class="form-note" id="reply-cycle-message" role="status">普通问题、感谢、一般讨论和知识库可回答咨询可自动回复；需要业务判断的内容进入待处理。</p>
-              <div class="section-heading compact-heading">
-                <div><p class="section-kicker">PENDING</p><h3>待处理内容</h3></div>
-              </div>
-              <div class="record-list" id="reply-pending-list"><article class="empty-card"><div><strong>暂无待处理内容</strong><span>规则无法自动回答的内容会显示在这里。</span></div></article></div>
-              <div class="section-heading compact-heading">
-                <div><p class="section-kicker">DECISIONS</p><h3>自动回复记录</h3></div>
-              </div>
-              <div class="record-list" id="reply-decision-list"><article class="empty-card"><div><strong>暂无自动回复记录</strong><span>运行回复周期后会显示决策与发送结果。</span></div></article></div>
+          </section>
+          <section class="manager-strategy-layout">
+            <form class="subpage-panel manager-strategy-form" id="manager-persona-form">
+              <div class="manager-form-heading"><strong>人设卡</strong><small>账号长期配置</small></div>
+              <input id="manager-persona-id" type="hidden" />
+              <div class="manager-strategy-date-row"><label><span>员工机</span><select id="manager-persona-machine" required></select></label><label><span>账号槽位</span><select id="manager-persona-account" required></select></label></div>
+              <label><span>人设名称</span><input id="manager-persona-name" required /></label>
+              <label><span>角色定位</span><input id="manager-persona-role" required /></label>
+              <label><span>目标受众</span><input id="manager-persona-audience" required /></label>
+              <label><span>语言</span><input id="manager-persona-language" value="中文" /></label>
+              <label><span>内容主题</span><input id="manager-persona-topics" /></label>
+              <label><span>表达语气</span><input id="manager-persona-tone" /></label>
+              <label><span>互动风格</span><input id="manager-persona-interaction" /></label>
+              <label><span>事实边界</span><textarea id="manager-persona-facts"></textarea></label>
+              <label><span>知识说明</span><textarea id="manager-persona-knowledge"></textarea></label>
+              <button class="primary-button" type="submit">保存人设卡</button>
+              <p class="action-message" id="manager-persona-message" role="status"></p>
             </form>
-            <div class="setup-card intelligent-reply-panel">
-              <div class="section-heading compact-heading">
-                <div><p class="section-kicker">MANUAL TAKEOVER</p><h3>新评论智能回复（人工接管）</h3></div>
-                <p id="reply-intelligence-status">用于人工接管某一条评论并生成草稿。</p>
-              </div>
-              <form class="comment-collection-bar" id="comment-collection-form">
-                <label>采集账号<select id="comment-collection-account" required></select></label>
-                <label>最新通知<input id="comment-collection-max-notes" type="number" min="1" max="50" value="20" required /><span>条</span></label>
-                <button class="primary-button" id="collect-comments" type="submit">读取评论通知</button>
-                <p id="comment-collection-message" role="status" aria-live="polite">选择已就绪账号后，从小红书“评论和@”通知中读取新评论。</p>
-              </form>
-              <div class="record-list" id="intelligent-reply-list"><article class="empty-card"><div><strong>暂无待处理新评论</strong><span>采集到新评论后可在这里生成智能回复。</span></div></article></div>
-            </div>
-            <div class="setup-card intelligent-reply-panel private-message-reply-panel">
-              <div class="section-heading compact-heading">
-                <div><p class="section-kicker">MANUAL TAKEOVER</p><h3>新私信智能回复（人工接管）</h3></div>
-                <p id="private-message-intelligence-status">用于人工接管某一轮私信并生成草稿。</p>
-              </div>
-              <form class="comment-collection-bar" id="private-message-collection-form">
-                <label>采集账号<select id="private-message-collection-account" required></select></label>
-                <label>最近会话<input id="private-message-max-conversations" type="number" min="1" max="50" value="20" required /><span>个</span></label>
-                <button class="primary-button" id="collect-private-messages" type="submit">读取私信收件箱</button>
-                <p id="private-message-collection-message" role="status" aria-live="polite">选择已就绪账号后，读取最近会话中由对方发送的最新文字。</p>
-              </form>
-              <div class="record-list" id="intelligent-private-message-list"><article class="empty-card"><div><strong>暂无待处理新私信</strong><span>采集到对方最新文字后可在这里生成智能回复。</span></div></article></div>
-            </div>
-          </div>
-          </div>
+            <section class="subpage-panel"><div class="lane-heading"><div><small>PERSONAS</small><h2>长期人设</h2></div></div><div class="manager-strategy-list" id="manager-persona-list"></div></section>
+          </section>
         </section>
 
-        <section class="content-section records-section workspace-view" data-workspace="records" hidden>
-          <div class="section-heading">
-            <div><p class="section-kicker">05 / ACTIVITY LOG</p><h2>执行记录</h2></div>
-            <p>成功、阻塞、取消与结果未知都会留下终态，方便回看每一次操作为什么发生。</p>
-          </div>
-          <div class="record-list record-ledger" id="record-list"><article class="empty-card"><div><strong>暂无记录</strong><span>任务完成后会保留最小结果。</span></div></article></div>
-        </section>
-
-        <section class="content-section data-recovery-section workspace-view" data-workspace="data" hidden>
-          <div class="section-heading">
-            <div><p class="section-kicker">06 / DATA RECOVERY</p><h2>数据回收</h2></div>
-            <p>集中查看发布帖子以及私信和评论回复记录。</p>
-          </div>
-
-          <div class="recovery-summary" aria-label="数据回收概览">
-            <article><span>发布记录</span><strong id="data-published-total">0</strong><small>发布任务结算后记录</small></article>
-            <article><span>回复记录</span><strong id="data-reply-total">0</strong><small>私信回复与评论回复</small></article>
-          </div>
-
-          <div class="recovery-ledgers">
-            <article class="recovery-panel">
-              <div class="lane-heading"><div><p class="section-kicker">PUBLISHED POSTS</p><h3>发布台账</h3></div><span>帖子与发布回读</span></div>
-              <div class="record-list data-ledger" id="published-post-list"><article class="empty-card"><div><strong>暂无发布记录</strong><span>发布任务结算后会显示在这里。</span></div></article></div>
-            </article>
-            <article class="recovery-panel">
-              <div class="lane-heading"><div><p class="section-kicker">REPLIES</p><h3>回复台账</h3></div><span>原内容、回复文本与结果</span></div>
-              <div class="record-list data-ledger" id="reply-record-list"><article class="empty-card"><div><strong>暂无回复记录</strong><span>私信回复或评论回复结算后会显示在这里。</span></div></article></div>
-            </article>
-          </div>
-
-          <section class="manager-result-workspace" aria-labelledby="manager-result-title">
-            <div class="lane-heading">
-              <div><p class="section-kicker">REMOTE RESULTS</p><h3 id="manager-result-title">远程结果与增量数据</h3></div>
-              <span>以执行机回收记录为准</span>
-            </div>
+        <section class="workspace-view" id="results" data-manager-view="results" hidden>
+          <header class="page-topbar"><div><p class="eyebrow">DATA COLLECTION</p><h1>数据回收</h1><p>当前结果采用最高修订版本，原始回执保留在审计历史。</p></div></header>
+          <section class="manager-result-workspace">
             <div class="manager-result-toolbar">
-              <label>执行机<select id="manager-result-machine"><option value="">全部执行机</option></select></label>
-              <label class="manager-confirm-check"><input id="manager-collect-evidence" type="checkbox" checked />同时下载证据文件</label>
-              <button class="primary-button" id="manager-collect-results" type="button">立即回收所选执行机</button>
-              <p id="manager-collect-message" role="status" aria-live="polite">列表会自动读取缓存；结果回收需要手动触发。</p>
+              <label><span>员工机</span><select id="manager-result-machine"></select></label>
+              <label><span>账号</span><select id="manager-result-account"></select></label>
+              <label><span>开始日期</span><input id="manager-result-start" type="date" /></label>
+              <label><span>结束日期</span><input id="manager-result-end" type="date" /></label>
+              <button class="secondary-button" id="manager-result-reset" type="button">重置筛选</button>
             </div>
-            <div class="manager-summary" aria-label="远程结果概览">
-              <article><span>结果记录</span><strong id="manager-result-total">0</strong><small>当前筛选范围</small></article>
-              <article><span>增量记录</span><strong id="manager-incremental-total">0</strong><small>已保存的数据条目</small></article>
-              <article><span>人工动作</span><strong id="manager-manual-total">0</strong><small>需要人工继续处理</small></article>
-              <article><span>数据缺口</span><strong id="manager-data-gap-total">0</strong><small>回收摘要中的缺失项</small></article>
+            <div class="manager-action-summary">
+              <article><span>目标</span><strong id="manager-target-total">—</strong></article><article><span>实际</span><strong id="manager-actual-total">—</strong></article><article><span>成功率</span><strong id="manager-success-rate">—</strong></article><article><span>异常率</span><strong id="manager-exception-rate">—</strong></article><article><span>需人工处理</span><strong id="manager-manual-total">—</strong></article><article><span>增量记录</span><strong id="manager-incremental-total">—</strong></article>
             </div>
+            <div class="manager-action-summary compact-actions"><article><span>浏览 目标/实际</span><strong id="manager-action-browse">—</strong></article><article><span>点赞 目标/实际</span><strong id="manager-action-like">—</strong></article><article><span>评论 目标/实际</span><strong id="manager-action-comment">—</strong></article><article><span>回复 目标/实际</span><strong id="manager-action-reply">—</strong></article><article><span>发布 目标/实际</span><strong id="manager-action-publish">—</strong></article></div>
+            <div class="manager-inline-actions"><label><input id="manager-collect-evidence" type="checkbox" checked /> 同步证据</label><button class="secondary-button" id="manager-collect-results" type="button">立即回收所选员工机</button></div>
+            <p class="action-message" id="manager-collect-message" role="status"></p>
             <div class="manager-result-columns">
-              <article class="recovery-panel"><div class="lane-heading"><div><h3>任务结果</h3></div><span>业务终态与建议动作</span></div><div class="record-list" id="manager-result-list"></div></article>
-              <article class="recovery-panel"><div class="lane-heading"><div><h3>增量数据</h3></div><span>事件、指标与诊断</span></div><div class="record-list" id="manager-incremental-list"></div></article>
+              <section class="subpage-panel"><div class="lane-heading"><h2>当前结果</h2></div><div class="record-list" id="manager-result-list"></div></section>
+              <section class="subpage-panel"><div class="lane-heading"><h2>逐项与增量记录</h2></div><div class="record-list" id="manager-incremental-list"></div></section>
+              <section class="subpage-panel manager-result-audit-panel"><div class="lane-heading"><h2>审计历史</h2></div><div class="manager-result-audit-list" id="manager-result-audit-list"></div></section>
             </div>
+            <section class="subpage-panel manager-operation-report-panel"><div class="lane-heading"><h2>运营报告</h2></div><div class="record-list" id="manager-operation-report-list"></div></section>
           </section>
         </section>
 
-        <section class="content-section system-section workspace-view" data-workspace="system" hidden>
-          <div class="section-heading">
-            <div><p class="section-kicker">07 / SYSTEM</p><h2>系统与诊断</h2></div>
-            <p>查看运行健康、导出脱敏诊断，并管理并发、配额和熔断规则。</p>
-          </div>
-        <div class="diagnosis-layout" id="diagnosis">
-          <article class="diagnosis-card">
-            <div class="section-heading compact">
-              <div><p class="section-kicker">06 / DIAGNOSTICS</p><h2>系统诊断</h2></div>
-              <span class="diagnosis-badge" id="diagnosis-state">检查中</span>
-            </div>
-            <div class="diagnosis-bars">
-              <div><span>配置健康</span><strong id="healthy-total">—</strong></div>
-              <div><span>运行就绪</span><strong id="doctor-ready-total">—</strong></div>
-              <div><span>警告项目</span><strong id="warning-total">—</strong></div>
-            </div>
-            <p class="diagnosis-note" id="diagnosis-note">正在汇总账号配置与运行状态…</p>
-            <div class="diagnosis-actions">
-              <button class="secondary-button" id="export-diagnostics" type="button">导出脱敏诊断</button>
-              <span id="diagnostic-path" role="status">报告只保存到本机</span>
-            </div>
-          </article>
-
-          <article class="settings-card">
-            <p class="section-kicker light">RUNTIME SETTINGS</p>
-            <h2>运行设置</h2>
-            <form id="settings-form">
-              <label>全局并发<select id="setting-concurrency"><option>1</option><option>2</option><option selected>3</option></select></label>
-              <div class="settings-grid">
-                <label>每小时 L1<input id="setting-hourly" type="number" min="1" value="20" /></label>
-                <label>每日 L1<input id="setting-daily" type="number" min="1" value="100" /></label>
-                <label>去重分钟<input id="setting-dedup" type="number" min="1" value="10" /></label>
-                <label>熔断阈值<input id="setting-failures" type="number" min="1" value="3" /></label>
-              </div>
-              <button class="primary-button" type="submit">确认保存设置</button>
-            </form>
-            <p class="version-line">VERSION <strong id="product-version">—</strong></p>
-          </article>
-
-          <article class="settings-card reply-model-settings-card">
-            <div class="model-settings-heading">
-              <div>
-                <p class="section-kicker light">INTELLIGENT REPLY MODEL</p>
-                <h2>智能回复模型</h2>
-              </div>
-              <span class="diagnosis-badge" id="reply-model-badge">未配置</span>
-            </div>
-            <form id="reply-model-form">
-              <div class="model-settings-grid">
-                <label>API 地址<input id="reply-model-base-url" type="url" required value="https://api.deepseek.com" autocomplete="url" /></label>
-                <label>模型名称<input id="reply-model-name" type="text" required value="deepseek-v4-flash" autocomplete="off" /></label>
-                <label>API Key<input id="reply-model-api-key" type="password" placeholder="首次保存必填；留空沿用已保存 Key" autocomplete="new-password" /></label>
-                <label>超时时间<input id="reply-model-timeout" type="number" min="1" max="300" value="60" /><span class="field-suffix">秒</span></label>
-              </div>
-              <div class="model-settings-actions">
-                <button class="primary-button" id="save-reply-model" type="submit">保存模型配置</button>
-                <button class="secondary-button" id="test-reply-model" type="button">测试连接</button>
-                <span id="reply-model-message" role="status" aria-live="polite">Key 只保存在本机，不会在页面中回显。</span>
-              </div>
-            </form>
-          </article>
-        </div>
-
-        <section class="manager-system" aria-labelledby="manager-system-title">
-          <div class="section-heading">
-            <div><p class="section-kicker">CLUSTER SETTINGS</p><h2 id="manager-system-title">集群配置</h2></div>
-            <p>项目目录和 Python 使用执行机路径；SSH 密钥与传输源使用经理机本地绝对路径。</p>
-          </div>
-
-          <form class="setup-card manager-form" id="manager-machine-form">
-            <div class="manager-form-heading"><strong>登记执行机</strong><small>保存连接资料后可从首页执行连接检查</small></div>
-            <div class="manager-form-grid manager-machine-form-grid">
-              <label>机器编号<input id="manager-machine-id" required maxlength="120" placeholder="EXECUTOR-01" /></label>
-              <label>显示名称<input id="manager-machine-alias" maxlength="120" placeholder="上海执行机 01" /></label>
-              <label>SSH 地址<input id="manager-machine-host" required maxlength="255" placeholder="192.168.110.84" /></label>
-              <label>SSH 端口<input id="manager-machine-port" type="number" min="1" max="65535" value="22" required /></label>
-              <label>SSH 用户<input id="manager-machine-user" required maxlength="120" /></label>
-              <label>经理机编号<input id="manager-machine-manager-id" maxlength="120" value="MILA-MANAGER" /></label>
-              <label class="manager-span-2">项目目录<input id="manager-machine-workdir" required placeholder="C:\auto-xhs\xiaohongshu-skills" /></label>
-              <label class="manager-span-2">Python 路径<input id="manager-machine-python" required placeholder="C:\auto-xhs\xiaohongshu-skills\.venv\Scripts\python.exe" /></label>
-              <label class="manager-span-2">密钥文件<input id="manager-machine-identity" placeholder="可选，经理机上的绝对路径" /></label>
-              <label>允许项目版本<input id="manager-machine-versions" required maxlength="240" placeholder="0.1.0，多个用逗号分隔" /></label>
-              <label>连接超时<input id="manager-machine-connect-timeout" type="number" min="1" max="120" value="10" /><span class="field-suffix">秒</span></label>
-            </div>
-            <button class="primary-button" type="submit">保存执行机</button>
-            <p class="form-note" id="manager-machine-message" role="status" aria-live="polite">保存后回到首页，点击“连接检查”核验 SSH 与执行端身份。</p>
-          </form>
-
-          <div class="manager-package-layout">
-            <form class="setup-card manager-form" id="manager-transfer-form">
-              <div class="manager-form-heading"><strong>功能包传输</strong><small>一次传输对应一个明确来源目录</small></div>
-              <label>传输编号<input id="manager-transfer-id" required maxlength="120" /></label>
-              <label>目标执行机<select id="manager-transfer-machine" required><option value="">暂无执行机</option></select></label>
-              <label>传输类型<select id="manager-transfer-type"><option value="function_package">功能包</option><option value="task_package">任务包</option><option value="config">配置</option></select></label>
-              <label>经理机来源绝对路径<input id="manager-transfer-source" required /></label>
-              <label>允许项目版本<input id="manager-transfer-versions" maxlength="240" placeholder="0.1.0，多个用逗号分隔" /></label>
-              <label>超时时间<input id="manager-transfer-timeout" type="number" min="1" max="7200" value="600" /><span class="field-suffix">秒</span></label>
-              <button class="primary-button wide-button" type="submit">开始传输</button>
-              <p class="form-note" id="manager-transfer-message" role="status" aria-live="polite">传输完成后会保留目标路径和版本回读。</p>
-            </form>
-
-            <form class="setup-card manager-form" id="manager-version-form">
-              <div class="manager-form-heading"><strong>设置功能版本策略</strong><small>正式版和试用版需要明确适用范围</small></div>
-              <label>目标执行机<select id="manager-version-machine" required><option value="">暂无执行机</option></select></label>
-              <label>功能编号<input id="manager-version-function" required maxlength="120" placeholder="EXPLORE-02" /></label>
-              <label>版本<input id="manager-version-value" required maxlength="120" placeholder="1.0" /></label>
-              <label>状态<select id="manager-version-status"><option value="FORMAL">正式</option><option value="TRIAL">试用</option><option value="DISABLED">停用</option></select></label>
-              <label>账号范围<input id="manager-version-accounts" maxlength="500" placeholder="brand-a，多个用逗号分隔" /></label>
-              <label>允许动作<input id="manager-version-actions" maxlength="500" placeholder="search-feeds，多个用逗号分隔" /></label>
-              <label class="manager-confirm-check"><input id="manager-version-stable" type="checkbox" checked />设为稳定版本</label>
-              <div class="manager-inline-actions">
-                <button class="primary-button" type="submit">保存版本策略</button>
-                <button class="secondary-button" id="manager-load-versions" type="button">读取执行机版本</button>
-              </div>
-              <p class="form-note" id="manager-version-message" role="status" aria-live="polite">读取版本会主动连接所选执行机，请按需触发。</p>
-            </form>
-          </div>
-          <div class="manager-result-columns manager-package-ledgers">
-            <article class="recovery-panel"><div class="lane-heading"><div><h3>传输记录</h3></div><span>状态与目标路径</span></div><div class="record-list" id="manager-transfer-list"></div></article>
-            <article class="recovery-panel"><div class="lane-heading"><div><h3>执行机版本</h3></div><span>手动读取结果</span></div><div class="record-list" id="manager-version-list"></div></article>
-          </div>
-        </section>
+        <section class="workspace-view" id="exceptions" data-manager-view="exceptions" hidden>
+          <header class="page-topbar"><div><p class="eyebrow">EXCEPTION CENTER</p><h1>异常中心</h1><p>集中查看机器、账号、任务、结果和回收链路问题。</p></div></header>
+          <section class="subpage-panel manager-exception-panel"><div class="manager-exception-list" id="manager-exception-list"></div></section>
         </section>
 
-        <footer><span>AUTO—XHS / LOCAL FIRST</span><span>配置与任务数据只保存在本机</span></footer>
+        <section class="workspace-view" id="settings" data-manager-view="settings" hidden>
+          <header class="page-topbar"><div><p class="eyebrow">SYSTEM SETTINGS</p><h1>系统设置</h1><p>维护经理机运行参数、模型、诊断、员工机连接和版本策略。</p></div></header>
+          <section class="manager-system">
+            <div class="manager-settings-grid">
+              <form class="subpage-panel manager-form" id="manager-runtime-settings-form">
+                <div class="manager-form-heading"><strong>经理机运行参数</strong><small id="manager-runtime-version">版本 —</small></div>
+                <div class="manager-form-grid">
+                  <label><span>全局并发</span><select id="manager-setting-concurrency"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+                  <label><span>每小时限额</span><input id="manager-setting-hourly" min="1" type="number" /></label>
+                  <label><span>每日限额</span><input id="manager-setting-daily" min="1" type="number" /></label>
+                  <label><span>去重分钟</span><input id="manager-setting-dedup" min="1" type="number" /></label>
+                  <label><span>失败阈值</span><input id="manager-setting-failures" min="1" type="number" /></label>
+                </div>
+                <button class="primary-button" type="submit">保存运行参数</button>
+                <p class="action-message" id="manager-runtime-message" role="status"></p>
+              </form>
+              <form class="subpage-panel manager-form" id="manager-reply-model-form">
+                <div class="manager-form-heading"><strong>智能回复模型</strong><small id="manager-reply-model-state">读取中</small></div>
+                <label><span>API 地址</span><input id="manager-reply-model-base-url" type="url" required /></label>
+                <label><span>模型名称</span><input id="manager-reply-model-name" required /></label>
+                <label><span>API Key</span><input id="manager-reply-model-api-key" type="password" autocomplete="new-password" placeholder="留空沿用已保存 Key" /></label>
+                <label><span>超时（秒）</span><input id="manager-reply-model-timeout" min="1" max="300" type="number" value="60" /></label>
+                <div class="manager-inline-actions"><button class="secondary-button" id="manager-reply-model-test" type="button">测试连接</button><button class="primary-button" type="submit">保存模型配置</button></div>
+                <p class="action-message" id="manager-reply-model-message" role="status"></p>
+              </form>
+              <section class="subpage-panel manager-diagnostic-panel">
+                <div class="manager-form-heading"><strong>运行状态与诊断</strong><small id="manager-system-pause-state">—</small></div>
+                <dl class="manager-record-facts"><div><dt>存储目录</dt><dd id="manager-system-storage">—</dd></div><div><dt>任务总数</dt><dd id="manager-system-task-total">—</dd></div><div><dt>最近异常</dt><dd id="manager-system-failure-total">—</dd></div></dl>
+                <button class="secondary-button" id="manager-export-diagnostics" type="button">导出诊断报告</button>
+                <p class="action-message" id="manager-diagnostic-message" role="status"></p>
+              </section>
+            </div>
+            <form class="subpage-panel manager-form" id="manager-machine-form">
+              <div class="manager-form-heading"><strong>登记员工机</strong><small>保存 SSH 和执行环境</small></div>
+              <div class="manager-form-grid manager-machine-form-grid">
+                <label><span>经理机编号</span><input id="manager-machine-manager-id" value="MILA-MANAGER" required /></label><label><span>机器编号</span><input id="manager-machine-id" required /></label><label><span>显示名称</span><input id="manager-machine-alias" required /></label><label><span>SSH 主机</span><input id="manager-machine-host" required /></label><label><span>SSH 端口</span><input id="manager-machine-port" type="number" value="22" required /></label><label><span>SSH 用户</span><input id="manager-machine-user" required /></label><label class="manager-span-2"><span>项目目录</span><input id="manager-machine-workdir" required /></label><label class="manager-span-2"><span>Python</span><input id="manager-machine-python" required /></label><label class="manager-span-2"><span>身份文件</span><input id="manager-machine-identity" /></label><label><span>允许版本</span><input id="manager-machine-versions" required /></label><label><span>连接超时（秒）</span><input id="manager-machine-connect-timeout" type="number" value="10" /></label>
+              </div>
+              <button class="primary-button" type="submit">保存员工机</button><p class="action-message" id="manager-machine-message" role="status"></p>
+            </form>
+            <div class="manager-package-layout">
+              <form class="subpage-panel manager-form" id="manager-transfer-form">
+                <div class="manager-form-heading"><strong>功能包传输</strong><small>发送到指定员工机</small></div><label><span>传输编号</span><input id="manager-transfer-id" required /></label><label><span>员工机</span><select id="manager-transfer-machine" required></select></label><label><span>类型</span><select id="manager-transfer-type"><option value="function_package">功能包</option></select></label><label><span>源路径</span><input id="manager-transfer-source" required /></label><label><span>允许版本</span><input id="manager-transfer-versions" /></label><label><span>超时（秒）</span><input id="manager-transfer-timeout" type="number" value="600" /></label><button class="primary-button" type="submit">开始传输</button><p class="action-message" id="manager-transfer-message" role="status"></p>
+              </form>
+              <form class="subpage-panel manager-form" id="manager-version-form">
+                <div class="manager-form-heading"><strong>版本策略</strong><small>读取并设置员工机功能版本</small></div><label><span>员工机</span><select id="manager-version-machine" required></select></label><label><span>功能编号</span><input id="manager-version-function" required /></label><label><span>版本</span><input id="manager-version-value" required /></label><label><span>状态</span><select id="manager-version-status"><option value="FORMAL">正式</option><option value="TRIAL">试用</option><option value="DISABLED">停用</option></select></label><label><span>账号范围</span><input id="manager-version-accounts" /></label><label><span>允许动作</span><input id="manager-version-actions" /></label><label class="manager-confirm-check"><input id="manager-version-stable" type="checkbox" checked /> 设为稳定版</label><div class="manager-inline-actions"><button class="secondary-button" id="manager-load-versions" type="button">读取版本</button><button class="primary-button" type="submit">保存策略</button></div><p class="action-message" id="manager-version-message" role="status"></p>
+              </form>
+            </div>
+            <div class="manager-package-ledgers"><section class="subpage-panel"><div class="lane-heading"><h2>传输记录</h2></div><div class="record-list" id="manager-transfer-list"></div></section><section class="subpage-panel"><div class="lane-heading"><h2>版本记录</h2></div><div class="record-list" id="manager-version-list"></div></section></div>
+          </section>
+        </section>
       </main>
     </div>
 
-    <dialog class="switch-dialog setup-dialog" id="account-setup-dialog" aria-labelledby="account-setup-title">
-      <div class="switch-dialog-head">
-        <div>
-          <p class="section-kicker">GUIDED ACCOUNT SETUP</p>
-          <h2 id="account-setup-title">配置账号连接</h2>
-        </div>
-        <button class="dialog-close" id="account-setup-close" type="button" aria-label="关闭账号配置面板">×</button>
-      </div>
-      <div class="switch-account-strip">
-        <span class="switch-avatar" id="account-setup-avatar">—</span>
-        <div><small>当前配置槽位</small><strong id="account-setup-name">—</strong></div>
-        <span class="switch-stage" id="account-setup-stage">准备连接</span>
-      </div>
-      <div class="switch-dialog-body">
-        <p class="setup-profile-line" id="account-setup-profile">Chrome · —</p>
-        <div class="setup-progress" aria-label="账号配置进度">
-          <span data-setup-step="bridge"><b>01</b>启动 Bridge</span>
-          <i aria-hidden="true">→</i>
-          <span data-setup-step="pairing"><b>02</b>扩展配对</span>
-          <i aria-hidden="true">→</i>
-          <span data-setup-step="identity"><b>03</b>确认身份</span>
-          <i aria-hidden="true">→</i>
-          <span data-setup-step="ready"><b>04</b>进入 READY</span>
-        </div>
-        <div class="switch-guidance" id="account-setup-guidance">
-          <strong>正在准备账号连接</strong>
-          <p>系统会自动判断下一步，不会关闭 Chrome，也不会更改当前登录状态。</p>
-        </div>
-        <div class="setup-identity" id="account-setup-identity" hidden>
-          <span>检测到当前小红书账号</span>
-          <strong id="account-setup-nickname">—</strong>
-          <small id="account-setup-uid">UID —</small>
-        </div>
-        <p class="switch-message" id="account-setup-message" role="status" aria-live="polite"></p>
-      </div>
-      <div class="switch-dialog-actions">
-        <button class="secondary-button" id="account-setup-copy" type="button" hidden>重新复制配对信息</button>
-        <button class="secondary-button" id="account-setup-dismiss" type="button">稍后继续</button>
-        <button class="primary-button" id="account-setup-primary" type="button" hidden>确认绑定此账号</button>
-      </div>
+    <dialog class="manager-operation-detail-dialog" id="manager-operation-detail-dialog" aria-labelledby="manager-operation-detail-title">
+      <div class="manager-operation-detail-head"><div><p class="eyebrow">OPERATION TASK</p><h2 id="manager-operation-detail-title">运营任务详情</h2><p id="manager-operation-detail-subtitle"></p></div><button class="icon-button" id="manager-operation-detail-close" type="button" aria-label="关闭运营任务详情">×</button></div>
+      <div class="manager-operation-detail-body"><div class="manager-detail-progress" id="manager-operation-detail-summary"></div><div class="manager-operation-detail-columns"><section class="manager-operation-detail-panel"><h3>目标</h3><div id="manager-operation-detail-goal"></div></section><section class="manager-operation-detail-panel"><h3>计划</h3><div id="manager-operation-detail-plan"></div></section><section class="manager-operation-detail-panel"><h3>执行</h3><div class="manager-detail-list" id="manager-operation-detail-executions"></div></section><section class="manager-operation-detail-panel"><h3>结果</h3><div class="manager-detail-list" id="manager-operation-detail-results"></div></section><section class="manager-operation-detail-panel manager-operation-timeline-panel"><div class="lane-heading"><h3>Agent 协作时间线</h3><span id="manager-operation-timeline-total">0 条</span></div><div class="manager-agent-timeline" id="manager-operation-timeline"></div></section></div><details class="manager-operation-technical"><summary>技术详情</summary><pre id="manager-operation-technical-json"></pre></details></div>
     </dialog>
 
-    <dialog class="switch-dialog" id="account-switch-dialog" aria-labelledby="switch-dialog-title">
+    <dialog class="switch-dialog publish-confirm-dialog" id="publish-confirm-dialog" aria-labelledby="publish-dialog-title">
       <div class="switch-dialog-head">
-        <div>
-          <p class="section-kicker">IDENTITY HANDOFF</p>
-          <h2 id="switch-dialog-title">切换登录账号</h2>
-        </div>
-        <button class="dialog-close" id="switch-dialog-close" type="button" aria-label="关闭换号面板">×</button>
-      </div>
-      <div class="switch-account-strip">
-        <span class="switch-avatar" id="switch-account-avatar">—</span>
-        <div><small>当前操作槽位</small><strong id="switch-account-name">—</strong></div>
-        <span class="switch-stage" id="switch-stage">准备换号</span>
-      </div>
-      <div class="switch-dialog-body">
-        <div class="fixed-profile-line">
-          <span>固定 Chrome Profile</span>
-          <strong id="switch-profile-name">—</strong>
-          <small id="switch-profile-directory">—</small>
-        </div>
-        <div class="switch-current" id="switch-current">
-          <span>当前记录身份</span>
-          <strong id="switch-current-name">尚未记录</strong>
-          <small id="switch-current-uid">UID —</small>
-        </div>
-        <div class="switch-sequence" aria-label="账号切换流程">
-          <span data-switch-step="begin"><b>01</b>退出旧账号</span>
-          <i aria-hidden="true">→</i>
-          <span data-switch-step="login"><b>02</b>登录新账号</span>
-          <i aria-hidden="true">→</i>
-          <span data-switch-step="complete"><b>03</b>核验新 UID</span>
-        </div>
-        <div class="switch-fields" id="switch-fields">
-          <label>新账号备注（可选）<input id="switch-label" maxlength="50" placeholder="例如：品牌主账号" /></label>
-          <label>预期新 UID（可选）<input id="switch-target-uid" maxlength="128" placeholder="填写后，完成时必须一致" /></label>
-        </div>
-        <div class="switch-guidance" id="switch-guidance">
-          <strong>开始后会退出当前小红书登录</strong>
-          <p>系统负责自动退出当前账号；槽位、Chrome Profile、扩展和 Bridge 保持不变。你只需在这个 Profile 中手动登录新账号，再回到这里完成核验。</p>
-        </div>
-        <p class="switch-message" id="switch-message" role="status"></p>
-      </div>
-      <div class="switch-dialog-actions">
-        <button class="secondary-button switch-cancel" id="switch-cancel" type="button" hidden>取消换号</button>
-        <button class="secondary-button" id="switch-dismiss" type="button">暂不切换</button>
-        <button class="primary-button" id="switch-primary" type="button">自动退出并开始换号</button>
-      </div>
-    </dialog>
-    <dialog class="switch-dialog mismatch-dialog" id="identity-mismatch-dialog" aria-labelledby="identity-mismatch-title">
-      <div class="switch-dialog-head">
-        <div>
-          <p class="section-kicker">IDENTITY MISMATCH</p>
-          <h2 id="identity-mismatch-title">处理账号不一致</h2>
-        </div>
-        <button class="dialog-close" id="identity-mismatch-close" type="button" aria-label="关闭账号不一致处理面板">×</button>
-      </div>
-      <div class="switch-account-strip">
-        <span class="switch-avatar" id="mismatch-avatar">—</span>
-        <div><small>槽位与 Profile 保持固定</small><strong id="mismatch-profile-name">—</strong><small id="mismatch-profile-directory">—</small></div>
-        <span class="switch-stage" id="mismatch-stage">等待选择</span>
-      </div>
-      <div class="switch-dialog-body">
-        <div class="identity-compare" aria-label="记录账号与当前登录账号对比">
-          <article>
-            <span>槽位原记录</span>
-            <strong id="mismatch-recorded-name">—</strong>
-            <small id="mismatch-recorded-uid">UID —</small>
-          </article>
-          <i aria-hidden="true">≠</i>
-          <article class="current">
-            <span>当前 Profile 登录</span>
-            <strong id="mismatch-live-name">—</strong>
-            <small id="mismatch-live-uid">UID —</small>
-          </article>
-        </div>
-        <div class="switch-guidance" id="mismatch-guidance">
-          <strong>请选择这次登录是否正确</strong>
-          <p>如果登错了，退出当前账号并登录原账号；如果以后就使用当前账号，可以明确确认覆盖槽位记录的 UID。</p>
-        </div>
-        <p class="switch-message" id="mismatch-message" role="status" aria-live="polite"></p>
-      </div>
-      <div class="switch-dialog-actions mismatch-actions">
-        <button class="secondary-button" id="mismatch-dismiss" type="button">暂不处理</button>
-        <button class="secondary-button" id="mismatch-recheck" type="button">重新核验</button>
-        <button class="secondary-button" id="mismatch-restore" type="button">我登错了，退出当前账号</button>
-        <button class="primary-button" id="mismatch-use-current" type="button">改用当前账号</button>
-        <button class="primary-button danger-button" id="mismatch-confirm-replace" type="button" hidden>确认覆盖槽位 UID</button>
-      </div>
-    </dialog>
-    <dialog class="switch-dialog publish-confirm-dialog" id="publish-confirm-dialog" aria-labelledby="publish-confirm-dialog-title">
-      <div class="switch-dialog-head">
-        <div>
-          <p class="section-kicker">PUBLISH REVIEW</p>
-          <h2 id="publish-confirm-dialog-title">核对并确认发布</h2>
-        </div>
-        <button class="dialog-close" id="publish-confirm-close" type="button" aria-label="关闭发布确认面板">×</button>
+        <div><p class="section-kicker">PUBLISH REVIEW</p><h2 id="publish-dialog-title">核对并确认发布</h2><p id="publish-dialog-subtitle">—</p></div>
+        <button class="dialog-close" id="publish-dialog-close" type="button" aria-label="关闭发布确认面板">×</button>
       </div>
       <div class="switch-account-strip publish-account-strip">
-        <span class="switch-avatar" id="publish-confirm-avatar">—</span>
-        <div><small>目标 Chrome Profile</small><strong id="publish-confirm-account">—</strong><small id="publish-confirm-profile">—</small></div>
-        <span class="switch-stage" id="publish-confirm-kind">图文</span>
+        <span class="switch-avatar" id="publish-account-avatar">—</span>
+        <div><small>目标账号</small><strong id="publish-account-name">—</strong><small id="publish-account-identity">UID —</small></div>
+        <span class="switch-stage" id="publish-kind">发布</span>
       </div>
       <div class="switch-dialog-body publish-confirm-body">
-        <div class="publish-identity-row">
-          <span>当前发布身份</span>
-          <strong id="publish-confirm-identity">—</strong>
-          <small id="publish-confirm-uid">UID —</small>
-        </div>
         <dl class="publish-confirm-facts">
-          <div><dt>发布标题</dt><dd id="publish-confirm-title">—</dd></div>
-          <div><dt>可见范围</dt><dd id="publish-confirm-visibility">—</dd></div>
-          <div><dt>发布时间</dt><dd id="publish-confirm-schedule">—</dd></div>
-          <div><dt>标签</dt><dd id="publish-confirm-tags">—</dd></div>
+          <div><dt>发布标题</dt><dd id="publish-title">—</dd></div>
+          <div><dt>可见范围</dt><dd id="publish-visibility">—</dd></div>
+          <div><dt>发布时间</dt><dd id="publish-schedule">—</dd></div>
+          <div><dt>标签</dt><dd id="publish-tags">—</dd></div>
         </dl>
-        <section class="publish-copy-review">
-          <span>最终正文</span>
-          <p id="publish-confirm-content">—</p>
-        </section>
+        <section class="publish-copy-review"><span>最终正文</span><p id="publish-content">—</p></section>
         <section class="publish-assets-review">
-          <div><span>发布素材</span><small>请在右侧绑定的 Chrome Profile 中核对真实画面与顺序</small></div>
-          <ol id="publish-confirm-assets"></ol>
+          <div><span>发布素材</span><small id="publish-asset-count">0 个</small></div>
+          <ol id="publish-assets"></ol>
         </section>
         <label class="publish-preview-check">
           <input id="publish-preview-confirmed" type="checkbox" />
-          <span><strong>我已在绑定的 Chrome Profile 中核对真实预览</strong><small>已确认账号、标题、正文、素材顺序、可见范围和发布时间均正确。</small></span>
+          <span><strong>我已在绑定的 Chrome Profile 中核对真实预览</strong><small>账号、标题、正文、素材顺序、可见范围和发布时间均正确。</small></span>
         </label>
         <p class="switch-message" id="publish-confirm-message" role="status" aria-live="polite"></p>
       </div>
       <div class="switch-dialog-actions publish-confirm-actions">
         <button class="secondary-button switch-cancel" id="publish-save-draft" type="button">不发布，保存为草稿</button>
-        <button class="secondary-button" id="publish-confirm-dismiss" type="button">稍后确认</button>
+        <button class="secondary-button" id="publish-dialog-dismiss" type="button">稍后确认</button>
         <button class="primary-button" id="publish-confirm-submit" type="button" disabled>确认并发布</button>
       </div>
     </dialog>
-    <dialog class="switch-dialog remove-dialog" id="account-remove-dialog" aria-labelledby="remove-dialog-title">
+
+    <dialog class="switch-dialog manager-account-management-dialog" id="manager-account-management-dialog" aria-labelledby="manager-account-management-title">
       <div class="switch-dialog-head">
-        <div>
-          <p class="section-kicker">RECOVERABLE REMOVAL</p>
-          <h2 id="remove-dialog-title">删除账号槽位</h2>
+        <div><p class="section-kicker">ACCOUNT MANAGEMENT</p><h2 id="manager-account-management-title">账号管理信息</h2><p id="manager-account-management-subtitle">—</p></div>
+        <button class="dialog-close" id="manager-account-management-close" type="button" aria-label="关闭账号管理面板">×</button>
+      </div>
+      <form class="switch-dialog-body manager-account-management-body" id="manager-account-management-form">
+        <label><span>账号备注</span><textarea id="manager-account-note" maxlength="500" placeholder="用途、负责人或运营说明"></textarea></label>
+        <label class="manager-account-scheduling"><input id="manager-account-scheduling-enabled" type="checkbox" /><span><strong>允许调度</strong><small>关闭后，经理机不会向这个账号创建新的执行任务。</small></span></label>
+        <button class="primary-button" type="submit">保存管理信息</button>
+        <p class="action-message" id="manager-account-management-message" role="status"></p>
+      </form>
+      <section class="switch-dialog-body manager-account-field-request">
+        <div><strong>员工机现场处理</strong><small id="manager-account-field-state">当前没有现场请求</small></div>
+        <label><span>处理说明</span><textarea id="manager-account-field-instructions" placeholder="告诉员工机需要完成的登录或身份核对步骤"></textarea></label>
+        <div class="manager-inline-actions">
+          <button class="secondary-button" id="manager-account-request-identity" type="button">发起身份核对</button>
+          <button class="primary-button" id="manager-account-request-login" type="button">发起现场登录</button>
         </div>
-        <button class="dialog-close" id="remove-dialog-close" type="button" aria-label="关闭删除槽位面板">×</button>
-      </div>
-      <div class="switch-account-strip remove-account-strip">
-        <span class="switch-avatar">存</span>
-        <div><small>准备移出本地列表</small><strong id="remove-account-name">—</strong></div>
-        <span class="switch-stage">可恢复归档</span>
-      </div>
-      <div class="switch-dialog-body">
-        <p class="remove-profile" id="remove-account-profile">Chrome · —</p>
-        <div class="remove-guidance">
-          <strong>不会删除这些内容</strong>
-          <p>Chrome Profile、小红书登录数据和共享通用扩展都会保留。系统只会停止该槽位的受管 Bridge、撤销配对，并把槽位数据保存到本机归档。</p>
-        </div>
-        <label class="remove-confirm-field">
-          输入完整槽位名称以确认
-          <input id="remove-confirm-name" autocomplete="off" spellcheck="false" placeholder="槽位名称" />
-        </label>
-        <p class="switch-message" id="remove-message" role="status"></p>
-      </div>
-      <div class="switch-dialog-actions">
-        <button class="secondary-button" id="remove-account-cancel" type="button">取消</button>
-        <button class="primary-button danger-button" id="remove-account-submit" type="button" disabled>确认删除槽位</button>
-      </div>
+      </section>
     </dialog>
-    <script src="/api-client.js?v=20260820-workspace-1" defer></script>
-    <script src="/task-catalog.js?v=20260820-workspace-1" defer></script>
-    <script src="/workspace.js?v=20260820-workspace-1" defer></script>
-    <script src="/manager-console.js?v=20260831-manager-console-1" defer></script>
-    <script src="/app.js?v=20260821-reply-context-1" defer></script>
+
+    <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
+    <script src="/manager-console.js?v=20260904-manager-console-1" defer></script>
   </body>
 </html>

@@ -1460,6 +1460,29 @@ def test_service_blocks_identity_record_while_switch_is_pending(tmp_path) -> Non
     assert exc_info.value.code == "ACCOUNT_SWITCH_PENDING"
 
 
+def test_service_persists_progress_before_executor_returns(tmp_path, monkeypatch) -> None:
+    from xhs.progress import emit_progress
+
+    def execute(account: str, capability: str, parameters: dict) -> dict:
+        emit_progress("browsing", "已浏览 1/2 篇", metrics={"browse": {"actual": 1, "target": 2}})
+        running = service.tasks.get(task["task_id"])
+        assert running["state"] == "RUNNING"
+        assert running["progress_events"][0]["metrics"]["browse"]["actual"] == 1
+        return {"count": 2}
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"), business_runner=BusinessRunner(execute),
+    )
+    monkeypatch.setattr(service, "get_account_status", lambda account: {"ready": True})
+    task = service.create_task(
+        source="webui", account_slot="alpha", capability="search-feeds", request_summary="进度验收",
+        parameters={"keyword": "露营"},
+    )["task"]
+    result = service.execute_task(task["task_id"])
+    assert result["task"]["state"] == "SUCCESS"
+    assert result["task"]["progress_events"][0]["sequence"] == 1
+
+
 def test_service_executes_ready_l0_task_and_records_result(tmp_path, monkeypatch) -> None:
     service = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
@@ -1490,6 +1513,45 @@ def test_service_executes_ready_l0_task_and_records_result(tmp_path, monkeypatch
     assert result["task"]["state"] == "SUCCESS"
     assert result["result"]["count"] == 2
     assert service.list_records()["records"][0]["task_id"] == task["task_id"]
+
+
+def test_service_supplies_manager_persona_snapshot_to_business_execution(
+    tmp_path, monkeypatch
+) -> None:
+    received: dict = {}
+
+    def execute(_account: str, _capability: str, parameters: dict) -> dict:
+        received.update(parameters)
+        return {"count": 1}
+
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(execute),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_account_status",
+        lambda _account: {"ready": True, "next_action": None},
+    )
+    persona = {
+        "persona_id": "PERSONA-1",
+        "version": 2,
+        "display_name": "城市生活方式编辑",
+        "tone": "自然、具体",
+    }
+    task = service.create_task(
+        source="manager",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="按运营目标执行",
+        parameters={"keyword": "露营"},
+        persona_snapshot=persona,
+    )["task"]
+
+    result = service.execute_task(task["task_id"])
+
+    assert result["task"]["state"] == "SUCCESS"
+    assert received["persona_context"] == persona
 
 
 def test_service_does_not_report_two_running_tasks_for_one_account(

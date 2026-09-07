@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from business_runner import BusinessRunner
 from product_store import ProductStore
 from publish_workflow import PublishWorkflowService
-from scripts.application_service import ApplicationService
 from service_errors import ServiceError
+
+from scripts.application_service import ApplicationService
 
 
 def _waiting_publish(store: ProductStore) -> dict:
@@ -46,20 +46,18 @@ def _ready_status(uid: str = "owner-1") -> dict:
     }
 
 
-def test_webui_offers_controlled_publish_confirmation() -> None:
+def test_webui_only_exposes_existing_publish_preview_confirmation() -> None:
     root = Path(__file__).parents[1]
-    script = "\n".join(
-        (root / "webui" / name).read_text(encoding="utf-8")
-        for name in ("task-catalog.js", "app.js")
-    )
+    script = (root / "webui" / "manager-console.js").read_text(encoding="utf-8")
     page = (root / "webui" / "index.html").read_text(encoding="utf-8")
 
-    assert '"fill-publish": { label: "图文发布" }' in script
-    assert "appendPublishTaskPreview(card, item)" in script
-    assert 'agentMonitorCapabilities = new Set([...publishMonitorCapabilities, "send-private-messages"])' in script
-    assert "publishTaskReadyForConfirmation(item)" in script
-    assert "openPublishConfirmation(item)" in script
-    assert "tasks/${task.task_id}/${action}" in script
+    assert '"fill-publish"' in script
+    assert "function pendingPublishTasks()" in script
+    assert "function openPublishDialog(taskId)" in script
+    assert 'task.parameters?.stage === "preview_ready"' in script
+    assert "`${api}/tasks/${task.task_id}/${action}`" in script
+    assert "任务由 Agent 下发" in page
+    assert "创建发布任务" not in page
     assert 'id="publish-confirm-dialog"' in page
     assert 'id="publish-preview-confirmed"' in page
     assert 'id="publish-save-draft"' in page

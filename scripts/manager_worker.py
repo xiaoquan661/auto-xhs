@@ -36,6 +36,39 @@ def dispatch_request(
     payload = _action_payload(request)
     if action == "health":
         return service.health()
+    if action == "list-accounts":
+        return service.list_accounts()
+    if action == "account-status":
+        return service.account_status(str(payload.get("account") or ""))
+    if action == "account-doctor":
+        return service.account_doctor(str(payload.get("account") or ""))
+    if action == "account-action":
+        return service.account_action(
+            str(payload.get("account") or ""),
+            str(payload.get("account_action") or ""),
+        )
+    if action == "account-field-request":
+        return service.request_account_field_action(
+            str(payload.get("account") or ""),
+            payload,
+        )
+    if action == "account-management":
+        return service.update_account_management(
+            str(payload.get("account") or ""),
+            payload,
+        )
+    if action == "executor-status":
+        return service.executor_status()
+    if action == "start-executor":
+        return service.start_executor_service()
+    if action == "restart-executor":
+        return service.restart_executor_service()
+    if action == "webui-status":
+        return service.webui_status()
+    if action == "start-webui":
+        return service.start_webui()
+    if action == "restart-webui":
+        return service.restart_webui()
     if action == "configure":
         return service.configure(payload)
     if action == "list-function-versions":
@@ -44,6 +77,16 @@ def dispatch_request(
         return service.set_function_version_policy(payload)
     if action == "accept-task":
         return service.accept_task(payload)
+    if action == "wake-task":
+        return service.wake_task(
+            task_id=payload.get("task_id"),
+            file_name=payload.get("file_name"),
+        )
+    if action == "start-task":
+        return service.start_task(
+            task_id=payload.get("task_id"),
+            remote_execution_id=payload.get("remote_execution_id"),
+        )
     if action == "run-task":
         return service.run_task(
             task_id=payload.get("task_id"),

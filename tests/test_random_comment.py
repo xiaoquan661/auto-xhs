@@ -40,9 +40,30 @@ def test_comment_content_uses_note_title_and_body() -> None:
     assert "先检查天气" in content
 
 
+def test_comment_content_skips_note_without_body_detail() -> None:
+    note = FeedDetail(note_id="a", title="上海，奉贤区的", body="")
+
+    try:
+        module.generate_comment_content(note, style="natural")
+    except ValueError as exc:
+        assert "具体细节" in str(exc)
+    else:
+        raise AssertionError("缺少正文细节时不应生成通用评论")
+
+
 def test_random_comment_selects_home_candidates_and_directly_posts(monkeypatch) -> None:
     feeds = [_feed("a"), _feed("b"), _feed("c")]
     sent: list[tuple[str, str]] = []
+    progress: list[dict] = []
+    monkeypatch.setattr(
+        module, "emit_progress",
+        lambda stage, summary, **fields: progress.append({"stage": stage, **fields}),
+    )
+
+    def send(_page, feed_id, _token, content):
+        assert progress[-1]["stage"] == "comment_generated"
+        assert progress[-1]["content"] == content
+        sent.append((feed_id, content))
     monkeypatch.setattr(
         module,
         "collect_home_feeds",
@@ -63,9 +84,7 @@ def test_random_comment_selects_home_candidates_and_directly_posts(monkeypatch) 
         count=2,
         sampler=lambda population, count: list(population)[:count],
         detail_reader=lambda _page, feed_id, _token: _detail(feed_id),
-        comment_sender=lambda _page, feed_id, _token, content: sent.append(
-            (feed_id, content)
-        ),
+        comment_sender=send,
         content_generator=lambda note, *, style: f"{style}:{note.title}",
     )
 
@@ -74,6 +93,11 @@ def test_random_comment_selects_home_candidates_and_directly_posts(monkeypatch) 
     assert result["succeeded_count"] == 2
     assert result["partial"] is False
     assert result["items"][0]["content"] == "natural:露营清单 a"
+    assert [event["stage"] for event in progress] == [
+        "reading_context", "comment_generated", "platform_submitted",
+        "reading_context", "comment_generated", "platform_submitted",
+    ]
+    assert progress[-1]["metrics"]["comment"]["actual"] == 2
 
 
 def test_random_comment_keeps_per_note_failure_result(monkeypatch) -> None:

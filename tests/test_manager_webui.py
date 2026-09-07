@@ -10,128 +10,206 @@ def _source(name: str) -> str:
     return (WEBUI / name).read_text(encoding="utf-8")
 
 
-def _between(source: str, start: str, end: str) -> str:
-    assert start in source, f"missing start marker: {start}"
-    assert end in source, f"missing end marker: {end}"
-    return source.split(start, 1)[1].split(end, 1)[0]
-
-
-def test_manager_console_entries_are_exposed_in_the_webui() -> None:
+def test_manager_console_exposes_seven_product_views() -> None:
     html = _source("index.html")
 
-    expected_entries = {
-        'id="manager-cluster-title"': "执行机集群",
-        'id="manager-task-title"': "远程任务调度",
-        'id="manager-collect-results"': "立即回收所选执行机",
-        'id="manager-transfer-form"': "功能包传输",
-        'id="manager-version-form"': "设置功能版本策略",
-    }
-    for marker, label in expected_entries.items():
-        assert marker in html, f"WebUI 缺少{label}入口"
+    for view, label in (
+        ("overview", "运营总览"),
+        ("operations", "运营任务"),
+        ("workers", "员工机"),
+        ("accounts", "账号与人设"),
+        ("results", "数据回收"),
+        ("exceptions", "异常中心"),
+        ("settings", "系统设置"),
+    ):
+        assert f'data-manager-view-link="{view}"' in html
+        assert f'data-manager-view="{view}"' in html
+        assert label in html
 
-    api_client = html.index('src="/api-client.js')
-    manager_console = html.index('src="/manager-console.js')
-    application = html.index('src="/app.js')
-    assert api_client < manager_console < application
+    assert 'src="/api-client.js' in html
+    assert 'src="/manager-console.js' in html
+    assert 'href="/workspace.css' in html
+    assert 'src="/overview.js' not in html
 
 
-def test_automatic_manager_load_reads_cached_collections_only() -> None:
+def test_manager_overview_separates_cluster_metrics_and_current_work() -> None:
+    html = _source("index.html")
+
+    for marker in (
+        'id="manager-machine-total"',
+        'id="manager-ready-total"',
+        'id="manager-account-total"',
+        'id="manager-active-task-total"',
+        'id="manager-result-total"',
+        'id="manager-exception-total"',
+        'id="manager-task-list"',
+        'id="manager-machine-list"',
+    ):
+        assert marker in html
+
+
+def test_manager_account_directory_is_grouped_by_machine_and_slot() -> None:
+    html = _source("index.html")
     script = _source("manager-console.js")
-    load_body = _between(script, "async function load() {", "function businessPayload(error)")
 
-    expected_reads = (
-        "fetchJson(`${managerApi}/machines`)",
-        "fetchJson(`${managerApi}/tasks`)",
-        "fetchJson(`${managerApi}/transfers`)",
-        "fetchJson(`${managerApi}/results`)",
-    )
-    for request in expected_reads:
-        assert request in load_body
-    assert load_body.count("fetchJson(") == len(expected_reads)
-    assert "/collect" not in load_body
-    assert "/versions" not in load_body
-    assert "mutateJson(" not in load_body
+    assert 'data-manager-account-node="all"' in html
+    assert 'data-manager-account-node="manager"' in html
+    assert 'id="manager-account-node-list"' in html
+    assert 'id="manager-local-account-grid"' in html
+    assert 'id="manager-remote-account-grid"' in html
+    assert 'id="manager-account-filter-status"' in html
+    assert 'id="manager-account-filter-persona"' in html
+    assert 'id="manager-account-filter-task"' in html
+    assert "function renderAccountWorkspace()" in script
+    assert 'localStorage.setItem("auto-xhs:manager-account-node"' in script
+    assert '["机器 / 槽位", `${account.machine_id} / ${account.account_slot}`]' in script
+    assert "account.nickname || account.account_slot" in script
+    assert '["数据来源", account.source_label || "员工机回执"]' in script
+    assert '["更新时间", formatTime(account.updated_at' in script
 
 
-def test_ssh_checks_result_collection_and_version_reads_require_explicit_events() -> None:
+def test_remote_account_recovery_actions_keep_machine_and_slot_context() -> None:
     script = _source("manager-console.js")
-    machine_action = _between(
-        script,
-        "async function handleMachineAction(button) {",
-        "async function handleTaskAction(button) {",
-    )
-    collection = _between(
-        script,
-        "async function collectSelectedMachine(event) {",
-        "async function submitTransfer(event) {",
-    )
-    version_read = _between(
-        script,
-        "async function loadVersions(event) {",
-        "function bindEvents() {",
-    )
-    bindings = _between(script, "function bindEvents() {", "function initialize() {")
 
-    assert 'action === "collect"' in machine_action
-    assert "window.confirm(" in machine_action
-    assert "/collect`" in collection
-    assert "window.confirm(" in collection
-    assert "/versions${suffix}`" in version_read
-    assert (
-        '$("#manager-collect-results")?.addEventListener("click", collectSelectedMachine)'
-        in bindings
-    )
-    assert '$("#manager-load-versions")?.addEventListener("click", loadVersions)' in bindings
-    assert 'document.addEventListener("click"' in bindings
-    assert "handleMachineAction(button)" in bindings
+    assert "function compactAccountCard(account, allowActions = true)" in script
+    assert "button.dataset.managerMachine = account.machine_id" in script
+    assert "button.dataset.managerAccount = account.account_slot" in script
+    assert 'doctor: "doctor"' in script
+    assert '"profile-start": "profile/start"' in script
+    assert '"bridge-restart": "bridge/restart"' in script
+    assert '"identity-check": "identity/check"' in script
+    assert "compactAccountCard(account, false)" in script
 
 
-def test_uncertain_remote_tasks_offer_reconciliation_without_redispatch() -> None:
+def test_account_management_and_field_requests_are_manager_owned() -> None:
+    html = _source("index.html")
     script = _source("manager-console.js")
-    reconciliation_states = _between(
-        script,
-        "const reconciliationStates = new Set([",
-        "]);\n  const stateLabels",
-    )
-    task_actions = _between(script, "function taskActions(task) {", "function renderTasks() {")
-    reconcile_branch = _between(
-        task_actions,
-        "if (taskNeedsReconciliation(task)) {",
-        'if (dispatchState === "PENDING_DISPATCH")',
-    )
 
-    assert '"RECONCILIATION_REQUIRED"' in reconciliation_states
-    assert '"RESULT_UNKNOWN"' in reconciliation_states
-    assert 'actionButton("读取并对账", "task-reconcile"' in reconcile_branch
-    assert "return actions;" in reconcile_branch
-    assert "task-pause" not in reconcile_branch
-    assert "task-resume" not in reconcile_branch
-    assert "task-dispatch" not in reconcile_branch
-    assert 'actionButton("继续派发", "task-dispatch"' in task_actions
-    assert "mutateJson" not in task_actions
+    assert 'id="manager-account-management-dialog"' in html
+    assert 'id="manager-account-note"' in html
+    assert 'id="manager-account-scheduling-enabled"' in html
+    assert 'id="manager-account-request-login"' in html
+    assert 'id="manager-account-request-identity"' in html
+    assert "function openAccountManagement(machineId, accountSlot)" in script
+    assert "/management`" in script
+    assert "/field-request`" in script
+    assert "scheduling_enabled" in script
+    assert "request_type: requestType" in script
 
 
-def test_manager_mutations_share_the_session_aware_api_client() -> None:
+def test_personas_are_edited_centrally_and_bound_to_machine_account() -> None:
+    html = _source("index.html")
     script = _source("manager-console.js")
-    mutation_runner = _between(
-        script,
-        "async function runMutation(button, path, body, messageSelector, pendingMessage) {",
-        "async function handleMachineAction(button) {",
-    )
 
-    assert 'payload = await mutateJson(path, "POST", body)' in mutation_runner
-    assert "fetch(" not in script
-    assert script.count("mutateJson(") == 1
+    assert 'id="manager-persona-form"' in html
+    assert 'id="manager-persona-machine"' in html
+    assert 'id="manager-persona-account"' in html
+    assert 'id="manager-persona-list"' in html
+    assert "function renderPersonas()" in script
+    assert "manager-persona-machine" in script
+    assert "manager-persona-account" in script
 
-    mutation_paths = (
-        "`${managerApi}/machines`",
-        "`${managerApi}/tasks`",
-        "`${managerApi}/transfers`",
-        "`${managerApi}/version-policies`",
-    )
-    for path in mutation_paths:
-        assert path in script
-    assert script.count("await runMutation(") >= 7
+
+def test_operation_tasks_have_filters_detail_and_agent_timeline() -> None:
+    html = _source("index.html")
+    script = _source("manager-console.js")
+
+    for marker in (
+        'id="manager-operation-form"',
+        'id="manager-operation-filter-state"',
+        'id="manager-operation-filter-machine"',
+        'id="manager-operation-filter-account"',
+        'id="manager-operation-filter-date"',
+        'id="manager-operation-filter-keyword"',
+        'id="manager-operation-detail-dialog"',
+        'id="manager-operation-timeline"',
+        'id="manager-operation-technical-json"',
+    ):
+        assert marker in html
+    assert "function renderOperationTasks()" in script
+    assert "function renderOperationTaskDetail(operationTaskId, openDialog = false)" in script
+    assert "progressStageLabels" in script
+    assert 'stage === "comment_generated"' in script
+    assert "manager-timeline-metric" in script
+
+
+def test_results_keep_current_incremental_and_audit_views_separate() -> None:
+    html = _source("index.html")
+    script = _source("manager-console.js")
+
+    assert 'id="manager-result-list"' in html
+    assert 'id="manager-incremental-list"' in html
+    assert 'id="manager-result-audit-list"' in html
+    assert 'id="manager-operation-report-list"' in html
+    assert "function renderResults()" in script
+
+
+def test_manager_console_uses_cached_snapshot_and_serial_refresh() -> None:
+    script = _source("manager-console.js")
+
+    assert "const DASHBOARD_REFRESH_INTERVAL_MS = 30_000" in script
+    assert "const TASK_REFRESH_INTERVAL_MS = 5_000" in script
+    assert "fetchJson(`${managerApi}/dashboard-snapshot`)" in script
+    assert "fetchJson(`${api}/accounts`)" in script
+    assert "Promise.allSettled" in script
+    assert "if (refreshPromise) return refreshPromise" in script
+    assert "setInterval(" not in script
+    assert 'document.addEventListener("visibilitychange"' in script
+
+
+def test_manager_console_has_responsive_account_and_task_layouts() -> None:
+    stylesheet = _source("workspace.css")
+
+    for selector in (
+        ".manager-account-layout",
+        ".manager-account-node-list",
+        ".manager-account-summary",
+        ".manager-operation-layout",
+        ".manager-operation-detail-dialog",
+        ".manager-operation-detail-columns",
+        ".manager-timeline-progress",
+        ".manager-timeline-comment",
+    ):
+        assert selector in stylesheet
+    assert "@media (max-width: 1100px)" in stylesheet
+    assert "@media (max-width: 820px)" in stylesheet
+
+
+def test_manager_console_applies_card_and_control_styles_to_new_forms() -> None:
+    html = _source("index.html")
+    stylesheet = _source("workspace.css")
+
+    assert "20260904-manager-console-3" in html
+    assert ".manager-app-shell .subpage-panel" in stylesheet
+    assert '.manager-app-shell input:not([type="checkbox"]):not([type="radio"])' in stylesheet
+    assert ".manager-app-shell textarea" in stylesheet
+    assert 'class="manager-confirm-check"><input id="manager-version-stable"' in html
+
+
+def test_manager_console_uses_responsive_top_navigation() -> None:
+    html = _source("index.html")
+    stylesheet = _source("workspace.css")
+
+    assert '<header class="sidebar manager-top-navigation"' in html
+    assert ".manager-app-shell > .manager-top-navigation" in stylesheet
+    assert "grid-template-columns: auto minmax(0, 1fr) auto" in stylesheet
+    assert ".manager-app-shell .manager-top-navigation .nav-list" in stylesheet
+    assert "@media (max-width: 720px)" in stylesheet
+    assert "min-height: 104px" in stylesheet
+
+
+def test_system_settings_include_runtime_model_and_diagnostics() -> None:
+    html = _source("index.html")
+    script = _source("manager-console.js")
+
+    assert 'id="manager-runtime-settings-form"' in html
+    assert 'id="manager-reply-model-form"' in html
+    assert 'id="manager-reply-model-api-key"' in html
+    assert 'id="manager-export-diagnostics"' in html
+    assert "`${api}/system/settings`" in script
+    assert "`${api}/reply-intelligence/settings`" in script
+    assert "`${api}/reply-intelligence/test`" in script
+    assert "`${api}/diagnostics/export`" in script
 
 
 def test_api_client_errors_keep_the_server_payload_for_business_readback() -> None:
@@ -141,59 +219,3 @@ def test_api_client_errors_keep_the_server_payload_for_business_readback() -> No
     assert script.count("error.httpStatus = response.status;") == 2
     assert script.count('error.code = payload.error?.code || "REQUEST_FAILED";') == 2
     assert "error?.payload && !error.payload.error" in _source("manager-console.js")
-
-
-def test_manager_uncertain_operations_keep_ids_and_pending_buttons_locked() -> None:
-    script = _source("manager-console.js")
-    mutation_runner = _between(
-        script,
-        "async function runMutation(button, path, body, messageSelector, pendingMessage) {",
-        "async function handleMachineAction(button) {",
-    )
-    transfer_submit = _between(
-        script,
-        "async function submitTransfer(event) {",
-        "async function submitVersionPolicy(event) {",
-    )
-
-    assert "pendingActions.add(pendingKey)" in mutation_runner
-    assert "pendingActions.delete(pendingKey)" in mutation_runner
-    assert 'if (payload.success === true) $("#manager-task-id")' in script
-    assert 'if (payload.success === true) $("#manager-transfer-id")' in transfer_submit
-    assert '["PREPARING", "UPLOADING", "RESULT_UNKNOWN"]' in transfer_submit
-    assert "当前页面不会用新编号重复传输" in transfer_submit
-
-
-def test_manager_result_summary_and_version_stability_follow_backend_contract() -> None:
-    script = _source("manager-console.js")
-    result_renderer = _between(script, "function renderResults() {", "function renderVersions() {")
-    version_control = _between(
-        script,
-        "function updateVersionStableControl() {",
-        "initialize();",
-    )
-
-    assert "state.resultSummary.manual_action_count" in result_renderer
-    assert "state.resultSummary.data_gaps" in result_renderer
-    assert 'stable.disabled = status !== "FORMAL"' in version_control
-    assert 'stable.checked = status === "FORMAL"' in version_control
-    assert 'set_as_stable: status === "FORMAL"' in script
-
-
-def test_business_results_render_feed_details_without_exposing_tokens() -> None:
-    script = _source("manager-console.js")
-    renderer = _between(
-        script,
-        "function renderBusinessResult(result) {",
-        "function renderResults() {",
-    )
-
-    assert "business_result_status" not in renderer
-    assert 'resultDataStatus(result, "business_result")' in renderer
-    assert "business.feeds" in renderer
-    assert "feed.displayTitle" in renderer
-    assert "feed.user?.nickname" in renderer
-    assert "feed.interactInfo" in renderer
-    assert "xsecToken" not in renderer
-    assert "innerHTML" not in renderer
-    assert 'element("summary", "", `业务数据 · ${count} 条`)' in renderer

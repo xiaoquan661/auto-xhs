@@ -24,6 +24,7 @@ def make_service(
     executor=None,
     local_calls: list[tuple[str, str | None]] | None = None,
     project_version: str = PROJECT_VERSION,
+    process_starter=None,
 ) -> ManagerWorkerService:
     calls = local_calls if local_calls is not None else []
 
@@ -43,6 +44,7 @@ def make_service(
             }
         ],
         local_control=local_control,
+        process_starter=process_starter or subprocess.Popen,
     )
     service.configure(
         machine_id="PC001",
@@ -172,9 +174,14 @@ def test_config_health_and_state_are_json_runlock_backed(tmp_path) -> None:
             "paused": False,
             "healthy": True,
             "status": "READY",
+            "executor_service": {
+                "ready": True,
+                "url": "http://127.0.0.1:8766/api/v1",
+                "error": "",
+            },
             "local_service": {
                 "ready": True,
-                "url": "http://127.0.0.1:8765/api/v1",
+                "url": "http://127.0.0.1:8766/api/v1",
                 "error": "",
             },
             "account_slots": {
@@ -189,12 +196,38 @@ def test_config_health_and_state_are_json_runlock_backed(tmp_path) -> None:
                 ],
                 "error": "",
             },
+            "task_exchange": {
+                "transport": "sftp",
+                "inbox_root": str((service.root / "inbox").resolve()),
+                "outbox_root": str((service.root / "task-outbox").resolve()),
+            },
         },
     }
     assert state_path.read_text(encoding="utf-8") == before
     assert not (service.root / "worker-state.lock").exists()
     stored = json.loads(before)
     assert Path(stored["config"]["package_root"]).is_absolute()
+
+
+def test_worker_dashboard_snapshot_is_local_and_read_only(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    accepted = service.accept_task(task_request())
+    state_path = service.root / "worker-state.json"
+    before = state_path.read_text(encoding="utf-8")
+
+    snapshot = service.dashboard_snapshot()
+
+    assert snapshot["machine"]["machine_id"] == "PC001"
+    assert snapshot["machine"]["manager_connection"] == "PENDING"
+    assert snapshot["current_execution"]["task_id"] == "task-1"
+    assert (
+        snapshot["current_execution"]["remote_execution_id"]
+        == accepted["execution"]["remote_execution_id"]
+    )
+    assert snapshot["agent_messages"][0]["message_type"] == "TASK_ACK"
+    assert snapshot["exchange"]["pending_inbox"] == 0
+    assert snapshot["outbox_records"] == []
+    assert state_path.read_text(encoding="utf-8") == before
 
 
 def test_default_root_uses_environment(monkeypatch, tmp_path) -> None:
@@ -224,7 +257,296 @@ def test_health_is_degraded_when_local_application_service_is_unavailable(tmp_pa
 
     assert health["status"] == "DEGRADED"
     assert health["healthy"] is False
+    assert health["executor_service"]["ready"] is False
     assert health["local_service"]["ready"] is False
+
+
+def test_executor_status_start_and_restart_return_fresh_health(tmp_path) -> None:
+    local_ready = {"value": False}
+    lifecycle_calls: list[str] = []
+
+    def probe() -> dict:
+        return {"success": local_ready["value"]}
+
+    def start() -> dict:
+        lifecycle_calls.append("start")
+        local_ready["value"] = True
+        return {"success": True, "status": "started"}
+
+    def restart() -> dict:
+        lifecycle_calls.append("restart")
+        return {"success": True, "status": "restarted"}
+
+    service = ManagerWorkerService(
+        tmp_path / "worker",
+        account_summary_reader=lambda: [],
+        local_service_probe=probe,
+        executor_starter=start,
+        executor_restarter=restart,
+    )
+    service.configure(
+        machine_id="PC001",
+        role="executor",
+        project_version=PROJECT_VERSION,
+        package_root=str(tmp_path / "packages"),
+        task_inbox_root=str(tmp_path / "inbox"),
+    )
+
+    before = dispatch_request(service, {"action": "executor-status"})
+    started = dispatch_request(service, {"action": "start-executor"})
+    restarted = dispatch_request(service, {"action": "restart-executor"})
+    legacy = dispatch_request(service, {"action": "webui-status"})
+
+    assert before["status"] == "STOPPED"
+    assert before["executor_service"]["ready"] is False
+    assert started["success"] is True
+    assert started["health"]["executor_service"]["ready"] is True
+    assert restarted["success"] is True
+    assert restarted["operation"]["status"] == "restarted"
+    assert legacy["webui"] == legacy["executor_service"]
+    assert lifecycle_calls == ["start", "restart"]
+
+
+def test_account_protocol_uses_api_only_service_and_returns_fresh_status(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    calls: list[tuple[str, str, dict | None, str]] = []
+
+    def local_api(
+        method: str,
+        path: str,
+        body: dict | None = None,
+        *,
+        token: str = "",
+    ) -> dict:
+        calls.append((method, path, body, token))
+        if path == "/session":
+            return {"success": True, "session_token": "session-1"}
+        if path == "/accounts":
+            return {
+                "success": True,
+                "accounts": [
+                    {
+                        "name": "alpha",
+                        "platform": "xiaohongshu",
+                        "profile_mode": "existing",
+                        "extension_instance_enrolled": True,
+                    }
+                ],
+            }
+        if path == "/accounts/alpha/status":
+            return {
+                "success": True,
+                "status": "READY",
+                "ready": True,
+                "server_running": True,
+                "extension_connected": True,
+                "profile_verified": True,
+                "connection_ready": True,
+                "identity": {
+                    "user_id": "uid-1",
+                    "live_user_id": "uid-1",
+                    "nickname": "Alpha",
+                    "matches_record": True,
+                },
+                "account": {"name": "alpha", "platform": "xiaohongshu"},
+            }
+        if path == "/accounts/alpha/doctor":
+            return {"success": True, "diagnosis": {"status": "READY"}}
+        if method == "POST" and path == "/accounts/alpha/setup/begin":
+            assert body == {"confirmed": True}
+            assert token == "session-1"
+            return {"success": True, "setup": {"phase": "CONNECTION_READY"}}
+        raise AssertionError(f"unexpected local API request: {method} {path}")
+
+    service._local_api_request = local_api  # type: ignore[method-assign]
+
+    listed = dispatch_request(service, {"action": "list-accounts"})
+    status = dispatch_request(
+        service,
+        {"action": "account-status", "payload": {"account": "alpha"}},
+    )
+    doctor = dispatch_request(
+        service,
+        {"action": "account-doctor", "payload": {"account": "alpha"}},
+    )
+    started = dispatch_request(
+        service,
+        {
+            "action": "account-action",
+            "payload": {"account": "alpha", "account_action": "profile-start"},
+        },
+    )
+
+    assert listed["accounts"][0]["status"] == "READY"
+    assert listed["accounts"][0]["identity"]["live_user_id"] == "uid-1"
+    assert status["account"]["connection_ready"] is True
+    assert doctor["diagnosis"]["diagnosis"]["status"] == "READY"
+    assert started["success"] is True
+    assert started["account"]["status"] == "READY"
+    assert ("POST", "/accounts/alpha/setup/begin", {"confirmed": True}, "session-1") in calls
+
+
+def test_identity_check_allows_page_navigation_timeout(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    observed_timeout: list[float | None] = []
+
+    def local_api(
+        method: str,
+        path: str,
+        body: dict | None = None,
+        *,
+        token: str = "",
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        if path == "/session":
+            return {"success": True, "session_token": "session-1"}
+        if method == "POST" and path == "/accounts/alpha/identity/check":
+            observed_timeout.append(timeout_seconds)
+            return {"success": True, "identity": {"user_id": "uid-1"}}
+        if path == "/accounts/alpha/status":
+            return {
+                "success": True,
+                "status": "READY",
+                "ready": True,
+                "server_running": True,
+                "extension_connected": True,
+                "profile_verified": True,
+                "connection_ready": True,
+                "identity": {"live_user_id": "uid-1", "matches_record": True},
+                "account": {"name": "alpha", "platform": "xiaohongshu"},
+            }
+        raise AssertionError(f"unexpected local API request: {method} {path}")
+
+    service._local_api_request = local_api  # type: ignore[method-assign]
+
+    result = dispatch_request(
+        service,
+        {
+            "action": "account-action",
+            "payload": {"account": "alpha", "account_action": "identity-check"},
+        },
+    )
+
+    assert result["status"] == "READY"
+    assert observed_timeout == [90.0]
+
+
+def test_account_field_request_is_visible_and_completed_after_identity_readback(
+    tmp_path,
+) -> None:
+    service = make_service(tmp_path / "worker")
+
+    def local_api(
+        _method: str,
+        path: str,
+        _body: dict | None = None,
+        *,
+        token: str = "",
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        assert token == ""
+        assert timeout_seconds is None
+        if path == "/accounts/alpha/status":
+            return {
+                "success": True,
+                "status": "READY",
+                "ready": True,
+                "server_running": True,
+                "extension_connected": True,
+                "profile_verified": True,
+                "identity": {"live_user_id": "uid-1", "nickname": "Alpha"},
+                "account": {"name": "alpha", "platform": "xiaohongshu"},
+            }
+        raise AssertionError(f"unexpected local API request: {path}")
+
+    service._local_api_request = local_api  # type: ignore[method-assign]
+    created = dispatch_request(
+        service,
+        {
+            "action": "account-field-request",
+            "payload": {
+                "request_id": "ACCOUNT-001",
+                "account": "alpha",
+                "request_type": "LOGIN",
+                "instructions": "请登录并核对 UID",
+            },
+        },
+    )
+    management = dispatch_request(
+        service,
+        {
+            "action": "account-management",
+            "payload": {
+                "account": "alpha",
+                "account_note": "经理机备注",
+                "scheduling_enabled": False,
+            },
+        },
+    )
+    started = service.start_account_field_action("ACCOUNT-001")
+    completed = service.complete_account_field_action("ACCOUNT-001")
+    snapshot = service.dashboard_snapshot()
+
+    assert created["field_request"]["state"] == "PENDING"
+    assert started["field_request"]["state"] == "IN_PROGRESS"
+    assert completed["field_request"]["state"] == "COMPLETED"
+    assert completed["field_request"]["identity"]["live_user_id"] == "uid-1"
+    assert management["management"]["account_note"] == "经理机备注"
+    assert snapshot["account_requests"][0]["request_id"] == "ACCOUNT-001"
+    assert (
+        snapshot["machine"]["account_slots"]["items"][0]["management"]["scheduling_enabled"]
+        is False
+    )
+    assert snapshot["machine"]["account_slots"]["items"][0]["field_request"]["state"] == "COMPLETED"
+
+
+def test_health_includes_detailed_api_only_account_status_for_manager_sync(tmp_path) -> None:
+    service = ManagerWorkerService(
+        tmp_path / "worker",
+        local_service_probe=lambda: {"success": True},
+    )
+    service._account_summary_reader = lambda: [  # type: ignore[method-assign]
+        {"name": "alpha", "platform": "xiaohongshu", "paired": True}
+    ]
+
+    def local_api(
+        _method: str,
+        path: str,
+        _body: dict | None = None,
+        *,
+        token: str = "",
+    ) -> dict:
+        assert token == ""
+        if path == "/accounts":
+            return {"success": True, "accounts": [{"name": "alpha"}]}
+        if path == "/accounts/alpha/status":
+            return {
+                "success": True,
+                "status": "LOGIN_REQUIRED",
+                "ready": False,
+                "server_running": True,
+                "extension_connected": True,
+                "profile_verified": True,
+                "identity": {"logged_out": True},
+                "next_action": "请在绑定的 Profile 中登录账号",
+                "account": {"name": "alpha", "platform": "xiaohongshu"},
+            }
+        raise AssertionError(path)
+
+    service._local_api_request = local_api  # type: ignore[method-assign]
+    service.configure(
+        machine_id="PC001",
+        role="executor",
+        project_version=PROJECT_VERSION,
+        package_root=str(tmp_path / "packages"),
+        task_inbox_root=str(tmp_path / "inbox"),
+    )
+
+    health = service.health()["health"]
+
+    assert health["status"] == "READY"
+    assert health["account_slots"]["items"][0]["status"] == "LOGIN_REQUIRED"
+    assert health["account_slots"]["items"][0]["identity"]["logged_out"] is True
 
 
 def test_accept_task_is_idempotent_and_validates_route_and_version(tmp_path) -> None:
@@ -254,6 +576,156 @@ def test_accept_task_is_idempotent_and_validates_route_and_version(tmp_path) -> 
     assert conflict.value.code == "TASK_IDEMPOTENCY_CONFLICT"
 
 
+def test_wake_task_claims_sftp_file_starts_runner_and_persists_ack(tmp_path: Path) -> None:
+    started: list[list[str]] = []
+
+    class Process:
+        pid = 4321
+
+    def process_starter(command: list[str], **_kwargs: object) -> Process:
+        started.append(command)
+        return Process()
+
+    worker_root = tmp_path / "worker"
+    inbox_root = tmp_path / "exchange" / "inbox"
+    outbox_root = tmp_path / "exchange" / "outbox"
+    service = ManagerWorkerService(
+        worker_root,
+        account_summary_reader=lambda: [],
+        local_control=lambda _action, _task_id: {"success": True},
+        process_starter=process_starter,
+    )
+    service.configure(
+        machine_id="PC001",
+        role="executor",
+        project_version=PROJECT_VERSION,
+        package_root=str(tmp_path / "packages"),
+        task_inbox_root=str(inbox_root),
+        task_outbox_root=str(outbox_root),
+    )
+    task_path = inbox_root / "pending" / "task-1.json"
+    task_path.write_text(json.dumps(task_request(), ensure_ascii=False), encoding="utf-8")
+
+    acknowledgement = service.wake_task("task-1")
+    repeated = service.wake_task("task-1")
+    index = json.loads((outbox_root / "index.json").read_text(encoding="utf-8"))
+
+    assert acknowledgement["status"] == "TASK_ACK"
+    assert acknowledgement["acknowledgement"]["status"] == "ACCEPTED"
+    assert acknowledgement["acknowledgement"]["runner_pid"] == 4321
+    assert repeated["status"] == "TASK_ACK"
+    assert len(started) == 1
+    assert not task_path.exists()
+    assert (inbox_root / "claimed" / "task-1.json").is_file()
+    assert [item["record_type"] for item in index["records"]] == ["acknowledgement"]
+
+
+def test_progress_and_result_are_written_to_sftp_outbox(tmp_path: Path) -> None:
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {
+            "state": "SUCCESS",
+            "message": "任务完成",
+            "item_results": [{"target_id": "note-1", "state": "SUCCESS"}],
+        },
+    )
+    accepted = service.accept_task(task_request())
+    execution_id = accepted["execution"]["remote_execution_id"]
+
+    progress = service.send_task_progress("task-1", remote_execution_id=execution_id)
+    service.run_task("task-1", remote_execution_id=execution_id)
+    result = service.push_task_result("task-1", remote_execution_id=execution_id)
+    config = service._store.snapshot()["config"]
+    index = json.loads(Path(config["task_outbox_root"]).joinpath("index.json").read_text())
+
+    assert progress["status"] == "OUTBOX_READY"
+    assert result["status"] == "RESULT_READY"
+    assert [item["record_type"] for item in index["records"]] == [
+        "event",
+        "result",
+        "event",
+    ]
+    assert index["records"][-1]["record_id"].endswith("progress:outbox_written")
+
+
+def test_worker_records_capability_progress_before_final_result(tmp_path: Path) -> None:
+    request = task_request()
+    request["task"] = {
+        **request["task"],
+        "capability": "home-engagement",
+        "parameters": {"browse_count": 2, "like_count": 1},
+    }
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {
+            "state": "SUCCESS",
+            "message": "首页浏览点赞完成：浏览 2 篇，点赞 1 篇",
+            "requested": {"browse_count": 2, "like_count": 1},
+            "counts": {"browsed": 2, "liked": 1},
+            "items": [
+                {"feed_id": "feed-1", "like": {"success": True}},
+                {"feed_id": "feed-2", "like": None},
+            ],
+        },
+    )
+    accepted = service.accept_task(request)
+    execution_id = accepted["execution"]["remote_execution_id"]
+
+    service.run_task("task-1", remote_execution_id=execution_id)
+    progress = service.record_outcome_progress("task-1", remote_execution_id=execution_id)
+    service.push_task_result("task-1", remote_execution_id=execution_id)
+
+    browsing = next(
+        item for item in progress["agent_messages"] if item["payload"].get("stage") == "browsing"
+    )
+    assert browsing["payload"]["metrics"] == {
+        "browse": {"actual": 2, "target": 2},
+        "like": {"actual": 1, "target": 1},
+    }
+
+
+def test_worker_records_context_comment_and_submission_stages(tmp_path: Path) -> None:
+    request = task_request()
+    request["task"] = {
+        **request["task"],
+        "capability": "random-comment",
+        "parameters": {"count": 1},
+    }
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {
+            "state": "SUCCESS",
+            "message": "随机评论完成，共发送 1 条评论",
+            "items": [
+                {
+                    "feed_id": "feed-1",
+                    "title": "露营收纳清单",
+                    "author": "小满",
+                    "content": "分区装袋这个细节很实用。",
+                    "status": "success",
+                    "success": True,
+                }
+            ],
+        },
+    )
+    accepted = service.accept_task(request)
+    execution_id = accepted["execution"]["remote_execution_id"]
+
+    service.run_task("task-1", remote_execution_id=execution_id)
+    progress = service.record_outcome_progress("task-1", remote_execution_id=execution_id)
+
+    assert [item["payload"]["stage"] for item in progress["agent_messages"]] == [
+        "reading_context",
+        "comment_generated",
+        "platform_submitted",
+    ]
+    assert progress["agent_messages"][1]["payload"]["content"] == "分区装袋这个细节很实用。"
+    assert progress["agent_messages"][2]["payload"]["metrics"]["comment"] == {
+        "actual": 1,
+        "target": 1,
+    }
+
+
 def test_configure_rejects_project_version_change_until_tasks_are_final(tmp_path) -> None:
     service = make_service(
         tmp_path / "worker",
@@ -268,6 +740,21 @@ def test_configure_rejects_project_version_change_until_tasks_are_final(tmp_path
     service.run_task(task_id="task-1")
     configured = service.configure(project_version="1.6.0")
     assert configured["config"]["project_version"] == "1.6.0"
+
+
+def test_configure_allows_outbox_migration_when_only_transfer_history_exists(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+
+    def add_transfer_history(state: dict) -> None:
+        state["transfers"]["transfer-1"] = {"state": "SUCCESS"}
+
+    service._store.mutate(add_transfer_history)
+    outbox_root = tmp_path / "manager-task-outbox"
+
+    configured = service.configure(task_outbox_root=str(outbox_root))
+
+    assert configured["config"]["task_outbox_root"] == str(outbox_root.resolve())
+    assert outbox_root.joinpath("index.json").exists()
 
 
 def test_run_task_persists_items_evidence_incremental_data_and_sequence(tmp_path) -> None:
@@ -329,6 +816,57 @@ def test_worker_retains_authorization_for_audited_execution(tmp_path) -> None:
     assert accepted["task"]["authorization"]["approval_id"] == "approval-1"
     assert calls[0]["authorization"]["scope"] == "search"
     assert calls[0]["write_intent"] is False
+
+
+def test_worker_forwards_manager_context_to_local_task_contract(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    created_bodies: list[dict] = []
+
+    execution_timeouts: list[float | None] = []
+
+    def local_request(
+        method: str,
+        path: str,
+        body=None,
+        *,
+        token: str = "",
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        if path == "/session":
+            return {"session_token": "session-1"}
+        assert token == "session-1"
+        if method == "POST" and path == "/tasks":
+            created_bodies.append(body)
+            return {"task": {"task_id": "local-task-1", "state": "QUEUED"}}
+        if method == "POST" and path == "/tasks/local-task-1/execute":
+            execution_timeouts.append(timeout_seconds)
+            return {"state": "SUCCESS", "message": "完成"}
+        raise AssertionError(f"unexpected local request: {method} {path}")
+
+    service._local_api_request = local_request  # type: ignore[method-assign]
+    payload = {
+        **task_request()["task"],
+        "remote_execution_id": "execution-1",
+        "schedule_id": "schedule-1",
+        "operation_task_id": "operation-1",
+        "goal_id": "goal-1",
+        "goal_snapshot": {"goal_id": "goal-1", "version": 3},
+        "persona_snapshot": {"persona_id": "persona-1", "version": 2},
+        "timeout_seconds": 600,
+    }
+
+    result = service._execute_via_local_api(payload)
+
+    assert result["state"] == "SUCCESS"
+    assert created_bodies[0]["schedule_id"] == "schedule-1"
+    assert created_bodies[0]["operation_task_id"] == "operation-1"
+    assert created_bodies[0]["goal_id"] == "goal-1"
+    assert created_bodies[0]["goal_snapshot"] == {"goal_id": "goal-1", "version": 3}
+    assert created_bodies[0]["persona_snapshot"] == {
+        "persona_id": "persona-1",
+        "version": 2,
+    }
+    assert execution_timeouts == [630.0]
 
 
 def test_result_data_status_distinguishes_missing_from_observed_empty(tmp_path) -> None:
@@ -511,6 +1049,8 @@ def test_status_reconciles_interrupted_run_from_local_terminal_state(
         if path == "/session":
             return {"session_token": "session-1"}
         assert token == "session-1"
+        if path == "/operation-events":
+            return {"success": True, "events": []}
         return {
             "success": True,
             "task": {
@@ -525,8 +1065,77 @@ def test_status_reconciles_interrupted_run_from_local_terminal_state(
     status = service.task_status(task_id="task-1")
 
     assert status["execution"]["state"] == local_state
-    assert calls == [("GET", "/session"), ("GET", "/tasks/local-task-1")]
+    assert calls == [
+        ("GET", "/session"),
+        ("GET", "/tasks/local-task-1"),
+        ("GET", "/operation-events"),
+    ]
     assert service.collect_results(0)["results"][0]["state"] == local_state
+
+
+def test_status_revises_unknown_result_from_local_operation_event(monkeypatch, tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    accepted = service.accept_task(task_request())["execution"]
+
+    def mark_unknown(state: dict) -> None:
+        execution = state["executions"][accepted["remote_execution_id"]]
+        execution["state"] = "RESULT_UNKNOWN"
+        execution["local_task_id"] = "local-task-1"
+        execution["message"] = "本地执行回读中断"
+        service._append_result(state, execution)
+
+    service._store.mutate(mark_unknown)
+
+    def local_request(method: str, path: str, _body=None, *, token: str = "") -> dict:
+        if path == "/session":
+            return {"session_token": "session-1"}
+        assert token == "session-1"
+        if path == "/tasks/local-task-1":
+            return {
+                "success": True,
+                "task": {
+                    "task_id": "local-task-1",
+                    "state": "SUCCESS",
+                    "result_summary": "首页浏览点赞完成：浏览 10 篇，点赞 3 篇",
+                },
+            }
+        if path == "/operation-events":
+            return {
+                "success": True,
+                "events": [
+                    {
+                        "task_id": "local-task-1",
+                        "result_summary": "首页浏览点赞完成：浏览 10 篇，点赞 3 篇",
+                        "platform_result": {
+                            "items": [
+                                {
+                                    "feed_id": "feed-1",
+                                    "browse": {"status": "success"},
+                                    "like": {"status": "success", "success": True},
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        raise AssertionError(f"unexpected local request: {method} {path}")
+
+    monkeypatch.setattr(service, "_local_api_request", local_request)
+
+    status = service.task_status(task_id="task-1")["execution"]
+    results = service.collect_results(0)["results"]
+
+    assert status["state"] == "SUCCESS"
+    assert status["item_results"][0]["feed_id"] == "feed-1"
+    assert [item["state"] for item in results] == ["RESULT_UNKNOWN", "SUCCESS"]
+    assert results[1]["result_revision"] == 2
+    outbox_index = json.loads(
+        Path(service._store.snapshot()["config"]["task_outbox_root"])
+        .joinpath("index.json")
+        .read_text(encoding="utf-8")
+    )
+    assert [item["record_type"] for item in outbox_index["records"]] == ["result"]
+    assert outbox_index["records"][0]["record_id"] == "dispatch-1:result:2"
 
 
 def test_status_marks_interrupted_run_unknown_when_local_readback_fails(
@@ -938,6 +1547,13 @@ class DirectWorkerTransport:
     ) -> dict:
         del timeout_seconds
         self.calls.append((action, dict(payload)))
+        if action == "start-task":
+            response = self.worker.run_task(
+                task_id=payload.get("task_id"),
+                remote_execution_id=payload.get("remote_execution_id"),
+            )
+            response["status"] = "TASK_ACK"
+            return response
         return dispatch_request(self.worker, {"action": action, "payload": payload})
 
     def upload(
@@ -971,9 +1587,39 @@ class DirectWorkerTransport:
         shutil.copy2(remote_path, destination)
         return {"success": True}
 
+    def sftp_upload_atomic(
+        self,
+        _machine: dict,
+        source: str,
+        remote_path: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        del timeout_seconds
+        destination = Path(remote_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        return {"success": True, "remote_path": remote_path}
 
+    def sftp_download(
+        self,
+        _machine: dict,
+        remote_path: str,
+        destination: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        del timeout_seconds
+        destination_path = Path(destination)
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(remote_path, destination_path)
+        return {"success": True, "remote_path": remote_path}
+
+
+@pytest.mark.parametrize("batch", [False, True])
 def test_manager_service_and_worker_share_health_transfer_task_and_cursor_protocol(
     tmp_path,
+    batch,
 ) -> None:
     worker = make_service(
         tmp_path / "worker",
@@ -984,8 +1630,18 @@ def test_manager_service_and_worker_share_health_transfer_task_and_cursor_protoc
             "item_results": [{"target_id": "note-1", "state": "SUCCESS"}],
             "incremental_data": [{"record_type": "operation", "record_id": "event-1"}],
         },
+        process_starter=lambda _command, **_kwargs: type("Process", (), {"pid": 4321})(),
     )
     transport = DirectWorkerTransport(worker)
+    batches = []
+    if batch:
+
+        def download_many(machine, files, **kwargs):
+            batches.append(len(files))
+            for remote, destination in files:
+                transport.sftp_download(machine, remote, destination, **kwargs)
+
+        transport.sftp_download_many = download_many
     manager = ManagerService(
         store=ManagerStore(tmp_path / "manager"),
         transport=transport,  # type: ignore[arg-type]
@@ -1000,6 +1656,8 @@ def test_manager_service_and_worker_share_health_transfer_task_and_cursor_protoc
             "python_executable": "python",
             "allowed_versions": ["0.1.0"],
             "expected_role": "executor",
+            "task_inbox_root": str(worker.root / "inbox"),
+            "task_outbox_root": str(worker.root / "task-outbox"),
         }
     )
     assert manager.check_machine("PC001")["status"] == "READY"
@@ -1037,15 +1695,34 @@ def test_manager_service_and_worker_share_health_transfer_task_and_cursor_protoc
             "allowed_versions": ["0.1.0"],
         }
     )
+    manager.store.set_collection_cursor("PC001", 99)
+    remote_execution_id = dispatched["task"]["remote_execution_id"]
+    worker.send_task_progress("task-e2e", remote_execution_id=remote_execution_id)
+    worker.run_task("task-e2e", remote_execution_id=remote_execution_id)
+    worker.push_task_result("task-e2e", remote_execution_id=remote_execution_id)
     collected = manager.collect_results("PC001", download_evidence=False)
 
     assert transferred["status"] == "SUCCESS"
     assert transferred["transfer"]["actual_version"] == "1.0"
-    assert dispatched["status"] == "SUCCESS"
+    assert dispatched["status"] == "TASK_ACK"
+    assert dispatched["task"]["dispatch_state"] == "ACKNOWLEDGED"
+    assert collected["previous_cursor"] == 0
+    wake_call = next(item for item in transport.calls if item[0] == "wake-task")
+    assert set(wake_call[1]) == {"task_id", "file_name"}
+    assert wake_call[1]["task_id"] == "task-e2e"
     assert collected["collected"] == 1
-    assert collected["next_cursor"] == 1
-    collect_call = next(item for item in transport.calls if item[0] == "collect-results")
-    assert collect_call[1] == {"since_sequence": 0}
+    assert collected["next_cursor"] == 4
+    assert manager.store.get_collection_cursor("PC001:sftp_outbox") == 4
+    assert collected["transport"] == "sftp_outbox"
+    if batch:
+        assert batches == [4]
+    repeated = manager.collect_results("PC001", download_evidence=False)
+    assert repeated["collected"] == 0
+    assert repeated["next_cursor"] == 4
+    assert not any(item[0] == "collect-results" for item in transport.calls)
+    assert "RESULT_ACK" in {
+        item["message_type"] for item in manager.list_agent_messages()["agent_messages"]
+    }
 
 
 def test_fixed_json_entry_routes_actions_without_account_execution(tmp_path) -> None:

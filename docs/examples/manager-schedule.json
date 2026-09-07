@@ -1,0 +1,25 @@
+{
+  "schedule_id": "schedule-goal-001",
+  "operation_task_id": "OPERATION-SEPTEMBER-001",
+  "goal_id": "GOAL-XXXXXXXXXX",
+  "machine_id": "EXECUTOR-01",
+  "account_slot": "brand-a",
+  "capability": "search-feeds",
+  "request_summary": "每日采集城市周末内容",
+  "rule": {
+    "frequency": "daily"
+  },
+  "time_window": {
+    "start": "09:00",
+    "end": "18:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "quota": {
+    "per_run": 10,
+    "daily": 30
+  },
+  "parameters": {
+    "keyword": "城市周末"
+  },
+  "next_run_at": "2026-09-04T01:00:00Z"
+}

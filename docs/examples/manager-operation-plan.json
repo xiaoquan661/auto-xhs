@@ -1,0 +1,16 @@
+{
+  "manager_agent_id": "MANAGER-AGENT-01",
+  "plan_summary": "每天采集城市周末内容，按账号人设安排互动和发布任务",
+  "planned_actions": [
+    {
+      "capability": "search-feeds",
+      "frequency": "daily",
+      "expected_count": 10
+    },
+    {
+      "capability": "post-comment",
+      "frequency": "daily",
+      "expected_count": 2
+    }
+  ]
+}

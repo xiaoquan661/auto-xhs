@@ -1,0 +1,22 @@
+{
+  "title": "九月账号稳定增长",
+  "desired_outcome": "形成稳定的城市周末内容节奏",
+  "period_start": "2026-09-01",
+  "period_end": "2026-09-30",
+  "targets": [
+    {
+      "machine_id": "EXECUTOR-01",
+      "account_slot": "brand-a"
+    }
+  ],
+  "target_metrics": {
+    "browse": 20,
+    "comment": 8,
+    "publish": 4
+  },
+  "content_topics": [
+    "城市漫游",
+    "周末活动"
+  ],
+  "priority": "NORMAL"
+}

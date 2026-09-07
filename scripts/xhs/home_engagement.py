@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from .browse_like import _browse_candidates, _close_detail, _open_from_feed, _simulate_reading
 from .errors import XHSError
 from .like_favorite import like_current_feed
+from .progress import emit_progress
 from .types import Feed
 from .urls import HOME_URL
 
@@ -32,6 +33,8 @@ def home_engagement(
     *,
     browse_count: int = 6,
     like_count: int = 2,
+    video_only: bool = False,
+    excluded_feed_ids: Sequence[str] = (),
     duration_seconds: int = 180,
     min_read_seconds: float = 8.0,
     max_read_seconds: float = 15.0,
@@ -55,7 +58,8 @@ def home_engagement(
     page.wait_for_load()
     page.wait_dom_stable()
 
-    seen: set[str] = set()
+    seen = {str(feed_id).strip() for feed_id in excluded_feed_ids if str(feed_id).strip()}
+    excluded_feed_count = len(seen)
     items: list[dict] = []
     skipped: list[dict] = []
     liked_count = 0
@@ -63,6 +67,12 @@ def home_engagement(
 
     while len(items) < browse_count and time.monotonic() < deadline:
         candidates = _browse_candidates(page, seen)
+        if video_only:
+            video_candidates = [
+                feed for feed in candidates if str(feed.note_card.type).casefold() == "video"
+            ]
+            seen.update(feed.id for feed in candidates if feed not in video_candidates)
+            candidates = video_candidates
         if not candidates:
             viewport = int(page.evaluate("window.innerHeight || 768") or 768)
             page.scroll_by(0, int(viewport * random.uniform(0.7, 0.95)))
@@ -109,6 +119,18 @@ def home_engagement(
             break
         items.append(item)
 
+        emit_progress(
+            "browsing",
+            f"已浏览 {len(items)}/{browse_count} 篇，点赞 {liked_count}/{like_count} 篇",
+            metrics={
+                "browse": {"actual": len(items), "target": browse_count},
+                "like": {"actual": liked_count, "target": like_count},
+            },
+            feed_id=feed.id,
+            title=item["title"],
+            item_index=len(items),
+        )
+
         if len(items) < browse_count and time.monotonic() < deadline:
             viewport = int(page.evaluate("window.innerHeight || 768") or 768)
             page.scroll_by(0, int(viewport * random.uniform(0.65, 0.95)))
@@ -129,7 +151,10 @@ def home_engagement(
     message = (
         f"首页浏览点赞完成：浏览 {browsed_count} 篇，点赞 {liked_count} 篇"
         if not partial
-        else f"首页浏览点赞部分完成：浏览 {browsed_count}/{browse_count} 篇，点赞 {liked_count}/{like_count} 篇"
+        else (
+            f"首页浏览点赞部分完成：浏览 {browsed_count}/{browse_count} 篇，"
+            f"点赞 {liked_count}/{like_count} 篇"
+        )
     )
     return {
         "success": not partial,
@@ -139,6 +164,8 @@ def home_engagement(
         "requested": {
             "browse_count": browse_count,
             "like_count": like_count,
+            "video_only": video_only,
+            "excluded_feed_count": excluded_feed_count,
             "duration_seconds": duration_seconds,
             "min_read_seconds": min_read_seconds,
             "max_read_seconds": max_read_seconds,
