@@ -71,6 +71,24 @@ controls["#manager-operation-filter-account"].value = "Other";
 assert.equal(context.operationTaskMatchesFilters(task), false);
 console.log("PASS: execution states, receipt precedence, combined filters, local calendar date");
 
+for (const name of ["targetNames", "goalMatchesFilters"]) {
+  vm.runInContext(extract(name), context);
+}
+const goal = {state: "COMPLETED", title: "浏览验收", targets: task.targets,
+  period_start: "2026-09-01", period_end: "2026-09-07"};
+controls["#manager-operation-filter-account"].value = "MixedCase";
+assert.equal(context.goalMatchesFilters(goal), true);
+controls["#manager-operation-filter-date"].value = "2026-09-08";
+assert.equal(context.goalMatchesFilters(goal), false);
+controls["#manager-operation-filter-date"].value = "2026-09-01";
+assert.equal(context.goalMatchesFilters(goal), true);
+controls["#manager-operation-filter-date"].value = "2026-09-07";
+const splitTargets = [{machine_id: "QA-A", account_slot: "Other"},
+  {machine_id: "QA-B", account_slot: "MixedCase"}];
+assert.equal(context.goalMatchesFilters({...goal, targets: splitTargets}), false);
+assert.equal(context.operationTaskMatchesFilters({...task, targets: splitTargets}), false);
+console.log("PASS: goal period boundaries and machine/account pair filtering");
+
 const resultContext = vm.createContext({
   element: (tag, className, text = "") => ({
     tag, className, text, children: [],
@@ -127,7 +145,7 @@ const accountContext = vm.createContext({
   $: (selector) => nodes[selector] ||= {
     replaceChildren(...children) { this.children = children; },
   },
-  state: {accounts: [{machine_id: "QA-A", account_slot: "only-account"}], alerts: [], localStatuses: []},
+  state: {accounts: [{machine_id: "QA-A", account_slot: "only-account"}], alerts: []},
   selectedAccountNode: "QA-A",
   renderAccountNavigation() {}, setText() {}, accountHasActiveTask: () => false,
   emptyCard: (title) => ({title}),
@@ -180,3 +198,12 @@ assert.equal(resultContext.actionTargetActualText(engagement, "browse"), "5 / 2"
 assert.equal(resultContext.actionTargetActualText(engagement, "like"), "2 / 1");
 assert.equal(resultContext.actionTargetActualText(engagement, "comment"), "— / —");
 console.log("PASS: discovery counts and separate engagement browse/like metrics");
+
+vm.runInContext(extract("controlRoomDayMetrics"), resultContext);
+const dayMetrics = resultContext.controlRoomDayMetrics(engagement);
+assert.equal(dayMetrics.find((item) => item.kind === "browse").actual, "2");
+assert.equal(dayMetrics.find((item) => item.kind === "like").actual, "1");
+assert.equal(dayMetrics.find((item) => item.kind === "publish").actual, "—");
+assert.equal(resultContext.controlRoomDayMetrics([{capability: "like-feed", actual_count: 0}])
+  .find((item) => item.kind === "like").actual, "0");
+console.log("PASS: dashboard daily metrics preserve observed zero and missing quantities");

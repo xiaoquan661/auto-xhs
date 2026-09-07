@@ -5,34 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <title>auto-xhs · 经理机运营控制台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260904-manager-console-3" />
-    <link rel="stylesheet" href="/workspace.css?v=20260904-manager-console-3" />
+    <link rel="stylesheet" href="/styles.css?v=20260907-unified-overview-1" />
+    <link rel="stylesheet" href="/workspace.css?v=20260907-unified-overview-1" />
+    <link rel="stylesheet" href="/control-room.css?v=20260907-unified-overview-1" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
-    <div class="app-shell manager-app-shell">
-      <header class="sidebar manager-top-navigation" aria-label="Manager Console 导航">
+    <div class="app-shell manager-app-shell control-room">
+      <header class="room-masthead">
         <a class="brand" href="#overview" data-manager-view-link="overview">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <span class="brand-copy">
-            <strong>auto-xhs</strong>
-            <small>MANAGER CONSOLE</small>
-          </span>
+          <span class="brand-mark" aria-hidden="true">小</span>
+          <span class="room-brand-copy"><small>MANAGER · 员工机管理面板</small><strong>auto-xhs 运营总览</strong></span>
         </a>
-        <nav class="nav-list">
+        <div class="room-live"><span class="room-dot" id="room-live-dot"></span><div><strong id="room-live-state">等待读取</strong><small>上次更新 <span id="manager-last-read">—</span> · <span id="room-refresh-interval">每 30 秒刷新</span></small></div><button class="secondary-button" id="manager-refresh" type="button">刷新</button></div>
+      </header>
+      <section class="room-command" id="room-command" data-tone="info">
+        <div><p class="room-eyebrow">现在整体情况</p><div class="room-command-title"><h2 id="room-command-title">正在读取员工机集群</h2><span class="manager-state-badge" id="manager-attention-badge">等待读取</span></div><p id="room-command-description">经理 Agent 下发运营目标，执行进度和回收结果集中展示。</p></div>
+        <div class="room-command-seal"><span>运营调度</span><strong>经理 Agent</strong><small>目标与人设通过对话配置</small></div>
+      </section>
+      <section class="room-collection" aria-label="数据同步状态">
+        <div class="room-collection-title"><span class="room-dot"></span><div><small>AUTOMATIC PROGRESS COLLECTION</small><strong id="room-collection-state">正在读取同步状态</strong></div></div>
+        <div class="room-collection-facts"><div><span>账号健康同步</span><strong id="manager-health-sync">等待首次同步</strong></div><div><span>结果回收</span><strong id="manager-result-sync">等待首次同步</strong></div><div><span>页面刷新间隔</span><strong id="room-collection-interval">30 秒</strong></div><div><span>待更新数据</span><strong id="manager-stale-total">—</strong></div></div>
+      </section>
+      <section class="room-metric-grid" aria-label="员工机概况">
+        <article class="room-metric-card"><span>物理员工机</span><strong id="room-machine-total">—</strong><small id="manager-machine-caption">等待读取</small></article>
+        <article class="room-metric-card"><span>需人工查看</span><strong id="manager-overview-exception-total">—</strong><small>机器、账号与回收异常</small></article>
+        <article class="room-metric-card"><span>尚未绑定账号</span><strong id="room-unbound-total">—</strong><small>员工机账号登记情况</small></article>
+      </section>
+      <div class="room-dashboard">
+            <aside class="manager-unit-rail">
+              <div class="manager-rail-heading"><div><strong>员工单元</strong></div><span id="manager-rail-total">0 个</span></div>
+              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-manager-machine-select="">
+                <span class="manager-rail-avatar manager-rail-avatar-all">总览</span>
+                <span><strong>全部机器</strong><small>查看总体进度</small></span><b id="manager-overview-count">0</b>
+              </button>
+              <p class="room-sidebar-caption">单台员工单元</p><div class="manager-machine-nav" id="manager-machine-nav"></div>
+<p class="room-sidebar-caption">工作区</p>        <nav class="nav-list">
           <a class="nav-item active" href="#overview" data-manager-view-link="overview">
             <span class="nav-icon">⌂</span><span>运营总览</span>
-          </a>
-          <a class="nav-item" href="#operations" data-manager-view-link="operations">
-            <span class="nav-icon">◇</span><span>运营任务</span>
           </a>
           <a class="nav-item" href="#workers" data-manager-view-link="workers">
             <span class="nav-icon">▦</span><span>员工机</span>
             <b class="nav-badge" id="node-total">—</b>
           </a>
           <a class="nav-item" href="#accounts" data-manager-view-link="accounts">
-            <span class="nav-icon">◎</span><span>账号与人设</span>
-            <b class="nav-badge" id="blocked-total">—</b>
+            <span class="nav-icon">◎</span><span>账号设置</span>
+            <b class="nav-badge" id="blocked-total" title="员工机账号总数">—</b>
           </a>
           <a class="nav-item" href="#results" data-manager-view-link="results">
             <span class="nav-icon">▤</span><span>数据回收</span>
@@ -45,52 +63,43 @@
             <span class="nav-icon">⌘</span><span>系统设置</span>
           </a>
         </nav>
-        <div class="sidebar-foot">
-          <span>经理机缓存</span>
-          <strong id="manager-last-read">等待读取</strong>
-          <button class="secondary-button" id="manager-refresh" type="button">刷新数据</button>
-        </div>
-      </header>
+<p class="room-sidebar-note">选择员工机查看账号、执行进度与回收结果。</p></aside>
 
       <main class="main" id="main-content">
         <section class="workspace-view active" id="overview" data-manager-view="overview">
-          <header class="page-topbar">
-            <div>
-              <p class="eyebrow">OPERATIONS OVERVIEW</p>
-              <h1>运营总览</h1>
-              <p>查看员工机、账号、任务、目标完成量和当前异常。</p>
-            </div>
-            <span class="manager-stage-badge" id="manager-attention-badge">等待读取</span>
-          </header>
+          <header class="room-workspace-heading"><div><h1>运营总览</h1><p>集中查看运营目标、执行记录和实际成果。</p></div><span class="manager-state-badge" data-tone="info">经理 Agent 统筹</span></header>
           <section class="manager-cluster">
-            <div class="manager-collection-strip" aria-label="经理机缓存状态">
-              <div class="manager-collection-label">
-                <span class="manager-collection-dot"></span>
-                <div><small>MANAGER CACHE</small><strong>统一快照</strong></div>
-              </div>
-              <div><span>账号健康</span><strong id="manager-health-sync">等待首次同步</strong></div>
-              <div><span>结果回收</span><strong id="manager-result-sync">等待首次同步</strong></div>
-              <div><span>缓存状态</span><strong id="manager-stale-total">—</strong></div>
+            <div class="room-overview-summary">
+              <div><span>已完成目标</span><strong id="manager-completed-goal-total">—</strong><small>经理 Agent 下发的目标</small></div>
+              <div><span>今日实际动作</span><strong id="room-today-total">—</strong><small>已回传的有效执行量</small></div>
+              <div><span>在线员工机</span><strong id="manager-online-total">—</strong><small>连接状态正常</small></div>
+              <div><span>健康账号</span><strong id="manager-healthy-total">—</strong><small id="manager-account-caption">等待读取</small></div>
             </div>
-            <div class="manager-summary">
-              <article><span>员工机</span><strong id="manager-machine-total">—</strong><small>已登记</small></article>
-              <article><span>可调度</span><strong id="manager-ready-total">—</strong><small>READY</small></article>
-              <article><span>执行中任务</span><strong id="manager-active-task-total">—</strong><small>当前执行</small></article>
-              <article><span>等待对账</span><strong id="manager-reconcile-total">—</strong><small>需要处理</small></article>
-              <article><span>当前结果</span><strong id="manager-result-total">—</strong><small>最新有效回执</small></article>
-              <article><span>数据缺口</span><strong id="manager-data-gap-total">—</strong><small>完整性检查</small></article>
+          <section class="subpage-panel manager-progress-panel" id="manager-progress">
+            <div class="room-section-head"><h2>运营进展</h2><span>已回收 <b id="manager-overview-result-total">—</b> 条结果</span></div>
+            <div class="manager-progress-tabs" role="tablist" aria-label="运营进展视图">
+              <button id="manager-goals-tab" type="button" role="tab" aria-selected="true" aria-controls="manager-goals-panel" data-manager-progress-tab="goals">目标进展 <span id="manager-goal-total">0</span></button>
+              <button id="manager-executions-tab" type="button" role="tab" aria-selected="false" aria-controls="manager-executions-panel" tabindex="-1" data-manager-progress-tab="executions">执行记录 <span id="manager-operation-total">0</span></button>
             </div>
-            <p class="action-message" id="manager-cluster-message" role="status"></p>
-            <div class="manager-overview-columns">
-              <section class="subpage-panel">
-                <div class="lane-heading"><div><small>CURRENT TASKS</small><h2>当前执行任务</h2></div></div>
-                <div class="record-list" id="manager-task-list"></div>
-              </section>
-              <section class="subpage-panel">
-                <div class="lane-heading"><div><small>WORKERS</small><h2>员工机摘要</h2></div></div>
-                <div class="manager-machine-grid" id="manager-machine-list"></div>
-              </section>
+            <details class="room-progress-filter-toggle"><summary>筛选目标与记录</summary>
+            <div class="manager-result-toolbar manager-progress-filters" aria-label="运营进展筛选">
+              <label><span>状态</span><select id="manager-operation-filter-state"><option value="">全部状态</option></select></label>
+              <label><span>员工机</span><select id="manager-operation-filter-machine"><option value="">全部员工机</option></select></label>
+              <label><span>账号</span><select id="manager-operation-filter-account"><option value="">全部账号</option></select></label>
+              <label><span id="manager-progress-date-label">目标周期内日期</span><input id="manager-operation-filter-date" type="date" /></label>
+              <label><span>关键词</span><input id="manager-operation-filter-keyword" type="search" placeholder="搜索名称、账号或 Agent" /></label>
+              <button class="secondary-button" type="button" id="manager-progress-reset">重置</button>
             </div>
+            </details>
+            <div id="manager-goals-panel" role="tabpanel" aria-labelledby="manager-goals-tab">
+              <div class="manager-progress-summary"><span>运行中 <b id="manager-goal-active">0</b></span><span>已完成 <b id="manager-goal-completed">0</b></span><span>已暂停 <b id="manager-goal-paused">0</b></span><small>各项指标按实际回收量 / 目标量展示</small></div>
+              <div id="manager-goal-list"></div>
+            </div>
+            <div class="manager-operation-layout agent-task-ledger-only" id="manager-executions-panel" role="tabpanel" aria-labelledby="manager-executions-tab" hidden>
+              <div class="manager-progress-summary"><span>等待 Agent <b id="manager-operation-waiting">0</b></span><span>执行中 <b id="manager-operation-running">0</b></span><span>等待对账 <b id="manager-operation-reconcile">0</b></span></div>
+              <div id="manager-operation-list"></div>
+            </div>
+          </section>
             <section class="subpage-panel" id="manager-publish-review-panel" hidden>
               <div class="lane-heading">
                 <div><small>PUBLISH APPROVALS</small><h2>待确认发布</h2></div>
@@ -98,79 +107,25 @@
               </div>
               <div class="record-list" id="manager-publish-review-list"></div>
             </section>
-          </section>
-        </section>
-
-        <section class="workspace-view" id="operations" data-manager-view="operations" hidden>
-          <header class="page-topbar">
-            <div><p class="eyebrow">OPERATION TASKS</p><h1>运营任务</h1>
-              <p>创建业务目标和运营任务，查看 Manager Agent 的领取、计划、派发与结果。</p></div>
-          </header>
-          <section class="manager-strategy-layout">
-            <form class="subpage-panel manager-strategy-form" id="manager-goal-form">
-              <div class="manager-form-heading"><strong>运营目标</strong><small>定义账号、周期和目标指标</small></div>
-              <input id="manager-goal-id" type="hidden" />
-              <label><span>目标名称</span><input id="manager-goal-name" required /></label>
-              <div class="manager-strategy-date-row">
-                <label><span>员工机</span><select id="manager-goal-machine" required></select></label>
-                <label><span>账号槽位</span><select id="manager-goal-account" required></select></label>
-              </div>
-              <div class="manager-strategy-date-row">
-                <label><span>开始日期</span><input id="manager-goal-start" type="date" required /></label>
-                <label><span>结束日期</span><input id="manager-goal-end" type="date" required /></label>
-              </div>
-              <label><span>期望成果</span><textarea id="manager-goal-outcome" required></textarea></label>
-              <label><span>内容主题</span><input id="manager-goal-topics" placeholder="多个主题用逗号分隔" /></label>
-              <div class="manager-goal-metrics">
-                <label><span>浏览</span><input id="manager-goal-browse" min="0" type="number" value="0" /></label>
-                <label><span>点赞</span><input id="manager-goal-like" min="0" type="number" value="0" /></label>
-                <label><span>评论</span><input id="manager-goal-comment" min="0" type="number" value="0" /></label>
-                <label><span>回复</span><input id="manager-goal-reply" min="0" type="number" value="0" /></label>
-                <label><span>发布</span><input id="manager-goal-publish" min="0" type="number" value="0" /></label>
-              </div>
-              <button class="primary-button" type="submit">保存运营目标</button>
-              <p class="action-message" id="manager-goal-message" role="status"></p>
-            </form>
-            <section class="subpage-panel">
-              <div class="lane-heading"><div><small>GOALS</small><h2>运营目标</h2></div></div>
-              <div class="manager-summary compact-summary">
-                <article><span>全部</span><strong id="manager-goal-total">0</strong></article>
-                <article><span>草稿</span><strong id="manager-goal-draft">0</strong></article>
-                <article><span>运行中</span><strong id="manager-goal-active">0</strong></article>
-                <article><span>已暂停</span><strong id="manager-goal-paused">0</strong></article>
-              </div>
-              <div class="manager-strategy-list" id="manager-goal-list"></div>
+            <details class="room-overview-details">
+              <summary>机器与账号</summary>
+            <section class="room-node-panel">
+              <div class="room-section-head"><div><strong>机器与账号</strong><span>绿色正常 · 橙色关注 · 红色阻塞 · 灰色待同步</span></div><span id="room-node-count">—</span></div>
+              <a class="room-machine-entry" href="#settings" data-manager-view-link="settings">查看员工机连接配置 →</a>
+              <div class="room-node-grid" id="manager-machine-list"></div>
             </section>
-          </section>
-          <section class="manager-operation-layout agent-task-ledger-only">
-            <form class="subpage-panel manager-form" id="manager-operation-form">
-              <div class="manager-form-heading"><strong>创建运营任务</strong><small>提交给 Manager Agent</small></div>
-              <div class="manager-form-grid">
-                <label><span>运营目标</span><select id="manager-operation-goal" required></select></label>
-                <label><span>任务名称</span><input id="manager-operation-name" required /></label>
-                <label class="manager-span-2"><span>执行说明</span><textarea id="manager-operation-instructions" required></textarea></label>
-                <label class="manager-span-2"><span>完成条件</span><textarea id="manager-operation-criteria" required></textarea></label>
-              </div>
-              <button class="primary-button" type="submit">提交给 Manager Agent</button>
-              <p class="action-message" id="manager-operation-message" role="status"></p>
-            </form>
-            <section class="subpage-panel">
-              <div class="lane-heading"><div><small>AGENT INBOX</small><h2>运营任务列表</h2></div></div>
-              <div class="manager-summary compact-summary">
-                <article><span>全部</span><strong id="manager-operation-total">0</strong></article>
-                <article><span>等待 Agent</span><strong id="manager-operation-waiting">0</strong></article>
-                <article><span>执行中</span><strong id="manager-operation-running">0</strong></article>
-                <article><span>等待对账</span><strong id="manager-operation-reconcile">0</strong></article>
-              </div>
-              <div class="manager-result-toolbar" aria-label="运营任务筛选">
-                <label><span>状态</span><select id="manager-operation-filter-state"><option value="">全部状态</option></select></label>
-                <label><span>员工机</span><select id="manager-operation-filter-machine"><option value="">全部员工机</option></select></label>
-                <label><span>账号</span><select id="manager-operation-filter-account"><option value="">全部账号</option></select></label>
-                <label><span>日期</span><input id="manager-operation-filter-date" type="date" /></label>
-                <label><span>关键词</span><input id="manager-operation-filter-keyword" type="search" /></label>
-              </div>
-              <div class="manager-strategy-list" id="manager-operation-list"></div>
+            </details>
+            <details class="room-overview-details">
+              <summary>日报、成果与提醒</summary>
+            <section class="room-panel room-daily-report">
+              <div class="room-section-head"><div><p class="room-eyebrow">昨日日报</p><h2 id="room-report-date">—</h2><span>按执行日期汇总已回收的实际动作</span></div><a href="#results" data-manager-view-link="results">查看回执 →</a></div>
+              <div class="room-daily-summary" id="room-yesterday-metrics"></div><p class="room-footnote" id="room-yesterday-note"></p>
             </section>
+            <div class="room-lower-grid">
+              <section class="room-panel"><div class="room-section-head"><div><p class="room-eyebrow">今日进度</p><h2>实际动作汇总</h2></div><a href="#results" data-manager-view-link="results">全部结果 →</a></div><div class="room-result-grid" id="room-today-metrics"></div><div class="manager-overview-list" id="manager-overview-results"></div></section>
+              <section class="room-panel"><div class="room-section-head"><div><p class="room-eyebrow">需要查看</p><h2>告警与提醒</h2></div><a href="#exceptions" data-manager-view-link="exceptions">查看异常 →</a></div><div class="manager-overview-list" id="manager-overview-alerts"></div></section>
+            </div>
+            </details>
           </section>
         </section>
 
@@ -178,14 +133,6 @@
           <header class="page-topbar"><div><p class="eyebrow">WORKER MACHINES</p><h1>员工机</h1>
             <p>左侧选择员工机，右侧查看账号、连接、任务、结果、回收和异常。</p></div></header>
           <section class="manager-dashboard-layout">
-            <aside class="manager-unit-rail">
-              <div class="manager-rail-heading"><div><strong>员工机导航</strong><small>动态拓扑</small></div><span id="manager-rail-total">0 个</span></div>
-              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-manager-machine-select="">
-                <span class="manager-rail-avatar manager-rail-avatar-all">ALL</span>
-                <span><strong>全部机器</strong><small>集群摘要</small></span><b id="manager-overview-count">0</b>
-              </button>
-              <div class="manager-machine-nav" id="manager-machine-nav"></div>
-            </aside>
             <div class="manager-cluster-stage">
               <section class="manager-cluster-overview-panel" id="manager-cluster-overview-panel">
                 <div class="manager-stage-heading"><div><h2>全部员工机</h2><small>选择卡片进入单机详情</small></div></div>
@@ -218,22 +165,21 @@
         </section>
 
         <section class="workspace-view" id="accounts" data-manager-view="accounts" hidden>
-          <header class="page-topbar"><div><p class="eyebrow">ACCOUNTS & PERSONAS</p><h1>账号与人设</h1>
-            <p>以“机器编号 + 账号槽位”为唯一键统一管理，真实身份以员工机回执为准。</p></div>
+          <header class="page-topbar"><div><p class="eyebrow">ACCOUNT SETTINGS</p><h1>账号设置</h1>
+            <p>查看员工机账号与专属人设，人设由经理 Agent 在对话中配置。</p></div>
             <button class="secondary-button" id="manager-account-refresh" type="button">刷新所选节点</button></header>
           <p class="action-message" id="manager-account-message" role="status"></p>
           <section class="manager-account-layout">
             <aside class="manager-account-node-rail">
-              <div class="manager-account-node-heading"><h2>账号分组</h2><small>经理机配置与员工机回执</small></div>
+              <div class="manager-account-node-heading"><h2>账号分组</h2><small>按员工机查看账号状态</small></div>
               <div class="manager-account-node-list">
-                <button class="manager-account-node active" type="button" data-manager-account-node="all"><span><strong>全部账号</strong><small>所有已登记节点</small></span><b id="manager-account-node-all-count">0</b></button>
-                <button class="manager-account-node" type="button" data-manager-account-node="manager"><span><strong>本机环境</strong><small>经理机调试账号</small></span><b id="manager-account-node-manager-count">0</b></button>
+                <button class="manager-account-node active" type="button" data-manager-account-node="all"><span><strong>全部账号</strong><small>全部员工机账号</small></span><b id="manager-account-node-all-count">0</b></button>
               </div>
               <div class="manager-account-node-list" id="manager-account-node-list"></div>
             </aside>
             <div class="manager-account-stage">
               <section class="manager-account-summary-section">
-                <div class="lane-heading"><div><small>ACCOUNT DIRECTORY</small><h2 id="manager-account-view-title">全部节点账号</h2></div></div>
+                <div class="lane-heading"><div><small>ACCOUNT DIRECTORY</small><h2 id="manager-account-view-title">全部员工机账号</h2></div></div>
                 <div class="manager-result-toolbar" aria-label="账号筛选">
                   <label><span>账号状态</span><select id="manager-account-filter-status"><option value="">全部状态</option></select></label>
                   <label><span>绑定人设</span><select id="manager-account-filter-persona"><option value="">全部人设</option></select></label>
@@ -248,35 +194,13 @@
                   <article data-tone="info"><span>执行中</span><strong id="manager-account-running">0</strong></article>
                 </div>
               </section>
-              <section class="subpage-panel" id="manager-local-account-section">
-                <div class="lane-heading"><div><h2>本机环境</h2><small>经理机本地账号独立分组</small></div></div>
-                <div class="manager-remote-account-grid" id="manager-local-account-grid"></div>
-              </section>
               <section class="subpage-panel manager-remote-account-section" id="manager-remote-account-section">
                 <div class="lane-heading"><div><h2>员工机账号</h2><small>身份和连接来自员工机回执</small></div></div>
                 <div class="manager-remote-account-grid" id="manager-remote-account-grid"></div>
               </section>
             </div>
           </section>
-          <section class="manager-strategy-layout">
-            <form class="subpage-panel manager-strategy-form" id="manager-persona-form">
-              <div class="manager-form-heading"><strong>人设卡</strong><small>账号长期配置</small></div>
-              <input id="manager-persona-id" type="hidden" />
-              <div class="manager-strategy-date-row"><label><span>员工机</span><select id="manager-persona-machine" required></select></label><label><span>账号槽位</span><select id="manager-persona-account" required></select></label></div>
-              <label><span>人设名称</span><input id="manager-persona-name" required /></label>
-              <label><span>角色定位</span><input id="manager-persona-role" required /></label>
-              <label><span>目标受众</span><input id="manager-persona-audience" required /></label>
-              <label><span>语言</span><input id="manager-persona-language" value="中文" /></label>
-              <label><span>内容主题</span><input id="manager-persona-topics" /></label>
-              <label><span>表达语气</span><input id="manager-persona-tone" /></label>
-              <label><span>互动风格</span><input id="manager-persona-interaction" /></label>
-              <label><span>事实边界</span><textarea id="manager-persona-facts"></textarea></label>
-              <label><span>知识说明</span><textarea id="manager-persona-knowledge"></textarea></label>
-              <button class="primary-button" type="submit">保存人设卡</button>
-              <p class="action-message" id="manager-persona-message" role="status"></p>
-            </form>
-            <section class="subpage-panel"><div class="lane-heading"><div><small>PERSONAS</small><h2>长期人设</h2></div></div><div class="manager-strategy-list" id="manager-persona-list"></div></section>
-          </section>
+
         </section>
 
         <section class="workspace-view" id="results" data-manager-view="results" hidden>
@@ -315,56 +239,43 @@
         </section>
 
         <section class="workspace-view" id="settings" data-manager-view="settings" hidden>
-          <header class="page-topbar"><div><p class="eyebrow">SYSTEM SETTINGS</p><h1>系统设置</h1><p>维护经理机运行参数、模型、诊断、员工机连接和版本策略。</p></div></header>
+          <header class="page-topbar"><div><p class="eyebrow">SYSTEM STATUS</p><h1>系统设置</h1>
+            <p>查看经理机运行参数、员工机连接和版本记录。配置由经理 Agent 在对话中管理。</p></div>
+            <span class="manager-source-label">经理 Agent 管理</span></header>
           <section class="manager-system">
             <div class="manager-settings-grid">
-              <form class="subpage-panel manager-form" id="manager-runtime-settings-form">
+              <section class="subpage-panel">
                 <div class="manager-form-heading"><strong>经理机运行参数</strong><small id="manager-runtime-version">版本 —</small></div>
-                <div class="manager-form-grid">
-                  <label><span>全局并发</span><select id="manager-setting-concurrency"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-                  <label><span>每小时限额</span><input id="manager-setting-hourly" min="1" type="number" /></label>
-                  <label><span>每日限额</span><input id="manager-setting-daily" min="1" type="number" /></label>
-                  <label><span>去重分钟</span><input id="manager-setting-dedup" min="1" type="number" /></label>
-                  <label><span>失败阈值</span><input id="manager-setting-failures" min="1" type="number" /></label>
-                </div>
-                <button class="primary-button" type="submit">保存运行参数</button>
-                <p class="action-message" id="manager-runtime-message" role="status"></p>
-              </form>
-              <form class="subpage-panel manager-form" id="manager-reply-model-form">
-                <div class="manager-form-heading"><strong>智能回复模型</strong><small id="manager-reply-model-state">读取中</small></div>
-                <label><span>API 地址</span><input id="manager-reply-model-base-url" type="url" required /></label>
-                <label><span>模型名称</span><input id="manager-reply-model-name" required /></label>
-                <label><span>API Key</span><input id="manager-reply-model-api-key" type="password" autocomplete="new-password" placeholder="留空沿用已保存 Key" /></label>
-                <label><span>超时（秒）</span><input id="manager-reply-model-timeout" min="1" max="300" type="number" value="60" /></label>
-                <div class="manager-inline-actions"><button class="secondary-button" id="manager-reply-model-test" type="button">测试连接</button><button class="primary-button" type="submit">保存模型配置</button></div>
-                <p class="action-message" id="manager-reply-model-message" role="status"></p>
-              </form>
+                <dl class="manager-record-facts">
+                  <div><dt>全局并发</dt><dd id="manager-setting-concurrency">—</dd></div>
+                  <div><dt>每小时限额</dt><dd id="manager-setting-hourly">—</dd></div>
+                  <div><dt>每日限额</dt><dd id="manager-setting-daily">—</dd></div>
+                  <div><dt>去重分钟</dt><dd id="manager-setting-dedup">—</dd></div>
+                  <div><dt>失败阈值</dt><dd id="manager-setting-failures">—</dd></div>
+                </dl>
+              </section>
               <section class="subpage-panel manager-diagnostic-panel">
                 <div class="manager-form-heading"><strong>运行状态与诊断</strong><small id="manager-system-pause-state">—</small></div>
-                <dl class="manager-record-facts"><div><dt>存储目录</dt><dd id="manager-system-storage">—</dd></div><div><dt>任务总数</dt><dd id="manager-system-task-total">—</dd></div><div><dt>最近异常</dt><dd id="manager-system-failure-total">—</dd></div></dl>
-                <button class="secondary-button" id="manager-export-diagnostics" type="button">导出诊断报告</button>
-                <p class="action-message" id="manager-diagnostic-message" role="status"></p>
+                <dl class="manager-record-facts">
+                  <div><dt>存储目录</dt><dd id="manager-system-storage">—</dd></div>
+                  <div><dt>任务总数</dt><dd id="manager-system-task-total">—</dd></div>
+                  <div><dt>最近异常</dt><dd id="manager-system-failure-total">—</dd></div>
+                </dl>
               </section>
             </div>
-            <form class="subpage-panel manager-form" id="manager-machine-form">
-              <div class="manager-form-heading"><strong>登记员工机</strong><small>保存 SSH 和执行环境</small></div>
-              <div class="manager-form-grid manager-machine-form-grid">
-                <label><span>经理机编号</span><input id="manager-machine-manager-id" value="MILA-MANAGER" required /></label><label><span>机器编号</span><input id="manager-machine-id" required /></label><label><span>显示名称</span><input id="manager-machine-alias" required /></label><label><span>SSH 主机</span><input id="manager-machine-host" required /></label><label><span>SSH 端口</span><input id="manager-machine-port" type="number" value="22" required /></label><label><span>SSH 用户</span><input id="manager-machine-user" required /></label><label class="manager-span-2"><span>项目目录</span><input id="manager-machine-workdir" required /></label><label class="manager-span-2"><span>Python</span><input id="manager-machine-python" required /></label><label class="manager-span-2"><span>身份文件</span><input id="manager-machine-identity" /></label><label><span>允许版本</span><input id="manager-machine-versions" required /></label><label><span>连接超时（秒）</span><input id="manager-machine-connect-timeout" type="number" value="10" /></label>
-              </div>
-              <button class="primary-button" type="submit">保存员工机</button><p class="action-message" id="manager-machine-message" role="status"></p>
-            </form>
-            <div class="manager-package-layout">
-              <form class="subpage-panel manager-form" id="manager-transfer-form">
-                <div class="manager-form-heading"><strong>功能包传输</strong><small>发送到指定员工机</small></div><label><span>传输编号</span><input id="manager-transfer-id" required /></label><label><span>员工机</span><select id="manager-transfer-machine" required></select></label><label><span>类型</span><select id="manager-transfer-type"><option value="function_package">功能包</option></select></label><label><span>源路径</span><input id="manager-transfer-source" required /></label><label><span>允许版本</span><input id="manager-transfer-versions" /></label><label><span>超时（秒）</span><input id="manager-transfer-timeout" type="number" value="600" /></label><button class="primary-button" type="submit">开始传输</button><p class="action-message" id="manager-transfer-message" role="status"></p>
-              </form>
-              <form class="subpage-panel manager-form" id="manager-version-form">
-                <div class="manager-form-heading"><strong>版本策略</strong><small>读取并设置员工机功能版本</small></div><label><span>员工机</span><select id="manager-version-machine" required></select></label><label><span>功能编号</span><input id="manager-version-function" required /></label><label><span>版本</span><input id="manager-version-value" required /></label><label><span>状态</span><select id="manager-version-status"><option value="FORMAL">正式</option><option value="TRIAL">试用</option><option value="DISABLED">停用</option></select></label><label><span>账号范围</span><input id="manager-version-accounts" /></label><label><span>允许动作</span><input id="manager-version-actions" /></label><label class="manager-confirm-check"><input id="manager-version-stable" type="checkbox" checked /> 设为稳定版</label><div class="manager-inline-actions"><button class="secondary-button" id="manager-load-versions" type="button">读取版本</button><button class="primary-button" type="submit">保存策略</button></div><p class="action-message" id="manager-version-message" role="status"></p>
-              </form>
+            <section class="subpage-panel">
+              <div class="lane-heading"><h2>员工机连接配置</h2><span>由经理 Agent 登记与维护</span></div>
+              <div class="manager-settings-grid" id="manager-settings-machines"></div>
+            </section>
+            <div class="manager-package-ledgers">
+              <section class="subpage-panel"><div class="lane-heading"><h2>传输记录</h2></div><div class="record-list" id="manager-transfer-list"></div></section>
+              <section class="subpage-panel"><div class="lane-heading"><h2>版本记录</h2></div><div class="record-list" id="manager-version-list"></div></section>
             </div>
-            <div class="manager-package-ledgers"><section class="subpage-panel"><div class="lane-heading"><h2>传输记录</h2></div><div class="record-list" id="manager-transfer-list"></div></section><section class="subpage-panel"><div class="lane-heading"><h2>版本记录</h2></div><div class="record-list" id="manager-version-list"></div></section></div>
           </section>
         </section>
       </main>
+      </div>
+      <footer class="room-footer"><span>auto-xhs 运营看板 · 经理 Agent 统一调度</span><p class="action-message" id="manager-cluster-message" role="status"></p></footer>
     </div>
 
     <dialog class="manager-operation-detail-dialog" id="manager-operation-detail-dialog" aria-labelledby="manager-operation-detail-title">
@@ -428,7 +339,12 @@
       </section>
     </dialog>
 
+    <dialog class="manager-operation-detail-dialog manager-goal-detail-dialog" id="manager-goal-detail-dialog" aria-labelledby="manager-goal-detail-title">
+      <div class="manager-operation-detail-head"><div><h2 id="manager-goal-detail-title">目标详情</h2><p id="manager-goal-detail-subtitle"></p></div><button class="icon-button" id="manager-goal-detail-close" type="button" aria-label="关闭目标详情">×</button></div>
+      <div class="manager-operation-detail-body" id="manager-goal-detail-body"></div>
+    </dialog>
+
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
-    <script src="/manager-console.js?v=20260904-manager-console-1" defer></script>
+    <script src="/manager-console.js?v=20260907-unified-overview-1" defer></script>
   </body>
 </html>

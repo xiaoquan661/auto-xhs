@@ -179,11 +179,17 @@ Agent 从已浏览结果中选定笔记，使用 `feed_id` 和 `xsec_token` 读�
 `RECONCILIATION_REQUIRED`，先对账再继续；`RESULT_UNKNOWN` 不得自动重发。部署、配置样例和完整
 命令见 `docs/MANAGER-SSH-OPERATIONS.md`。
 
-账号人设与运营目标由经理机集中保存。用户在 WebUI 提交运营任务后，常驻经理 Agent 自动从收件箱
-领取任务、记录计划，再通过 SSH 向员工机 Agent 派发任务，回收结果并核销目标。控制台同时展示
-经理 Agent 与员工 Agent 的任务、确认、结果和结算交接记录。以下命令用于故障恢复和人工复核：
+经理机负责调度和数据汇总，账号槽位设在员工机。用户通过经理 Agent 对话配置账号人设、运营目标
+和任务，经理 Agent 保存配置、记录计划，通过 SSH 下发执行并回收结果。WebUI 展示员工机账号、
+账号人设、目标进展与执行记录。
+
+每个“员工机编号 + 账号槽位”对应一份人设。配置前先用 `persona list` 读取现有人设，后续调整更新
+同一 `persona_id` 并保留版本；已下发任务使用创建时的人设快照。人设内容以用户对话确认为准，
+通过 UTF-8 JSON 文件调用 `persona save --input-file <绝对路径>` 保存。以下命令用于配置和复核：
 
 ```powershell
+python scripts/manager_cli.py persona list
+python scripts/manager_cli.py persona save --input-file "C:\manager-input\account-persona.json"
 python scripts/manager_cli.py operation-task list --state WAITING_AGENT
 python scripts/manager_cli.py operation-task claim `
   --operation-task-id <运营任务编号> --agent-id MANAGER-AGENT-01
@@ -196,7 +202,7 @@ python scripts/manager_cli.py schedule register `
 python scripts/manager_cli.py task dispatch --input-file "C:\manager-input\task.json"
 ```
 
-计划输入使用 `operation_task_id` 关联 WebUI 任务，并继承目标和账号人设快照。领取前不能生成员工机
+计划输入使用 `operation_task_id` 关联运营任务，并继承目标和账号人设快照。领取前不能生成员工机
 计划或执行任务。结果回收后，按 `operation_task_id` 汇总操作记录与业务数据，同时保留
 `schedule_id`、`goal_id`、目标版本、`persona_id` 和人设版本。完成对账后常驻经理 Agent 自动
 结算运营任务；人工恢复时可以使用 `operation-task finish`。

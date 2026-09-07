@@ -1,0 +1,280 @@
+/* Control-room composition. Account directory and its controls retain their component styles. */
+body { background: #f5f7fb; }
+.control-room {
+  --ink: #172033;
+  --muted: #5b667a;
+  --line: #dbe2ee;
+  --paper: #f5f7fb;
+  --blue: #2457d6;
+  --blue-soft: #e7edff;
+  --accent: #2457d6;
+  --accent-soft: #e7edff;
+  --good: #16845b;
+  --good-soft: #dff5ea;
+  --warn: #a86400;
+  --warn-soft: #fff0c7;
+  --danger: #b42318;
+  --danger-soft: #ffe3e0;
+  --shadow: none;
+  color: var(--ink);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+}
+.app-shell.manager-app-shell.control-room {
+  display: block; width: auto; max-width: 1500px; min-height: 100vh;
+  margin: 0 auto; padding: 24px; background: var(--paper);
+}
+.control-room .room-masthead {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 18px; margin-bottom: 20px;
+}
+.control-room .room-masthead .brand { min-height: 52px; gap: 12px; padding: 0; }
+.control-room .room-masthead .brand:hover { background: transparent; }
+.control-room .brand-mark {
+  flex: 0 0 42px; width: 42px; height: 42px; border: 0; border-radius: 10px;
+  background: var(--blue); box-shadow: none; font-size: 22px; font-weight: 800;
+}
+.control-room .brand-mark::before, .control-room .brand-mark::after { content: none; }
+.room-brand-copy { display: grid; gap: 4px; }
+.room-brand-copy small { color: var(--muted); font-size: 10px; letter-spacing: .11em; }
+.room-brand-copy strong { font-size: 28px; line-height: 1.2; letter-spacing: 0; }
+.room-live {
+  display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 12px;
+  background: #fff; border-radius: 8px;
+}
+.room-live > div { display: grid; gap: 2px; }
+.room-live strong { font-size: 12px; }
+.room-live small { font-size: 9px; color: var(--muted); }
+.control-room .room-live button { min-height: 38px; padding: 8px 12px; font-size: 13px; }
+.room-dot {
+  display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--good); box-shadow: 0 0 0 4px var(--good-soft);
+}
+.room-dot[data-tone="danger"] { background: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
+.room-command, .room-collection {
+  display: flex; align-items: center; justify-content: space-between;
+  border: 1px solid var(--line); background: #fff; border-radius: 11px;
+}
+.room-command { gap: 18px; padding: 16px; border-left-width: 4px; }
+.room-command[data-tone="success"] { border-left-color: var(--good); }
+.room-command[data-tone="warning"] { border-left-color: var(--warn); }
+.room-command[data-tone="danger"] { border-left-color: var(--danger); }
+.control-room .room-eyebrow {
+  display: block; margin: 0 0 4px; color: var(--muted); font-size: 10px;
+  letter-spacing: .11em; font-weight: 600;
+}
+.room-command-title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.room-command h2, .room-section-head h2, .room-workspace-heading h2 {
+  font-size: 19px; line-height: 1.3; letter-spacing: 0;
+}
+.room-command h2, .room-section-head h2, .room-workspace-heading h2 { margin: 0; }
+.room-command > div > p:last-child { margin: 5px 0 0; color: var(--muted); line-height: 1.45; }
+.room-command-seal {
+  display: grid; flex: 0 0 auto; gap: 2px; min-width: 165px; padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+.room-command-seal span, .room-command-seal small { color: var(--muted); font-size: 10px; }
+.room-command-seal strong { font-size: 16px; }
+.room-collection { gap: 14px; margin-top: 10px; padding: 10px 12px; }
+.room-collection-title { display: flex; align-items: center; gap: 12px; flex: 1.25; }
+.room-collection-title > div { display: grid; gap: 3px; }
+.room-collection-title small { font-size: 8px; letter-spacing: .12em; }
+.room-collection-title strong { font-size: 12px; }
+.room-collection-facts { display: grid; grid-template-columns: 1.3fr 1.3fr 1fr 1fr; flex: 3; gap: 6px; }
+.room-collection-facts > div { display: grid; gap: 3px; padding-left: 12px; border-left: 1px solid var(--line); }
+.room-collection-facts span { font-size: 9px; color: var(--muted); }
+.room-collection-facts strong { font: 650 10px/1.5 ui-monospace, Consolas, monospace; }
+.room-metric-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.room-metric-card { display: grid; border: 1px solid var(--line); background: #fff; border-radius: 11px; padding: 14px; }
+.room-metric-card > span, .room-metric-card > small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.room-metric-card > strong { margin: 4px 0 3px; font: 800 26px/1.1 ui-monospace, Consolas, monospace; }
+.room-dashboard { display: grid; grid-template-columns: 248px minmax(0, 1fr); align-items: start; gap: 14px; margin-top: 22px; }
+.control-room .manager-unit-rail {
+  display: block; position: sticky; top: 16px; min-width: 0; padding: 12px;
+  border: 1px solid var(--line); border-radius: 11px; background: #fff;
+}
+.control-room .manager-rail-heading { padding: 3px 5px 10px; margin: 0; border-bottom: 1px solid var(--line); }
+.control-room .manager-rail-heading strong { font-size: 15px; }
+.control-room .manager-rail-heading > span { color: var(--muted); font-size: 11px; }
+.control-room .manager-overview-switch, .control-room .manager-machine-nav-item {
+  display: grid; grid-template-columns: 35px minmax(0, 1fr) auto; align-items: center;
+  width: 100%; gap: 8px; min-height: 0; margin: 0; padding: 8px 7px;
+  text-align: left; border: 1px solid transparent; border-radius: 8px; background: transparent;
+}
+.control-room .manager-overview-switch.active, .control-room .manager-machine-nav-item.active {
+  color: var(--ink); background: var(--blue-soft); border-color: var(--blue);
+}
+.control-room .manager-overview-switch { margin-top: 8px; }
+.control-room .manager-rail-avatar {
+  display: grid; place-items: center; width: 33px; height: 33px; border-radius: 8px;
+  background: #ebeff6; color: var(--ink); font: 800 10px ui-monospace, Consolas, monospace;
+}
+.control-room .manager-rail-avatar-all { color: #fff; background: var(--blue); }
+.control-room .manager-rail-avatar[data-tone="success"] { color: var(--good); background: var(--good-soft); }
+.control-room .manager-rail-avatar[data-tone="warning"] { color: var(--warn); background: var(--warn-soft); }
+.control-room .manager-rail-avatar[data-tone="danger"] { color: var(--danger); background: var(--danger-soft); }
+.control-room .manager-rail-copy strong, .control-room .manager-overview-switch strong { font-size: 12px; }
+.control-room .manager-rail-copy small, .control-room .manager-overview-switch small { font-size: 10px; }
+.control-room .manager-machine-nav { display: grid; gap: 4px; margin: 0; }
+.room-sidebar-caption { margin: 0; padding: 14px 5px 6px; color: var(--muted); font-size: 11px; }
+.room-sidebar-note { background: var(--paper); color: var(--muted); border-radius: 7px; margin: 12px 3px 2px; padding: 8px; font-size: 10px; }
+.control-room .nav-list { display: grid; gap: 4px; }
+.control-room .nav-item {
+  display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; min-height: 34px;
+  padding: 5px 8px; border: 1px solid transparent; border-radius: 8px; font-size: 12px;
+}
+.control-room .nav-item.active { color: var(--blue); background: var(--blue-soft); }
+.control-room .nav-item > span:not(.nav-icon) { display: inline; }
+.control-room .nav-badge { font-size: 9px; padding: 2px 6px; min-width: 20px; }
+.control-room .room-dashboard > .main {
+  max-width: none; width: 100%; min-width: 0; margin: 0; padding: 0;
+  border: 0; border-radius: 0; background: transparent; overflow: visible;
+}
+.control-room .workspace-view:not(#accounts) { padding-top: 0; }
+.room-workspace-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+.room-workspace-heading > div > p:last-child { color: var(--muted); margin: 5px 0 0; font-size: 12px; }
+.room-workspace-heading h1 { margin: 0; font-size: 21px; line-height: 1.3; }
+.room-overview-details {
+  margin-top: 14px; padding: 0 16px; border: 1px solid var(--line);
+  border-radius: 11px; background: #fff;
+}
+.room-overview-details > summary, .room-progress-filter-toggle > summary {
+  padding: 12px 0; cursor: pointer; color: var(--ink); font-size: 12px; font-weight: 650;
+}
+.room-overview-details[open] { padding-bottom: 16px; }
+.room-progress-filter-toggle { margin-top: 10px; border-top: 1px solid var(--line); }
+.control-room .room-progress-filter-toggle .manager-progress-filters { margin-top: 0; }
+.control-room #manager-progress .room-section-head h2 { font-size: 16px; }
+.control-room #manager-publish-review-panel { margin-top: 14px; }
+.control-room #overview .manager-cluster { display: block; margin: 0; padding: 0; }
+.room-overview-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 14px; }
+.room-overview-summary > div { display: grid; gap: 2px; border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 11px 12px; }
+.room-overview-summary span, .room-overview-summary small { color: var(--muted); font-size: 11px; }
+.room-overview-summary strong { font-size: 24px; line-height: 1.15; }
+.room-section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.room-section-head > div { display: grid; gap: 3px; }
+.room-section-head strong { font-size: 16px; }
+.room-section-head span, .room-section-head > a { color: var(--muted); font-size: 11px; }
+.room-section-head > a { color: var(--blue); white-space: nowrap; }
+.room-machine-entry { display: block; border: 1px dashed var(--blue); border-radius: 9px; background: var(--blue-soft); color: var(--blue); margin-bottom: 12px; padding: 10px 12px; font-size: 11px; font-weight: 700; }
+.room-node-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.room-node-card {
+  display: block; min-width: 0; min-height: 246px; padding: 14px; cursor: pointer;
+  border: 1px solid var(--line); border-top-width: 3px; border-radius: 11px; background: #fff; text-align: left;
+}
+.room-node-card[data-tone="success"] { border-top-color: var(--good); }
+.room-node-card[data-tone="warning"] { border-top-color: var(--warn); }
+.room-node-card[data-tone="danger"] { border-top-color: var(--danger); }
+.room-node-card:hover { border-color: var(--blue); }
+.room-node-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.room-node-head > div { min-width: 0; }
+.room-node-head small { color: var(--muted); font-size: 9px; letter-spacing: .08em; }
+.room-node-head h3 { margin: 4px 0 0; font: 800 17px/1 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.room-node-card dl { margin: 17px 0 10px; }
+.room-node-card dl > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); margin-top: 6px; font-size: 10px; }
+.room-node-card dt { color: var(--muted); }
+.room-node-card dd { margin: 0; overflow-wrap: anywhere; }
+.room-node-account { display: grid; gap: 3px; border-top: 1px solid var(--line); margin-top: 12px; padding-top: 9px; }
+.room-node-account span { color: var(--muted); font-size: 10px; }
+.room-node-account strong { overflow-wrap: anywhere; font: 600 10px/1.4 ui-monospace, Consolas, monospace; }
+.room-node-updated { display: block; color: var(--muted); margin-top: 14px; font-size: 9px; }
+.room-panel { min-width: 0; border: 1px solid var(--line); background: #fff; border-radius: 11px; padding: 16px; }
+.room-daily-report { margin-top: 14px; }
+.room-daily-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin-top: 12px; }
+.room-daily-summary > div, .room-result-grid > div { display: grid; gap: 2px; background: var(--paper); border-radius: 8px; padding: 9px 10px; }
+.room-daily-summary span, .room-result-grid span { color: var(--muted); font-size: 9px; }
+.room-daily-summary strong, .room-result-grid strong { font-size: 19px; }
+.room-footnote { margin: 7px 0 0; color: var(--muted); font-size: 10px; }
+.room-lower-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 14px; margin-top: 14px; }
+.room-result-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.control-room #overview .manager-overview-list { display: grid; gap: 8px; }
+.control-room #overview .manager-overview-list > article { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.control-room #overview .manager-overview-list p { margin: 5px 0; color: var(--muted); font-size: 11px; }
+.control-room #overview .manager-record-copy strong { font-size: 12px; }
+.control-room #overview .manager-record-copy small { font-size: 10px; }
+.control-room #overview .manager-record-facts > div { padding: 6px; }
+.control-room #overview .manager-record-facts dt { font-size: 9px; }
+.control-room #overview .manager-record-facts dd { font-size: 11px; }
+.control-room .manager-state-badge { padding: 4px 8px; min-height: 0; font-size: 10px; font-weight: 750; }
+.control-room .manager-machine-nav-item .manager-state-badge { padding: 3px 6px; font-size: 9px; }
+.control-room .workspace-view:not(#accounts) .subpage-panel { border-radius: 11px; padding: 16px; box-shadow: none; }
+.control-room .workspace-view:not(#accounts) .page-topbar { min-height: 0; margin: 0 0 14px; padding: 0; }
+.control-room .workspace-view:not(#accounts) .page-topbar h1 { font-size: 19px; }
+.control-room .workspace-view:not(#accounts) .page-topbar p { margin: 5px 0 0; font-size: 12px; }
+.control-room .workspace-view:not(#accounts) .lane-heading { margin-bottom: 12px; }
+.control-room .workspace-view:not(#accounts) .lane-heading h2 { font-size: 16px; }
+.control-room .workspace-view:not(#accounts) .record-list { max-height: none; }
+.control-room .workspace-view:not(#accounts) .empty-card {
+  grid-column: 1 / -1; min-height: 70px; padding: 16px; background: var(--paper);
+  border: 1px dashed var(--line); border-radius: 8px; text-align: left;
+}
+.control-room .workspace-view:not(#accounts) .empty-card strong { font-size: 12px; }
+.control-room .workspace-view:not(#accounts) .empty-card span { font-size: 11px; }
+.control-room .manager-dashboard-layout { display: block; margin: 0; }
+.control-room #workers:has(.manager-machine-detail:not([hidden])) > .page-topbar { display: none; }
+.control-room .manager-machine-detail > .manager-stage-heading { margin: 0 0 14px; padding: 0; }
+.control-room .manager-machine-detail > .manager-stage-heading h2 { margin: 2px 0; font-size: 19px; }
+.control-room .manager-detail-panel { border-radius: 11px; padding: 16px; background: #fff; }
+.control-room .manager-detail-hero { border-radius: 11px; }
+.control-room .manager-detail-progress { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.control-room .manager-detail-progress article { padding: 10px; border-radius: 8px; }
+.control-room .manager-detail-progress strong { font-size: 22px; }
+.control-room .manager-detail-progress span { font-size: 11px; }
+.control-room .manager-result-columns, .control-room .manager-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.control-room .manager-result-workspace, .control-room .manager-system {
+  margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent;
+}
+.control-room .manager-system .subpage-panel { margin-top: 0; }
+.control-room .manager-settings-machine {
+  display: grid; gap: 12px; padding: 14px; min-width: 0;
+  border: 1px solid var(--line); border-radius: 9px; background: #fff;
+}
+.control-room .manager-system > .subpage-panel,
+.control-room .manager-system > .manager-package-layout { margin-top: 14px; }
+.control-room .workspace-view:not(#accounts) .page-topbar { border: 0; }
+.control-room .manager-progress-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.room-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--line); margin-top: 22px; padding-top: 10px; color: var(--muted); font-size: 10px; }
+.room-footer .action-message { margin: 0; font-size: 10px; }
+.control-room #accounts {
+  --ink: #202124; --muted: #73757d; --line: #e9e9ec; --accent: #5d5fef;
+  --accent-soft: #ededff; --good: #20a66a; --good-soft: #eaf8f1;
+  --warn: #c67a20; --warn-soft: #fff5e7; --danger: #e34d59; --danger-soft: #fff0f1;
+  --blue: #3b75d9; --blue-soft: #edf4ff; --shadow: 0 10px 32px rgba(28, 31, 37, .055);
+  font-family: "Aptos", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+.control-room #accounts .manager-state-badge { padding: 5px 9px; font-size: 10px; }
+@media (max-width: 1180px) {
+  .room-dashboard { grid-template-columns: 210px minmax(0, 1fr); }
+  .room-node-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .room-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .room-collection-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .room-dashboard { grid-template-columns: minmax(0, 1fr); }
+  .control-room .manager-unit-rail { position: static; }
+  .control-room .manager-machine-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .room-lower-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .app-shell.manager-app-shell.control-room { padding: 16px; }
+  .control-room .room-masthead { flex-direction: column; gap: 14px; }
+  .room-brand-copy strong { font-size: 24px; }
+  .room-live { width: 100%; }
+  .room-live > div { flex: 1; }
+  .room-command, .room-collection { flex-direction: column; align-items: stretch; }
+  .room-command-seal { border-left: 0; border-top: 1px solid var(--line); padding: 10px 0 0; }
+  .room-collection-facts { gap: 10px; }
+  .room-collection-facts > div { padding-left: 0; border-left: 0; }
+  .room-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .room-metric-card { padding: 10px; }
+  .room-metric-card > span, .room-metric-card > small { font-size: 10px; }
+  .room-overview-summary, .room-daily-summary, .room-result-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .room-node-grid, .control-room .manager-machine-nav { grid-template-columns: minmax(0, 1fr); }
+  .room-node-card { min-height: 0; }
+  .room-section-head { align-items: flex-start; }
+  .control-room .manager-detail-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .control-room .manager-result-columns, .control-room .manager-settings-grid,
+  .control-room .manager-progress-filters { grid-template-columns: minmax(0, 1fr); }
+}

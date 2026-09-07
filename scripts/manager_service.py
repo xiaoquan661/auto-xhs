@@ -372,6 +372,7 @@ class ManagerService:
             "goals": goals_payload["goals"],
             "operation_tasks": operation_tasks_payload["operation_tasks"],
             "agent_messages": messages_payload["agent_messages"],
+            "versions": self.store.list("versions"),
             "data_sources": [
                 data_source("health_accounts", "机器与账号缓存"),
                 data_source("results", "员工机结果回收"),
@@ -463,7 +464,6 @@ class ManagerService:
                 item
                 for item in self.store.list("personas")
                 if item.get("account_key") == account_key
-                and item.get("status") == "ACTIVE"
                 and item.get("persona_id") != persona_id
             ),
             None,
@@ -471,7 +471,7 @@ class ManagerService:
         if conflicting is not None:
             raise ServiceError(
                 "PERSONA_BINDING_EXISTS",
-                "该账号已经绑定启用中的人设卡，请更新现有人设卡",
+                "该账号已经绑定人设卡，请更新现有人设卡",
                 409,
             )
 
@@ -3621,7 +3621,9 @@ class ManagerService:
 
     @classmethod
     def _normalize_persona_request(cls, request: dict) -> dict:
-        machine_id = str(request.get("machine_id") or "LOCAL").strip().upper()
+        machine_id = str(request.get("machine_id") or "").strip().upper()
+        if machine_id in {"", "LOCAL", "MANAGER"}:
+            raise ServiceError("INVALID_PERSONA", "人设卡必须绑定员工机账号，请提供员工机编号")
         account_slot = str(request.get("account_slot") or "").strip()
         if not account_slot:
             raise ServiceError("INVALID_PERSONA", "人设卡必须绑定账号槽位")

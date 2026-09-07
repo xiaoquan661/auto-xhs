@@ -10,14 +10,13 @@ def _source(name: str) -> str:
     return (WEBUI / name).read_text(encoding="utf-8")
 
 
-def test_manager_console_exposes_seven_product_views() -> None:
+def test_manager_console_exposes_six_product_views() -> None:
     html = _source("index.html")
 
     for view, label in (
         ("overview", "运营总览"),
-        ("operations", "运营任务"),
         ("workers", "员工机"),
-        ("accounts", "账号与人设"),
+        ("accounts", "账号设置"),
         ("results", "数据回收"),
         ("exceptions", "异常中心"),
         ("settings", "系统设置"),
@@ -30,19 +29,26 @@ def test_manager_console_exposes_seven_product_views() -> None:
     assert 'src="/manager-console.js' in html
     assert 'href="/workspace.css' in html
     assert 'src="/overview.js' not in html
+    overview = html.split('id="overview"', 1)[1].split('id="workers"', 1)[0]
+    assert 'id="manager-progress"' in overview
+    assert 'id="manager-goals-panel"' in overview
+    assert 'id="manager-executions-panel"' in overview
+    assert 'data-manager-view="operations"' not in html
+    assert 'data-manager-view-link="operations"' not in html
 
 
-def test_manager_overview_separates_cluster_metrics_and_current_work() -> None:
+def test_manager_overview_displays_fleet_results_and_attention() -> None:
     html = _source("index.html")
 
     for marker in (
-        'id="manager-machine-total"',
-        'id="manager-ready-total"',
+        'id="manager-online-total"',
+        'id="manager-healthy-total"',
         'id="manager-account-total"',
-        'id="manager-active-task-total"',
-        'id="manager-result-total"',
+        'id="manager-completed-goal-total"',
+        'id="manager-overview-result-total"',
         'id="manager-exception-total"',
-        'id="manager-task-list"',
+        'id="manager-overview-results"',
+        'id="manager-overview-alerts"',
         'id="manager-machine-list"',
     ):
         assert marker in html
@@ -53,9 +59,9 @@ def test_manager_account_directory_is_grouped_by_machine_and_slot() -> None:
     script = _source("manager-console.js")
 
     assert 'data-manager-account-node="all"' in html
-    assert 'data-manager-account-node="manager"' in html
+    assert 'data-manager-account-node="manager"' not in html
     assert 'id="manager-account-node-list"' in html
-    assert 'id="manager-local-account-grid"' in html
+    assert 'id="manager-local-account-grid"' not in html
     assert 'id="manager-remote-account-grid"' in html
     assert 'id="manager-account-filter-status"' in html
     assert 'id="manager-account-filter-persona"' in html
@@ -78,7 +84,7 @@ def test_remote_account_recovery_actions_keep_machine_and_slot_context() -> None
     assert '"profile-start": "profile/start"' in script
     assert '"bridge-restart": "bridge/restart"' in script
     assert '"identity-check": "identity/check"' in script
-    assert "compactAccountCard(account, false)" in script
+    assert "card.appendChild(accountPersonaPanel(account))" in script
 
 
 def test_account_management_and_field_requests_are_manager_owned() -> None:
@@ -97,17 +103,17 @@ def test_account_management_and_field_requests_are_manager_owned() -> None:
     assert "request_type: requestType" in script
 
 
-def test_personas_are_edited_centrally_and_bound_to_machine_account() -> None:
+def test_personas_are_displayed_with_their_worker_account() -> None:
     html = _source("index.html")
     script = _source("manager-console.js")
 
-    assert 'id="manager-persona-form"' in html
-    assert 'id="manager-persona-machine"' in html
-    assert 'id="manager-persona-account"' in html
-    assert 'id="manager-persona-list"' in html
-    assert "function renderPersonas()" in script
-    assert "manager-persona-machine" in script
-    assert "manager-persona-account" in script
+    assert 'id="manager-persona-form"' not in html
+    assert 'id="manager-persona-machine"' not in html
+    assert "function accountPersonaPanel(account)" in script
+    assert "card.appendChild(accountPersonaPanel(account))" in script
+    assert "function submitPersona(" not in script
+    assert "item.account_slot === account.account_slot" in script
+    assert "item.machine_id === account.machine_id" in script
 
 
 def test_operation_tasks_have_filters_detail_and_agent_timeline() -> None:
@@ -115,7 +121,9 @@ def test_operation_tasks_have_filters_detail_and_agent_timeline() -> None:
     script = _source("manager-console.js")
 
     for marker in (
-        'id="manager-operation-form"',
+        'id="manager-goals-panel"',
+        'id="manager-executions-panel"',
+        'id="manager-goal-detail-dialog"',
         'id="manager-operation-filter-state"',
         'id="manager-operation-filter-machine"',
         'id="manager-operation-filter-account"',
@@ -131,6 +139,12 @@ def test_operation_tasks_have_filters_detail_and_agent_timeline() -> None:
     assert "progressStageLabels" in script
     assert 'stage === "comment_generated"' in script
     assert "manager-timeline-metric" in script
+    assert 'id="manager-goal-form"' not in html
+    assert 'id="manager-operation-form"' not in html
+    assert 'id="manager-task-list"' not in html
+    assert 'id="manager-active-task-total"' not in html
+    assert "function submitGoal(" not in script
+    assert "function submitOperationTask(" not in script
 
 
 def test_results_keep_current_incremental_and_audit_views_separate() -> None:
@@ -150,7 +164,7 @@ def test_manager_console_uses_cached_snapshot_and_serial_refresh() -> None:
     assert "const DASHBOARD_REFRESH_INTERVAL_MS = 30_000" in script
     assert "const TASK_REFRESH_INTERVAL_MS = 5_000" in script
     assert "fetchJson(`${managerApi}/dashboard-snapshot`)" in script
-    assert "fetchJson(`${api}/accounts`)" in script
+    assert "fetchJson(`${api}/accounts`)" not in script
     assert "Promise.allSettled" in script
     assert "if (refreshPromise) return refreshPromise" in script
     assert "setInterval(" not in script
@@ -179,37 +193,44 @@ def test_manager_console_applies_card_and_control_styles_to_new_forms() -> None:
     html = _source("index.html")
     stylesheet = _source("workspace.css")
 
-    assert "20260904-manager-console-3" in html
+    assert "20260907-unified-overview-1" in html
     assert ".manager-app-shell .subpage-panel" in stylesheet
     assert '.manager-app-shell input:not([type="checkbox"]):not([type="radio"])' in stylesheet
     assert ".manager-app-shell textarea" in stylesheet
-    assert 'class="manager-confirm-check"><input id="manager-version-stable"' in html
 
 
-def test_manager_console_uses_responsive_top_navigation() -> None:
+def test_manager_console_uses_control_room_navigation() -> None:
     html = _source("index.html")
-    stylesheet = _source("workspace.css")
+    stylesheet = _source("control-room.css")
 
-    assert '<header class="sidebar manager-top-navigation"' in html
-    assert ".manager-app-shell > .manager-top-navigation" in stylesheet
-    assert "grid-template-columns: auto minmax(0, 1fr) auto" in stylesheet
-    assert ".manager-app-shell .manager-top-navigation .nav-list" in stylesheet
-    assert "@media (max-width: 720px)" in stylesheet
-    assert "min-height: 104px" in stylesheet
+    assert 'href="/control-room.css' in html
+    assert '<header class="room-masthead"' in html
+    assert 'class="room-dashboard"' in html
+    assert html.count('id="manager-machine-nav"') == 1
+    assert "grid-template-columns: 248px minmax(0, 1fr)" in stylesheet
+    assert "@media (max-width: 900px)" in stylesheet
+    assert "@media (max-width: 600px)" in stylesheet
 
 
-def test_system_settings_include_runtime_model_and_diagnostics() -> None:
+def test_system_settings_display_agent_managed_configuration() -> None:
     html = _source("index.html")
     script = _source("manager-console.js")
 
-    assert 'id="manager-runtime-settings-form"' in html
-    assert 'id="manager-reply-model-form"' in html
-    assert 'id="manager-reply-model-api-key"' in html
-    assert 'id="manager-export-diagnostics"' in html
-    assert "`${api}/system/settings`" in script
-    assert "`${api}/reply-intelligence/settings`" in script
-    assert "`${api}/reply-intelligence/test`" in script
-    assert "`${api}/diagnostics/export`" in script
+    settings = html.split('id="settings"', 1)[1].split("</main>", 1)[0]
+    for tag in ("<form", "<input", "<select", "<textarea", "<button"):
+        assert tag not in settings
+    assert 'id="manager-setting-concurrency"' in settings
+    assert 'id="manager-system-pause-state"' in settings
+    assert 'id="manager-settings-machines"' in settings
+    assert 'id="manager-transfer-list"' in settings
+    assert 'id="manager-version-list"' in settings
+    assert "经理 Agent 在对话中管理" in settings
+    assert "reply-intelligence" not in script
+    assert "submitRuntimeSettings" not in script
+    assert "submitMachine" not in script
+    assert "submitTransfer" not in script
+    assert "submitVersionPolicy" not in script
+    assert 'fetchJson(`${api}/system/status`)' in script
 
 
 def test_api_client_errors_keep_the_server_payload_for_business_readback() -> None:

@@ -581,6 +581,8 @@ def test_sync_status_is_saved_by_cycle_kind(tmp_path: Path) -> None:
 def test_dashboard_snapshot_aggregates_manager_cache_without_transport(tmp_path: Path) -> None:
     manager, transport = service(tmp_path)
     manager.register_machine(machine_values())
+    version = {"machine_id": "PC001", "function_id": "BROWSE-01", "version": "1.0"}
+    manager.store.put("versions", "PC001:BROWSE-01:1.0", version)
     manager.record_sync_status(
         "health_accounts",
         {"status": "SUCCESS", "completed_at": "2026-09-04T00:00:00+00:00"},
@@ -599,6 +601,7 @@ def test_dashboard_snapshot_aggregates_manager_cache_without_transport(tmp_path:
     assert snapshot["data_sources"][0]["updated_at"]
     assert snapshot["agent_messages"] == []
     assert snapshot["result_history"] == []
+    assert snapshot["versions"] == [version]
     assert transport.calls == []
 
 
@@ -1511,6 +1514,28 @@ def test_persona_cannot_move_onto_another_active_account_binding(tmp_path: Path)
         )
 
     assert captured.value.code == "PERSONA_BINDING_EXISTS"
+
+
+def test_persona_revision_reuses_the_inactive_account_record(tmp_path: Path) -> None:
+    manager, _transport = service(tmp_path)
+    first = manager.save_persona({**persona_request(), "status": "INACTIVE"})["persona"]
+
+    with pytest.raises(ServiceError) as captured:
+        manager.save_persona({**persona_request(), "persona_id": "PERSONA-SECOND"})
+
+    assert captured.value.code == "PERSONA_BINDING_EXISTS"
+    revised = manager.save_persona({**persona_request(), "tone": "自然简洁"})["persona"]
+    assert revised["persona_id"] == first["persona_id"]
+    assert revised["version"] == first["version"] + 1
+    assert len(manager.list_personas()["personas"]) == 1
+
+
+@pytest.mark.parametrize("machine_id", ["", "LOCAL", "MANAGER"])
+def test_persona_requires_a_worker_machine(tmp_path: Path, machine_id: str) -> None:
+    manager, _transport = service(tmp_path)
+    with pytest.raises(ServiceError) as captured:
+        manager.save_persona({**persona_request(), "machine_id": machine_id})
+    assert captured.value.code == "INVALID_PERSONA"
 
 
 def test_agent_schedule_is_idempotent_and_tracks_terminal_task(tmp_path: Path) -> None:
