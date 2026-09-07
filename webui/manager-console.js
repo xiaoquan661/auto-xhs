@@ -38,6 +38,8 @@
   const expandedWorkerDays = new Set();
   let editingPersona = null;
   let planning = null;
+  let employeePanel = null;
+  let selectedEmployeeMachine = localStorage.getItem("auto-xhs:employee-unit") || "";
   let accountTools = null;
   let selectedMachineId = localStorage.getItem("auto-xhs:manager-machine") || "";
   let selectedAccountNode = localStorage.getItem("auto-xhs:manager-account-node") || "all";
@@ -362,24 +364,25 @@
 
   function machineAvatar(machine) {
     const label = String(machine.host_alias || machine.machine_id || "EX").trim();
-    return label.length > 3 ? label.slice(-2).toUpperCase() : label.toUpperCase();
+    return label.replace(/^PC/i, "").slice(-3).toUpperCase();
   }
 
   function machineNavButton(machine) {
     const button = element("button", "manager-machine-nav-item");
     button.type = "button";
-    button.dataset.managerMachineSelect = machine.machine_id;
-    const active = selectedView === "workers" && selectedMachineId === machine.machine_id;
+    button.dataset.employeeMachineSelect = machine.machine_id;
+    const active = selectedView === "employee-units" && selectedEmployeeMachine === machine.machine_id;
     button.setAttribute("aria-pressed", String(active));
     if (active) button.classList.add("active");
 
     const avatar = element("span", "manager-rail-avatar", machineAvatar(machine));
     avatar.dataset.tone = toneFor(machine.status);
     const copy = element("span", "manager-rail-copy");
+    const account = state.accounts.find((item) => item.machine_id === machine.machine_id);
     append(
       copy,
       element("strong", "", machine.host_alias || machine.machine_id),
-      element("small", "", machine.ssh_host || machine.machine_id),
+      element("small", "", `${account?.nickname || "账号未填写"} · ${machine.machine_id}`),
     );
     const alertState = highestAlertState(machine.machine_id);
     const tail = element("span", "manager-node-state");
@@ -406,7 +409,8 @@
     }
     setText("#manager-rail-total", `${state.machines.length} 个`);
     setText("#manager-overview-count", state.machines.length);
-    const overviewActive = selectedView === "overview";
+    $(".control-room").dataset.machineScope = selectedMachineId ? "single" : "all";
+    const overviewActive = selectedView === "employee-units" && !selectedEmployeeMachine;
     overviewSwitch.classList.toggle("active", overviewActive);
     overviewSwitch.setAttribute("aria-pressed", String(overviewActive));
     nav.replaceChildren(...state.machines.map(machineNavButton));
@@ -957,6 +961,11 @@
     overview.hidden = Boolean(machine);
     detail.hidden = !machine;
     if (machine) renderMachineDetail(machine);
+    else {
+      const cards = state.machines.map(machineThumbnailCard);
+      $("#manager-all-machine-list").replaceChildren(...(cards.length ? cards
+        : [emptyCard("等待员工机同步", "已登记的员工机及账号状态会显示在这里。")]));
+    }
   }
 
   function selectMachine(machineId) {
@@ -967,7 +976,16 @@
     localStorage.setItem("auto-xhs:manager-machine", selectedMachineId);
     renderMachineNavigation();
     renderMachineStage();
-    selectManagerView(selectedMachineId ? "workers" : "overview");
+    selectManagerView("workers");
+    viewScrollPositions.set("workers", 0);
+  }
+
+  function selectEmployeeMachine(machineId) {
+    selectedEmployeeMachine = state.machines.some((machine) => machine.machine_id === machineId)
+      ? machineId : "";
+    localStorage.setItem("auto-xhs:employee-unit", selectedEmployeeMachine);
+    selectManagerView("employee-units");
+    viewScrollPositions.set("employee-units", 0);
   }
 
   function accountsForSelectedNode() {
@@ -1698,9 +1716,6 @@
   function renderMachines() {
     const list = $("#manager-machine-list");
     if (!list) return;
-    if (selectedView === "workers" && !selectedMachineId && state.machines.length) {
-      selectedMachineId = state.machines[0].machine_id;
-    }
     setText("#node-total", state.machines.length);
     populateMachineSelects();
     renderMachineNavigation();
@@ -1709,34 +1724,41 @@
       ? (attention ? `${attention} 台机器需要关注` : "员工机状态正常") : "等待员工机同步");
     const badge = $("#manager-attention-badge");
     if (badge) badge.dataset.tone = attention || !state.machines.length ? "warning" : "success";
-    const cards = state.machines.map((machine) => {
-      const accounts = state.accounts.filter((account) => account.machine_id === machine.machine_id);
-      const card = element("button", "room-node-card");
-      card.type = "button";
-      card.dataset.managerMachineSelect = machine.machine_id;
-      card.dataset.tone = toneFor(machine.status);
-      card.setAttribute("aria-label", `查看 ${machine.host_alias || machine.machine_id} 员工机详情`);
-      const head = append(element("div", "room-node-head"),
-        append(element("div"), element("small", "", `员工机 · ${machine.machine_id}`),
-          element("h3", "", machine.host_alias || machine.machine_id)), stateBadge(machine.status));
-      const facts = element("dl");
-      [["物理资产", machine.machine_id], ["执行单元", `${accounts.length} 个账号`],
-        ["连接状态", labelFor(machine.ssh_state || "UNKNOWN")],
-        ["运行状态", labelFor(machine.status)], ["项目版本", machine.installed_version || "待同步"]]
-        .forEach(([name, value]) => facts.appendChild(append(element("div"),
-          element("dt", "", name), element("dd", "", value))));
-      append(card, head, facts);
-      accounts.forEach((account) => card.appendChild(append(element("div", "room-node-account"),
-        element("span", "", account.nickname || account.account_slot),
-        element("strong", "", `${account.account_slot} · ${account.current_uid || account.uid || "身份待同步"}`))));
-      if (!accounts.length) card.appendChild(element("p", "room-footnote", "等待账号绑定回执"));
-      card.appendChild(element("small", "room-node-updated",
-        `最近更新 ${formatTime(machine.outbox_collection?.observed_at || machine.updated_at)}`));
-      return card;
-    });
+    const cards = state.machines.map(machineThumbnailCard);
     list.replaceChildren(...(cards.length ? cards
       : [emptyCard("等待员工机同步", "已登记的员工机及账号状态会显示在这里。")]));
     renderMachineStage();
+  }
+
+  function machineThumbnailCard(machine) {
+    const accounts = state.accounts.filter((account) => account.machine_id === machine.machine_id);
+    const card = element("button", "room-node-card");
+    card.type = "button";
+    card.dataset.managerMachineSelect = machine.machine_id;
+    card.dataset.tone = toneFor(machine.status);
+    card.setAttribute("aria-label", `查看 ${machine.host_alias || machine.machine_id} 员工机详情`);
+    const head = append(element("div", "room-node-head"),
+      append(element("div"), element("small", "", `员工机 · ${machine.machine_id}`),
+        element("h3", "", machine.host_alias || machine.machine_id)), stateBadge(machine.status));
+    const personas = [...new Set(accounts.map((account) => {
+      const persona = accountPersona(account);
+      return persona?.display_name || persona?.persona_id;
+    }).filter(Boolean))];
+    const facts = element("dl");
+    [["物理资产", machine.machine_id], ["执行单元", `${accounts.length} 个账号`],
+      ["账号人设", personas.join("、") || "待配置"],
+      ["连接状态", labelFor(machine.ssh_state || "UNKNOWN")],
+      ["运行状态", labelFor(machine.status)], ["项目版本", machine.installed_version || "待同步"]]
+      .forEach(([name, value]) => facts.appendChild(append(element("div"),
+        element("dt", "", name), element("dd", "", value))));
+    append(card, head, facts);
+    accounts.forEach((account) => card.appendChild(append(element("div", "room-node-account"),
+      element("span", "", account.nickname || account.account_slot),
+      element("strong", "", `${account.account_slot} · ${account.current_uid || account.uid || "身份待同步"}`))));
+    if (!accounts.length) card.appendChild(element("p", "room-footnote", "等待账号绑定回执"));
+    card.appendChild(element("small", "room-node-updated",
+      `最近更新 ${formatTime(machine.outbox_collection?.observed_at || machine.updated_at)}`));
+    return card;
   }
 
   function renderOverviewSummary() {
@@ -2700,6 +2722,7 @@
 
   function renderAll() {
     planning?.render();
+    employeePanel?.render(selectedEmployeeMachine);
     renderMachines();
     renderPublishReviews();
     renderAccountWorkspace();
@@ -2769,6 +2792,7 @@
   function selectManagerView(viewId, updateHash = true) {
     const allowed = new Set([
       "overview",
+      "employee-units",
       "planning",
       "workers",
       "accounts",
@@ -2780,12 +2804,9 @@
     viewScrollPositions.set(selectedView, window.scrollY);
     selectedView = next;
     $(".control-room").dataset.currentView = next;
-    if (next === "workers" && !selectedMachineId && state.machines.length) {
-      selectedMachineId = state.machines[0].machine_id;
-      localStorage.setItem("auto-xhs:manager-machine", selectedMachineId);
-    }
     renderMachineNavigation();
     if (next === "workers") renderMachineStage();
+    if (next === "employee-units") employeePanel?.render(selectedEmployeeMachine);
     localStorage.setItem(VIEW_STORAGE_KEY, next);
     document.querySelectorAll("[data-manager-view]").forEach((view) => {
       const active = view.dataset.managerView === next;
@@ -3180,6 +3201,10 @@
       workerDayMetrics, metricLabels, formatTime});
     planning.init();
     accountTools = window.AutoXhsAccountTools({state, mutateJson, fetchJson, managerApi, load});
+    employeePanel = window.AutoXhsEmployeePanel({state, workerDayMetrics, nextWorkerPlan,
+      localDateValue, resultDate, resultAccount, resultLinks, resultActionKind, resultCapability, workerTaskDate,
+      accountPersona, labelFor, operationalExceptions});
+    employeePanel.init();
     $("#manager-account-add").addEventListener("click", () => accountTools.open("create"));
     $("#manager-persona-editor-form").addEventListener("submit", savePersonaEditor);
     $("#manager-persona-editor-close").addEventListener("click", () => {
@@ -3296,6 +3321,11 @@
       selectManagerView(window.location.hash.slice(1), false);
     });
     document.addEventListener("click", (event) => {
+      const employeeSelection = event.target.closest("[data-employee-machine-select]");
+      if (employeeSelection) {
+        selectEmployeeMachine(employeeSelection.dataset.employeeMachineSelect);
+        return;
+      }
       const publishReview = event.target.closest("[data-manager-publish-review]");
       if (publishReview) {
         openPublishDialog(publishReview.dataset.managerPublishReview);

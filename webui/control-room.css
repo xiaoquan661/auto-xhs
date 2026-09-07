@@ -344,9 +344,45 @@ body { background: #f5f7fb; }
   font-family: "Aptos", "Microsoft YaHei UI", "PingFang SC", sans-serif;
 }
 .control-room #accounts .manager-state-badge { padding: 5px 9px; font-size: 10px; }
+.control-room[data-current-view="workers"][data-machine-scope="all"] > .room-command,
+.control-room[data-current-view="workers"][data-machine-scope="all"] > .room-collection,
+.control-room[data-current-view="workers"][data-machine-scope="all"] > .room-metric-grid,
+.control-room[data-current-view="workers"][data-machine-scope="all"] #workers > .page-topbar {
+  display: none;
+}
+.control-room #manager-cluster-overview-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.machine-thumbnail-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.machine-thumbnail-grid .room-node-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 300px;
+  padding: 20px;
+  border-top-width: 4px;
+  border-radius: 16px;
+}
+.machine-thumbnail-grid .room-node-head { width: 100%; }
+.machine-thumbnail-grid .room-node-head small { font-size: 11px; }
+.machine-thumbnail-grid .room-node-head h3 { margin-top: 8px; font-size: 22px; }
+.machine-thumbnail-grid .room-node-card dl { width: 100%; margin: 22px 0 12px; }
+.machine-thumbnail-grid .room-node-card dl > div {
+  grid-template-columns: 72px minmax(0, 1fr);
+  margin-top: 9px;
+  font-size: 12px;
+}
+.machine-thumbnail-grid .room-node-account { width: 100%; font-size: 12px; }
+.machine-thumbnail-grid .room-node-updated { margin-top: auto; padding-top: 22px; font-size: 11px; }
+.machine-thumbnail-grid .room-node-card:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+@media (max-width: 1500px) {
+  .machine-thumbnail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 1180px) {
   .room-dashboard { grid-template-columns: 210px minmax(0, 1fr); }
   .room-node-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .machine-thumbnail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .room-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .room-collection-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

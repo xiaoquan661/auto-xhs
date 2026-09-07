@@ -331,3 +331,58 @@ async function checkPersonaEditor() {
   console.log("PASS: account-bound persona editing, version refresh and retained drafts on failure");
 }
 checkPersonaEditor().catch((error) => {console.error(error); process.exitCode = 1;});
+
+const machineNodes = {};
+const machineContext = vm.createContext({
+  state: {machines: [{machine_id: "QA-A", status: "READY"}, {machine_id: "QA-B"}]},
+  selectedMachineId: "QA-A", selectedView: "workers", VIEW_STORAGE_KEY: "view",
+  viewScrollPositions: new Map(),
+  $: (selector) => machineNodes[selector] ||= {
+    dataset: {}, classList: {toggle() {}}, setAttribute() {},
+    replaceChildren(...items) {this.items = items;},
+  },
+  setText() {}, populateMachineSelects() {},
+  localStorage: {setItem() {}},
+  document: {querySelectorAll: () => []},
+  window: {scrollY: 400, location: {hash: "#workers"}, history: {replaceState() {}},
+    requestAnimationFrame() {}},
+  machineNavButton: (machine) => machine.machine_id,
+  machineThumbnailCard: (machine) => machine.machine_id,
+  renderMachineDetail: (machine) => {machineNodes.detailId = machine.machine_id;},
+  emptyCard: (title) => title,
+});
+for (const name of ["renderMachineNavigation", "renderMachineStage", "selectMachine",
+  "renderMachines", "selectManagerView"]) vm.runInContext(extract(name), machineContext);
+machineContext.selectMachine("");
+assert.equal(machineContext.selectedView, "workers");
+assert.equal(machineContext.selectedMachineId, "");
+assert.equal(machineNodes["#manager-machine-detail"].hidden, true);
+assert.equal(machineNodes["#manager-all-machine-list"].items.join(","), "QA-A,QA-B");
+machineContext.renderMachines();
+machineContext.selectManagerView("workers");
+assert.equal(machineContext.selectedMachineId, "");
+assert.equal(machineNodes[".control-room"].dataset.machineScope, "all");
+machineContext.selectMachine("QA-B");
+assert.equal(machineNodes["#manager-cluster-overview-panel"].hidden, true);
+assert.equal(machineNodes["#manager-machine-detail"].hidden, false);
+assert.equal(machineNodes.detailId, "QA-B");
+machineContext.selectMachine("");
+machineContext.state.machines = [];
+machineContext.renderMachines();
+assert.equal(machineNodes["#manager-machine-detail"].hidden, true);
+assert.equal(machineNodes["#manager-all-machine-list"].items[0], "等待员工机同步");
+console.log("PASS: all-machine cards, single-machine detail and selection retained after refresh");
+machineContext.selectedEmployeeMachine = "";
+machineContext.employeePanel = {render(id) {machineNodes.employeeId = id;}};
+machineContext.state.machines = [{machine_id: "QA-A"}, {machine_id: "QA-B"}];
+machineContext.selectedMachineId = "QA-A";
+vm.runInContext(extract("selectEmployeeMachine"), machineContext);
+machineContext.selectEmployeeMachine("QA-B");
+assert.equal(machineContext.selectedView, "employee-units");
+assert.equal(machineNodes.employeeId, "QA-B");
+assert.equal(machineContext.selectedMachineId, "QA-A");
+machineContext.selectEmployeeMachine("");
+assert.equal(machineNodes.employeeId, "");
+machineContext.selectManagerView("workers");
+assert.equal(machineContext.selectedMachineId, "QA-A");
+console.log("PASS: employee unit navigation keeps the workspace machine selection independent");
