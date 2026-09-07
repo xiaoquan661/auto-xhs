@@ -4,7 +4,7 @@
  * 连接 Python bridge server（ws://localhost:9333），接收命令并执行：
  * - navigate / wait_for_load: chrome.tabs.update + onUpdated
  * - evaluate / has_element 等: chrome.scripting.executeScript (MAIN world)
- * - click / input 等 DOM 操作: chrome.tabs.sendMessage → content.js
+ * - click / input 等 DOM 操作: chrome.debugger 或 MAIN world executeScript
  * - screenshot: chrome.tabs.captureVisibleTab
  * - get_cookies: chrome.cookies.getAll
  */
@@ -1456,46 +1456,6 @@ function domExecutor(method, params) {
             await sleep(30);
           }
         }
-        resolve(null);
-      });
-    }
-
-    case "set_file_input": {
-      return new Promise((resolve) => {
-        const el = document.querySelector(params.selector);
-        if (!el) { resolve({ __xhs_error: `文件输入框不存在: ${params.selector}` }); return; }
-
-        function makeFiles() {
-          const dt = new DataTransfer();
-          for (const f of params.files) {
-            const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
-            dt.items.add(new File([bytes], f.name, { type: f.type }));
-          }
-          return dt;
-        }
-
-        // 方法1: 覆盖 files 属性 + change 事件（标准 file input）
-        try {
-          const dt = makeFiles();
-          Object.defineProperty(el, "files", { value: dt.files, configurable: true, writable: true });
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-        } catch (e) {}
-
-        // 方法2: drag-drop 到上传区域（XHS 主要监听 drop 事件）
-        const dropTarget =
-          el.closest('[class*="upload"]') ||
-          el.closest('[class*="Upload"]') ||
-          el.parentElement;
-        if (dropTarget) {
-          try {
-            const dt2 = makeFiles();
-            dropTarget.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: dt2 }));
-            dropTarget.dispatchEvent(new DragEvent("dragover",  { bubbles: true, cancelable: true, dataTransfer: dt2 }));
-            dropTarget.dispatchEvent(new DragEvent("drop",      { bubbles: true, cancelable: true, dataTransfer: dt2 }));
-          } catch (e) {}
-        }
-
         resolve(null);
       });
     }

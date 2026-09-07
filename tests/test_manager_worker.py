@@ -883,6 +883,7 @@ def test_result_data_status_distinguishes_missing_from_observed_empty(tmp_path) 
         executor=lambda _payload: {
             "state": "SUCCESS",
             "message": "完成且确认无逐项与增量记录",
+            "business_result": [],
             "item_results": [],
             "incremental_data": [],
         },
@@ -895,10 +896,58 @@ def test_result_data_status_distinguishes_missing_from_observed_empty(tmp_path) 
     assert missing["item_results_missing_reason"]
     assert missing["incremental_data_status"] == "missing"
     assert missing["incremental_data_missing_reason"]
+    assert observed["business_result_status"] == "observed"
+    assert observed["business_result"] == []
     assert observed["item_results_status"] == "observed"
     assert observed["item_results"] == []
     assert observed["incremental_data_status"] == "observed"
     assert observed["incremental_data"] == []
+
+
+def test_search_business_result_is_published_for_manager_collection(tmp_path) -> None:
+    feeds = [
+        {"id": "feed-1", "displayTitle": "露营地点"},
+        {"id": "feed-2", "displayTitle": "露营装备"},
+    ]
+    service = make_service(
+        tmp_path / "search-result",
+        executor=lambda _payload: {
+            "state": "SUCCESS",
+            "result": {"feeds": feeds, "count": len(feeds)},
+        },
+    )
+    service.accept_task(task_request())
+
+    completed = service.run_task(task_id="task-1")["execution"]
+    collected = service.collect_results(0)["results"][0]
+
+    assert completed["business_result_status"] == "observed"
+    assert completed["business_result"] == {"feeds": feeds, "count": 2}
+    assert completed["item_results_status"] == "observed"
+    assert completed["item_results"] == feeds
+    assert collected["business_result"] == {"feeds": feeds, "count": 2}
+    assert collected["item_results"] == feeds
+
+
+def test_explicit_failed_business_result_status_is_preserved(tmp_path) -> None:
+    service = make_service(
+        tmp_path / "failed-business-result",
+        executor=lambda _payload: {
+            "state": "FAILED",
+            "business_result": {},
+            "business_result_status": "failed",
+            "business_result_missing_reason": "页面没有返回业务数据",
+        },
+    )
+    service.accept_task(task_request())
+
+    completed = service.run_task(task_id="task-1")["execution"]
+    collected = service.collect_results(0)["results"][0]
+
+    assert completed["business_result_status"] == "failed"
+    assert completed["business_result_missing_reason"] == "页面没有返回业务数据"
+    assert collected["business_result_status"] == "failed"
+    assert collected["business_result"] == {}
 
 
 @pytest.mark.parametrize(

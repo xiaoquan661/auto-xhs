@@ -909,7 +909,7 @@ class ApplicationService:
         if waiting["state"] != "WAITING_APPROVAL":
             raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以保存为草稿", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
-        task = self.publish_workflows.resume_preparation(task_id, account=account_slot)
+        self.publish_workflows.resume_preparation(task_id, account=account_slot)
         try:
             self.runner.execute(account_slot, "save-draft", {})
         except Exception as exc:

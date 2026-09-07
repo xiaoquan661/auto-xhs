@@ -270,11 +270,7 @@ def _dispatch_api(
         return service.get_reply_record(parts[4])
     if len(parts) == 6 and parts[:3] == ["api", "v1", "metrics"]:
         return service.get_metric_history(parts[3], parts[4], parts[5])
-    if (
-        len(parts) == 7
-        and parts[:3] == ["api", "v1", "metrics"]
-        and parts[6] == "delta"
-    ):
+    if len(parts) == 7 and parts[:3] == ["api", "v1", "metrics"] and parts[6] == "delta":
         return service.get_metric_delta(parts[3], parts[4], parts[5])
     raise ServiceError("NOT_FOUND", "接口不存在", 404)
 

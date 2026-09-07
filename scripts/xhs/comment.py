@@ -201,10 +201,3 @@ def _find_and_scroll_to_comment(
         sleep_random(600, 1200)
 
     return False
-
-
-def _js_str(s: str) -> str:
-    """将 Python 字符串转为 JS 字面量（含引号）。"""
-    import json
-
-    return json.dumps(s)

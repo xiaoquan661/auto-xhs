@@ -1110,8 +1110,11 @@ class ManagerService:
         if existing is None:
             self._validate_scheduled_dispatch(normalized)
         if existing is not None:
-            if existing["request"] != normalized:
+            existing_request = self._normalize_task_request(existing["request"])
+            if existing_request != normalized:
                 raise ServiceError("DUPLICATE_TASK_ID", "任务编号已被不同请求使用", 409)
+            if existing_request != existing["request"]:
+                existing = self._update_task(task_id, request=existing_request)
             if existing.get("reconciliation_required"):
                 return {
                     "success": False,
@@ -2813,6 +2816,7 @@ class ManagerService:
         item_states: Counter[str] = Counter()
         error_classes: Counter[str] = Counter()
         item_data_statuses: Counter[str] = Counter()
+        business_result_statuses: Counter[str] = Counter()
         incremental_data_statuses: Counter[str] = Counter()
         manual_actions: list[dict] = []
         data_gaps: list[dict] = []
@@ -2834,7 +2838,9 @@ class ManagerService:
                 for item in item_results:
                     if not isinstance(item, dict):
                         continue
-                    item_states[str(item.get("state") or "UNKNOWN")] += 1
+                    item_state = str(item.get("state") or "").strip()
+                    if item_state:
+                        item_states[item_state] += 1
                     item_error = str(
                         item.get("error_classification") or item.get("error_code") or ""
                     )
@@ -2848,6 +2854,23 @@ class ManagerService:
                         "data_status": item_status,
                         "missing_reason": str(
                             result.get("item_results_missing_reason") or "未提供逐项结果"
+                        ),
+                    }
+                )
+
+            business_status = str(
+                result.get("business_result_status")
+                or ("observed" if "business_result" in result else "missing")
+            )
+            business_result_statuses[business_status] += 1
+            if business_status != "observed":
+                data_gaps.append(
+                    {
+                        "task_id": str(result.get("task_id") or ""),
+                        "data_type": "business_result",
+                        "data_status": business_status,
+                        "missing_reason": str(
+                            result.get("business_result_missing_reason") or "未提供业务结果"
                         ),
                     }
                 )
@@ -2883,12 +2906,15 @@ class ManagerService:
                 )
 
         item_status = ManagerService._combined_data_status(item_data_statuses)
+        business_status = ManagerService._combined_data_status(business_result_statuses)
         incremental_status = ManagerService._combined_data_status(incremental_data_statuses)
         return {
             "task_state_counts": dict(sorted(task_states.items())),
             "item_results_status": item_status,
             "item_results_data_status_counts": dict(sorted(item_data_statuses.items())),
             "item_state_counts": dict(sorted(item_states.items())),
+            "business_result_status": business_status,
+            "business_result_status_counts": dict(sorted(business_result_statuses.items())),
             "error_class_counts": dict(sorted(error_classes.items())),
             "manual_action_count": len(manual_actions),
             "manual_actions": manual_actions,
@@ -4343,7 +4369,7 @@ class ManagerService:
             "machine_id": str(request["machine_id"]).strip().upper(),
             "account_slot": str(request["account_slot"]).strip(),
             "capability": str(request["capability"]).strip(),
-            "operation": str(request.get("operation") or "").strip(),
+            "operation": str(request.get("operation") or "").strip() or None,
             "platform": str(request.get("platform") or "xiaohongshu").strip(),
             "request_summary": str(request.get("request_summary") or "经理机下发任务").strip(),
             "source_type": str(request.get("source_type") or "manager").strip(),

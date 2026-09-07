@@ -2222,12 +2222,64 @@
     return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
   }
 
+  function resultDataStatus(result, field) {
+    return result[`${field}_status`] || (field in result ? "observed" : "missing");
+  }
+
+  function renderBusinessResult(result) {
+    const status = resultDataStatus(result, "business_result");
+    const business = result.business_result;
+    if (status !== "observed" || !business || typeof business !== "object") {
+      const reason = result.business_result_missing_reason;
+      return reason
+        ? element("p", "manager-inline-message", `业务数据：${reason}`)
+        : null;
+    }
+
+    const feeds = Array.isArray(business.feeds) ? business.feeds : [];
+    const reportedCount = Number(business.count);
+    const count = Number.isFinite(reportedCount) ? reportedCount : feeds.length;
+    const panel = element("details", "manager-business-result");
+    panel.appendChild(element("summary", "", `业务数据 · ${count} 条`));
+
+    if (!feeds.length) {
+      panel.appendChild(element("p", "manager-inline-message", "业务结果已回收。"));
+      return panel;
+    }
+
+    const list = element("div", "manager-business-list");
+    feeds.forEach((feed, index) => {
+      const card = element("article", "manager-business-item");
+      const title = feed.displayTitle || feed.title || `内容 ${index + 1}`;
+      const author = feed.user?.nickname || feed.author?.nickname || "作者未记录";
+      const identity = [author, feed.type, feed.id].filter(Boolean).join(" · ");
+      append(card, element("strong", "", title), element("small", "", identity));
+
+      const interaction = feed.interactInfo || feed.interact_info;
+      if (interaction && typeof interaction === "object") {
+        const metrics = [
+          ["赞", interaction.likedCount || interaction.liked_count],
+          ["藏", interaction.collectedCount || interaction.collected_count],
+          ["评", interaction.commentCount || interaction.comment_count],
+        ]
+          .filter(([, value]) => value !== undefined && value !== null && value !== "")
+          .map(([label, value]) => `${label} ${value}`)
+          .join(" · ");
+        if (metrics) card.appendChild(element("span", "", metrics));
+      }
+      list.appendChild(card);
+    });
+    panel.appendChild(list);
+    return panel;
+  }
+
   function resultCompleteness(result) {
     const itemStatus = result.item_results_status
       || ("item_results" in result ? "observed" : "missing");
     const incrementalStatus = result.incremental_data_status
       || ("incremental_data" in result ? "observed" : "missing");
-    return `逐项 ${labelFor(itemStatus)} · 增量 ${labelFor(incrementalStatus)}`;
+    const businessStatus = resultDataStatus(result, "business_result");
+    return `业务 ${labelFor(businessStatus)} · 逐项 ${labelFor(itemStatus)} · 增量 ${labelFor(incrementalStatus)}`;
   }
 
   function resultItemValue(value) {
@@ -2346,7 +2398,9 @@
         result.incremental_data_status
           || ("incremental_data" in result ? "observed" : "missing"),
       ).toUpperCase();
-      const incomplete = itemStatus !== "OBSERVED" || incrementalStatus !== "OBSERVED";
+      const businessStatus = resultDataStatus(result, "business_result");
+      const incomplete = itemStatus !== "OBSERVED" || incrementalStatus !== "OBSERVED"
+        || businessStatus !== "observed";
       if (!["FAILED", "BLOCKED", "RESULT_UNKNOWN", "PARTIAL_SUCCESS"].includes(resultState)
         && !result.manual_action_required && !incomplete) return;
       exceptions.push({
@@ -2428,6 +2482,7 @@
         item.incremental_data_status || ("incremental_data" in item ? "observed" : "missing");
       return count
         + Number(itemStatus !== "observed")
+        + Number(resultDataStatus(item, "business_result") !== "observed")
         + Number(incrementalStatus !== "observed")
         + Number(requestedResultCount(item) === null)
         + Number(actualResultCount(item) === null);
@@ -2513,6 +2568,8 @@
         });
         card.appendChild(row);
       }
+      const businessResult = renderBusinessResult(result);
+      if (businessResult) card.appendChild(businessResult);
       const itemDetails = resultItemDetails(result);
       if (itemDetails) card.appendChild(itemDetails);
       return card;

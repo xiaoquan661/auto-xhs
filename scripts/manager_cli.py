@@ -443,9 +443,9 @@ def _result_list(args: argparse.Namespace, service: ManagerService) -> dict:
 
 
 def _output(payload: dict) -> None:
-    encoding = (sys.stdout.encoding or "").lower().replace("-", "")
-    if encoding != "utf8" and hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

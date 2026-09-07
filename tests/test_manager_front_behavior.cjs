@@ -42,3 +42,46 @@ controls["#manager-operation-filter-date"].value = "2026-09-07";
 controls["#manager-operation-filter-account"].value = "Other";
 assert.equal(context.operationTaskMatchesFilters(task), false);
 console.log("PASS: execution states, receipt precedence, combined filters, local calendar date");
+
+const resultContext = vm.createContext({
+  element: (tag, className, text = "") => ({
+    tag, className, text, children: [],
+    appendChild(child) { this.children.push(child); },
+  }),
+  append: (parent, ...children) => children.forEach((child) => parent.appendChild(child)),
+  labelFor: (value) => value,
+});
+for (const name of ["resultDataStatus", "renderBusinessResult", "resultCompleteness"]) {
+  vm.runInContext(extract(name), resultContext);
+}
+const collectedResult = {
+  business_result_status: "observed",
+  business_result: {
+    count: 1,
+    feeds: [{
+      id: "note-1", displayTitle: "露营🏕️", user: { nickname: "小林" },
+      interactInfo: { likedCount: "12" },
+    }],
+  },
+  item_results_status: "observed",
+  incremental_data_status: "observed",
+};
+const panel = resultContext.renderBusinessResult(collectedResult);
+assert.equal(panel.tag, "details");
+assert.equal(panel.children[0].text, "业务数据 · 1 条");
+const feedCard = panel.children[1].children[0];
+assert.equal(feedCard.children[0].text, "露营🏕️");
+assert.equal(feedCard.children[1].text, "小林 · note-1");
+assert.equal(feedCard.children[2].text, "赞 12");
+assert.equal(
+  resultContext.resultCompleteness(collectedResult),
+  "业务 observed · 逐项 observed · 增量 observed",
+);
+assert.equal(
+  resultContext.renderBusinessResult({
+    business_result_status: "failed",
+    business_result_missing_reason: "页面没有返回业务数据",
+  }).text,
+  "业务数据：页面没有返回业务数据",
+);
+console.log("PASS: collected business results, Chinese text, emoji and data completeness");

@@ -1345,6 +1345,35 @@ body { background: var(--workspace-sidebar); }
 .manager-record-copy strong { font-size: 13px; overflow-wrap: anywhere; }
 .manager-record-copy small,
 .manager-record-copy p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.manager-business-result {
+  padding: 10px 11px;
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.manager-business-result summary {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.manager-business-list {
+  display: grid;
+  gap: 7px;
+  max-height: 360px;
+  margin-top: 10px;
+  overflow-y: auto;
+}
+.manager-business-item {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  background: #fff;
+  border-radius: 8px;
+}
+.manager-business-item strong { font-size: 11px; overflow-wrap: anywhere; }
+.manager-business-item small,
+.manager-business-item span { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .manager-result-workspace {
   margin-top: 14px;
   padding: 18px;

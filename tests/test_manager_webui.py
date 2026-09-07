@@ -210,3 +210,12 @@ def test_system_settings_include_runtime_model_and_diagnostics() -> None:
     assert "`${api}/reply-intelligence/settings`" in script
     assert "`${api}/reply-intelligence/test`" in script
     assert "`${api}/diagnostics/export`" in script
+
+
+def test_api_client_errors_keep_the_server_payload_for_business_readback() -> None:
+    script = _source("api-client.js")
+
+    assert script.count("error.payload = payload;") == 2
+    assert script.count("error.httpStatus = response.status;") == 2
+    assert script.count('error.code = payload.error?.code || "REQUEST_FAILED";') == 2
+    assert "error?.payload && !error.payload.error" in _source("manager-console.js")

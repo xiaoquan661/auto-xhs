@@ -917,6 +917,31 @@ def test_offline_dispatch_stays_pending_and_is_not_business_failure(tmp_path: Pa
     assert result["task"]["reconciliation_required"] is False
 
 
+def test_pending_task_with_legacy_empty_operation_resumes_with_default_operation(
+    tmp_path: Path,
+) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    transport.queue("health", ManagerTransportError("OFFLINE", "连接超时"))
+    pending = manager.dispatch_task(task_request())
+    manager.store.update(
+        "tasks",
+        "task-1",
+        lambda current: {
+            **current,
+            "request": {**current["request"], "operation": ""},
+        },
+    )
+
+    resumed = manager.dispatch_task(task_request())
+
+    assert pending["status"] == "PENDING_DISPATCH"
+    assert resumed["status"] == "TASK_ACK"
+    envelope = next(payload for action, payload in transport.calls if action == "accept-task")
+    assert envelope["operation"] is None
+    assert resumed["task"]["request"]["operation"] is None
+
+
 def test_dispatch_accepts_starts_and_records_fast_ack(tmp_path: Path) -> None:
     manager, transport = service(tmp_path)
     register_ready(manager)
@@ -934,6 +959,9 @@ def test_dispatch_accepts_starts_and_records_fast_ack(tmp_path: Path) -> None:
         "accept-task",
         "start-task",
     ]
+    envelope = next(payload for action, payload in transport.calls if action == "accept-task")
+    assert envelope["operation"] is None
+    assert result["task"]["request"]["operation"] is None
 
 
 def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(tmp_path: Path) -> None:
@@ -1535,7 +1563,12 @@ def test_manager_report_preserves_missing_values_and_revision_history(tmp_path: 
     assert original["data_status"] == "mixed"
     assert original["content"]["target_total"] is None
     assert original["content"]["actual_total"] is None
-    assert original["content"]["data_gap_count"] == 2
+    assert original["content"]["data_gap_count"] == 3
+    assert {gap["data_type"] for gap in original["data_gaps"]} == {
+        "item_results",
+        "business_result",
+        "incremental_data",
+    }
     assert revision["report_id"] != original["report_id"]
     assert revision["root_report_id"] == original["report_id"]
     assert revision["previous_report_id"] == original["report_id"]
@@ -1781,6 +1814,11 @@ def test_collect_results_is_incremental_idempotent_and_downloads_evidence(
         "result_summary": "页面已回读",
         "error_classification": "",
         "manual_action_required": False,
+        "business_result": {
+            "feeds": [{"id": "note-1", "displayTitle": "露营地点"}],
+            "count": 1,
+        },
+        "business_result_status": "observed",
         "item_results": [
             {"target_id": "note-1", "state": "SUCCESS"},
             {
@@ -1811,6 +1849,7 @@ def test_collect_results_is_incremental_idempotent_and_downloads_evidence(
     assert first["state_counts"] == {"SUCCESS": 1}
     assert first["summary"]["item_state_counts"] == {"BLOCKED": 1, "SUCCESS": 1}
     assert first["summary"]["error_class_counts"] == {"ACCOUNT_REVIEW": 1}
+    assert first["summary"]["business_result_status"] == "observed"
     assert first["summary"]["incremental_record_count"] == 1
     assert len(transport.downloads) == 1
     assert second["collected"] == 0
@@ -1825,6 +1864,7 @@ def test_collect_results_is_incremental_idempotent_and_downloads_evidence(
     assert stored["results"][0]["capability"] == "search-feeds"
     assert stored["results"][0]["source_type"] == "manager"
     assert stored["results"][0]["task_request"]["request_summary"] == "搜索指定关键词"
+    assert stored["results"][0]["business_result"]["count"] == 1
     assert stored["summary"]["item_results_status"] == "observed"
 
 
@@ -1957,6 +1997,9 @@ def test_result_summary_does_not_turn_missing_data_into_observed_zero() -> None:
                 "item_results": [],
                 "item_results_status": "missing",
                 "item_results_missing_reason": "平台没有提供逐项数据",
+                "business_result": {},
+                "business_result_status": "missing",
+                "business_result_missing_reason": "平台没有提供业务结果",
                 "incremental_data": [],
                 "incremental_data_status": "missing",
                 "incremental_data_missing_reason": "本能力没有增量数据源",
@@ -1966,6 +2009,8 @@ def test_result_summary_does_not_turn_missing_data_into_observed_zero() -> None:
                 "state": "SUCCESS",
                 "item_results": [],
                 "item_results_status": "observed",
+                "business_result": {},
+                "business_result_status": "observed",
                 "incremental_data": [],
                 "incremental_data_status": "observed",
             },
@@ -1974,6 +2019,30 @@ def test_result_summary_does_not_turn_missing_data_into_observed_zero() -> None:
 
     assert summary["item_results_status"] == "mixed"
     assert summary["item_results_data_status_counts"] == {"missing": 1, "observed": 1}
+    assert summary["business_result_status"] == "mixed"
     assert summary["incremental_data_status"] == "mixed"
     assert summary["incremental_record_count"] == 0
     assert {gap["task_id"] for gap in summary["data_gaps"]} == {"missing"}
+
+
+def test_result_summary_does_not_assign_states_to_discovery_rows() -> None:
+    feeds = [{"id": "feed-1", "displayTitle": "露营🏕️"}]
+
+    summary = ManagerService._summarize_results(
+        [
+            {
+                "task_id": "search",
+                "state": "SUCCESS",
+                "business_result": {"feeds": feeds, "count": 1},
+                "business_result_status": "observed",
+                "item_results": feeds,
+                "item_results_status": "observed",
+                "incremental_data": [],
+                "incremental_data_status": "observed",
+            }
+        ]
+    )
+
+    assert summary["item_results_status"] == "observed"
+    assert summary["item_state_counts"] == {}
+    assert summary["data_gaps"] == []

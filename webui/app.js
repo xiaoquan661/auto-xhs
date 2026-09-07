@@ -2918,6 +2918,7 @@ async function loadDashboard() {
     const statuses = await fetchAccountStatuses(accountData);
     renderAccountRoster(accountData, statuses);
     await loadWorkData(accountData, statuses);
+    await window.AutoXhsManagerConsole?.load();
     scheduleAccountStatusPoll();
     loadDiagnosis();
   } catch (error) {
@@ -2934,10 +2935,6 @@ async function loadDashboard() {
     refresh.disabled = false;
     refresh.removeAttribute("aria-busy");
   }
-}
-
-function setupNavigation() {
-  window.AutoXhsWorkspace?.render(window.location.hash);
 }
 
 function renderSystem(system) {
@@ -3172,5 +3169,4 @@ syncAccountMode();
 renderTaskTemplateActions();
 resetDraftForm();
 setupTaskPanels();
-setupNavigation();
 loadDashboard();
