@@ -573,6 +573,7 @@
         account_slot: task.account_slot,
         verified_uid: identity.live_user_id || account?.uid || "",
         confirmed: true,
+        preview_revision: task.parameters?.preview_revision,
         ...(publish ? { preview_confirmed: true } : {}),
       });
       const finalTask = payload.task || {};

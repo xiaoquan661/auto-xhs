@@ -423,8 +423,36 @@ def _find_nested_value(payload: object, *keys: str) -> object | None:
     return None
 
 
-def save_as_draft(page: Page) -> None:
-    """点击「暂存离开」按钮保存草稿。"""
+def save_as_draft(page: Page, *, expected_title: str = "") -> dict:
+    """点击「暂存离开」，并用成功提示或草稿管理页回读确认结果。"""
+    initial_url = str(page.evaluate("location.href") or "")
+    page.evaluate(
+        """
+        (() => {
+            if (window.__xhsDraftObs) window.__xhsDraftObs.disconnect();
+            window.__xhsDraftResult = null;
+            const SUCCESS = /草稿已保存|已保存到草稿箱|暂存成功/;
+            const FAILURE = /草稿保存失败|暂存失败|无法保存草稿/;
+            const obs = new MutationObserver((mutations) => {
+                if (window.__xhsDraftResult) return;
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType !== 1) return;
+                        const message = (node.textContent || '').trim();
+                        if (!message || message.length > 300) return;
+                        if (SUCCESS.test(message)) {
+                            window.__xhsDraftResult = {success: true, message};
+                        } else if (FAILURE.test(message)) {
+                            window.__xhsDraftResult = {success: false, message};
+                        }
+                    });
+                });
+            });
+            obs.observe(document.body, {childList: true, subtree: true});
+            window.__xhsDraftObs = obs;
+        })()
+        """
+    )
     clicked = page.evaluate(
         """
         (() => {
@@ -439,12 +467,67 @@ def save_as_draft(page: Page) -> None:
         })()
         """
     )
-    if clicked:
-        time.sleep(2)
-        logger.info("已点击「暂存离开」，内容已保存到草稿箱")
-    else:
-        logger.warning("未找到「暂存离开」按钮")
+    if not clicked:
         raise PublishError("未找到「暂存离开」按钮")
+
+    observation_script = r"""
+        (() => {
+            const url = String(location.href || '');
+            const text = (document.body && document.body.innerText) || '';
+            const expectedTitle = __EXPECTED_TITLE__;
+            const initialUrl = __INITIAL_URL__;
+            const onDraftManager = /\/new\/note-manager(?:[/?#]|$)/.test(url)
+                || /draft/i.test(url);
+            return {
+                feedback: window.__xhsDraftResult || null,
+                url,
+                manager_title_match: Boolean(
+                    initialUrl !== url
+                    && onDraftManager
+                    && expectedTitle
+                    && text.includes(expectedTitle)
+                ),
+            };
+        })()
+    """
+    observation_script = observation_script.replace(
+        "__EXPECTED_TITLE__",
+        json.dumps(expected_title, ensure_ascii=False),
+    ).replace("__INITIAL_URL__", json.dumps(initial_url, ensure_ascii=False))
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        observation = page.evaluate(observation_script) or {}
+        feedback = observation.get("feedback") or {}
+        if feedback.get("success") is True:
+            return {
+                "verified": True,
+                "status": "saved_draft",
+                "evidence": "draft_success_toast",
+                "saved_as_draft": True,
+                "message": str(feedback.get("message") or "草稿已保存"),
+                "final_url": str(observation.get("url") or ""),
+            }
+        if feedback.get("success") is False:
+            raise PublishError(str(feedback.get("message") or "草稿保存失败"))
+        if observation.get("manager_title_match"):
+            return {
+                "verified": True,
+                "status": "saved_draft",
+                "evidence": "draft_manager_readback",
+                "saved_as_draft": True,
+                "message": "已在草稿管理页回读到本次标题",
+                "final_url": str(observation.get("url") or ""),
+            }
+        time.sleep(0.3)
+
+    return {
+        "verified": False,
+        "status": "result_unknown",
+        "evidence": "none",
+        "saved_as_draft": False,
+        "message": "未取得草稿保存成功提示或草稿管理页回读",
+        "final_url": initial_url,
+    }
 
 
 # ========== 页面导航 ==========
