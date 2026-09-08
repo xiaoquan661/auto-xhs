@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([int]$Port = 8765)
+param(
+    [int]$Port = 8765,
+    [ValidateSet("0.0.0.0", "127.0.0.1")][string]$ListenAddress = "0.0.0.0"
+)
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -19,5 +22,5 @@ if ($BootstrapResult.status -ne "ready") {
 
 & $BootstrapResult.python_executable (Join-Path $PSScriptRoot "web_lifecycle.py") `
     start --python $BootstrapResult.python_executable --project-root $ProjectRoot `
-    --port $Port --open-browser
+    --host $ListenAddress --port $Port --open-browser
 exit $LASTEXITCODE

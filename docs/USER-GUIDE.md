@@ -81,7 +81,18 @@ start-auto-xhs.cmd
 3. 启动或复用本地 WebUI；
 4. 打开 `http://127.0.0.1:8765`。
 
-WebUI 只监听本机地址，局域网和互联网不能直接访问。
+WebUI 默认监听 `0.0.0.0:8765`，支持本机和同一局域网访问。其他电脑使用
+`http://<经理机局域网 IPv4 地址>:8765/` 打开；地址可在经理机的 `ipconfig` 输出中查看。
+经理机需要保持运行，Windows 防火墙需允许来自 `LocalSubnet` 的 TCP 8765 入站连接。
+
+更新运行中的服务后，在项目目录执行一次重启，让监听设置生效：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/restart-webui.ps1
+```
+
+网页内重启会沿用当前监听地址。需要仅本机访问时，可执行
+`scripts/restart-webui.ps1 -ListenAddress 127.0.0.1`。
 
 如果提示没有 Python，先确认允许为本项目准备运行环境，再在项目目录运行：
 
