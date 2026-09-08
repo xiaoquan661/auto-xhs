@@ -2847,16 +2847,16 @@ class ApplicationService:
                 browse_count = int(parameters.get("browse_count"))
                 like_count = int(parameters.get("like_count"))
                 duration_minutes = int(parameters.get("duration_minutes"))
-                min_read_seconds = float(parameters.get("min_read_seconds", 8))
-                max_read_seconds = float(parameters.get("max_read_seconds", 15))
+                min_read_seconds = float(parameters.get("min_read_seconds", 15))
+                max_read_seconds = float(parameters.get("max_read_seconds", 45))
             except (TypeError, ValueError) as exc:
                 raise ServiceError("INVALID_REQUEST", "首页互动参数必须是有效数字") from exc
             if not 1 <= browse_count <= 50:
                 raise ServiceError("INVALID_REQUEST", "浏览数量必须在 1 到 50 篇之间")
             if not 0 <= like_count <= browse_count:
                 raise ServiceError("INVALID_REQUEST", "点赞数量不能超过浏览数量")
-            if not 1 <= duration_minutes <= 10:
-                raise ServiceError("INVALID_REQUEST", "最长执行时间必须在 1 到 10 分钟之间")
+            if not 1 <= duration_minutes <= 120:
+                raise ServiceError("INVALID_REQUEST", "最长执行时间必须在 1 到 120 分钟之间")
             if min_read_seconds < 0 or max_read_seconds < min_read_seconds or max_read_seconds > 60:
                 raise ServiceError("INVALID_REQUEST", "单篇阅读时间必须在 0 到 60 秒内且最短不大于最长")
         if capability == "get-feed-detail":

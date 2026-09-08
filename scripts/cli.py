@@ -533,6 +533,7 @@ def cmd_random_comment(args: argparse.Namespace) -> None:
 
 def cmd_home_engagement(args: argparse.Namespace) -> None:
     """在同一个首页会话中完成浏览和点赞。"""
+    from account_manager import account_dir
     from xhs.home_engagement import home_engagement
 
     browser, page = _connect(args)
@@ -545,6 +546,7 @@ def cmd_home_engagement(args: argparse.Namespace) -> None:
             duration_seconds=args.duration_minutes * 60,
             min_read_seconds=args.min_read_seconds,
             max_read_seconds=args.max_read_seconds,
+            pacing_path=account_dir(args.account) / "engagement-pacing.json",
         )
         _output(result, exit_code=0 if result.get("success") else 2)
     finally:
@@ -2288,9 +2290,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--browse-count", type=int, default=6, help="点开笔记数量")
     sub.add_argument("--like-count", type=int, default=2, help="点赞数量")
     sub.add_argument("--video-only", action="store_true", help="只浏览视频笔记")
-    sub.add_argument("--duration-minutes", type=int, default=3, help="最长执行分钟数")
-    sub.add_argument("--min-read-seconds", type=float, default=8, help="单篇最短阅读秒数")
-    sub.add_argument("--max-read-seconds", type=float, default=15, help="单篇最长阅读秒数")
+    sub.add_argument("--duration-minutes", type=int, default=10, help="最长执行分钟数")
+    sub.add_argument("--min-read-seconds", type=float, default=15, help="单篇最短阅读秒数")
+    sub.add_argument("--max-read-seconds", type=float, default=45, help="单篇最长阅读秒数")
     sub.set_defaults(func=cmd_home_engagement)
 
     # get-feed-detail
