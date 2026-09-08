@@ -36,6 +36,7 @@ def test_launch_chrome_profile_uses_bound_user_data_and_profile(tmp_path) -> Non
         config,
         executable_finder=lambda: Path(r"C:\Program Files\Google\Chrome\chrome.exe"),
         process_factory=process_factory,
+        platform="linux",
     )
 
     command, kwargs = calls[0]
@@ -65,6 +66,7 @@ def test_launch_managed_profile_allows_chrome_to_create_default_directory(tmp_pa
         process_factory=lambda command, **_kwargs: (
             commands.append(command) or type("Process", (), {"pid": 322})()
         ),
+        platform="linux",
     )
 
     assert commands[0][2] == "--profile-directory=Default"

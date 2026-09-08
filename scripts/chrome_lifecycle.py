@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -13,6 +14,48 @@ from account_manager import AccountConfig
 from platforms import get_platform_spec
 
 DEFAULT_START_URL = "https://www.xiaohongshu.com/explore"
+
+
+def launch_on_windows_desktop(
+    command: list[str],
+    *,
+    user_data_dir: str,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> dict:
+    """Ask Task Scheduler to open Chrome in the logged-in user's desktop session."""
+    script = Path(__file__).with_name("start-chrome-desktop.ps1")
+    payload = {
+        "executable": command[0],
+        "arguments": subprocess.list2cmdline([*command[1:-1], "--new-window", command[-1]]),
+        "user_data_dir": user_data_dir,
+    }
+    try:
+        completed = runner(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ],
+            input=json.dumps(payload, ensure_ascii=False),
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("等待桌面启动响应超时，请检查员工机桌面上的 Chrome 窗口") from exc
+    try:
+        result = json.loads(completed.stdout.lstrip("\ufeff"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("桌面启动服务未返回有效结果，请检查 Windows 任务计划程序") from exc
+    if completed.returncode or not result.get("success"):
+        raise RuntimeError(result.get("message") or "无法在员工机桌面启动 Chrome")
+    return {key: value for key, value in result.items() if key != "success"}
 
 
 def find_chrome_executable(
@@ -43,6 +86,8 @@ def launch_chrome_profile(
     executable_finder: Callable[[], Path] = find_chrome_executable,
     process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
     start_url: str | None = None,
+    platform: str = sys.platform,
+    desktop_launcher: Callable[..., dict] = launch_on_windows_desktop,
 ) -> dict:
     """Open the exact User Data/Profile pair configured for one slot."""
     if not config.chrome_user_data_dir:
@@ -59,29 +104,28 @@ def launch_chrome_profile(
         )
 
     executable = executable_finder()
-    kwargs: dict = {
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "close_fds": True,
-    }
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    command = [
+        str(executable),
+        f"--user-data-dir={user_data_dir}",
+        f"--profile-directory={profile_directory}",
+        start_url,
+    ]
+    if platform == "win32":
+        launch = desktop_launcher(command, user_data_dir=str(user_data_dir))
     else:
-        kwargs["start_new_session"] = True
-    process = process_factory(
-        [
-            str(executable),
-            f"--user-data-dir={user_data_dir}",
-            f"--profile-directory={profile_directory}",
-            start_url,
-        ],
-        **kwargs,
-    )
+        process = process_factory(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+        launch = {"pid": getattr(process, "pid", None)}
     return {
         "launch_attempted": True,
         "launched": True,
-        "pid": getattr(process, "pid", None),
+        **launch,
         "executable": str(executable),
         "user_data_dir": str(user_data_dir),
         "profile_directory": profile_directory,
