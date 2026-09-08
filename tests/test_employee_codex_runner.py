@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import employee_codex_runner as runner_module
+import manager_worker_async
+import pytest
+from employee_codex_runner import PROBE_CAPABILITY, EmployeeCodexRunner
+
+from tests.test_manager_worker import make_service, task_request
+
+
+def task(**overrides: object) -> dict:
+    return {
+        "task_id": "probe-1",
+        "remote_execution_id": "execution-1",
+        "account_slot": "alpha",
+        "capability": PROBE_CAPABILITY,
+        "parameters": {"probe_token": "local-round-trip"},
+        "timeout_seconds": 10,
+        **overrides,
+    }
+
+
+def install_fake_codex(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: str) -> None:
+    script = tmp_path / "fake_codex.py"
+    script.write_text(
+        "import json, sys, time\nfrom pathlib import Path\n"
+        "root = Path(sys.argv[1])\n"
+        "task = json.loads((root / 'task.json').read_text(encoding='utf-8'))\n"
+        "sys.stdin.read()\n" + body,
+        encoding="utf-8",
+    )
+    popen = subprocess.Popen
+
+    def start(command: list[str], **kwargs: object) -> subprocess.Popen:
+        if command[0] != "codex.exe":
+            return popen(command, **kwargs)
+        root = Path(command[command.index("-o") + 1]).parent
+        return popen([sys.executable, str(script), str(root)], **kwargs)
+
+    monkeypatch.setattr(runner_module, "find_codex", lambda: "codex.exe")
+    monkeypatch.setattr(runner_module.subprocess, "Popen", start)
+
+
+SUCCESS_SCRIPT = """
+(root / 'claimed.json').write_text(json.dumps({'task_id': task['task_id']}))
+result = {'state': 'SUCCESS', 'message': '完成',
+          'business_result_json': json.dumps({'probe_token': 'local-round-trip'}),
+          'item_results_json': '[]', 'evidence_paths': [str(root / 'claimed.json')]}
+(root / 'result.json').write_text(json.dumps(result), encoding='utf-8')
+"""
+
+
+def test_real_child_process_claim_and_structured_result(tmp_path: Path, monkeypatch) -> None:
+    install_fake_codex(monkeypatch, tmp_path, SUCCESS_SCRIPT)
+    receipts = []
+    result = EmployeeCodexRunner(tmp_path / "state", on_claim=receipts.append)(task())
+    assert result["state"] == "SUCCESS"
+    assert result["business_result"]["probe_token"] == "local-round-trip"
+    assert len(receipts) == 1
+    assert receipts[0]["task_id"] == "probe-1"
+    assert Path(receipts[0]["evidence_path"]).exists()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "raise SystemExit(2)",
+        SUCCESS_SCRIPT.replace(
+            "(root / 'claimed.json').write_text(json.dumps({'task_id': task['task_id']}))", ""
+        ),
+    ],
+)
+def test_incomplete_write_outcome_stays_unknown(tmp_path: Path, monkeypatch, body: str) -> None:
+    install_fake_codex(monkeypatch, tmp_path, body)
+    result = EmployeeCodexRunner(tmp_path / "state")(task(write_intent=True))
+    assert result["state"] == "RESULT_UNKNOWN"
+
+
+def test_timeout_terminates_owned_process(tmp_path: Path, monkeypatch) -> None:
+    install_fake_codex(monkeypatch, tmp_path, "time.sleep(60)")
+    result = EmployeeCodexRunner(tmp_path / "state")(task(timeout_seconds=0.05))
+    assert result["state"] == "FAILED"
+    assert "超时" in result["message"]
+
+
+def test_pause_stops_agent(tmp_path: Path, monkeypatch) -> None:
+    install_fake_codex(monkeypatch, tmp_path, "time.sleep(60)")
+    result = EmployeeCodexRunner(tmp_path / "state", should_stop=lambda: True)(
+        task(write_intent=True)
+    )
+    assert result["state"] == "RESULT_UNKNOWN"
+    assert "已停止" in result["message"]
+
+
+@pytest.mark.parametrize(
+    "readback,expected", [(True, "PARTIAL_SUCCESS"), (False, "RESULT_UNKNOWN")]
+)
+def test_comment_result_uses_observed_items(
+    tmp_path: Path, monkeypatch, readback, expected
+) -> None:
+    body = (
+        SUCCESS_SCRIPT
+        + f"""
+result['item_results_json'] = json.dumps([{{'status': 'SUCCESS',
+    'platform_readback': {readback!r}}}])
+(root / 'result.json').write_text(json.dumps(result), encoding='utf-8')
+"""
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    result = EmployeeCodexRunner(tmp_path / "state")(
+        task(
+            capability="post-comment",
+            parameters={"count": 5},
+            authorization={"authorization_id": "approved-plan"},
+        )
+    )
+    assert result["state"] == expected
+    assert result["business_result"]["requested"] == 5
+    assert result["business_result"]["succeeded"] == int(readback)
+
+
+def test_async_runner_records_model_claim_and_outbox(tmp_path: Path, monkeypatch) -> None:
+    service = make_service(tmp_path / "worker")
+    request = task_request()
+    request["task"]["capability"] = PROBE_CAPABILITY
+    request["task"]["parameters"] = {"probe_token": "local-round-trip"}
+    execution = service.accept_task(request)["execution"]
+    monkeypatch.setattr(manager_worker_async, "ManagerWorkerService", lambda **kwargs: service)
+    install_fake_codex(monkeypatch, tmp_path, SUCCESS_SCRIPT)
+    assert (
+        manager_worker_async.run(str(service.root), "task-1", execution["remote_execution_id"]) == 0
+    )
+    final = service.task_status("task-1")["execution"]
+    assert final["state"] == "SUCCESS"
+    assert any(
+        message["payload"].get("stage") == "agent_claimed" for message in final["agent_messages"]
+    )
+    assert final["business_result"]["probe_token"] == "local-round-trip"
+    outbox = list((tmp_path / "worker").rglob("index.json"))
+    assert outbox
