@@ -14,6 +14,12 @@ vm.runInContext(source, context);
 const today = new Date().toISOString().slice(0, 10);
 const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1);
 const yesterday = yesterdayDate.toISOString().slice(0, 10);
+const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+saved.set("auto-xhs:employee-plan-templates", JSON.stringify({[tomorrow]: {
+  rows: [{machine_id: "QA-A", account_slot: "same-slot", participating: true,
+    metrics: {publish: 3, like: 4, comment: 2, group_apply: 50, group_intro: 70}}],
+  updatedAt: today,
+}}));
 const state = {machines: [{machine_id: "QA-A", status: "READY", ssh_state: "ONLINE"},
   {machine_id: "QA-B", status: "OFFLINE"}],
   accounts: [{machine_id: "QA-A", account_slot: "same-slot", nickname: "<script>name</script>",
@@ -25,7 +31,9 @@ const state = {machines: [{machine_id: "QA-A", status: "READY", ssh_state: "ONLI
 const services = {state,
   workerDayMetrics: () => [{kind: "publish", target: 1, actual: 0, status: "未开始", tone: "info"},
     {kind: "comment", target: 2, actual: null, status: "等待回执", tone: "info"}],
-  nextWorkerPlan: () => null, localDateValue: (date) => date.toISOString().slice(0, 10),
+  nextWorkerPlan: (machineId) => machineId === "QA-A" ? {plan_date: tomorrow, accounts: [
+    {machine_id: "QA-A", account_slot: "same-slot", participating: true, metrics: {publish: 3}},
+  ]} : null, localDateValue: (date) => date.toISOString().slice(0, 10),
   resultDate: (item) => item.date, resultAccount: (item) => item.account_slot,
   resultLinks: (item) => item.url ? [{url: item.url}] : [], resultActionKind: () => "comment",
   workerTaskDate: (task) => task.date, accountPersona: () => null, labelFor: (value) => value || "—",
@@ -67,6 +75,8 @@ async function checkPlanTemplate() {
     querySelector: (selector) => controls[selector] ||= {}};
   handlers.input({target: {value: "7", dataset: {planMetric: "comment"}, closest: () => rowNode}});
   assert.equal(controls['[data-plan-preview="comment"]'].textContent, "7");
+  handlers.input({target: {value: "12", dataset: {planMetric: "new_followers"}, closest: () => rowNode}});
+  assert.match(controls["[data-plan-summary]"].innerHTML, /计划动作上限<\/span><strong>14<\/strong>/);
   const click = (action) => handlers.click({target: {closest: () => ({dataset: {unitAction: action}})}});
   await click("generate");
   assert.match(controls["[data-plan-message]"].textContent, /尚未接入/);
@@ -74,6 +84,9 @@ async function checkPlanTemplate() {
   const templates = JSON.parse(saved.get("auto-xhs:employee-plan-templates"));
   const stored = Object.values(templates)[0];
   assert.equal(stored.rows[0].metrics.comment, 7);
+  assert.equal(stored.rows[0].metrics.new_followers, 12);
+  assert.equal(stored.rows[0].metrics.group_apply, undefined);
+  assert.equal(stored.rows[0].metrics.group_intro, undefined);
   assert.equal(stored.rows[1].metrics.comment, null);
   assert.equal(state.dailyPlans.length, 1);
   assert.match(controls["[data-plan-message]"].textContent, /模板已保存到本机/);
@@ -81,6 +94,15 @@ async function checkPlanTemplate() {
   reloaded.render("");
   assert.ok(root.innerHTML.includes('data-plan-preview="comment">7</b>'));
   assert.ok(root.innerHTML.includes("复制模板"));
+  for (const label of ["新增粉丝", "收获点赞", "收到新评论", "收到私信"]) {
+    assert.ok(root.innerHTML.includes(label), label);
+  }
+  assert.ok(root.innerHTML.includes("新增粉丝：12"));
+  reloaded.render("QA-A");
+  const nextDay = root.innerHTML.match(/data-panel="next-day"[\s\S]*?<\/section>/)[0];
+  assert.ok(nextDay.includes('<span>新增粉丝</span><strong>12</strong>'));
+  for (const label of ["收获点赞", "收到新评论", "收到私信"]) assert.ok(nextDay.includes(label));
+  assert.ok(!/入群|群介绍|申请进群|进群成功/.test(root.innerHTML));
   console.log("PASS: numeric draft preview, local template persistence and generation availability");
 }
 checkPlanTemplate().catch((error) => {console.error(error); process.exitCode = 1;});

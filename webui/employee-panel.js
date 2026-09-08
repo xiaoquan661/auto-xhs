@@ -5,13 +5,13 @@ window.AutoXhsEmployeePanel = function (services) {
     resultLinks, resultActionKind, workerTaskDate, accountPersona, labelFor, operationalExceptions} = services;
   const host = document.querySelector("#employee-unit-content");
   const storageKey = "auto-xhs:employee-plan-templates";
-  const planFields = [["publish", "发帖"], ["group_apply", "入群申请"],
-    ["group_intro", "群介绍"], ["comment", "评论"], ["like", "点赞"],
-    ["friend_request", "暖好友上限"]];
-  const dayFields = [["publish", "发帖"], ["like", "点赞"], ["comment", "评论"],
+  const metricFields = [["publish", "发帖"], ["like", "点赞"], ["comment", "评论"],
     ["friend_request", "加好友"], ["new_followers", "新增粉丝"],
     ["received_likes", "收获点赞"], ["received_comments", "收到新评论"],
     ["received_private_messages", "收到私信"]];
+  const actionKinds = ["publish", "like", "comment", "friend_request"];
+  const metricValues = (values) => Object.fromEntries(metricFields.map(([kind]) =>
+    [kind, values?.[kind] ?? null]));
   const expanded = new Map();
   const drafts = new Map();
   let selected = "";
@@ -49,7 +49,7 @@ window.AutoXhsEmployeePanel = function (services) {
 
   function dailyMetrics(account, date) {
     const metrics = workerDayMetrics(account.machine_id, account.account_slot, date);
-    return dayFields.map(([kind, label]) => ({kind, label,
+    return metricFields.map(([kind, label]) => ({kind, label,
       ...(metrics.find((item) => item.kind === kind) || {
         target: null, actual: null, status: "未接入", tone: "info", incomplete: false})}));
   }
@@ -94,7 +94,8 @@ window.AutoXhsEmployeePanel = function (services) {
     let draft = drafts.get(planDate);
     if (!draft) {
       const source = savedTemplates[planDate];
-      draft = {date: planDate, rows: structuredClone(source?.rows || []),
+      draft = {date: planDate, rows: (source?.rows || []).map((row) =>
+        ({...row, metrics: metricValues(row.metrics)})),
         updatedAt: source?.updatedAt || "", dirty: false};
       drafts.set(planDate, draft);
     }
@@ -105,7 +106,7 @@ window.AutoXhsEmployeePanel = function (services) {
       draft.rows.push({machine_id: account.machine_id, account_slot: account.account_slot,
         participating: row?.participating ?? account.health_state === "READY",
         stage: "", pressure: "", notes: row?.notes || "",
-        metrics: Object.fromEntries(planFields.map(([kind]) => [kind, row?.metrics?.[kind] ?? null]))});
+        metrics: metricValues(row?.metrics)});
     });
     return draft;
   }
@@ -120,19 +121,19 @@ window.AutoXhsEmployeePanel = function (services) {
       data-expanded="plan:${esc(rowKey)}" data-plan-row="${esc(rowKey)}"${open(`plan:${rowKey}`, row.participating)}>
       <summary><div><strong>${esc(row.machine_id)}</strong><span data-plan-caption>${esc(stage)} · ${esc(pressure)}</span></div>
         <span data-plan-badge>${badge(row.participating ? "参与规划" : "静默观察", row.participating ? "good" : "warn")}</span>
-        <div class="strategy-plan-preview">${planFields.map(([kind, label]) =>
+        <div class="strategy-plan-preview">${metricFields.map(([kind, label]) =>
           `<span>${label}<b data-plan-preview="${kind}">${number(row.metrics[kind])}</b></span>`).join("")}</div></summary>
       <div class="strategy-node-body"><div class="strategy-node-settings">
         <label><span>是否参与</span><select data-plan-field="participating">${options(
           [["yes", "参与明日规划"], ["no", "暂停 / 静默"]], row.participating ? "yes" : "no")}</select></label>
         <label><span>账号阶段</span><select data-plan-field="stage">${options(["", "稳定运营", "新机第 1 天", "新机第 2–3 天", "账号安全观察"], row.stage)}</select></label>
         ${input("压力等级", row.pressure, "text", 'data-plan-field="pressure" placeholder="待配置"')}
-      </div><div class="strategy-exact-grid">${planFields.map(([kind, label]) => input(label,
+      </div><div class="strategy-exact-grid">${metricFields.map(([kind, label]) => input(label,
         row.metrics[kind] ?? "", "number", `min="0" step="1" placeholder="—" data-plan-metric="${kind}" aria-label="${esc(row.machine_id)} ${esc(row.account_slot)} ${label}"`)).join("")}</div>
       <div class="strategy-evidence-grid" aria-label="${esc(row.machine_id)} 自动运营依据">${facts([
         ["累计主页帖子", evidence.lifetime_posts ?? "未读取"], ["上次发帖日期", evidence.last_post_date || "未读取"],
-        ["合格介绍积压", evidence.eligible_intro_backlog ?? "未读取"], ["暖互动线索", evidence.warm_candidate_count ?? "未读取"],
-      ])}</div><div class="strategy-range-line"><span>长期区间：评论 ${esc(evidence.comment_range || "—")}，群介绍 ${esc(evidence.intro_range || "—")}</span>
+        ["运营天数", account?.operating_days ?? "未读取"], ["暖互动线索", evidence.warm_candidate_count ?? "未读取"],
+      ])}</div><div class="strategy-range-line"><span>长期区间：评论 ${esc(evidence.comment_range || "—")}</span>
         <span>${esc(row.notes || "等待经理 Agent 配置运营依据。")}</span></div>
       </div></details>`;
   }
@@ -140,9 +141,10 @@ window.AutoXhsEmployeePanel = function (services) {
   function planSummary() {
     const draft = planDraft();
     const rows = draft.rows.filter((row) => row.participating);
-    const values = rows.flatMap((row) => Object.values(row.metrics)).filter((value) => value !== null);
+    const values = rows.flatMap((row) => actionKinds.map((kind) => row.metrics[kind]))
+      .filter((value) => value !== null);
     return facts([["参与规划", `${new Set(rows.map((row) => row.machine_id)).size} 台`],
-      ["计划动作上限", values.length ? values.reduce((sum, value) => sum + value, 0) : "—", "好友申请按机会执行，计入的是上限"],
+      ["计划动作上限", values.length ? values.reduce((sum, value) => sum + value, 0) : "—", "统计发帖、点赞、评论和加好友"],
       ["发帖规则", "待配置", "等待经理 Agent 配置发帖总量与间隔"],
       ["账号异常", "待配置", "手机验证、人脸验证或安全检查"]]);
   }
@@ -171,7 +173,7 @@ window.AutoXhsEmployeePanel = function (services) {
     return `${draft.date} 员工机运营计划\n\n${draft.rows.map((row) =>
       `${row.machine_id} / ${row.account_slot} · ${row.participating ? "参与规划" : "暂停"}\n`
       + `账号阶段：${row.stage || "待配置"}；压力等级：${row.pressure || "待配置"}\n`
-      + planFields.map(([kind, label]) => `${label}：${row.metrics[kind] ?? "未设置"}`).join("；")
+      + metricFields.map(([kind, label]) => `${label}：${row.metrics[kind] ?? "未设置"}`).join("；")
       + (row.notes ? `\n说明：${row.notes}` : "")).join("\n\n")}\n\n请经理 Agent 审阅这些数量，补齐未设置字段后安排执行。`;
   }
 
@@ -200,7 +202,7 @@ window.AutoXhsEmployeePanel = function (services) {
     const rows = plan.accounts.filter((row) => row.participating);
     const dayResults = state.results.filter((item) => resultDate(item) === yesterday);
     const values = rows.flatMap((row) => dailyMetrics(row, yesterday))
-      .filter((metric) => ["publish", "like", "comment", "friend_request"].includes(metric.kind));
+      .filter((metric) => actionKinds.includes(metric.kind));
     const actual = values.filter((item) => item.actual !== null);
     return `<section class="panel daily-report-panel" data-panel="daily-report"><div class="daily-report-heading">
       <div><p class="eyebrow">昨日计划复盘</p><h2>${yesterday} 运营日报</h2><p>自动对比保存计划与员工机正式回执。</p></div>${badge("已回收", "accent")}</div>
@@ -212,7 +214,7 @@ window.AutoXhsEmployeePanel = function (services) {
       <small>压力分组与对比结论尚未回传。</small></div>
       <div class="pressure-group-grid">${["高压组", "低压组"].map((group) => `<div><strong>${group}</strong><span>纳入对比 — · 动作 —</span><span>平均完成率 — · 异常率 —</span></div>`).join("")}</div>
       <div class="daily-report-table-wrap"><table class="daily-report-table"><thead><tr>
-      ${["员工机", "压力", ...dayFields.map(([, label]) => label), "外部动作", "完成率", "结果"].map((label) => `<th>${label}</th>`).join("")}
+      ${["员工机", "压力", ...metricFields.map(([, label]) => label), "外部动作", "完成率", "结果"].map((label) => `<th>${label}</th>`).join("")}
       </tr></thead><tbody>${rows.map((row) => {const metrics = dailyMetrics(row, yesterday); return `<tr>
         <th>${esc(row.machine_id)}<small>${esc(row.account_slot)}</small></th><td>—</td>
         ${metrics.map((metric) => `<td>${number(metric.target)} / ${number(metric.actual)}</td>`)
@@ -252,7 +254,7 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<section class="panel node-strategy-card" data-panel="next-day"><div class="node-strategy-head"><div>
       <p class="eyebrow">下一个运营日</p><h3>${plan ? esc(`${plan.plan_date} · ${saved?.stage || "账号阶段待配置"}`) : "等待运营规划"}${saved?.pressure ? ` · ${esc(saved.pressure)}` : ""}</h3></div>
       ${badge(plan ? "已规划" : "待规划", plan ? "good" : "muted")}</div>
-      <div class="node-strategy-plan">${facts(planFields.map(([kind, label]) => [label, saved?.metrics?.[kind] ?? row?.metrics?.[kind]]))}</div>
+      <div class="node-strategy-plan">${facts(metricFields.map(([kind, label]) => [label, saved?.metrics?.[kind] ?? row?.metrics?.[kind]]))}</div>
       <p>${esc(row?.notes || "等待经理 Agent 下发该员工机的下一运营日目标。")}</p></section>`;
   }
 
@@ -272,14 +274,14 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<details class="history-details" data-panel="history" data-expanded="history:${esc(key(account))}"${open(`history:${key(account)}`, dates.length > 0)}>
       <summary>往日目标 / 实际（${dates.length} 天）</summary>
       <div class="history-table-wrap"><table class="history-table"><thead><tr><th>日期</th><th>当日执行账号</th>
-      ${dayFields.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>
+      ${metricFields.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>
       ${dates.map((date) => {
         const receipt = receipts(account, date)[0] || {};
         const identity = receipt.account_snapshot || {};
         return `<tr><th>${date}</th><td class="history-account-cell">${esc(identity.nickname || receipt.account_name || account.account_slot)}<small>Profile ${esc(identity.uid || receipt.account_uid || "未记录")}</small></td>
         ${dailyMetrics(account, date).map((metric) => `<td>${number(metric.target)} / ${number(metric.actual)}</td>`).join("")}</tr>`;
       }).join("")
-        || `<tr><td colspan="${dayFields.length + 2}">还没有读取到往日的任务记录。</td></tr>`}</tbody></table></div>
+        || `<tr><td colspan="${metricFields.length + 2}">还没有读取到往日的任务记录。</td></tr>`}</tbody></table></div>
       <small class="history-note">每格格式为“目标 / 实际”，最多显示最近 30 天；— 表示尚未设置或未回传。</small></details>`;
   }
 
@@ -330,9 +332,10 @@ window.AutoXhsEmployeePanel = function (services) {
         <select aria-label="${esc(account.account_slot)} 账号状态" disabled>${options([[account.health_state, labelFor(account.health_state)]], account.health_state)}</select></div>
       <div class="machine-profile-link-row"><div><span>小红书账号主页</span><strong>Profile ${esc(uid)}</strong></div>${link(profileUrl, "打开主页", "facebook-profile-link")}</div>
       ${todayTable(account, date, accountActions)}${historyTable(account)}
-      <div class="worker-business-strip" aria-label="${esc(account.account_slot)} 业务数据">${facts([
-        ["申请进群", "未接入"], ["进群成功", "未接入"], ["申请加友", "未接入"], ["成功加友", "未接入"], ["活跃好友", "未接入"],
-      ])}</div><div class="machine-task">${facts([["当前阶段", account.stage || "未接入"], ["今日会话", account.session_count ?? null],
+      <div class="worker-business-strip" aria-label="${esc(account.account_slot)} 业务数据">${facts(
+        dailyMetrics(account, date).filter((metric) => !actionKinds.includes(metric.kind))
+          .map((metric) => [metric.label, metric.actual]))}</div>
+      <div class="machine-task">${facts([["当前阶段", account.stage || "未接入"], ["今日会话", account.session_count ?? null],
         ["运营天数", account.operating_days === undefined ? null : `${account.operating_days} 天`],
         ["最后动作", last ? `${last.label} · ${stamp(last.at)}` : "暂无动作"]])}
       <div class="machine-task-wide"><span>最后动作链接</span>${link(last?.url, "打开最后动作", "last-action-link")}</div>
