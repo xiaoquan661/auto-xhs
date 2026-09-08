@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -699,21 +700,36 @@ class ManagerWorkerService:
         if not token:
             raise WorkerServiceError("LOCAL_SERVICE_UNAVAILABLE", "本地服务没有返回会话令牌")
         path, body = route
-        if normalized_action == "identity-check":
+        started = time.monotonic()
+        try:
             operation = self._local_api_request(
                 "POST",
                 f"/accounts/{encoded}{path}",
                 body,
                 token=token,
-                timeout_seconds=90.0,
+                timeout_seconds=(
+                    90.0
+                    if normalized_action == "identity-check"
+                    else 60.0
+                    if normalized_action in {"profile-start", "bridge-restart"}
+                    else None
+                ),
             )
-        else:
-            operation = self._local_api_request(
-                "POST",
-                f"/accounts/{encoded}{path}",
-                body,
-                token=token,
-            )
+        except WorkerServiceError as exc:
+            if normalized_action == "profile-start":
+                self._record_profile_start(account_name, started, error=exc)
+                if exc.code == "LOCAL_SERVICE_TIMEOUT":
+                    raise WorkerServiceError(
+                        "PROFILE_START_TIMEOUT",
+                        "启动 Profile 等待超过 60 秒，启动结果待核对；"
+                        "请刷新账号状态查看扩展连接情况",
+                    ) from exc
+            raise
+        message = ""
+        if normalized_action == "profile-start":
+            measurement = self._record_profile_start(account_name, started, operation=operation)
+            operation["startup_measurement"] = measurement
+            message = measurement["message"]
         try:
             status = self.account_status(account_name)
         except WorkerServiceError as exc:
@@ -731,13 +747,51 @@ class ManagerWorkerService:
                     "message": exc.message,
                 },
             }
+        startup_error = ((operation.get("setup") or {}).get("lifecycle") or {}).get("error_code")
         return {
-            "success": True,
+            "success": not bool(startup_error),
+            "error_code": startup_error,
             "status": status["account"].get("status") or "UNKNOWN",
             "checked_at": status["checked_at"],
+            "message": message,
             "operation": operation,
             "account": status["account"],
         }
+
+    def _record_profile_start(
+        self,
+        account: str,
+        started: float,
+        *,
+        operation: dict | None = None,
+        error: WorkerServiceError | None = None,
+    ) -> dict:
+        setup = (operation or {}).get("setup") or {}
+        lifecycle = setup.get("lifecycle") or {}
+        seconds = round(time.monotonic() - started, 3)
+        message = (
+            error.message
+            if error
+            else lifecycle.get("message") or setup.get("message") or "Profile 启动请求已返回"
+        )
+        record = {
+            "account": account,
+            "recorded_at": utc_now(),
+            "request_seconds": seconds,
+            "phase": setup.get("phase"),
+            "ready": lifecycle.get("ready"),
+            "error_code": error.code if error else lifecycle.get("error_code"),
+            "timing": lifecycle.get("timing") or {},
+            "message": f"{message}（启动请求耗时 {seconds:.1f} 秒）",
+        }
+
+        def save(state: dict) -> None:
+            history = state.setdefault("profile_startups", [])
+            history.append(record)
+            state["profile_startups"] = history[-100:]
+
+        self._store.mutate(save)
+        return record
 
     def request_account_field_action(
         self,
@@ -2721,10 +2775,15 @@ class ManagerWorkerService:
                 str(error.get("code") or "LOCAL_SERVICE_REJECTED"),
                 str(error.get("message") or "本地应用服务拒绝请求"),
             ) from exc
-        except (URLError, OSError, TimeoutError, json.JSONDecodeError) as exc:
+        except (URLError, OSError, json.JSONDecodeError) as exc:
+            timed_out = isinstance(exc, TimeoutError) or (
+                isinstance(exc, URLError) and isinstance(exc.reason, TimeoutError)
+            )
             raise WorkerServiceError(
-                "LOCAL_SERVICE_UNAVAILABLE",
-                "本地应用服务不可用",
+                "LOCAL_SERVICE_TIMEOUT" if timed_out else "LOCAL_SERVICE_UNAVAILABLE",
+                "本地应用服务响应超时，操作结果待核对"
+                if timed_out
+                else "本地应用服务无法连接或响应格式异常",
             ) from exc
         if not isinstance(value, dict):
             raise WorkerServiceError("LOCAL_SERVICE_UNAVAILABLE", "本地服务返回格式不正确")

@@ -20,10 +20,23 @@ def start_account_runtime(
     chrome_launcher: Callable[..., dict] = launch_chrome_profile,
     page_factory: Callable[..., BridgePage] = BridgePage,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
     attempts: int = 15,
     interval: float = 1.0,
 ) -> dict:
     """Start Bridge, open the bound Profile when needed, then verify the connection."""
+    started = clock()
+    timing = {"bridge_seconds": 0.0, "chrome_launch_seconds": 0.0, "extension_wait_seconds": 0.0}
+
+    def finish(*args, **kwargs) -> dict:
+        result = _result(*args, **kwargs)
+        result["timing"] = {
+            **timing,
+            "total_seconds": round(clock() - started, 3),
+            "mode": "launch" if result["chrome"]["launch_attempted"] else "reuse",
+        }
+        return result
+
     bridge = bridge_starter(config)
     url = bridge_url or config.bridge_url
     page = page_factory(
@@ -34,6 +47,7 @@ def start_account_runtime(
     )
     bridge_status = page.get_server_status()
     runtime = evaluate_profile_connection(config, bridge_status)
+    timing["bridge_seconds"] = round(clock() - started, 3)
     chrome = {
         "launch_attempted": False,
         "launched": False,
@@ -42,10 +56,12 @@ def start_account_runtime(
     }
 
     if runtime["bridge_running"] and not runtime["extension_connected"]:
+        launch_started = clock()
         try:
             chrome = chrome_launcher(config)
         except (FileNotFoundError, OSError, RuntimeError) as exc:
-            return _result(
+            timing["chrome_launch_seconds"] = round(clock() - launch_started, 3)
+            return finish(
                 config,
                 bridge,
                 runtime,
@@ -53,15 +69,18 @@ def start_account_runtime(
                 error_code="CHROME_START_FAILED",
                 message=f"Bridge 已启动，但无法打开绑定的 Chrome Profile：{exc}",
             )
+        timing["chrome_launch_seconds"] = round(clock() - launch_started, 3)
+        wait_started = clock()
         for _ in range(attempts):
             sleep(interval)
             bridge_status = page.get_server_status()
             runtime = evaluate_profile_connection(config, bridge_status)
             if runtime["extension_connected"]:
                 break
+        timing["extension_wait_seconds"] = round(clock() - wait_started, 3)
 
     if not runtime["bridge_running"]:
-        return _result(
+        return finish(
             config,
             bridge,
             runtime,
@@ -71,7 +90,7 @@ def start_account_runtime(
         )
     if runtime["extension_connected"] and not runtime["profile_verified"]:
         platform_mismatch = not runtime.get("platform_matches", True)
-        return _result(
+        return finish(
             config,
             bridge,
             runtime,
@@ -84,7 +103,7 @@ def start_account_runtime(
             ),
         )
     if not runtime["extension_connected"]:
-        return _result(
+        return finish(
             config,
             bridge,
             runtime,
@@ -95,7 +114,7 @@ def start_account_runtime(
                 "请确认该 Profile 已加载并配对 XHS Bridge 扩展"
             ),
         )
-    return _result(
+    return finish(
         config,
         bridge,
         runtime,
@@ -125,9 +144,7 @@ def _result(
     error_code: str | None = None,
 ) -> dict:
     ready = bool(
-        runtime["bridge_running"]
-        and runtime["extension_connected"]
-        and runtime["profile_verified"]
+        runtime["bridge_running"] and runtime["extension_connected"] and runtime["profile_verified"]
     )
     result = {
         **bridge,

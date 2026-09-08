@@ -152,6 +152,7 @@ def test_rednote_profile_launch_uses_rednote_home(tmp_path) -> None:
         executable_finder=lambda: Path(r"C:\Program Files\Google\Chrome\chrome.exe"),
         process_factory=lambda command, **_kwargs: commands.append(command)
         or SimpleNamespace(pid=1),
+        platform="linux",
     )
 
     assert commands[0][-1] == "https://www.rednote.com/explore"
