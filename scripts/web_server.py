@@ -1,4 +1,4 @@
-"""Loopback-only HTTP server for the local auto-xhs WebUI."""
+"""HTTP server for the auto-xhs WebUI on the manager and local network."""
 
 from __future__ import annotations
 
@@ -41,8 +41,8 @@ API_PREFIX = "/api/v1"
 
 
 def _validate_bind_host(host: str) -> str:
-    if host != "127.0.0.1":
-        raise ValueError("本地 WebUI 只允许监听 127.0.0.1")
+    if host not in {"127.0.0.1", "0.0.0.0"}:
+        raise ValueError("WebUI 监听地址请选择 127.0.0.1（本机）或 0.0.0.0（局域网）")
     return host
 
 
@@ -681,13 +681,14 @@ def _require_manager_service(
     return manager_service
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
+def serve(host: str = "0.0.0.0", port: int = 8765) -> None:
     host = _validate_bind_host(host)
     project_root = Path(__file__).resolve().parent.parent
     service = ApplicationService(
         webui_restarter=lambda: schedule_webui_restart(
             python_executable=sys.executable,
             project_root=project_root,
+            host=host,
             port=port,
         )
     )
@@ -700,7 +701,9 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     manager_agent = ManagerAgentService(manager_service)
     manager_sync.start()
     manager_agent.start()
-    print(f"auto-xhs WebUI: http://{host}:{server.server_port}")
+    print(f"auto-xhs WebUI: http://127.0.0.1:{server.server_port}")
+    if host == "0.0.0.0":
+        print(f"局域网访问：http://<经理机局域网 IP>:{server.server_port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -713,7 +716,12 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="启动 auto-xhs 本地 WebUI")
-    parser.add_argument("--host", default="127.0.0.1", help="固定为 127.0.0.1")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        choices=["0.0.0.0", "127.0.0.1"],
+        help="0.0.0.0 支持本机及局域网访问；127.0.0.1 仅本机访问",
+    )
     parser.add_argument("--port", type=int, default=8765, help="本地 WebUI 端口")
     return parser
 

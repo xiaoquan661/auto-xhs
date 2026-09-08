@@ -41,7 +41,7 @@ const services = {state,
 const panel = context.window.AutoXhsEmployeePanel(services);
 panel.render("");
 for (const section of ["员工机集群与执行单元", "物理机器总数", "机器与账号",
-  "运营日报", "明日任务规划", "智能生成明日计划", "保存计划", "实际动作汇总", "告警与提醒"]) {
+  "运营日报", "明日任务规划", "保存计划", "实际动作汇总", "告警与提醒"]) {
   assert.ok(root.innerHTML.includes(section), section);
 }
 assert.equal((root.innerHTML.match(/class="overview-node-card /g) || []).length, 2);
@@ -78,8 +78,6 @@ async function checkPlanTemplate() {
   handlers.input({target: {value: "12", dataset: {planMetric: "new_followers"}, closest: () => rowNode}});
   assert.match(controls["[data-plan-summary]"].innerHTML, /计划动作上限<\/span><strong>14<\/strong>/);
   const click = (action) => handlers.click({target: {closest: () => ({dataset: {unitAction: action}})}});
-  await click("generate");
-  assert.match(controls["[data-plan-message]"].textContent, /尚未接入/);
   await click("save-plan");
   const templates = JSON.parse(saved.get("auto-xhs:employee-plan-templates"));
   const stored = Object.values(templates)[0];
@@ -103,6 +101,6 @@ async function checkPlanTemplate() {
   assert.ok(nextDay.includes('<span>新增粉丝</span><strong>12</strong>'));
   for (const label of ["收获点赞", "收到新评论", "收到私信"]) assert.ok(nextDay.includes(label));
   assert.ok(!/入群|群介绍|申请进群|进群成功/.test(root.innerHTML));
-  console.log("PASS: numeric draft preview, local template persistence and generation availability");
+  console.log("PASS: numeric draft preview and local template persistence");
 }
 checkPlanTemplate().catch((error) => {console.error(error); process.exitCode = 1;});

@@ -155,7 +155,6 @@ window.AutoXhsEmployeePanel = function (services) {
       <div class="strategy-heading"><div><p class="eyebrow">经理机运营策略</p><h2>明日任务规划</h2>
         <p class="plain-help">这里决定每台机器的确切数量。保存计划不会创建 Trigger，也不会启动员工机。</p></div>
       <div class="strategy-save-bar">${input("计划日期", planDate, "date", 'data-plan-date')}
-        <button type="button" class="smart-generate-button" data-unit-action="generate">智能生成明日计划</button>
         <button type="button" data-unit-action="save-plan">保存计划</button>
         <small class="save-state" data-plan-message role="status">${draft.dirty ? "已修改，待保存" : draft.updatedAt ? `本机模板上次保存 ${stamp(draft.updatedAt)}` : "尚未保存"}</small></div></div>
       <div class="strategy-summary" data-plan-summary>${planSummary()}</div>
@@ -292,7 +291,7 @@ window.AutoXhsEmployeePanel = function (services) {
         <time>${stamp(action.at)}</time><small class="action-account">账号：${esc(account.nickname || account.account_slot)} · Profile ${esc(account.current_uid || account.uid || "未记录")}</small></div>
         ${link(action.url, "查看目标链接")}<div class="visibility-state">${badge(labelFor(action.status), tone(action.status))}<small>执行回执状态</small></div>
         <p>${esc(action.content)}</p><div class="action-management-controls"><label><span>执行者</span><select disabled>${options([["machine", "机器"], ["human", "人工"]], action.source)}</select></label>
-        <button type="button" class="action-delete-button" data-unit-action="unconnected" data-feature="动作记录管理">删除</button><small data-local-message role="status"></small></div></div>`).join("")
+        </div></div>`).join("")
         || '<p>当前回执没有可展示的发帖、点赞或评论链接。</p>'}</div></details>`;
   }
 
@@ -402,9 +401,7 @@ window.AutoXhsEmployeePanel = function (services) {
       const button = event.target.closest("[data-unit-action]");
       if (!button) return;
       const action = button.dataset.unitAction;
-      if (action === "generate") {
-        host.querySelector("[data-plan-message]").textContent = "智能生成尚未接入，可手动调整数量并保存模板。";
-      } else if (action === "save-plan") {
+      if (action === "save-plan") {
         const draft = planDraft();
         if (draft.rows.some((row) => Object.values(row.metrics).some((value) => value !== null
           && (!Number.isInteger(value) || value < 0)))) {
@@ -425,9 +422,6 @@ window.AutoXhsEmployeePanel = function (services) {
           await navigator.clipboard.writeText(host.querySelector("[data-dispatch-template] textarea").value);
           host.querySelector("[data-copy-message]").textContent = "已复制";
         } catch { host.querySelector("[data-copy-message]").textContent = "请在文本框中全选复制。"; }
-      } else if (action === "unconnected") {
-        const surface = button.closest(".action-management-controls");
-        surface.querySelector("[data-local-message]").textContent = `${button.dataset.feature}尚未接入，请在经理 Agent 中配置。`;
       }
     });
   }

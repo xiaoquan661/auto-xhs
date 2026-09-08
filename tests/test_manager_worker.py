@@ -317,6 +317,7 @@ def test_account_protocol_uses_api_only_service_and_returns_fresh_status(tmp_pat
         body: dict | None = None,
         *,
         token: str = "",
+        timeout_seconds: float | None = None,
     ) -> dict:
         calls.append((method, path, body, token))
         if path == "/session":
@@ -353,6 +354,7 @@ def test_account_protocol_uses_api_only_service_and_returns_fresh_status(tmp_pat
         if path == "/accounts/alpha/doctor":
             return {"success": True, "diagnosis": {"status": "READY"}}
         if method == "POST" and path == "/accounts/alpha/setup/begin":
+            assert timeout_seconds == 60.0
             assert body == {"confirmed": True}
             assert token == "session-1"
             return {"success": True, "setup": {"phase": "CONNECTION_READY"}}
@@ -384,6 +386,12 @@ def test_account_protocol_uses_api_only_service_and_returns_fresh_status(tmp_pat
     assert started["success"] is True
     assert started["account"]["status"] == "READY"
     assert ("POST", "/accounts/alpha/setup/begin", {"confirmed": True}, "session-1") in calls
+
+    history = service._store.snapshot()["profile_startups"]
+    assert history[-1]["account"] == "alpha"
+    assert history[-1]["phase"] == "CONNECTION_READY"
+    assert started["operation"]["startup_measurement"] == history[-1]
+    assert "启动请求耗时" in started["message"]
 
 
 def test_identity_check_allows_page_navigation_timeout(tmp_path) -> None:
@@ -1783,3 +1791,79 @@ def test_fixed_entry_decodes_utf8_stdin_even_when_windows_stdio_defaults_to_gbk(
     response = json.loads(completed.stdout.decode("utf-8"))
     assert "中文功能包" in response["config"]["package_root"]
     assert "中文任务" in response["config"]["task_inbox_root"]
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (TimeoutError("timed out"), "LOCAL_SERVICE_TIMEOUT"),
+        (ConnectionRefusedError("refused"), "LOCAL_SERVICE_UNAVAILABLE"),
+    ],
+)
+def test_local_api_distinguishes_timeout_from_connection_failure(
+    tmp_path, monkeypatch, error, expected
+):
+    import manager_worker_service as module
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(module, "urlopen", fail)
+    service = make_service(tmp_path / "worker")
+    with pytest.raises(WorkerServiceError) as caught:
+        service._local_api_request("GET", "/session")
+    assert caught.value.code == expected
+
+
+def test_profile_timeout_records_one_attempt_without_retry(tmp_path, monkeypatch):
+    service = make_service(tmp_path / "worker")
+    calls = []
+
+    def local_api(method, path, *args, **kwargs):
+        calls.append(path)
+        if path == "/session":
+            return {"session_token": "test-session"}
+        raise WorkerServiceError("LOCAL_SERVICE_TIMEOUT", "请求超时")
+
+    monkeypatch.setattr(service, "_local_api_request", local_api)
+    with pytest.raises(WorkerServiceError) as caught:
+        service.account_action("alpha", "profile-start")
+    assert caught.value.code == "PROFILE_START_TIMEOUT"
+    assert calls == ["/session", "/accounts/alpha/setup/begin"]
+    assert len(service._store.snapshot()["profile_startups"]) == 1
+
+
+def test_profile_start_reports_extension_wait_result(tmp_path, monkeypatch):
+    service = make_service(tmp_path / "worker")
+
+    def local_api(method, path, *args, **kwargs):
+        if path == "/session":
+            return {"session_token": "test-session"}
+        return {
+            "setup": {
+                "phase": "WAITING_EXTENSION",
+                "lifecycle": {
+                    "ready": False,
+                    "error_code": "EXTENSION_NOT_CONNECTED",
+                    "message": "Profile 已打开，扩展仍未连接",
+                    "timing": {"total_seconds": 15.2, "mode": "launch"},
+                },
+            }
+        }
+
+    monkeypatch.setattr(service, "_local_api_request", local_api)
+    monkeypatch.setattr(
+        service,
+        "account_status",
+        lambda account: {
+            "checked_at": "2026-09-08",
+            "account": {"name": account, "status": "UNKNOWN"},
+        },
+    )
+    result = service.account_action("alpha", "profile-start")
+    assert result["success"] is False
+    assert result["error_code"] == "EXTENSION_NOT_CONNECTED"
+    assert "扩展仍未连接" in result["message"]
+    record = service._store.snapshot()["profile_startups"][-1]
+    assert record["ready"] is False
+    assert record["timing"]["total_seconds"] == 15.2
