@@ -18,7 +18,6 @@ from urllib.request import urlopen
 
 from product_store import product_root
 
-
 ACTIVE_RESTART_STATES = {"RUNNING", "CANCEL_REQUESTED"}
 
 
@@ -58,10 +57,10 @@ def listener_pid(host: str, port: int) -> int | None:
         text=True,
         check=False,
     )
-    endpoint = f"{host}:{port}"
+    endpoints = {f"{host}:{port}", f"0.0.0.0:{port}"}
     for line in result.stdout.splitlines():
         parts = line.split()
-        if len(parts) >= 5 and parts[1] == endpoint and parts[3].upper() == "LISTENING":
+        if len(parts) >= 5 and parts[1] in endpoints and parts[3].upper() == "LISTENING":
             return int(parts[4])
     return None
 
@@ -82,6 +81,7 @@ def start_webui(
     *,
     python_executable: str,
     project_root: str | Path,
+    host: str = "0.0.0.0",
     port: int = 8765,
     open_browser: bool = False,
     process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
@@ -116,9 +116,7 @@ def start_webui(
         "close_fds": True,
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        )
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
     try:
@@ -126,6 +124,8 @@ def start_webui(
             [
                 python_executable,
                 str(root / "scripts" / "web_server.py"),
+                "--host",
+                host,
                 "--port",
                 str(port),
             ],
@@ -141,7 +141,7 @@ def start_webui(
             state_root.mkdir(parents=True, exist_ok=True)
             (state_root / "webui-process.json").write_text(
                 json.dumps(
-                    {"pid": process.pid, "url": url, "started_by": "auto-xhs"},
+                    {"pid": process.pid, "url": url, "host": host, "started_by": "auto-xhs"},
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -177,6 +177,7 @@ def restart_webui(
     *,
     python_executable: str,
     project_root: str | Path,
+    host: str = "0.0.0.0",
     port: int = 8765,
     delay: float = 0.0,
     task_reader: Callable[[str], list[dict]] = read_tasks,
@@ -194,6 +195,7 @@ def restart_webui(
         return start_webui(
             python_executable=python_executable,
             project_root=project_root,
+            host=host,
             port=port,
             process_factory=process_factory,
             health_checker=health_checker,
@@ -240,6 +242,7 @@ def restart_webui(
     result = start_webui(
         python_executable=python_executable,
         project_root=project_root,
+        host=host,
         port=port,
         process_factory=process_factory,
         health_checker=health_checker,
@@ -255,6 +258,7 @@ def schedule_webui_restart(
     *,
     python_executable: str,
     project_root: str | Path,
+    host: str = "0.0.0.0",
     port: int = 8765,
     delay: float = 0.8,
     process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
@@ -272,9 +276,7 @@ def schedule_webui_restart(
         "close_fds": True,
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        )
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
     try:
@@ -287,6 +289,8 @@ def schedule_webui_restart(
                 python_executable,
                 "--project-root",
                 str(root),
+                "--host",
+                host,
                 "--port",
                 str(port),
                 "--delay",
@@ -310,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("command", choices=["start", "restart"])
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--project-root", default=str(Path(__file__).resolve().parent.parent))
+    parser.add_argument("--host", default="0.0.0.0", choices=["0.0.0.0", "127.0.0.1"])
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open-browser", action="store_true")
     parser.add_argument("--delay", type=float, default=0.0)
@@ -322,6 +327,7 @@ def main() -> None:
         result = restart_webui(
             python_executable=args.python,
             project_root=args.project_root,
+            host=args.host,
             port=args.port,
             delay=args.delay,
         )
@@ -329,6 +335,7 @@ def main() -> None:
         result = start_webui(
             python_executable=args.python,
             project_root=args.project_root,
+            host=args.host,
             port=args.port,
             open_browser=args.open_browser,
         )

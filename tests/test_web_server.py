@@ -324,10 +324,11 @@ class FakeService:
         return {"success": True, "account": account, "logged_out": True, **body}
 
 
-def test_web_server_refuses_non_loopback_bind() -> None:
+def test_web_server_accepts_local_and_lan_bind() -> None:
     assert _validate_bind_host("127.0.0.1") == "127.0.0.1"
-    with pytest.raises(ValueError, match=r"127\.0\.0\.1"):
-        _validate_bind_host("0.0.0.0")
+    assert _validate_bind_host("0.0.0.0") == "0.0.0.0"
+    with pytest.raises(ValueError, match="监听地址"):
+        _validate_bind_host("invalid-host")
 
 
 def test_api_dispatch_routes_to_shared_service() -> None:
