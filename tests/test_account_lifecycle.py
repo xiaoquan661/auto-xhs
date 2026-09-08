@@ -62,8 +62,9 @@ def test_launch_managed_profile_allows_chrome_to_create_default_directory(tmp_pa
     launch_chrome_profile(
         config,
         executable_finder=lambda: Path(r"C:\Program Files\Google\Chrome\chrome.exe"),
-        process_factory=lambda command, **_kwargs: commands.append(command)
-        or type("Process", (), {"pid": 322})(),
+        process_factory=lambda command, **_kwargs: (
+            commands.append(command) or type("Process", (), {"pid": 322})()
+        ),
     )
 
     assert commands[0][2] == "--profile-directory=Default"
@@ -94,8 +95,10 @@ def test_start_account_runtime_launches_profile_and_waits_for_extension(tmp_path
             "registered": True,
             "pid": 12,
         },
-        chrome_launcher=lambda item: launched.append(item.name)
-        or {"launch_attempted": True, "launched": True, "managed_process": False},
+        chrome_launcher=lambda item: (
+            launched.append(item.name)
+            or {"launch_attempted": True, "launched": True, "managed_process": False}
+        ),
         page_factory=Page,
         sleep=lambda _seconds: None,
     )
@@ -162,9 +165,41 @@ def test_restart_account_runtime_stops_only_bridge_before_restore(tmp_path) -> N
     result = restart_account_runtime(
         config,
         bridge_stopper=lambda item: calls.append(("stop_bridge", item.name)) or {},
-        account_starter=lambda item: calls.append(("start_account", item.name))
-        or {"ready": True},
+        account_starter=lambda item: calls.append(("start_account", item.name)) or {"ready": True},
     )
 
     assert calls == [("stop_bridge", "alpha"), ("start_account", "alpha")]
     assert result["ready"] is True
+
+
+def test_profile_start_records_slow_extension_connection_time(tmp_path):
+    elapsed = [0.0]
+    polls = [0]
+
+    class Page:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_server_status(self):
+            polls[0] += 1
+            ready = polls[0] == 13
+            return {
+                "extension_connected": ready,
+                "extension": {"profile_directory": "Profile 2"} if ready else None,
+            }
+
+    def sleep(seconds):
+        elapsed[0] += seconds
+
+    result = start_account_runtime(
+        _config(tmp_path),
+        bridge_starter=lambda config: {"bridge_running": True},
+        chrome_launcher=lambda config: {"launch_attempted": True, "launched": True},
+        page_factory=Page,
+        sleep=sleep,
+        clock=lambda: elapsed[0],
+    )
+    assert result["ready"] is True
+    assert result["timing"]["extension_wait_seconds"] == 12.0
+    assert result["timing"]["total_seconds"] == 12.0
+    assert result["timing"]["mode"] == "launch"
