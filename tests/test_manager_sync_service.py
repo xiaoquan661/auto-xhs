@@ -116,3 +116,27 @@ def test_partial_collection_keeps_pending_counts_and_partial_cycle_status() -> N
     summary = ManagerSyncService(manager).run_result_cycle()
     assert summary["status"] == "PARTIAL_SUCCESS"
     assert summary["outcomes"][0]["outbox_collection"]["pending_records"] == 50
+
+
+def test_background_results_repeat_every_five_minutes() -> None:
+    now = [0.0]
+    result_times: list[float] = []
+    manager = EmptyManager()
+    sync = ManagerSyncService(manager, monotonic=lambda: now[0])
+
+    class ClockEvent:
+        def is_set(self) -> bool:
+            return now[0] > 600
+
+        def wait(self, delay: float) -> None:
+            now[0] += delay
+
+    def result_cycle() -> dict:
+        result_times.append(now[0])
+        return {}
+
+    sync._stop_event = ClockEvent()  # type: ignore[assignment]
+    sync.run_result_cycle = result_cycle
+    sync._run()
+
+    assert result_times == [0.0, 300.0, 600.0]
