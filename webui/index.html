@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/styles.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/control-room.css?v=20260907-worker-progress-1" />
+    <link rel="stylesheet" href="/employee-panel.css?v=20260907-employee-panel-1" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -35,9 +36,9 @@
       <div class="room-dashboard">
             <aside class="manager-unit-rail">
               <div class="manager-rail-heading"><div><strong>员工单元</strong></div><span id="manager-rail-total">0 个</span></div>
-              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-manager-machine-select="">
-                <span class="manager-rail-avatar manager-rail-avatar-all">总览</span>
-                <span><strong>全部机器</strong><small>查看总体进度</small></span><b id="manager-overview-count">0</b>
+              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-employee-machine-select="">
+              <span class="manager-rail-avatar manager-rail-avatar-all">总览</span>
+              <span><strong>全部机器</strong><small>查看总体进度</small></span><b id="manager-overview-count">0</b>
               </button>
               <p class="room-sidebar-caption">单台员工单元</p><div class="manager-machine-nav" id="manager-machine-nav"></div>
 <p class="room-sidebar-caption">工作区</p>        <nav class="nav-list">
@@ -69,6 +70,9 @@
 <p class="room-sidebar-note">选择员工机查看账号、执行进度与回收结果。</p></aside>
 
       <main class="main" id="main-content">
+        <section class="workspace-view" id="employee-units" data-manager-view="employee-units" hidden>
+          <div id="employee-unit-content"></div>
+        </section>
         <section class="workspace-view active" id="overview" data-manager-view="overview">
           <header class="room-workspace-heading"><div><h1>运营总览</h1><p>集中查看运营目标、执行记录和实际成果。</p></div><span class="manager-state-badge" data-tone="info">经理 Agent 统筹</span></header>
           <section class="manager-cluster">
@@ -157,7 +161,7 @@
             <div class="manager-cluster-stage">
               <section class="manager-cluster-overview-panel" id="manager-cluster-overview-panel">
                 <div class="manager-stage-heading"><div><h2>全部员工机</h2><small>选择卡片进入单机详情</small></div></div>
-                <p>员工机卡片和当前状态已汇总在运营总览。</p>
+                <div class="room-node-grid machine-thumbnail-grid" id="manager-all-machine-list"></div>
               </section>
               <section class="manager-machine-detail" id="manager-machine-detail" hidden>
                 <div class="manager-stage-heading"><div><small id="manager-machine-detail-kicker">EXECUTOR</small><h2 id="manager-machine-detail-title">员工机详情</h2><small id="manager-machine-detail-description"></small></div></div>
@@ -386,6 +390,7 @@
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
     <script src="/manager-planning.js?v=20260907-daily-plan-1" defer></script>
     <script src="/manager-account-tools.js?v=20260907-daily-plan-1" defer></script>
+    <script src="/employee-panel.js?v=20260907-employee-panel-1" defer></script>
     <script src="/manager-console.js?v=20260907-daily-plan-1" defer></script>
   </body>
 </html>
