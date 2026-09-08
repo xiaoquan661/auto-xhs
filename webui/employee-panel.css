@@ -512,7 +512,6 @@ footer{margin-top:22px;padding-top:10px}
 .strategy-save-bar label span{color:var(--muted);font-size:10px}
 .strategy-save-bar input,.strategy-node-body input,.strategy-node-body select{border:1px solid var(--line);background:var(--panel);min-width:0;color:var(--ink);font:inherit;border-radius:7px;padding:7px 8px;font-size:11px}
 .strategy-save-bar .save-state{text-align:right;grid-column:1/-1}
-.smart-generate-button{border-color:var(--blue);background:var(--blue-soft);color:var(--blue);font-weight:750}
 .strategy-summary{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:13px;display:grid}
 .strategy-summary>div{background:var(--paper);border-radius:8px;gap:2px;padding:10px;display:grid}
 .strategy-summary span,.strategy-summary small{color:var(--muted);font-size:10px}
@@ -580,7 +579,6 @@ footer{margin-top:22px;padding-top:10px}
 .action-management-controls label span{color:var(--muted);font-size:8px}
 .action-management-controls select{border:1px solid var(--line);background:var(--panel);min-width:78px;color:var(--ink);border-radius:6px;padding:5px 7px;font-size:9px}
 .action-management-controls button{min-height:27px;padding:5px 9px;font-size:9px}
-.action-management-controls .action-delete-button{border-color:var(--red);background:var(--red-soft);color:var(--red)}
 .action-management-controls small{color:var(--blue);align-self:center;font-size:8px}
 .action-management-controls small.error{color:var(--red)}
 .machine-profile-link-row{background:var(--paper);border-radius:7px;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;padding:9px 10px;display:flex}
@@ -607,7 +605,6 @@ footer{margin-top:22px;padding-top:10px}
 .account-status-editor .save-state{grid-column:1/-1}
 .strategy-heading{display:grid}
 .strategy-save-bar{grid-template-columns:1fr auto}
-.strategy-save-bar .smart-generate-button{grid-column:1/-1}
 .strategy-summary,.strategy-node-settings,.strategy-evidence-grid,.daily-report-summary,.pressure-group-grid{grid-template-columns:1fr 1fr}
 .strategy-exact-grid,.strategy-plan-preview,.node-strategy-plan{grid-template-columns:repeat(2,minmax(0,1fr))}
 .strategy-range-line{display:grid}
