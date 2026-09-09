@@ -15,9 +15,16 @@ def collect_operations_metrics(
     owner_xsec_token: str = "",
     max_notes: int = 50,
     profile_loader: Callable | None = None,
+    note_loader: Callable | None = None,
+    max_note_details: int = 20,
 ) -> dict:
     loader = profile_loader or get_user_profile
     profile = loader(page, owner_user_id, owner_xsec_token)
+    coverage = "profile_sample"
+    if profile_loader is None:
+        from .user_profile import collect_profile_history
+
+        profile, coverage = collect_profile_history(page, profile, max_notes=max_notes)
     captured_at = datetime.now(UTC).isoformat()
 
     account_metrics: dict[str, int | None] = {
@@ -44,10 +51,26 @@ def collect_operations_metrics(
             account_metrics["likes"] = value
 
     notes: list[dict] = []
+    failures: list[dict] = []
+    details_read = 0
     for feed in profile.feeds[:max_notes]:
         if not feed.id:
             continue
         interact = feed.note_card.interact_info
+        if (
+            not feed.published_at
+            and details_read < max_note_details
+            and (profile_loader is None or note_loader is not None)
+        ):
+            from .feed_detail import get_feed_detail
+
+            details_read += 1
+            try:
+                detail = (note_loader or get_feed_detail)(page, feed.id, feed.xsec_token)
+                feed.published_at = detail.note.time
+                interact = detail.note.interact_info
+            except Exception as exc:
+                failures.append({"note_id": feed.id, "reason": str(exc)})
         notes.append(
             {
                 "entity_id": feed.id,
@@ -58,7 +81,7 @@ def collect_operations_metrics(
                     "comments": parse_count(interact.comment_count),
                     "shares": parse_count(interact.shared_count),
                 },
-                "extra": {"xsec_token": feed.xsec_token},
+                "extra": {"xsec_token": feed.xsec_token, "published_at": feed.published_at},
             }
         )
 
@@ -71,11 +94,15 @@ def collect_operations_metrics(
                 "nickname": profile.user_basic_info.nickname,
                 "red_id": profile.user_basic_info.red_id,
                 "interaction_counts": interaction_counts,
+                "posts_scope": coverage,
+                "sample_limit": max_notes,
             },
         },
         "notes": notes,
         "count": len(notes),
         "source": "user_profile",
+        "history_coverage": coverage,
+        "note_detail_failures": failures,
     }
 
 

@@ -14,8 +14,13 @@ from contextlib import suppress
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from daily_operations_plan import generate_account, material
+from daily_operations_plan import plan_date as parse_plan_date
+from employee_operations import PLAN_METRICS, EmployeeOperations, normalize_config
+from manager_memory import ManagerMemory
 from manager_store import ManagerStore
 from manager_transport import ManagerTransportError, OpenSSHTransport
+from operations_policy import check_operations_policy
 from service_errors import ServiceError
 
 EXPECTED_EXECUTOR_ROLE = "executor"
@@ -59,7 +64,7 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class ManagerService:
+class ManagerService(ManagerMemory):
     """Persist remote intent separately from transport and platform outcomes."""
 
     def __init__(
@@ -301,10 +306,13 @@ class ManagerService:
         goals_payload = self.list_goals()
         operation_tasks_payload = self.list_operation_tasks()
         messages_payload = self.list_agent_messages()
+        employee_summary = EmployeeOperations(
+            self.store.snapshot(), results_payload["current_results"], self._result_metric_counts
+        ).summary(accounts_payload["accounts"])
 
         machines = machines_payload["machines"]
         tasks = tasks_payload["tasks"]
-        accounts = accounts_payload["accounts"]
+        accounts = employee_summary["accounts"]
         alerts = alerts_payload["alerts"]
         sync = sync_payload["sync"]
         active_task_states = {
@@ -371,6 +379,7 @@ class ManagerService:
             "personas": personas_payload["personas"],
             "goals": goals_payload["goals"],
             "daily_plans": self.list_daily_plans()["plans"],
+            "employee_summary": employee_summary,
             "operation_tasks": operation_tasks_payload["operation_tasks"],
             "agent_messages": messages_payload["agent_messages"],
             "versions": self.store.list("versions"),
@@ -435,11 +444,276 @@ class ManagerService:
             "created_at": str(request.get("created_at") or utc_now()),
         }
         saved = self.store.put("agent_messages", message_id, record)
+        if payload.get("memory_records") and record["task_id"]:
+            task = self.store.get("tasks", record["task_id"]) or {}
+            if task.get("machine_id"):
+                self.ingest_memory({
+                    "task_id": record["task_id"], "machine_id": task["machine_id"],
+                    "remote_execution_id": payload.get("memory_session_id")
+                    or task.get("remote_execution_id") or record["task_id"],
+                    "memory_records": payload["memory_records"],
+                })
         return {"success": True, "agent_message": saved}
 
     def list_daily_plans(self) -> dict:
         plans = sorted(self.store.list("daily_plans"), key=lambda item: item["plan_date"])
         return {"success": True, "plans": plans}
+
+    def generate_daily_plan(self, request: dict) -> dict:
+        day = parse_plan_date(request.get("plan_date"))
+        overrides = {
+            self._account_key(r["machine_id"], r["account_slot"]): r
+            for r in request.get("accounts") or []
+        }
+        operations = EmployeeOperations(
+            self.store.snapshot(),
+            self.list_results()["current_results"],
+            self._result_metric_counts,
+        )
+        accounts = [operations.enrich_account(a, day) for a in self.list_accounts()["accounts"]]
+        rows = [
+            generate_account(
+                day, a, overrides.get(self._account_key(a["machine_id"], a["account_slot"]))
+            )
+            for a in accounts
+        ]
+        return {"success": True, "plan": {"plan_date": day, "accounts": rows, "status": "DRAFT"}}
+
+    def preview_daily_plan(self, request: dict) -> dict:
+        day = parse_plan_date(request.get("plan_date"))
+        plan = self.store.get("daily_plans", day)
+        if not plan:
+            raise ServiceError("PLAN_NOT_FOUND", "请先保存每日计划", 404)
+        if request.get("version") != plan["version"]:
+            raise ServiceError("PLAN_VERSION_CHANGED", "计划版本已更新，请重新读取后提交", 409)
+        submissions = plan.get("submissions") or []
+        if submissions and all(row["version"] == plan["version"] for row in submissions):
+            return {
+                "success": True,
+                "plan_date": day,
+                "version": plan["version"],
+                "materials": [
+                    self._get_operation_task(row["operation_task_id"])["daily_material"]
+                    for row in submissions
+                ],
+                "submissions": submissions,
+            }
+        operations = EmployeeOperations(
+            self.store.snapshot(),
+            self.list_results()["current_results"],
+            self._result_metric_counts,
+        )
+        accounts = {
+            self._account_key(a["machine_id"], a["account_slot"]): operations.enrich_account(a, day)
+            for a in self.list_accounts()["accounts"]
+        }
+        materials = []
+        for row in plan["accounts"]:
+            if not row["participating"]:
+                continue
+            key = self._account_key(row["machine_id"], row["account_slot"])
+            account = accounts.get(key) or {"health_state": "UNKNOWN"}
+            persona = self._active_persona(row["machine_id"], row["account_slot"])
+            materials.append(
+                material(plan, row, account, self._persona_snapshot(persona) if persona else None)
+            )
+            materials[-1]["baseline_actual"] = {
+                name: value["actual"] or 0
+                for name, value in operations.day_metrics(
+                    row["machine_id"], row["account_slot"], day
+                ).items()
+                if name in materials[-1]["budgets"]
+            }
+        return {
+            "success": True,
+            "plan_date": day,
+            "version": plan["version"],
+            "materials": materials,
+            "submissions": plan.get("submissions", []),
+        }
+
+    def submit_daily_plan(self, request: dict) -> dict:
+        """Explicitly hand the saved version to the manager Agent execution queue."""
+        preview = self.preview_daily_plan(request)
+        day, version = preview["plan_date"], preview["version"]
+        previous = preview["submissions"]
+        if previous:
+            if all(row["version"] == version for row in previous):
+                if request.get("action_inputs"):
+                    for row in previous:
+                        key = self._account_key(row["machine_id"], row["account_slot"])
+                        self.supply_daily_inputs(
+                            row["operation_task_id"],
+                            {"action_inputs": (request["action_inputs"].get(key) or {})},
+                        )
+                return {"success": True, "status": "IDEMPOTENT", "submissions": previous}
+            raise ServiceError(
+                "PLAN_ALREADY_SUBMITTED", "该日期已提交，请在原任务中核对剩余预算", 409
+            )
+        if not preview["materials"]:
+            raise ServiceError("PLAN_EMPTY", "计划没有参与运营的账号")
+        blockers = [reason for item in preview["materials"] for reason in item["blockers"]]
+        if blockers:
+            raise ServiceError("PLAN_NOT_READY", "；".join(dict.fromkeys(blockers)), 409)
+        now = utc_now()
+        records = []
+        for item in preview["materials"]:
+            target = {k: item["identity"][k] for k in ("machine_id", "account_slot")}
+            key = self._account_key(target["machine_id"], target["account_slot"])
+            inputs = self._daily_inputs((request.get("action_inputs") or {}).get(key, {}), item)
+            identifier = f"DAILY-{uuid.uuid4().hex[:16].upper()}"
+            goal = {
+                "goal_id": identifier,
+                "version": 1,
+                "state": "ACTIVE",
+                "title": f"{day} {target['machine_id']}/{target['account_slot']} 每日运营",
+                "period_start": day,
+                "period_end": day,
+                "targets": [target],
+                "target_metrics": item["hard_targets"],
+                "daily_operation_task_id": identifier,
+                "desired_outcome": "逐项核销每日预算，关注博主按真实机会执行",
+                "persona_bindings": [item["persona_snapshot"]],
+                "created_at": now,
+                "updated_at": now,
+            }
+            task = {
+                "operation_task_id": identifier,
+                "goal_id": identifier,
+                "title": goal["title"],
+                "targets": [target],
+                "goal_snapshot": self._goal_snapshot(goal),
+                "persona_bindings": goal["persona_bindings"],
+                "daily_material": item,
+                "plan_date": day,
+                "action_inputs": {key: inputs},
+                "source_type": "daily_plan",
+                "requested_by": str(request.get("requested_by") or "经理用户"),
+                "state": "WAITING_AGENT",
+                "manager_agent_id": "",
+                "plan": {},
+                "created_at": now,
+                "updated_at": now,
+            }
+            records.append((goal, task))
+
+        def save(state: dict) -> list[dict]:
+            plan = state["daily_plans"][day]
+            if plan["version"] != version:
+                raise ServiceError("PLAN_VERSION_CHANGED", "计划版本已更新，请重新读取后提交", 409)
+            if plan.get("submissions"):
+                return copy.deepcopy(plan["submissions"])
+            submissions = []
+            for goal, task in records:
+                identifier = task["operation_task_id"]
+                state["goals"][identifier] = goal
+                state["operation_tasks"][identifier] = task
+                submissions.append(
+                    {
+                        "operation_task_id": identifier,
+                        "version": version,
+                        **task["targets"][0],
+                        "submitted_at": now,
+                    }
+                )
+            plan.update(status="SUBMITTED", submissions=submissions)
+            return copy.deepcopy(submissions)
+
+        return {"success": True, "status": "SUBMITTED", "submissions": self.store.mutate(save)}
+
+    def employee_summary(self) -> dict:
+        return EmployeeOperations(
+            self.store.snapshot(),
+            self.list_results()["current_results"],
+            self._result_metric_counts,
+        ).summary(self.list_accounts()["accounts"])
+
+    def save_account_operations(self, machine_id: str, account: str, request: dict) -> dict:
+        machine_id = self._get_machine(machine_id)["machine_id"]
+        key = self._account_key(machine_id, account)
+        existing = self.store.get("accounts", key)
+        if existing is None:
+            raise ServiceError("ACCOUNT_NOT_FOUND", "账号尚未进入经理机账号目录", 404)
+        config = normalize_config(request, existing.get("operations_config") or {})
+        config["updated_at"] = utc_now()
+        self.store.update("accounts", key, lambda row: {**row, "operations_config": config})
+        return {
+            "success": True,
+            "machine_id": machine_id,
+            "account_slot": account,
+            "operations_config": config,
+        }
+
+    def prepare_daily_plan(self, plan_date: str, request: dict) -> dict:
+        """Compatibility entrypoint using the same versioned submission transaction."""
+        plan = self.store.get("daily_plans", parse_plan_date(plan_date)) or {}
+        result = self.submit_daily_plan(
+            {
+                **request,
+                "plan_date": plan_date,
+                "version": request.get("version", plan.get("version")),
+            }
+        )
+        return {
+            **result,
+            "plan_date": plan_date,
+            "operation_tasks": [
+                self.get_operation_task(row["operation_task_id"])["operation_task"]
+                for row in result["submissions"]
+            ],
+        }
+
+    @staticmethod
+    def _daily_inputs(inputs: dict, spec: dict) -> dict:
+        if not isinstance(inputs, dict):
+            raise ServiceError("INVALID_DAILY_INPUTS", "动作输入应为对象")
+        ManagerService._validate_no_private_credentials(inputs)
+        for metric, entries in inputs.items():
+            if metric not in {"publish", "reply", "friend_request"} or not isinstance(
+                entries, list
+            ):
+                raise ServiceError("INVALID_DAILY_INPUTS", "请按发布、回复或关注博主提供动作数组")
+            if len(entries) > spec["budgets"][metric] or any(
+                not isinstance(e, dict) for e in entries
+            ):
+                raise ServiceError("INVALID_DAILY_INPUTS", "动作输入应为对象且不能超过计划预算")
+            if metric == "friend_request":
+                warm = {c.get("user_id") for c in spec["evidence"].get("warm_candidates") or []}
+                if any(
+                    e.get("user_id") not in warm or e.get("user_id") == spec["identity"]["uid"]
+                    for e in entries
+                ):
+                    raise ServiceError("WARM_TARGET_REQUIRED", "关注博主的目标需要该账号的暖互动证据")
+        return copy.deepcopy(inputs)
+
+    def supply_daily_inputs(self, operation_task_id: str, request: dict) -> dict:
+        """Append reviewed targets/materials without changing earlier inputs or budgets."""
+
+        def append(state: dict) -> dict:
+            task = state["operation_tasks"].get(operation_task_id)
+            if not task or not task.get("daily_material"):
+                raise ServiceError("DAILY_TASK_NOT_FOUND", "每日运营任务不存在", 404)
+            spec = task["daily_material"]
+            key = self._account_key(
+                spec["identity"]["machine_id"], spec["identity"]["account_slot"]
+            )
+            supplied = self._daily_inputs(request.get("action_inputs") or {}, spec)
+            current = task.setdefault("action_inputs", {}).setdefault(key, {})
+            if all(current.get(k) == v for k, v in supplied.items()):
+                return copy.deepcopy(task)
+            if task["state"] in {"COMPLETED", "BLOCKED"}:
+                raise ServiceError("DAILY_TASK_FINAL", "每日任务已结束，不能追加动作输入", 409)
+            for metric, entries in supplied.items():
+                old = current.get(metric) or []
+                if entries[: len(old)] != old:
+                    raise ServiceError(
+                        "DAILY_INPUT_FROZEN", "已登记动作输入保持不变，请追加新项", 409
+                    )
+                current[metric] = entries
+            task["updated_at"] = utc_now()
+            return copy.deepcopy(task)
+
+        return {"success": True, "operation_task": self.store.mutate(append)}
 
     def save_daily_plan(self, request: dict) -> dict:
         """Save dated account quantities for subsequent Agent planning."""
@@ -452,6 +726,7 @@ class ManagerService:
             raise ServiceError("INVALID_PLAN", "计划需要包含账号列表")
         accounts = []
         seen = set()
+        previous = self.store.get("daily_plans", plan_date) or {}
         for entry in entries:
             machine = self._get_machine(str(entry.get("machine_id") or ""))
             slot = str(entry.get("account_slot") or "").strip()
@@ -459,10 +734,18 @@ class ManagerService:
             if key in seen or not self.store.get("accounts", key):
                 raise ServiceError("INVALID_PLAN_ACCOUNT", "请选择已登记且不重复的员工机账号")
             seen.add(key)
-            metrics = {}
-            for kind in ("browse", "like", "comment", "publish"):
-                value = (entry.get("metrics") or {}).get(kind, 0)
-                if type(value) is not int or value < 0:
+            old_row = next(
+                (
+                    row
+                    for row in previous.get("accounts", [])
+                    if row["machine_id"] == machine["machine_id"] and row["account_slot"] == slot
+                ),
+                {},
+            )
+            metrics = dict(old_row.get("metrics") or {})
+            for kind in PLAN_METRICS:
+                value = (entry.get("metrics") or {}).get(kind, metrics.get(kind))
+                if value is not None and (type(value) is not int or value < 0):
                     raise ServiceError("INVALID_PLAN_COUNT", "操作数量必须为非负整数")
                 metrics[kind] = value
             accounts.append(
@@ -472,9 +755,12 @@ class ManagerService:
                     "participating": entry.get("participating") is True,
                     "metrics": metrics,
                     "notes": str(entry.get("notes") or "").strip(),
+                    "stage": str(entry.get("stage", old_row.get("stage", "")) or "").strip(),
+                    "pressure": str(
+                        entry.get("pressure", old_row.get("pressure", "")) or ""
+                    ).strip(),
                 }
             )
-        previous = self.store.get("daily_plans", plan_date) or {}
         plan = self.store.put(
             "daily_plans",
             plan_date,
@@ -484,6 +770,11 @@ class ManagerService:
                 "status": "SAVED",
                 "version": int(previous.get("version", 0)) + 1,
                 "updated_at": utc_now(),
+                "submissions": previous.get("submissions", []),
+                "history": [
+                    *previous.get("history", []),
+                    *([{k: v for k, v in previous.items() if k != "history"}] if previous else []),
+                ],
             },
         )
         return {"success": True, "plan": plan}
@@ -511,6 +802,11 @@ class ManagerService:
         """Create or update the stable persona configuration bound to an account unit."""
 
         normalized = self._normalize_persona_request(request)
+        identity = self.memory_identity(normalized["machine_id"], normalized["account_slot"])
+        from account_memory import namespace
+
+        normalized["identity"] = identity
+        normalized["memory_namespace"] = namespace(identity) if identity["uid"] else ""
         persona_id = normalized.pop("persona_id")
         account_key = self._account_key(
             normalized["machine_id"],
@@ -556,6 +852,7 @@ class ManagerService:
             "version": version,
             **normalized,
             "saved_at": now,
+            "effective_at": now,
         }
         record = {
             **(existing or {}),
@@ -565,6 +862,7 @@ class ManagerService:
             "account_key": account_key,
             "version": version,
             "versions": [*previous_versions, snapshot],
+            "effective_at": now,
             "data_status": "observed",
             "missing_reason": "",
             "created_at": (existing or {}).get("created_at") or now,
@@ -1179,9 +1477,40 @@ class ManagerService:
                 409,
             )
         if existing is None:
+            config = (managed_account or {}).get("operations_config") or {}
+            if config:
+                check_operations_policy(
+                    config,
+                    normalized["capability"],
+                    [
+                        r
+                        for r in self.list_results()["current_results"]
+                        if r.get("machine_id") == machine["machine_id"]
+                        and self._result_account(r) == normalized["account_slot"]
+                    ],
+                    account_state=str(
+                        (managed_account or {}).get("error_code")
+                        or (managed_account or {}).get("raw_status")
+                        or (managed_account or {}).get("health_state")
+                        or ""
+                    ),
+                    write_intent=normalized["write_intent"],
+                )
+                if not normalized["parameters"].get("daily_plan"):
+                    normalized["parameters"] = {
+                        **normalized["parameters"], "operations_config": config
+                    }
             self._validate_scheduled_dispatch(normalized)
         if existing is not None:
+            previous_policy = (existing["request"].get("parameters") or {}).get("operations_config")
+            if previous_policy and "operations_config" not in normalized["parameters"]:
+                normalized["parameters"] = {
+                    **normalized["parameters"],
+                    "operations_config": previous_policy,
+                }
             existing_request = self._normalize_task_request(existing["request"])
+            for field in ("goal_snapshot", "persona_snapshot"):
+                existing_request[field] = copy.deepcopy(existing["request"].get(field) or {})
             if existing_request != normalized:
                 raise ServiceError("DUPLICATE_TASK_ID", "任务编号已被不同请求使用", 409)
             if existing_request != existing["request"]:
@@ -1685,15 +2014,57 @@ class ManagerService:
             }
             for item in results
         ]
+        attributions = {
+            f"{row['record_id']}:{row['item_index']}": row
+            for row in self.store.list("action_attributions")
+        }
         return {
             "success": True,
             "results": results,
-            "current_results": current_results,
+            "current_results": [
+                self._with_action_attributions(row, attributions) for row in current_results
+            ],
             "result_history": result_history,
             "incremental_records": incremental_records,
             "summary": self._summarize_results(current_results),
             "incremental_unique_count": len(incremental_records),
         }
+
+    def _with_action_attributions(self, result: dict, attributions: dict) -> dict:
+        record = copy.deepcopy(result)
+        items = record.get("item_results") or [record]
+        for index, item in enumerate(items):
+            annotation = attributions.get(f"{record.get('record_id')}:{index}")
+            if annotation:
+                item["execution_source"] = annotation["execution_source"]
+                item["attribution_updated_at"] = annotation["updated_at"]
+        return record
+
+    def save_action_attribution(self, record_id: str, request: dict) -> dict:
+        result = next(
+            (r for r in self.store.list("results") if r.get("record_id") == record_id), None
+        )
+        if result is None:
+            raise ServiceError("NOT_FOUND", "执行回执不存在", 404)
+        index = request.get("item_index", 0)
+        items = result.get("item_results") or [result]
+        if type(index) is not int or not 0 <= index < len(items):
+            raise ServiceError("INVALID_ACTION_ITEM", "请选择有效的动作记录")
+        source = request.get("execution_source")
+        if source not in {"machine", "human"}:
+            raise ServiceError("INVALID_EXECUTION_SOURCE", "执行者只能选择机器或人工")
+        key = f"{record_id}:{index}"
+        previous = self.store.get("action_attributions", key) or {}
+        annotation = {
+            "record_id": record_id,
+            "item_index": index,
+            "execution_source": source,
+            "updated_at": utc_now(),
+            "previous_source": previous.get("execution_source")
+            or items[index].get("execution_source", "machine"),
+        }
+        self.store.put("action_attributions", key, annotation)
+        return {"success": True, "attribution": annotation}
 
     @staticmethod
     def _result_execution_key(result: dict) -> str:
@@ -2260,13 +2631,19 @@ class ManagerService:
                 if isinstance(message, dict):
                     self.record_agent_message(message)
                 execution = payload.get("execution")
-                if isinstance(execution, dict) and metadata.get("task_id"):
+                task_id = str(metadata.get("task_id") or "")
+                manager_task = self.store.get("tasks", task_id) if task_id else None
+                if isinstance(execution, dict) and manager_task:
                     self._update_task_from_execution(
-                        str(metadata["task_id"]),
+                        task_id,
                         execution,
                         connectivity="ONLINE",
                     )
-                if isinstance(message, dict) and str(message.get("status") or "") == "RUNNING":
+                if (
+                    manager_task
+                    and isinstance(message, dict)
+                    and str(message.get("status") or "") == "RUNNING"
+                ):
                     self._update_task(
                         str(metadata["task_id"]),
                         dispatch_state="RUNNING",
@@ -2482,6 +2859,12 @@ class ManagerService:
             result = {**item, "machine_id": machine_id, "collected_at": utc_now()}
             task = self.store.get("tasks", str(result.get("task_id") or "")) or {}
             request = task.get("request") if isinstance(task.get("request"), dict) else {}
+            if not task:
+                business = result.get("business_result") or {}
+                for field in ("account_slot", "platform", "capability"):
+                    if not result.get(field) and business.get(field):
+                        result[field] = business[field]
+                result.setdefault("source_type", "executor")
             if task:
                 goal_snapshot = (
                     request.get("goal_snapshot")
@@ -2527,6 +2910,7 @@ class ManagerService:
             incremental_duplicates += replayed_records
             self._apply_collected_result(result)
             self._record_operation_result(result)
+            self.ingest_memory(result)
             for message in result.get("agent_messages") or []:
                 if isinstance(message, dict):
                     self.record_agent_message(message)
@@ -3718,6 +4102,10 @@ class ManagerService:
             "fact_boundaries": str(request.get("fact_boundaries") or "").strip(),
             "language": str(request.get("language") or "中文").strip(),
             "knowledge": str(request.get("knowledge") or "").strip(),
+            "identity_background": str(request.get("identity_background") or "").strip(),
+            "professional_direction": str(request.get("professional_direction") or "").strip(),
+            "reply_length": str(request.get("reply_length") or "").strip(),
+            "behavior_boundaries": str(request.get("behavior_boundaries") or "").strip(),
             "status": status,
         }
 
@@ -3735,6 +4123,12 @@ class ManagerService:
             "fact_boundaries",
             "language",
             "knowledge",
+            "identity_background",
+            "professional_direction",
+            "reply_length",
+            "behavior_boundaries",
+            "identity",
+            "memory_namespace",
             "status",
         )
         return {field: persona.get(field) for field in fields}
@@ -3744,6 +4138,7 @@ class ManagerService:
         return {
             "persona_id": str(persona.get("persona_id") or ""),
             "version": int(persona.get("version") or 0),
+            "effective_at": persona.get("effective_at") or persona.get("updated_at"),
             **cls._persona_definition(persona),
         }
 
@@ -3848,6 +4243,37 @@ class ManagerService:
             **cls._goal_definition(goal),
         }
 
+    def _observed_growth_metrics(self, goal: dict, targets: list[dict]) -> Counter[str]:
+        kinds = {
+            "new_followers",
+            "received_likes",
+            "received_comments",
+            "received_private_messages",
+        }
+        requested = kinds.intersection(goal.get("target_metrics") or {})
+        if not requested or not goal.get("period_start") or not goal.get("period_end"):
+            return Counter()
+        operations = EmployeeOperations(
+            self.store.snapshot(),
+            self.list_results()["current_results"],
+            self._result_metric_counts,
+        )
+        from datetime import timedelta
+
+        counts: Counter[str] = Counter()
+        current = date.fromisoformat(goal["period_start"])
+        end = date.fromisoformat(goal["period_end"])
+        while current <= end:
+            for target in targets:
+                values = operations.day_metrics(
+                    target["machine_id"], target["account_slot"], current.isoformat()
+                )
+                for kind in requested:
+                    if values[kind]["actual"] is not None:
+                        counts[kind] += values[kind]["actual"]
+            current += timedelta(days=1)
+        return counts
+
     def _with_goal_progress(self, goal: dict) -> dict:
         results = []
         for item in self.store.list("results"):
@@ -3860,6 +4286,12 @@ class ManagerService:
         actual_metrics: Counter[str] = Counter()
         for item in results:
             actual_metrics.update(self._result_metric_counts(item))
+        actual_metrics.update(self._observed_growth_metrics(goal, goal.get("targets") or []))
+        daily_task_id = goal.get("daily_operation_task_id")
+        if daily_task_id:
+            daily_task = self._get_operation_task(daily_task_id)
+            progress = self._with_operation_task_progress(daily_task)["progress"]
+            actual_metrics = Counter(progress["actual_metrics"])
         target_metrics = dict(goal.get("target_metrics") or {})
         state_counts = Counter(
             str(item.get("state") or item.get("status") or "UNKNOWN").upper() for item in results
@@ -3875,7 +4307,10 @@ class ManagerService:
                     if execution_targets
                     else None
                 ),
-                "actual_total": sum(actual_metrics.values()) if actual_metrics else None,
+                "actual_total": (
+                    sum(actual_metrics.get(name, 0) for name in target_metrics)
+                    if daily_task_id else sum(actual_metrics.values())
+                ) if actual_metrics else None,
                 "target_metrics": target_metrics,
                 "actual_metrics": dict(sorted(actual_metrics.items())),
                 "execution_target_total": (sum(execution_targets) if execution_targets else None),
@@ -3938,6 +4373,8 @@ class ManagerService:
             "completion_criteria": str(request.get("completion_criteria") or "").strip(),
             "targets": targets,
             "requested_by": str(request.get("requested_by") or "WebUI用户").strip(),
+            "action_inputs": dict(request.get("action_inputs") or {}),
+            "plan_date": str(request.get("plan_date") or ""),
         }
 
     @staticmethod
@@ -3951,6 +4388,8 @@ class ManagerService:
             "requested_by",
             "goal_snapshot",
             "persona_bindings",
+            "action_inputs",
+            "plan_date",
         )
         return {field: task.get(field) for field in fields}
 
@@ -3975,6 +4414,11 @@ class ManagerService:
             actual_metrics.update(self._result_metric_counts(item))
         goal_snapshot = (
             task.get("goal_snapshot") if isinstance(task.get("goal_snapshot"), dict) else {}
+        )
+        if task.get("daily_material"):
+            actual_metrics.update(task["daily_material"].get("baseline_actual") or {})
+        actual_metrics.update(
+            self._observed_growth_metrics(goal_snapshot, task.get("targets") or [])
         )
         target_metrics = dict(goal_snapshot.get("target_metrics") or {})
         linked_tasks = [
@@ -4006,7 +4450,10 @@ class ManagerService:
                 "execution_task_count": len(linked_tasks),
                 "result_count": len(results),
                 "target_total": sum(target_metrics.values()) if target_metrics else None,
-                "actual_total": sum(actual_metrics.values()) if actual_metrics else None,
+                "actual_total": (
+                    sum(actual_metrics.get(name, 0) for name in target_metrics)
+                    if task.get("daily_material") else sum(actual_metrics.values())
+                ) if actual_metrics else None,
                 "target_metrics": target_metrics,
                 "actual_metrics": dict(sorted(actual_metrics.items())),
                 "task_state_counts": dict(sorted(task_states.items())),
@@ -4143,7 +4590,7 @@ class ManagerService:
             enriched["operation_task_id"] = str(schedule.get("operation_task_id") or "")
             enriched["goal_snapshot"] = dict(schedule.get("goal_snapshot") or {})
             enriched["persona_snapshot"] = dict(schedule.get("persona_snapshot") or {})
-            return enriched
+            return self.attach_memory(enriched)
         operation_task_id = str(enriched.get("operation_task_id") or "")
         if operation_task_id:
             operation_task, goal_snapshot, persona_snapshot = self._operation_task_context(
@@ -4157,7 +4604,12 @@ class ManagerService:
             enriched["goal_id"] = str(operation_task["goal_id"])
             enriched["goal_snapshot"] = goal_snapshot
             enriched["persona_snapshot"] = persona_snapshot
-            return enriched
+            if operation_task.get("daily_material"):
+                spec = copy.deepcopy(operation_task["daily_material"])
+                enriched["parameters"] = {**enriched["parameters"], "daily_plan": spec,
+                    "operations_config": {**spec.get("operations_config", {}),
+                                          "publish_rules": spec["publish_rules"]}}
+            return self.attach_memory(enriched)
         goal_id = str(enriched.get("goal_id") or "")
         if goal_id:
             goal_snapshot, persona_snapshot = self._goal_context(
@@ -4167,7 +4619,7 @@ class ManagerService:
             )
             enriched["goal_snapshot"] = goal_snapshot
             enriched["persona_snapshot"] = persona_snapshot
-        return enriched
+        return self.attach_memory(enriched)
 
     def _validate_scheduled_dispatch(self, request: dict) -> None:
         schedule_id = str(request.get("schedule_id") or "").strip()
@@ -4366,6 +4818,32 @@ class ManagerService:
     def _result_metric_counts(cls, result: dict) -> Counter[str]:
         request = result.get("task_request") if isinstance(result.get("task_request"), dict) else {}
         capability = str(result.get("capability") or request.get("capability") or "").lower()
+        if capability in {
+            "collect-operations-metrics",
+            "collect-note-comments",
+            "collect-private-messages",
+        }:
+            return Counter()
+        if capability in {"fill-publish", "fill-publish-video", "long-article"}:
+            body = result.get("business_result") or {}
+            from publish_workflow import VERIFIED_PUBLISH_EVIDENCE
+
+            return (
+                Counter({"publish": 1})
+                if (
+                    result.get("state") == "SUCCESS"
+                    and body.get("verified")
+                    and body.get("evidence") in VERIFIED_PUBLISH_EVIDENCE
+                )
+                else Counter()
+            )
+        if capability == "follow-user":
+            body = result.get("business_result") or {}
+            return (
+                Counter({"friend_request": int(body.get("changed") is True)})
+                if body.get("success") is True
+                else Counter()
+            )
         item_status = str(
             result.get("item_results_status")
             or ("observed" if "item_results" in result else "missing")

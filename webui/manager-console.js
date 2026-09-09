@@ -7,7 +7,7 @@
   const TASK_REFRESH_INTERVAL_MS = 5_000;
   const VIEW_STORAGE_KEY = "auto-xhs:manager-view";
   const state = {
-    available: true,
+    available: false,
     machines: [],
     tasks: [],
     schedules: [],
@@ -39,7 +39,8 @@
   let editingPersona = null;
   let planning = null;
   let employeePanel = null;
-  let selectedEmployeeMachine = localStorage.getItem("auto-xhs:employee-unit") || "";
+  let resultView = null;
+  let selectedEmployeeAccount = localStorage.getItem("auto-xhs:employee-account") || "";
   let accountTools = null;
   let selectedMachineId = localStorage.getItem("auto-xhs:manager-machine") || "";
   let selectedAccountNode = localStorage.getItem("auto-xhs:manager-account-node") || "all";
@@ -144,6 +145,7 @@
     comment: "评论",
     reply: "回复",
     publish: "发布",
+    friend_request: "关注博主",
   };
 
   function $(selector) {
@@ -362,37 +364,32 @@
     return records.filter((record) => record.machine_id === machineId);
   }
 
-  function machineAvatar(machine) {
-    const label = String(machine.host_alias || machine.machine_id || "EX").trim();
-    return label.replace(/^PC/i, "").slice(-3).toUpperCase();
+  function employeeAccountKey(account) {
+    return `${account.machine_id}:${account.account_slot}`;
   }
 
-  function machineNavButton(machine) {
+  function accountUnitNavButton(account) {
     const button = element("button", "manager-machine-nav-item");
     button.type = "button";
-    button.dataset.employeeMachineSelect = machine.machine_id;
-    const active = selectedView === "employee-units" && selectedEmployeeMachine === machine.machine_id;
+    button.dataset.employeeAccountSelect = employeeAccountKey(account);
+    const active = selectedView === "employee-units"
+      && selectedEmployeeAccount === employeeAccountKey(account);
     button.setAttribute("aria-pressed", String(active));
     if (active) button.classList.add("active");
 
-    const avatar = element("span", "manager-rail-avatar", machineAvatar(machine));
-    avatar.dataset.tone = toneFor(machine.status);
+    const name = account.nickname || account.account_slot;
+    const platform = account.platform === "rednote" ? "RedNote" : "小红书";
+    button.title = `${name} · ${account.machine_id} / ${account.account_slot} · ${platform}`;
+    const avatar = element("span", "manager-rail-avatar", Array.from(name).slice(0, 2).join(""));
+    avatar.dataset.tone = toneFor(account.health_state);
     const copy = element("span", "manager-rail-copy");
-    const account = state.accounts.find((item) => item.machine_id === machine.machine_id);
     append(
       copy,
-      element("strong", "", machine.host_alias || machine.machine_id),
-      element("small", "", `${account?.nickname || "账号未填写"} · ${machine.machine_id}`),
+      element("strong", "", name),
+      element("small", "", `${account.machine_id} · ${platform} · ${account.account_slot}`),
     );
-    const alertState = highestAlertState(machine.machine_id);
     const tail = element("span", "manager-node-state");
-    if (alertState) {
-      const marker = element("i", "manager-node-alert-marker");
-      marker.dataset.tone = toneFor(alertState);
-      marker.title = `${alertsForMachine(machine.machine_id).length} 个账号需要处理`;
-      tail.appendChild(marker);
-    }
-    tail.appendChild(stateBadge(machine.status));
+    tail.appendChild(stateBadge(account.health_state || "UNKNOWN"));
     append(button, avatar, copy, tail);
     return button;
   }
@@ -407,13 +404,18 @@
     ) {
       selectedMachineId = "";
     }
-    setText("#manager-rail-total", `${state.machines.length} 个`);
-    setText("#manager-overview-count", state.machines.length);
+    if (state.available && selectedEmployeeAccount && !state.accounts.some((account) =>
+      employeeAccountKey(account) === selectedEmployeeAccount)) {
+      selectedEmployeeAccount = "";
+      localStorage.setItem("auto-xhs:employee-account", "");
+    }
+    setText("#manager-rail-total", `${state.accounts.length} 个`);
+    setText("#manager-overview-count", state.accounts.length);
     $(".control-room").dataset.machineScope = selectedMachineId ? "single" : "all";
-    const overviewActive = selectedView === "employee-units" && !selectedEmployeeMachine;
+    const overviewActive = selectedView === "employee-units" && !selectedEmployeeAccount;
     overviewSwitch.classList.toggle("active", overviewActive);
     overviewSwitch.setAttribute("aria-pressed", String(overviewActive));
-    nav.replaceChildren(...state.machines.map(machineNavButton));
+    nav.replaceChildren(...state.accounts.map(accountUnitNavButton));
   }
 
   function compactTaskCard(task) {
@@ -802,6 +804,8 @@
   }
 
   function workerDayMetrics(machineId, accountSlot, date) {
+    const observed = (state.employeeSummary?.daily_metrics || []).find((row) =>
+      row.machine_id === machineId && row.account_slot === accountSlot && row.date === date);
     const plan = (state.dailyPlans || []).find((item) => item.plan_date === date)
       ?.accounts.find((row) => row.machine_id === machineId && row.account_slot === accountSlot);
     const tasks = state.tasks.filter((task) => task.machine_id === machineId
@@ -838,7 +842,10 @@
         status = actual >= target ? "完成" : `${actual === 0 ? "未开始" : "进行中"} · 差 ${target - actual}`;
         tone = actual >= target ? "success" : "warning";
       } else if (actual !== null) status = "已回传";
-      return { kind, target, actual, status, tone, incomplete };
+      const server = observed?.metrics[kind];
+      return server && (server.actual !== null || server.target !== null)
+        ? {...server, target: server.target ?? target}
+        : { kind, target, actual, status, tone, incomplete };
     });
   }
 
@@ -980,10 +987,10 @@
     viewScrollPositions.set("workers", 0);
   }
 
-  function selectEmployeeMachine(machineId) {
-    selectedEmployeeMachine = state.machines.some((machine) => machine.machine_id === machineId)
-      ? machineId : "";
-    localStorage.setItem("auto-xhs:employee-unit", selectedEmployeeMachine);
+  function selectEmployeeAccount(accountKey) {
+    selectedEmployeeAccount = state.accounts.some((account) => employeeAccountKey(account) === accountKey)
+      ? accountKey : "";
+    localStorage.setItem("auto-xhs:employee-account", selectedEmployeeAccount);
     selectManagerView("employee-units");
     viewScrollPositions.set("employee-units", 0);
   }
@@ -1154,9 +1161,26 @@
       ["角色定位", persona.role], ["目标受众", persona.audience],
       ["内容主题", (persona.content_topics || []).join("、")], ["语言", persona.language],
       ["表达语气", persona.tone], ["互动方式", persona.interaction_style],
+      ["身份背景", persona.identity_background], ["专业方向", persona.professional_direction],
+      ["回复长度", persona.reply_length], ["行为边界", persona.behavior_boundaries],
+      ["记忆身份", persona.identity?.uid || "待核验"], ["生效时间", formatTime(persona.effective_at)],
       ["事实边界", persona.fact_boundaries], ["知识说明", persona.knowledge],
       ["版本", `v${persona.version || 1}`], ["更新时间", formatTime(persona.updated_at)],
     ]));
+    const history = element("details", "");
+    history.appendChild(element("summary", "", "人格版本记录"));
+    for (const version of [...(persona.versions || [])].reverse()) {
+      history.appendChild(factList([
+        ["版本", `v${version.version}`],
+        ["生效时间", formatTime(version.effective_at || version.saved_at)],
+        ["身份背景", version.identity_background], ["专业方向", version.professional_direction],
+        ["表达语气", version.tone], ["互动方式", version.interaction_style],
+        ["回复长度", version.reply_length], ["行为边界", version.behavior_boundaries],
+        ["事实边界", version.fact_boundaries], ["知识说明", version.knowledge],
+        ["记忆身份", version.identity?.uid || "待核验"],
+      ]));
+    }
+    panel.appendChild(history);
     return panel;
   }
 
@@ -1168,7 +1192,8 @@
     const form = $("#manager-persona-editor-form");
     form.reset();
     for (const field of ["display_name", "role", "audience", "language", "tone",
-      "interaction_style", "fact_boundaries", "knowledge", "status", "content_topics"]) {
+      "interaction_style", "fact_boundaries", "knowledge", "identity_background",
+      "professional_direction", "reply_length", "behavior_boundaries", "status", "content_topics"]) {
       const value = persona[field];
       form.elements.namedItem(field).value = Array.isArray(value) ? value.join("、")
         : value || (field === "language" ? "中文" : field === "status" ? "ACTIVE" : "");
@@ -1186,7 +1211,8 @@
     const button = form.querySelector("button[type='submit']");
     const body = { ...editingPersona };
     for (const field of ["display_name", "role", "audience", "language", "tone",
-      "interaction_style", "fact_boundaries", "knowledge", "status"]) {
+      "interaction_style", "fact_boundaries", "knowledge", "identity_background",
+      "professional_direction", "reply_length", "behavior_boundaries", "status"]) {
       body[field] = form.elements.namedItem(field).value.trim();
     }
     body.content_topics = form.elements.namedItem("content_topics").value
@@ -1469,7 +1495,7 @@
       detail.dataset.managerOperationDetail = task.operation_task_id;
       return [recordTitle(task.title, task.goal_snapshot?.title || task.goal_id),
         targetNames(task.targets), stateBadge(task.state),
-        recordTitle(task.result_summary || task.plan?.summary || "等待 Agent 回传进展",
+        recordTitle(task.result_summary || dailySessionLabel(task) || task.plan?.summary || "等待 Agent 回传进展",
           `已回收 ${task.progress?.result_count || 0} 条结果`),
         formatTime(task.updated_at), detail];
     });
@@ -1559,6 +1585,16 @@
     return item;
   }
 
+  function dailySessionLabel(task) {
+    const labels = {WAITING_WINDOW: "等待执行窗口", WAITING_RECEIPT: "等待执行回执",
+      WAITING_SPACING: "等待动作间隔", WAITING_ACCOUNT: "等待账号就绪",
+      IDENTITY_CHANGED: "账号身份已变化", DISPATCHED: "已派发当前动作",
+      WAITING_REQUIREMENTS: "等待目标、素材或剩余预算处理", WAITING_APPROVAL: "等待发布预览确认",
+      WAITING_RECONCILIATION: "等待结果未知动作对账", WAITING_POLICY: "等待运营规则允许执行",
+      WINDOW_ENDED: "执行窗口结束", COMPLETED: "每日硬指标已完成"};
+    return labels[task.daily_session?.status] || "";
+  }
+
   function renderOperationTaskDetail(operationTaskId, openDialog = false) {
     const dialog = $("#manager-operation-detail-dialog");
     const task = state.operationTasks.find(
@@ -1621,6 +1657,15 @@
         ["完成标准", task.completion_criteria || "按运营目标完成并回传结果"],
         ["计划时间", formatTime(task.planned_at)],
         ["最终结论", task.result_summary || "等待结果回收与对账"],
+        ...(task.daily_material ? [
+          ["每日计划版本", `${task.daily_material.plan_date} · v${task.daily_material.plan_version}`],
+          ["每日会话", dailySessionLabel(task) || "等待经理领取"],
+          ["执行窗口", `${formatTime(task.daily_material.time_window?.start_at)} — ${formatTime(task.daily_material.time_window?.end_at)}`],
+          ["剩余预算", Object.entries(task.daily_session?.remaining || {}).map(([name, count]) => `${labelFor(name)} ${count}`).join("、") || "等待核销"],
+          ["结果未知预留", Object.entries(task.daily_session?.reserved_unknown || {}).filter(([, count]) => count > 0).map(([name, count]) => `${labelFor(name)} ${count}`).join("、") || "0"],
+          ["输入待办", (task.daily_session?.input_messages || []).join("；") ||
+            (task.daily_session?.pending_requirements || task.daily_material.pending_requirements || []).map((item) => item.reason).join("；") || "已具备执行条件"],
+        ] : []),
       ]),
     );
 
@@ -1724,10 +1769,38 @@
       ? (attention ? `${attention} 台机器需要关注` : "员工机状态正常") : "等待员工机同步");
     const badge = $("#manager-attention-badge");
     if (badge) badge.dataset.tone = attention || !state.machines.length ? "warning" : "success";
-    const cards = state.machines.map(machineThumbnailCard);
+    const cards = state.accounts.map(accountThumbnailCard);
     list.replaceChildren(...(cards.length ? cards
-      : [emptyCard("等待员工机同步", "已登记的员工机及账号状态会显示在这里。")]));
+      : [emptyCard("等待账号同步", "员工机上报的每个账号会独立显示在这里。")]));
     renderMachineStage();
+  }
+
+  function accountThumbnailCard(account) {
+    const machine = state.machines.find((item) => item.machine_id === account.machine_id);
+    const persona = accountPersona(account);
+    const name = account.nickname || account.account_slot;
+    const platform = account.platform === "rednote" ? "RedNote" : "小红书";
+    const status = account.health_state || "UNKNOWN";
+    const card = element("button", "room-node-card room-account-card");
+    card.type = "button";
+    card.dataset.employeeAccountSelect = employeeAccountKey(account);
+    card.dataset.tone = toneFor(status);
+    card.setAttribute("aria-label", `查看 ${name} 账号详情 · ${account.machine_id}`);
+    const head = append(element("div", "room-node-head"),
+      append(element("div"), element("small", "", `${platform} · ${account.account_slot}`),
+        element("h3", "", name)), stateBadge(status));
+    const facts = element("dl");
+    [["所属机器", account.machine_id],
+      ["账号人设", persona?.display_name || persona?.persona_id || "待配置"],
+      ["设备连接", labelFor(machine?.ssh_state || "UNKNOWN")],
+      ["当前任务", account.current_task_title || "暂无任务"]]
+      .forEach(([label, value]) => facts.appendChild(append(element("div"),
+        element("dt", "", label), element("dd", "", value))));
+    append(card, head, facts,
+      append(element("div", "room-node-account"), element("span", "", "账号 UID"),
+        element("strong", "", account.current_uid || account.uid || "身份待同步")),
+      element("small", "room-node-updated", `最近更新 ${formatTime(account.updated_at)}`));
+    return card;
   }
 
   function machineThumbnailCard(machine) {
@@ -1803,7 +1876,7 @@
     const yesterdayResults = state.results.filter((result) => resultDate(result) === yesterdayDate);
     const actuals = todayResults.map(actualResultCount).filter((value) => value !== null);
     setText("#room-machine-total", state.machines.length);
-    setText("#room-node-count", `${state.machines.length} 台机器 · ${state.accounts.length} 个账号`);
+    setText("#room-node-count", `${state.accounts.length} 个账号 · 所属 ${state.machines.length} 台机器`);
     setText("#room-unbound-total", state.machines.filter((machine) =>
       !state.accounts.some((account) => account.machine_id === machine.machine_id)).length);
     setText("#room-today-total", actuals.length ? actuals.reduce((sum, value) => sum + value, 0) : "—");
@@ -1972,6 +2045,7 @@
 
   function resultActionKind(result) {
     const capability = resultCapability(result);
+    if (capability === "follow-user") return "friend_request";
     if (capability.includes("reply") || capability.includes("private-message")) return "reply";
     if (capability.includes("comment")) return "comment";
     if (capability.includes("like")) return "like";
@@ -2456,212 +2530,116 @@
 
   function renderResults() {
     renderOutboxCollection();
-    const resultList = $("#manager-result-list");
-    const incrementalList = $("#manager-incremental-list");
-    const auditList = $("#manager-result-audit-list");
-    if (!resultList || !incrementalList || !auditList) return;
     populateResultAccounts();
     const results = filteredResults();
-    const resultHistory = filteredResultHistory();
-    const incremental = filteredIncrementalRecords();
-    const manualActions = results.filter((item) => item.manual_action_required).length;
-    const gaps = results.reduce((count, item) => {
-      const itemStatus =
-        item.item_results_status || ("item_results" in item ? "observed" : "missing");
-      const incrementalStatus =
-        item.incremental_data_status || ("incremental_data" in item ? "observed" : "missing");
-      return count
-        + Number(itemStatus !== "observed")
-        + Number(resultDataStatus(item, "business_result") !== "observed")
-        + Number(incrementalStatus !== "observed")
-        + Number(requestedResultCount(item) === null)
-        + Number(actualResultCount(item) === null);
-    }, 0);
     setText("#manager-result-total", results.length);
-    setText("#manager-incremental-total", incremental.length);
-    setText("#manager-manual-total", manualActions);
-    setText("#manager-data-gap-total", gaps);
-    const targets = results.map(requestedResultCount).filter((value) => value !== null);
-    const actuals = results.map(actualResultCount).filter((value) => value !== null);
-    setText(
-      "#manager-target-total",
-      targets.length ? targets.reduce((total, value) => total + value, 0) : "—",
-    );
-    setText(
-      "#manager-actual-total",
-      actuals.length ? actuals.reduce((total, value) => total + value, 0) : "—",
-    );
     const terminal = results.filter((item) =>
-      terminalTaskStates.has(String(item.state || item.status || "").toUpperCase())
-    );
-    const successful = terminal.filter(
-      (item) => String(item.state || item.status || "").toUpperCase() === "SUCCESS",
-    ).length;
-    setText(
-      "#manager-success-rate",
-      terminal.length ? `${Math.round((successful / terminal.length) * 100)}%` : "—",
-    );
-    setText(
-      "#manager-exception-rate",
-      terminal.length ? `${Math.round(((terminal.length - successful) / terminal.length) * 100)}%` : "—",
-    );
+      terminalTaskStates.has(String(item.business_state || item.state || item.status || "").toUpperCase()));
+    const successful = terminal.filter((item) =>
+      ["SUCCESS", "COMPLETED"].includes(String(item.business_state || item.state || item.status || "").toUpperCase()));
+    setText("#manager-success-rate", terminal.length
+      ? `${Math.round(successful.length / terminal.length * 100)}%` : "—");
     ["browse", "like", "comment", "reply", "publish"].forEach((kind) => {
-      setText(
-        `#manager-action-${kind}`,
-        actionTargetActualText(results, kind),
-      );
+      setText(`#manager-action-${kind}`, actionTargetActualText(results, kind));
     });
+    resultView?.render({results, resultHistory: filteredResultHistory(),
+      incremental: filteredIncrementalRecords()});
     renderExceptions();
-
-    const resultCards = results.map((result) => {
-      const card = element("article", "manager-result-card");
-      const head = element("div", "manager-card-head");
-      const copy = element("div", "manager-record-copy");
-      append(
-        copy,
-        element("strong", "", result.result_summary || result.task_id || "远程结果"),
-        element("small", "", `${result.machine_id || "—"} · ${result.task_id || result.remote_execution_id || "—"}`),
-      );
-      append(head, copy, stateBadge(result.state || result.status));
-      append(
-        card,
-        head,
-        factList([
-          ["账号", resultAccount(result) || "未回传"],
-          ["动作", resultCapability(result) || result.function_id],
-          ["运营任务", result.operation_task_id],
-          ["运营目标", result.goal_id],
-          ["人设快照", result.persona_id || ""],
-          ["目标 / 实际", targetActualText([result])],
-          ["功能", result.function_id],
-          ["版本", result.actual_version || result.project_version],
-          ["执行耗时", resultDuration(result)],
-          ["产生时间", formatTime(result.recorded_at || result.created_at)],
-          ["回收时间", formatTime(result.collected_at)],
-          ["数据完整性", resultCompleteness(result)],
-        ]),
-      );
-      if (result.recommended_action) {
-        card.appendChild(
-          element("p", "manager-inline-message", `建议动作：${result.recommended_action}`),
-        );
-      }
-      const links = resultLinks(result);
-      if (links.length) {
-        const row = element("div", "manager-result-links");
-        links.forEach((item) => {
-          const link = element("a", "", item.label);
-          link.href = item.url;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          row.appendChild(link);
-        });
-        card.appendChild(row);
-      }
-      const businessResult = renderBusinessResult(result);
-      if (businessResult) card.appendChild(businessResult);
-      const itemDetails = resultItemDetails(result);
-      if (itemDetails) card.appendChild(itemDetails);
-      return card;
-    });
-    resultList.replaceChildren(
-      ...(resultCards.length
-        ? resultCards
-        : [emptyCard("暂无远程结果", "经理机正在定时收集员工机回执，导入后会自动显示。")]),
-    );
-
-    const incrementalCards = incremental.map((record) => {
-      const card = element("article", "manager-incremental-card");
-      const title =
-        record.record_type || record.event_type || record.metric_type || record.record_id || "增量记录";
-      append(
-        card,
-        element("strong", "", title),
-        element(
-          "small",
-          "manager-inline-message",
-          `${record.machine_id || "—"} · ${formatTime(record.created_at || record.collected_at)}`,
-        ),
-      );
-      if (record.operation_task_id || record.goal_id || record.persona_id) {
-        card.appendChild(
-          element(
-            "small",
-            "manager-inline-message",
-            [
-              record.operation_task_id ? `运营任务 ${record.operation_task_id}` : "",
-              record.goal_id ? `目标 ${record.goal_id}` : "",
-              record.persona_id
-                ? `人设 ${record.persona_id}`
-                : "",
-            ].filter(Boolean).join(" · "),
-          ),
-        );
-      }
-      return card;
-    });
-    incrementalList.replaceChildren(
-      ...(incrementalCards.length
-        ? incrementalCards
-        : [emptyCard("暂无增量数据", "采集到事件、指标或诊断后会显示在这里。")]),
-    );
-    const auditCards = resultHistory.map(resultAuditCard);
-    auditList.replaceChildren(
-      ...(auditCards.length
-        ? auditCards
-        : [emptyCard("暂无回收审计记录", "收到员工机回执后会在这里保留修订与技术编号。")]),
-    );
   }
 
-  function renderOperationReports() {
-    const list = $("#manager-operation-report-list");
-    if (!list) return;
-    if (!state.operationReports.length) {
-      list.replaceChildren(
-        emptyCard("暂无持续运营报告", "Agent 基于回收结果生成报告后会显示在这里。"),
+  function resultDetailCard(result) {
+    const card = element("article", "manager-result-card");
+    const head = element("div", "manager-card-head");
+    const copy = element("div", "manager-record-copy");
+    append(
+      copy,
+      element("strong", "", result.result_summary || result.task_id || "远程结果"),
+      element("small", "", `${result.machine_id || "—"} · ${result.task_id || result.remote_execution_id || "—"}`),
+    );
+    append(head, copy, stateBadge(result.state || result.status));
+    append(
+      card,
+      head,
+      factList([
+        ["账号", resultAccount(result) || "未回传"],
+        ["员工机", result.machine_id],
+        ["实际 / 目标", `${actualResultCount(result) ?? "—"} / ${requestedResultCount(result) ?? "—"}`],
+        ["执行耗时", resultDuration(result)],
+        ["产生时间", formatTime(result.recorded_at || result.created_at)],
+        ["回收时间", formatTime(result.collected_at)],
+      ]),
+    );
+    if (result.recommended_action) {
+      card.appendChild(
+        element("p", "manager-inline-message", `建议动作：${result.recommended_action}`),
       );
-      return;
     }
-    const cards = state.operationReports.map((report) => {
-      const definition = report.definition || {};
-      const content = report.content || {};
-      const card = element("article", "manager-result-card");
-      const head = element("div", "manager-card-head");
-      const copy = element("div", "manager-record-copy");
-      append(
-        copy,
-        element(
-          "strong",
-          "",
-          `${definition.report_type === "weekly" ? "周报" : "日报"} · v${report.revision_number || 1}`,
-        ),
-        element("small", "", report.report_id),
+    const links = resultLinks(result);
+    if (links.length) {
+      const row = element("div", "manager-result-links");
+      links.forEach((item) => {
+        const link = element("a", "", item.label);
+        link.href = item.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        row.appendChild(link);
+      });
+      card.appendChild(row);
+    }
+    const businessResult = renderBusinessResult(result);
+    if (businessResult) card.appendChild(businessResult);
+    const itemDetails = resultItemDetails(result);
+    if (itemDetails) card.appendChild(itemDetails);
+    const technical = element("details", "recovery-detail-technical");
+    append(technical, element("summary", "", "任务信息与数据完整性"), factList([
+      ["动作接口", resultCapability(result) || result.function_id],
+      ["运营任务", result.operation_task_id], ["运营目标", result.goal_id],
+      ["人设快照", result.persona_id], ["功能", result.function_id],
+      ["版本", result.actual_version || result.project_version],
+      ["数据完整性", resultCompleteness(result)],
+    ]));
+    card.appendChild(technical);
+    return card;
+  }
+
+  function operationReportCard(report) {
+    const definition = report.definition || {};
+    const content = report.content || {};
+    const card = element("article", "manager-result-card");
+    const head = element("div", "manager-card-head");
+    const copy = element("div", "manager-record-copy");
+    append(
+      copy,
+      element(
+        "strong",
+        "",
+        `${definition.report_type === "weekly" ? "周报" : "日报"} · v${report.revision_number || 1}`,
+      ),
+      element("small", "", report.report_id),
+    );
+    append(head, copy, stateBadge(report.data_status));
+    append(
+      card,
+      head,
+      factList([
+        ["执行机", definition.machine_id || "全部"],
+        ["账号", definition.account_slot || "全部"],
+        ["周期", `${formatTime(definition.start_at)} 至 ${formatTime(definition.end_at)}`],
+        ["目标 / 实际", `${content.target_total ?? "—"} / ${content.actual_total ?? "—"}`],
+        ["成功率", content.success_rate == null ? "—" : `${Math.round(content.success_rate * 100)}%`],
+        ["数据缺口", content.data_gap_count ?? "—"],
+        ["生成时间", formatTime(report.created_at)],
+      ]),
+    );
+    if (report.missing_reason) {
+      card.appendChild(element("p", "manager-inline-message", report.missing_reason));
+    }
+    if (report.revision_reason) {
+      card.appendChild(
+        element("p", "manager-inline-message", `修订原因：${report.revision_reason}`),
       );
-      append(head, copy, stateBadge(report.data_status));
-      append(
-        card,
-        head,
-        factList([
-          ["执行机", definition.machine_id || "全部"],
-          ["账号", definition.account_slot || "全部"],
-          ["周期", `${formatTime(definition.start_at)} 至 ${formatTime(definition.end_at)}`],
-          ["目标 / 实际", `${content.target_total ?? "—"} / ${content.actual_total ?? "—"}`],
-          ["成功率", content.success_rate == null ? "—" : `${Math.round(content.success_rate * 100)}%`],
-          ["数据缺口", content.data_gap_count ?? "—"],
-          ["生成时间", formatTime(report.created_at)],
-        ]),
-      );
-      if (report.missing_reason) {
-        card.appendChild(element("p", "manager-inline-message", report.missing_reason));
-      }
-      if (report.revision_reason) {
-        card.appendChild(
-          element("p", "manager-inline-message", `修订原因：${report.revision_reason}`),
-        );
-      }
-      return card;
-    });
-    list.replaceChildren(...cards);
+    }
+    return card;
   }
 
   function renderVersions() {
@@ -2722,7 +2700,7 @@
 
   function renderAll() {
     planning?.render();
-    employeePanel?.render(selectedEmployeeMachine);
+    employeePanel?.render(selectedEmployeeAccount);
     renderMachines();
     renderPublishReviews();
     renderAccountWorkspace();
@@ -2733,7 +2711,6 @@
     renderSchedules();
     renderTransfers();
     renderResults();
-    renderOperationReports();
     renderVersions();
     renderSyncStatus();
     renderSystemSettings();
@@ -2806,7 +2783,7 @@
     $(".control-room").dataset.currentView = next;
     renderMachineNavigation();
     if (next === "workers") renderMachineStage();
-    if (next === "employee-units") employeePanel?.render(selectedEmployeeMachine);
+    if (next === "employee-units") employeePanel?.render(selectedEmployeeAccount);
     localStorage.setItem(VIEW_STORAGE_KEY, next);
     document.querySelectorAll("[data-manager-view]").forEach((view) => {
       const active = view.dataset.managerView === next;
@@ -2940,6 +2917,7 @@
     state.personas = snapshot.personas || [];
     state.goals = snapshot.goals || [];
     state.dailyPlans = snapshot.daily_plans || [];
+    state.employeeSummary = snapshot.employee_summary || {};
     state.operationTasks = snapshot.operation_tasks || [];
     state.agentMessages = snapshot.agent_messages || [];
     renderAll();
@@ -3141,18 +3119,22 @@
       openAccountManagement(machineId, account);
       return;
     }
+    if (action === "identity-check") {
+      const target = state.accounts.find((item) => item.machine_id === machineId
+        && item.account_slot === account);
+      if (target) await accountTools.open("identity-check", target);
+      return;
+    }
     const labels = {
       doctor: "运行账号诊断",
       "profile-start": "启动账号 Profile",
       "bridge-restart": "重启账号 Bridge",
-      "identity-check": "检查当前身份",
     };
     if (!window.confirm(`确认对 ${machineId} / ${account} 执行“${labels[action]}”？`)) return;
     const suffixes = {
       doctor: "doctor",
       "profile-start": "profile/start",
       "bridge-restart": "bridge/restart",
-      "identity-check": "identity/check",
     };
     const path = `${managerApi}/machines/${encodeURIComponent(machineId)}/accounts/${encodeURIComponent(account)}/${suffixes[action]}`;
     await runMutation(
@@ -3201,10 +3183,15 @@
       workerDayMetrics, metricLabels, formatTime});
     planning.init();
     accountTools = window.AutoXhsAccountTools({state, mutateJson, fetchJson, managerApi, load});
-    employeePanel = window.AutoXhsEmployeePanel({state, workerDayMetrics, nextWorkerPlan,
+    employeePanel = window.AutoXhsEmployeePanel({state, workerDayMetrics, nextWorkerPlan, mutateJson, managerApi, load,
       localDateValue, resultDate, resultAccount, resultLinks, resultActionKind, resultCapability, workerTaskDate,
       accountPersona, labelFor, operationalExceptions});
     employeePanel.init();
+    resultView = window.AutoXhsResultView({state, element, append, stateBadge, formatTime,
+      resultAccount, resultCapability, actualResultCount, requestedResultCount,
+      resultDetailCard, resultAuditCard, operationReportCard, factList, collectionStatus,
+      resultMatchesFilters});
+    resultView.init();
     $("#manager-account-add").addEventListener("click", () => accountTools.open("create"));
     $("#manager-persona-editor-form").addEventListener("submit", savePersonaEditor);
     $("#manager-persona-editor-close").addEventListener("click", () => {
@@ -3321,9 +3308,9 @@
       selectManagerView(window.location.hash.slice(1), false);
     });
     document.addEventListener("click", (event) => {
-      const employeeSelection = event.target.closest("[data-employee-machine-select]");
+      const employeeSelection = event.target.closest("[data-employee-account-select]");
       if (employeeSelection) {
-        selectEmployeeMachine(employeeSelection.dataset.employeeMachineSelect);
+        selectEmployeeAccount(employeeSelection.dataset.employeeAccountSelect);
         return;
       }
       const publishReview = event.target.closest("[data-manager-publish-review]");

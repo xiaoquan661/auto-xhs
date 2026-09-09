@@ -462,6 +462,8 @@ def _dispatch_manager_api(
     manager = _require_manager_service(manager_service)
     if path == f"{prefix}/dashboard-snapshot":
         return manager.dashboard_snapshot()
+    if path == f"{prefix}/employee-summary":
+        return manager.employee_summary()
     if path == f"{prefix}/machines":
         return manager.list_machines()
     if path == f"{prefix}/accounts":
@@ -538,14 +540,27 @@ def _dispatch_manager_mutation(
     if not path.startswith(f"{prefix}/"):
         return None
     manager = _require_manager_service(manager_service)
+    if method == "POST" and path.startswith(f"{prefix}/memory/"):
+        return manager.memory_action(path.rsplit("/", 1)[-1], body)
     if method == "POST" and path == f"{prefix}/machines":
         return manager.register_machine(body)
     if method == "POST" and path == f"{prefix}/tasks":
         return manager.dispatch_task(body)
     if method in {"POST", "PATCH"} and path == f"{prefix}/personas":
         return manager.save_persona(body)
+    if method == "POST" and path.startswith(f"{prefix}/daily-plans/") and path.endswith("/prepare"):
+        return manager.prepare_daily_plan(path.split("/")[-2], body)
     if method == "POST" and path == f"{prefix}/daily-plans":
         return manager.save_daily_plan(body)
+    if method == "POST" and path == f"{prefix}/daily-plans/generate":
+        return manager.generate_daily_plan(body)
+    if method == "POST" and path == f"{prefix}/daily-plans/preview":
+        return manager.preview_daily_plan(body)
+    if method == "POST" and path == f"{prefix}/daily-plans/submit":
+        return manager.submit_daily_plan(body)
+    if (method == "POST" and path.startswith(f"{prefix}/operation-tasks/")
+            and path.endswith("/daily-inputs")):
+        return manager.supply_daily_inputs(path.split("/")[-2], body)
     if method in {"POST", "PATCH"} and path == f"{prefix}/goals":
         return manager.save_goal(body)
     if method == "POST" and path == f"{prefix}/operation-tasks":
@@ -567,6 +582,21 @@ def _dispatch_manager_mutation(
         and parts[5] == "account-lifecycle"
     ):
         return manager.manage_remote_account(parts[4], body)
+    if (
+        len(parts) == 6
+        and parts[:4] == ["api", "v1", "manager", "results"]
+        and parts[5] == "attribution"
+        and method in {"POST", "PATCH"}
+    ):
+        return manager.save_action_attribution(parts[4], body)
+    if (
+        len(parts) == 8
+        and parts[:4] == ["api", "v1", "manager", "machines"]
+        and parts[5] == "accounts"
+        and parts[7] == "operations"
+        and method in {"POST", "PATCH"}
+    ):
+        return manager.save_account_operations(parts[4], parts[6], body)
     if (
         len(parts) == 8
         and parts[:4] == ["api", "v1", "manager", "machines"]

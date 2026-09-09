@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -9,7 +10,7 @@ def test_webui_reports_message_and_reply_modules_without_message_operations() ->
     html = (root / "webui" / "index.html").read_text(encoding="utf-8")
     combined = f"{html}\n{script}"
 
-    assert "回复 目标/实际" in html
+    assert re.search(r"回复\s*·?\s*目标\s*/\s*实际", html)
     assert "function resultActionKind(result)" in script
     assert 'capability.includes("reply")' in script
     assert 'capability.includes("comment")' in script

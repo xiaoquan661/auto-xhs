@@ -41,6 +41,7 @@ def _default_state() -> dict:
         "transfers": {},
         "versions": {},
         "results": {},
+        "action_attributions": {},
         "incremental_records": {},
         "evidence_downloads": {},
         "sync_status": {},
@@ -58,6 +59,10 @@ class ManagerStore:
 
     def snapshot(self) -> dict:
         return self._transaction(lambda state: copy.deepcopy(state), write=False)
+
+    def mutate(self, callback: Callable[[dict], T]) -> T:
+        """Commit a linked plan, goal and operation task together."""
+        return self._transaction(callback, write=True)
 
     def get(self, collection: str, item_id: str) -> dict | None:
         self._check_collection(collection)
@@ -197,6 +202,7 @@ class ManagerStore:
             "transfers",
             "versions",
             "results",
+            "action_attributions",
             "incremental_records",
             "evidence_downloads",
             "sync_status",

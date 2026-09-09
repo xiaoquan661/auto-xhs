@@ -142,6 +142,7 @@ def random_comment(
     collection_duration_seconds: int = 120,
     style: str = "natural",
     excluded_feed_ids: Sequence[str] | None = None,
+    excluded_user_ids: Sequence[str] = (),
     sampler=random.sample,
     detail_reader=None,
     comment_sender=None,
@@ -168,6 +169,7 @@ def random_comment(
             and bool(feed.id)
             and bool(feed.xsec_token)
             and feed.id not in excluded
+            and feed.note_card.user.user_id not in excluded_user_ids
         ),
     )
     selected = sampler(candidates, min(count, len(candidates))) if candidates else []
@@ -181,16 +183,19 @@ def random_comment(
             "feed_id": feed.id,
             "title": feed.note_card.display_title,
             "author": feed.note_card.user.nickname or feed.note_card.user.nick_name,
+            "author_user_id": feed.note_card.user.user_id,
             "content": "",
             "status": "failed",
             "message": "",
             "success": False,
         }
+        attempted = False
         try:
             emit_progress("reading_context", "正在读取笔记上下文", feed_id=feed.id)
             detail = read_detail(page, feed.id, feed.xsec_token)
             item["title"] = detail.note.title or item["title"]
             item["author"] = detail.note.user.nickname or item["author"]
+            item["author_user_id"] = detail.note.user.user_id or item["author_user_id"]
             item["content"] = make_content(detail.note, style=style)
             emit_progress(
                 "comment_generated",
@@ -199,6 +204,7 @@ def random_comment(
                 title=item["title"],
                 content=item["content"],
             )
+            attempted = True
             send_comment(page, feed.id, feed.xsec_token, item["content"])
             item.update(status="success", message="评论发送成功", success=True)
             emit_progress(
@@ -214,6 +220,11 @@ def random_comment(
             )
         except Exception as exc:
             item["message"] = str(exc)
+            item["result_unknown"] = attempted and bool(
+                getattr(exc, "result_unknown", isinstance(exc, (TimeoutError, ConnectionError)))
+            )
+            if item["result_unknown"]:
+                item["status"] = "result_unknown"
         items.append(item)
 
     succeeded = sum(bool(item["success"]) for item in items)
@@ -232,6 +243,7 @@ def random_comment(
     return {
         "success": not partial,
         "partial": partial,
+        "result_unknown": any(item.get("result_unknown") for item in items),
         "result_type": "random_comment",
         "message": message,
         "style": style,

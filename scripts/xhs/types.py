@@ -128,6 +128,7 @@ class Feed:
     model_type: str = ""
     note_card: NoteCard = field(default_factory=NoteCard)
     index: int = 0
+    published_at: str | int = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> Feed:
@@ -137,6 +138,10 @@ class Feed:
             model_type=d.get("modelType", ""),
             note_card=NoteCard.from_dict(d.get("noteCard", {})),
             index=d.get("index", 0),
+            published_at=d.get("time")
+            or d.get("publishTime")
+            or (d.get("noteCard") or {}).get("time")
+            or "",
         )
 
     def to_dict(self) -> dict:
@@ -453,12 +458,14 @@ class ActionResult:
     feed_id: str = ""
     success: bool = False
     message: str = ""
+    changed: bool | None = None
 
     def to_dict(self) -> dict:
         return {
             "feed_id": self.feed_id,
             "success": self.success,
             "message": self.message,
+            **({"changed": self.changed} if self.changed is not None else {}),
         }
 
 

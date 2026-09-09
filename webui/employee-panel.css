@@ -469,7 +469,7 @@ footer{margin-top:22px;padding-top:10px}
 .overview-node-head{justify-content:space-between;align-items:flex-start;gap:8px;display:flex}
 .overview-node-head>div{min-width:0}
 .overview-node-head span{color:var(--muted);letter-spacing:.08em;font-size:9px;display:block}
-.overview-node-head h3{margin-top:4px;font:800 17px/1 ui-monospace,Consolas,monospace}
+.overview-node-head h3{margin-top:4px;font-size:17px;font-weight:800;line-height:1.4;overflow-wrap:anywhere}
 .overview-node-card dl{margin:17px 0 10px}
 .overview-node-card dl>div{grid-template-columns:58px minmax(0,1fr);margin-top:6px;font-size:10px}
 .overview-node-card dt{color:var(--muted)}
@@ -527,6 +527,7 @@ footer{margin-top:22px;padding-top:10px}
 .strategy-node-card>summary>div:first-child{gap:2px;min-width:0;display:grid}
 .strategy-node-card>summary>div:first-child strong{font:800 14px ui-monospace,Consolas,monospace}
 .strategy-node-card>summary>div:first-child span{text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px;overflow:hidden}
+.strategy-node-card>summary>div:first-child small{color:var(--muted);font-size:10px;overflow-wrap:anywhere}
 .strategy-plan-preview{grid-column:1/-1;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;display:grid}
 .strategy-plan-preview span{background:var(--paper);color:var(--muted);text-align:center;border-radius:6px;gap:1px;padding:5px;font-size:8px;display:grid}
 .strategy-plan-preview b{color:var(--ink);font-size:13px}
@@ -565,8 +566,8 @@ footer{margin-top:22px;padding-top:10px}
 .result-item span,.result-item small{color:var(--muted);font-size:10px;display:block}
 .result-item strong{margin:2px 0;font-size:20px;display:block}
 .result-item small{overflow-wrap:anywhere;line-height:1.35}
-.account-status-inline{color:var(--muted);font-size:9px;display:block}
-.machine-summary-activity{overflow-wrap:anywhere;text-align:right;max-width:190px}
+.account-status-inline{grid-column:2;color:var(--muted);font-size:9px;display:block}
+.machine-summary-activity{grid-column:2;overflow-wrap:anywhere;text-align:right;max-width:190px}
 .account-status-editor{background:var(--paper);border-radius:7px;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:9px;margin-bottom:11px;padding:9px 10px;display:grid}
 .account-status-editor>div{gap:2px;display:grid}
 .account-status-editor strong{font-size:11px}

@@ -152,6 +152,22 @@ def build_manager(tmp_path: Path) -> tuple[ManagerService, AgentTransport]:
     return manager, transport
 
 
+def test_daily_engagement_plan_budgets_employee_timing(tmp_path: Path) -> None:
+    manager, _transport = build_manager(tmp_path)
+    agent = ManagerAgentService(manager)
+    task = {
+        "operation_task_id": "daily-rhythm",
+        "goal_snapshot": {"target_metrics": {"browse": 40, "like": 8}},
+        "targets": [{"machine_id": "PC057", "account_slot": "tesssst"}],
+    }
+    action = agent._build_plan(task)["planned_actions"][0]
+    parameters = action["parameters"]
+    assert (parameters["min_read_seconds"], parameters["max_read_seconds"]) == (15, 45)
+    assert parameters["duration_minutes"] * 60 >= 40 * 45 + 7 * 180
+    request = agent._task_request(task, action)
+    assert request["timeout_seconds"] > parameters["duration_minutes"] * 60
+
+
 def create_operation(manager: ManagerService, metrics: dict[str, int]) -> str:
     goal = manager.save_goal(
         {

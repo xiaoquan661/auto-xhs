@@ -83,7 +83,8 @@ def test_remote_account_recovery_actions_keep_machine_and_slot_context() -> None
     assert 'doctor: "doctor"' in script
     assert '"profile-start": "profile/start"' in script
     assert '"bridge-restart": "bridge/restart"' in script
-    assert '"identity-check": "identity/check"' in script
+    assert 'accountTools.open("identity-check", target)' in script
+    assert '${base}/identity/check' in _source("manager-account-tools.js")
     assert "card.appendChild(accountPersonaPanel(account))" in script
 
 

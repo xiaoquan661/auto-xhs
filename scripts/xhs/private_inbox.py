@@ -19,6 +19,8 @@ _READ_CONVERSATIONS_JS = r"""
         display_time: String(
             node.querySelector('.xhs-im-conv-item__time')?.innerText || ''
         ).trim(),
+        read_status: node.querySelector('.xhs-im-conv-item__unread-count, .unread-count')
+            ? 'UNREAD' : 'UNKNOWN',
         preview: String(
             node.querySelector('.xhs-im-conv-item__summary-text')?.innerText || ''
         ).trim()
@@ -65,9 +67,7 @@ def collect_private_messages(
             skipped.append({"user_id": user_id, "reason": "conversation_unavailable"})
             continue
         recent = list(state["messages"])[-context_limit:]
-        nickname = str(
-            state.get("target_nickname") or conversation.get("nickname") or ""
-        ).strip()
+        nickname = str(state.get("target_nickname") or conversation.get("nickname") or "").strip()
         conversation_snapshots.append(
             {
                 "user_id": user_id,
@@ -75,6 +75,9 @@ def collect_private_messages(
                 "display_time": str(conversation.get("display_time") or ""),
                 "observed_at": observed_at,
                 "message_count": len(state["messages"]),
+                "thread_url": state.get("url") or "",
+                "read_status": str(conversation.get("read_status") or "UNKNOWN"),
+                "read_status_observed_at": observed_at,
                 "context": recent,
                 "latest_role": str((recent[-1] if recent else {}).get("role") or ""),
             }
@@ -108,6 +111,9 @@ def collect_private_messages(
                 "display_time": str(conversation.get("display_time") or ""),
                 "occurred_at": observed_at,
                 "message_count": len(state["messages"]),
+                "thread_url": state.get("url") or "",
+                "read_status": str(conversation.get("read_status") or "UNKNOWN"),
+                "read_status_observed_at": observed_at,
                 "context": recent,
                 "peer_turn": peer_turn,
                 "source": "chat_inbox",

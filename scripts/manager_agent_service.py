@@ -7,7 +7,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 try:
@@ -63,6 +63,7 @@ class ManagerAgentService:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
+        self._next_memory_review = 0.0
 
     @property
     def running(self) -> bool:
@@ -94,6 +95,13 @@ class ManagerAgentService:
 
     def run_cycle(self) -> dict[str, Any]:
         started_at = utc_now()
+        memory_review = {"status": "WAITING_CYCLE"}
+        if self._monotonic() >= self._next_memory_review:
+            self._next_memory_review = self._monotonic() + 60.0
+            try:
+                memory_review = self.manager.memory_action("review-pending", {})
+            except Exception as exc:
+                memory_review = {"status": "RETRY_PENDING", "message": str(exc)}
         outcomes: list[dict[str, Any]] = []
         tasks = self.manager.list_operation_tasks().get("operation_tasks") or []
         tasks.sort(key=lambda item: item.get("created_at") or "")
@@ -138,6 +146,7 @@ class ManagerAgentService:
             "processed": len(outcomes),
             "failed": failed,
             "outcomes": outcomes,
+            "memory_review": memory_review,
         }
         self.manager.record_sync_status("agent", summary)
         return summary
@@ -148,7 +157,18 @@ class ManagerAgentService:
             self._stop_event.wait(self.interval_seconds)
 
     def _process_operation(self, task: dict[str, Any]) -> dict[str, Any]:
+        if task.get("daily_material"):
+            from daily_operations_runner import DailyOperationsRunner
+
+            return DailyOperationsRunner(self).tick(task)
         operation_task_id = str(task["operation_task_id"])
+        plan_date = task.get("plan_date")
+        if (
+            plan_date
+            and datetime.now(UTC).astimezone(timezone(timedelta(hours=8))).date().isoformat()
+            < plan_date
+        ):
+            return {"success": True, "status": "WAITING_DATE"}
         if task.get("state") == "WAITING_AGENT":
             self._message(
                 operation_task_id,
@@ -223,7 +243,10 @@ class ManagerAgentService:
             )
             existing = self._find_execution_task(task_id)
             if existing is not None:
-                if existing.get("reconciliation_required"):
+                if (
+                    existing.get("reconciliation_required")
+                    or self._task_state(existing) == "WAITING_APPROVAL"
+                ):
                     self.manager.reconcile_task(task_id)
                 if self._task_state(existing) not in FINAL_TASK_STATES:
                     occupied_accounts.add(account_key)
@@ -244,7 +267,22 @@ class ManagerAgentService:
                     "expected_metrics": action.get("expected_metrics") or {},
                 },
             )
-            self.manager.dispatch_task(task_request)
+            try:
+                self.manager.dispatch_task(task_request)
+            except ServiceError as exc:
+                if exc.code in {"OPERATIONS_WINDOW_WAIT", "OPERATIONS_PUBLISH_WAIT"}:
+                    self._message(
+                        operation_task_id,
+                        task_id=task_id,
+                        from_agent=self.agent_id,
+                        to_agent="WEBUI",
+                        message_type="POLICY_WAIT",
+                        status="WAITING",
+                        summary=exc.message,
+                    )
+                    occupied_accounts.add(account_key)
+                    continue
+                raise
             occupied_accounts.add(account_key)
 
         refreshed = self.manager.get_operation_task(operation_task_id)["operation_task"]
@@ -297,7 +335,18 @@ class ManagerAgentService:
             for name, value in (goal.get("target_metrics") or {}).items()
             if int(value) > 0
         }
-        supported = {"browse", "like", "comment"}
+        supported = {
+            "browse",
+            "like",
+            "comment",
+            "reply",
+            "publish",
+            "friend_request",
+            "new_followers",
+            "received_likes",
+            "received_comments",
+            "received_private_messages",
+        }
         unsupported = sorted(name for name in metrics if name not in supported)
         targets = list(task.get("targets") or [])
         text = " ".join(
@@ -321,9 +370,12 @@ class ManagerAgentService:
                             "browse_count": effective_browse,
                             "like_count": like_count,
                             "video_only": video_only,
-                            "duration_minutes": max(3, math.ceil(effective_browse / 2)),
-                            "min_read_seconds": 6,
-                            "max_read_seconds": 10,
+                            "duration_minutes": max(
+                                10,
+                                math.ceil((effective_browse * 60 + like_count * 180) / 60),
+                            ),
+                            "min_read_seconds": 15,
+                            "max_read_seconds": 45,
                         },
                         "write_intent": like_count > 0,
                     }
@@ -347,6 +399,77 @@ class ManagerAgentService:
                         "write_intent": True,
                     }
                 )
+            inputs = (task.get("action_inputs") or {}).get(
+                f"{target['machine_id']}:{target['account_slot']}", {}
+            )
+            for metric, capability, required in (
+                ("reply", "reply-comment", ("content",)),
+                ("friend_request", "follow-user", ("user_id", "xsec_token")),
+                ("publish", "fill-publish", ("title", "content", "assets")),
+            ):
+                count = _allocated_count(metrics.get(metric, 0), index, len(targets))
+                entries = inputs.get(metric) or []
+                if not isinstance(entries, list) or len(entries) < count:
+                    if count:
+                        unsupported.append(
+                            f"{metric} 缺少 {target['account_slot']} 的目标或素材，共需 {count} 项"
+                        )
+                    continue
+                for sequence, params in enumerate(entries[:count]):
+                    if not isinstance(params, dict) or any(not params.get(k) for k in required):
+                        unsupported.append(
+                            f"{metric} 第 {sequence + 1} 项缺少 {', '.join(required)}"
+                        )
+                        continue
+                    if metric == "reply" and not (
+                        (
+                            params.get("feed_id")
+                            and (params.get("comment_id") or params.get("user_id"))
+                        )
+                        or (params.get("notification_id") and params.get("original_content"))
+                    ):
+                        unsupported.append("reply 缺少目标笔记评论或通知上下文")
+                        continue
+                    action_capability = (
+                        "fill-publish-video"
+                        if metric == "publish" and params.get("kind") == "video"
+                        else capability
+                    )
+                    parameters = dict(params)
+                    if metric == "publish":
+                        parameters = {"preview": {"kind": "image", **params}}
+                    actions.append(
+                        {
+                            "action_id": f"{metric}-{index + 1}-{sequence + 1}",
+                            **target,
+                            "capability": action_capability,
+                            "expected_metrics": {metric: 1},
+                            "parameters": parameters,
+                            "write_intent": True,
+                        }
+                    )
+            growth = {
+                "new_followers",
+                "received_likes",
+                "received_comments",
+                "received_private_messages",
+            }
+            if task.get("plan_date") or growth.intersection(metrics):
+                for capability in (
+                    "collect-note-comments",
+                    "collect-private-messages",
+                    "collect-operations-metrics",
+                ):
+                    actions.append(
+                        {
+                            "action_id": f"{capability}-{index + 1}",
+                            **target,
+                            "capability": capability,
+                            "parameters": {},
+                            "expected_metrics": {},
+                            "write_intent": False,
+                        }
+                    )
         summary = (
             "；".join(f"{item['machine_id']} 执行 {item['capability']}" for item in actions)
             or "当前目标没有需要执行的正数指标"
@@ -373,7 +496,14 @@ class ManagerAgentService:
             "machine_id": machine_id,
             "account_slot": str(action["account_slot"]),
             "capability": capability,
-            "platform": "xiaohongshu",
+            "platform": next(
+                (
+                    a.get("platform", "xiaohongshu")
+                    for a in self.manager.list_accounts()["accounts"]
+                    if a["machine_id"] == machine_id and a["account_slot"] == action["account_slot"]
+                ),
+                "xiaohongshu",
+            ),
             "request_summary": f"{machine_id} 执行 {metric_text}",
             "source_type": "manager-agent",
             "target_type": "operation_goal",
@@ -387,7 +517,11 @@ class ManagerAgentService:
                 "authorized_by": str(task.get("requested_by") or "WebUI用户"),
             },
             "write_intent": bool(action.get("write_intent")),
-            "timeout_seconds": 600.0 if capability == "home-engagement" else 300.0,
+            "timeout_seconds": (
+                float((action.get("parameters") or {}).get("duration_minutes", 10)) * 60 + 120
+                if capability == "home-engagement"
+                else 300.0
+            ),
         }
 
     def _find_execution_task(self, task_id: str) -> dict[str, Any] | None:
@@ -409,6 +543,8 @@ class ManagerAgentService:
 
     @staticmethod
     def _task_state(task: dict[str, Any]) -> str:
+        if task.get("error_code") == "PUBLISH_CONFIRMATION_REQUIRED":
+            return "WAITING_APPROVAL"
         return str(
             task.get("business_state")
             or task.get("dispatch_state")

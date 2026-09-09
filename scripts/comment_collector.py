@@ -48,6 +48,9 @@ class CommentCollector:
                 actor_user_id=str(comment.get("user_id") or ""),
                 payload={
                     "notification_id": notification_id,
+                    "target_url": str(comment.get("target_url") or ""),
+                    "location_scope": str(comment.get("location_scope") or "note"),
+                    "profile_url": str(comment.get("profile_url") or ""),
                     "comment_id": comment_id,
                     "feed_id": str(comment.get("feed_id") or ""),
                     "xsec_token": str(comment.get("xsec_token") or ""),
@@ -55,15 +58,11 @@ class CommentCollector:
                     "nickname": str(comment.get("nickname") or ""),
                     "content": str(comment.get("content") or ""),
                     "parent_comment_id": str(comment.get("parent_comment_id") or ""),
-                    "parent_comment_content": str(
-                        comment.get("parent_comment_content") or ""
-                    ),
+                    "parent_comment_content": str(comment.get("parent_comment_content") or ""),
                     "note_title": str(comment.get("note_title") or ""),
                     "note_content": str(comment.get("note_content") or ""),
                     "note_tags": list(comment.get("note_tags") or []),
-                    "is_own_note": bool(
-                        comment.get("is_own_note", not notification_id)
-                    ),
+                    "is_own_note": bool(comment.get("is_own_note", not notification_id)),
                     "source": str(comment.get("source") or ""),
                 },
                 classification=str(comment.get("classification") or ""),
@@ -84,5 +83,6 @@ class CommentCollector:
             "created_count": len(created),
             "duplicate_count": len(existing),
             "created_events": created,
+            "existing_events": existing,
             "cursor": cursor,
         }

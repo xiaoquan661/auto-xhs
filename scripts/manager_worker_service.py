@@ -28,11 +28,13 @@ try:
     from .executor_lifecycle import restart_executor_service, start_executor_service
     from .run_lock import RunLock
     from .worker_callback import OpenSSHManagerCallback, WorkerCallbackError
+    from .worker_memory import WorkerMemory
 except ImportError:
     from employee_process import start_employee_process
     from executor_lifecycle import restart_executor_service, start_executor_service
     from run_lock import RunLock
     from worker_callback import OpenSSHManagerCallback, WorkerCallbackError
+    from worker_memory import WorkerMemory
 
 
 STATE_SCHEMA_VERSION = 1
@@ -259,7 +261,7 @@ def _allowed_versions(value: Any) -> list[str]:
     return versions
 
 
-class ManagerWorkerService:
+class ManagerWorkerService(WorkerMemory):
     """执行机固定入口背后的本地服务。"""
 
     def __init__(
@@ -663,6 +665,7 @@ class ManagerWorkerService:
             "delete": ("DELETE", f"/accounts/{encoded}"),
             "pair-begin": ("POST", f"/accounts/{encoded}/pairing/begin"),
             "pair-status": ("GET", f"/accounts/{encoded}/pairing"),
+            "identity-record": ("POST", f"/accounts/{encoded}/identity/record"),
             "switch-begin": ("POST", f"/accounts/{encoded}/switch/begin"),
             "switch-complete": ("POST", f"/accounts/{encoded}/switch/complete"),
             "logout": ("POST", f"/accounts/{encoded}/auth/logout"),
@@ -1727,6 +1730,14 @@ class ManagerWorkerService:
             return copy.deepcopy(execution), copy.deepcopy(message)
 
         execution, message = self._store.mutate(prepare)
+        if self.execution_identity(execution).get("uid"):
+            message["payload"]["memory_session_id"] = execution["remote_execution_id"]
+            message["payload"].setdefault("memory_records", [{
+                "layer": "runtime_fact", "event_id": message["message_id"],
+                "content": json.dumps({"status": status, "summary": summary,
+                                       "details": payload or {}}, ensure_ascii=False),
+                "occurred_at": message["created_at"],
+            }])
         self._publish_outbox_record(
             "event",
             str(execution["task_id"]),
@@ -1774,12 +1785,16 @@ class ManagerWorkerService:
     ) -> dict[str, Any]:
         state = self._store.snapshot()
         execution = self._find_execution(state, task_id, remote_execution_id)
-        if execution["state"] in {
-            "RUNNING",
-            "PAUSE_REQUESTED",
-            "RECONCILIATION_REQUIRED",
-            "RESULT_UNKNOWN",
-        }:
+        if (
+            execution["state"]
+            in {
+                "RUNNING",
+                "PAUSE_REQUESTED",
+                "RECONCILIATION_REQUIRED",
+                "RESULT_UNKNOWN",
+            }
+            or execution.get("error_code") == "PUBLISH_CONFIRMATION_REQUIRED"
+        ):
             execution = self._reconcile_execution_status(execution)
         return self._execution_response(execution)
 
@@ -1807,6 +1822,11 @@ class ManagerWorkerService:
             execution["started_at"] = utc_now()
             execution["updated_at"] = execution["started_at"]
             execution["message"] = "任务正在执行"
+            context = self.load_memory(execution)
+            if context:
+                execution["task"]["parameters"] = {
+                    **(execution["task"].get("parameters") or {}), "memory_context": context,
+                }
             return copy.deepcopy(execution), True
 
         execution, should_execute = self._store.mutate(start)
@@ -2443,14 +2463,23 @@ class ManagerWorkerService:
                 execution["task_id"],
                 execution["remote_execution_id"],
             )
-            if current["state"] in TASK_FINAL_STATES and current["state"] != "RESULT_UNKNOWN":
+            awaiting_publish = current.get("error_code") == "PUBLISH_CONFIRMATION_REQUIRED"
+            if (
+                current["state"] in TASK_FINAL_STATES
+                and current["state"] != "RESULT_UNKNOWN"
+                and not awaiting_publish
+            ):
                 return copy.deepcopy(current), None
-            if current["state"] not in {
-                "RUNNING",
-                "PAUSE_REQUESTED",
-                "RECONCILIATION_REQUIRED",
-                "RESULT_UNKNOWN",
-            }:
+            if (
+                current["state"]
+                not in {
+                    "RUNNING",
+                    "PAUSE_REQUESTED",
+                    "RECONCILIATION_REQUIRED",
+                    "RESULT_UNKNOWN",
+                }
+                and not awaiting_publish
+            ):
                 return copy.deepcopy(current), None
             now = utc_now()
             current.update(
@@ -2885,18 +2914,9 @@ class ManagerWorkerService:
                 or ""
             )
         elif incremental_data_present and isinstance(incremental_data, dict):
-            normalized_incremental_data = []
-            for name in (
-                "events",
-                "inbound_events",
-                "snapshots",
-                "reconciled_outbound",
-            ):
-                items = incremental_data.get(name)
-                if isinstance(items, list):
-                    normalized_incremental_data.extend(items)
-            if not normalized_incremental_data and incremental_data:
-                normalized_incremental_data = [incremental_data]
+            from employee_operations import flatten_observations
+
+            normalized_incremental_data = flatten_observations(incremental_data)
             incremental_data_status = "observed"
             incremental_data_missing_reason = ""
         elif incremental_data_present:
@@ -3072,14 +3092,14 @@ class ManagerWorkerService:
             raise WorkerServiceError("TASK_NOT_FOUND", "执行机任务不存在")
         return execution
 
-    @staticmethod
-    def _append_result(state: dict[str, Any], execution: dict[str, Any]) -> None:
+    def _append_result(self, state: dict[str, Any], execution: dict[str, Any]) -> None:
         if execution.get("state") not in TASK_FINAL_STATES:
             return
         sequence = int(state["next_sequence"])
         state["next_sequence"] = sequence + 1
         state["results"].append(
             {
+                **self.result_memory(execution),
                 "sequence": sequence,
                 "result_revision": sequence,
                 "remote_execution_id": execution["remote_execution_id"],
@@ -3090,6 +3110,7 @@ class ManagerWorkerService:
                 "actual_version": execution.get("actual_version") or execution["project_version"],
                 "version_status": execution.get("version_status", "PROJECT"),
                 "state": execution["state"],
+                "completed_at": execution.get("finished_at"),
                 "business_result": copy.deepcopy(execution.get("business_result", {})),
                 "business_result_status": execution.get("business_result_status", "missing"),
                 "business_result_missing_reason": execution.get(

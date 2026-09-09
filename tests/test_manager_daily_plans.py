@@ -4,6 +4,7 @@ import copy
 from pathlib import Path
 
 import pytest
+from employee_operations import PLAN_METRICS
 from manager_service import ManagerService
 from manager_store import ManagerStore
 from manager_transport import ManagerTransportError
@@ -59,9 +60,7 @@ def test_plan_roundtrip_does_not_dispatch_and_is_shared_with_api(tmp_path: Path)
         None, "POST", "/api/v1/manager/daily-plans", plan_request(), manager_service=manager
     )
     assert saved["plan"]["version"] == 1
-    assert set(saved["plan"]["accounts"][0]["metrics"]) == {
-        "browse", "like", "comment", "publish"
-    }
+    assert set(saved["plan"]["accounts"][0]["metrics"]) == set(PLAN_METRICS)
     reopened = ManagerService(store=ManagerStore(tmp_path))
     assert (
         _dispatch_api(None, "/api/v1/manager/daily-plans", manager_service=reopened)["plans"][0][

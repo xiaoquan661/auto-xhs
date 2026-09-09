@@ -161,10 +161,12 @@ python scripts/cli.py --account <账号别名> generate-reply-draft `
 ```powershell
 python scripts/cli.py --account <账号别名> home-engagement `
   --browse-count 6 --like-count 2 `
-  --duration-minutes 3 --min-read-seconds 8 --max-read-seconds 15
+  --duration-minutes 10 --min-read-seconds 15 --max-read-seconds 45
 ```
 
-不同账号可并发执行该命令；同一账号仍由账号锁串行。该命令不生成或发送评论。需要评论时，
+两次点赞间隔为 90–180 秒，中间至少完成两篇浏览；点赞使用单次点击和平台状态回读。
+回读尚未确认时返回 `result_unknown` 并保留逐项结果。不同账号可并发，同一账号由账号锁串行。
+需要评论时，
 Agent 从已浏览结果中选定笔记，使用 `feed_id` 和 `xsec_token` 读取标题、正文、标签及可用图片文字，
 生成与笔记上下文一致的最终评论，再通过 `post-comment` 发送并回读平台结果。
 

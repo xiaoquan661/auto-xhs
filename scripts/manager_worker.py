@@ -9,8 +9,10 @@ from typing import Any, TextIO
 
 try:
     from .manager_worker_service import ManagerWorkerService, WorkerServiceError
+    from .service_errors import ServiceError
 except ImportError:
     from manager_worker_service import ManagerWorkerService, WorkerServiceError
+    from service_errors import ServiceError
 
 
 def _action_payload(request: dict[str, Any]) -> dict[str, Any]:
@@ -34,6 +36,8 @@ def dispatch_request(
     if not action:
         raise WorkerServiceError("INVALID_REQUEST", "action不能为空")
     payload = _action_payload(request)
+    if action in {"memory-save", "memory-search", "memory-recall"}:
+        return service.memory_action(action.removeprefix("memory-"), payload)
     if action == "health":
         return service.health()
     if action == "list-accounts":
@@ -149,7 +153,7 @@ def main(
     except json.JSONDecodeError:
         result = WorkerServiceError("INVALID_JSON", "标准输入不是有效JSON").to_dict()
         exit_code = 0
-    except WorkerServiceError as exc:
+    except (WorkerServiceError, ServiceError) as exc:
         result = exc.to_dict()
         exit_code = 0
     except Exception:

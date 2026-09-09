@@ -28,6 +28,7 @@ from account_manager import (
     list_accounts,
     load_account,
     public_config,
+    set_unpaired_account_platform,
 )
 from account_pairing import (
     create_pairing_session,
@@ -37,6 +38,7 @@ from account_pairing import (
 from account_runtime import evaluate_profile_connection
 from action_workflow_service import ActionWorkflowService
 from approval_service import ApprovalService
+from application_memory import ApplicationMemory
 from bridge_lifecycle import (
     get_bridge_lifecycle,
     start_bridge,
@@ -56,6 +58,7 @@ from diagnostic_export import export_diagnostic_report
 from inbound_event_service import InboundEventService
 from metric_service import MetricService
 from operations_db import OperationsDatabase
+from operations_policy import check_operations_policy
 from passive_reply_service import PassiveReplyService
 from platforms import (
     CapabilitySupport,
@@ -85,7 +88,7 @@ DEFAULT_EXTENSION_SOURCE = PROJECT_ROOT / "extension"
 PRODUCT_VERSION = "0.1.0-v1"
 
 
-class ApplicationService:
+class ApplicationService(ApplicationMemory):
     """Read-only product boundary shared by CLI and the local HTTP API."""
 
     def __init__(
@@ -159,9 +162,7 @@ class ApplicationService:
         self.operations_database = operations_database or OperationsDatabase(root=self._store.root)
         self.inbound_events = InboundEventService(self.operations_database)
         self.collectors = CollectorService(self.operations_database)
-        self.private_message_conversations = ConversationOwnershipService(
-            self.operations_database
-        )
+        self.private_message_conversations = ConversationOwnershipService(self.operations_database)
         self.private_message_conversations.backfill_latest_decisions()
         self.comment_collector = CommentCollector(self.inbound_events, self.collectors)
         self.private_message_collector = PrivateMessageCollector(
@@ -228,9 +229,7 @@ class ApplicationService:
             "summary": {
                 "total": len(capabilities),
                 "enabled_in_v1": sum(bool(item["enabled_in_v1"]) for item in capabilities),
-                "schedulable": sum(
-                    bool(item["supports_scheduling"]) for item in capabilities
-                ),
+                "schedulable": sum(bool(item["supports_scheduling"]) for item in capabilities),
             },
         }
 
@@ -346,9 +345,7 @@ class ApplicationService:
         self.require_enabled_capability("account-remove")
         config = self._load_account(account)
 
-        account_tasks = [
-            task for task in self.tasks.list() if task.get("account_slot") == account
-        ]
+        account_tasks = [task for task in self.tasks.list() if task.get("account_slot") == account]
         if any(task.get("state") == "RUNNING" for task in account_tasks):
             raise ServiceError(
                 "ACCOUNT_BUSY",
@@ -405,14 +402,28 @@ class ApplicationService:
         *,
         confirmed: bool,
         ttl_seconds: int = 300,
+        platform: str | None = None,
     ) -> dict:
         if not confirmed:
             raise ServiceError("CONFIRMATION_REQUIRED", "创建配对请求需要明确确认", 409)
         self.require_enabled_capability("account-pair-begin")
         config = self._load_account(account)
         try:
+            selected_platform = normalize_platform(platform or config.platform)
+            if selected_platform != config.platform:
+                identity = self._identity_loader(account) or {}
+                if config.extension_instance_id or (identity.get("current") or {}).get("user_id"):
+                    raise ValueError(
+                        "已配对或已确认身份的账号平台已固定，请为其他平台创建独立账号槽位"
+                    )
+                running = self._bridge_status_reader(config).get("bridge_running")
+                if running:
+                    self._bridge_stopper(config)
+                config = set_unpaired_account_platform(account, selected_platform)
+            if platform is not None:
+                self._pairing_bridge_starter(config)
             pairing = self._pairing_creator(config, ttl_seconds=ttl_seconds)
-        except (RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise ServiceError("PAIRING_FAILED", str(exc), 409) from exc
         return {"success": True, "pairing": pairing}
 
@@ -484,13 +495,20 @@ class ApplicationService:
         except ServiceError as exc:
             if exc.code == "LOGIN_REQUIRED":
                 self._remember_runtime_logged_out(account)
-            elif exc.code == "IDENTITY_UID_UNAVAILABLE":
+            else:
                 self._clear_runtime_identity_check(account)
             raise
         self._remember_runtime_identity(account, identity)
         return {"success": True, "account": account, "identity": identity}
 
-    def record_account_identity(self, account: str, *, confirmed: bool, label: str = "") -> dict:
+    def record_account_identity(
+        self,
+        account: str,
+        *,
+        confirmed: bool,
+        label: str = "",
+        expected_user_id: str | None = None,
+    ) -> dict:
         if not confirmed:
             raise ServiceError("CONFIRMATION_REQUIRED", "记录当前 UID 需要明确确认", 409)
         self.require_enabled_capability("account-identity", operation="record")
@@ -501,6 +519,20 @@ class ApplicationService:
                 409,
             )
         observed = self.check_account_identity(account)["identity"]
+        if expected_user_id is not None:
+            if not expected_user_id.strip() or observed["user_id"] != expected_user_id.strip():
+                raise ServiceError(
+                    "IDENTITY_CHANGED",
+                    "当前登录 UID 与确认页面不一致，请重新检查身份后确认",
+                    409,
+                )
+            recorded = (self._identity_loader(account) or {}).get("current") or {}
+            if recorded.get("user_id") and recorded["user_id"] != observed["user_id"]:
+                raise ServiceError(
+                    "IDENTITY_ALREADY_BOUND",
+                    "槽位已绑定其他 UID，请使用换号流程完成核验",
+                    409,
+                )
         try:
             record = self._identity_recorder(
                 account,
@@ -826,11 +858,73 @@ class ApplicationService:
     def create_task(self, **values) -> dict:
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
-        self._validate_task_parameters(
-            str(values.get("capability") or ""),
-            values.get("parameters") or {},
+        capability = str(values.get("capability") or "")
+        parameters = values.get("parameters") or {}
+        manager_workflow = values.get("source_type") == "manager-agent" and capability in {
+            "fill-publish",
+            "fill-publish-video",
+            "follow-user",
+        }
+        if not manager_workflow:
+            self._validate_task_parameters(capability, parameters)
+        elif capability == "follow-user":
+            if not parameters.get("user_id"):
+                raise ServiceError("INVALID_REQUEST", "关注任务需要目标用户")
+            values["operation"] = "execute"
+        else:
+            preview = dict(parameters.get("preview") or {})
+            self.publish_workflows._validate_preview(capability, preview)
+            active = [
+                t
+                for t in self.tasks.list()
+                if t["account_slot"] == values["account_slot"]
+                and t["capability"] in {"fill-publish", "fill-publish-video", "long-article"}
+                and t["state"] not in {"SUCCESS", "FAILED", "CANCELLED"}
+            ]
+            if active:
+                raise ServiceError("PUBLISH_WORKFLOW_ACTIVE", "账号存在未完成的发布任务", 409)
+            values["parameters"] = {
+                **parameters,
+                "preview": preview,
+                "workflow_type": "publish",
+                "stage": "preparing",
+            }
+        config = (values.get("parameters") or {}).get("operations_config")
+        if isinstance(config, dict) and not (values.get("parameters") or {}).get("daily_plan"):
+            self._store.set_setting(f"operations_config:{values['account_slot']}", config)
+        create = (
+            self.tasks.create_workflow
+            if manager_workflow and capability != "follow-user"
+            else self.tasks.create
         )
-        return {"success": True, "task": self.tasks.create(**values)}
+        return {"success": True, "task": create(**values)}
+
+    def _check_account_operations(
+        self, account: str, capability: str, parameters: dict, *, account_state: str = ""
+    ) -> None:
+        config = parameters.get("operations_config") or self._store.get_setting(
+            f"operations_config:{account}", {}
+        )
+        events = {
+            e.get("task_id"): e
+            for e in self._store.list("events")
+            if e.get("account_slot") == account
+        }
+        history = [
+            {**t, "result": (events.get(t["task_id"]) or {}).get("result") or {}}
+            for t in self.tasks.list()
+            if t.get("account_slot") == account
+        ]
+        check_operations_policy(
+            config,
+            capability,
+            history,
+            account_state=account_state,
+            write_intent=(
+                str(get_operation_policy(capability).risk_level) != "L0"
+                and (capability != "home-engagement" or bool(parameters.get("like_count")))
+            ),
+        )
 
     def list_tasks(self) -> dict:
         return {"success": True, "tasks": self.tasks.list()}
@@ -865,6 +959,9 @@ class ApplicationService:
         if (waiting.get("parameters") or {}).get("stage") != "preview_ready":
             raise ServiceError("PREVIEW_NOT_READY", "发布任务尚未进入最终预览确认阶段", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
+        self._check_account_operations(
+            account_slot, "click-publish", waiting.get("parameters") or {}
+        )
         self.publish_workflows.tasks.update_parameters(
             task_id,
             verified_uid=verified_uid,
@@ -914,11 +1011,13 @@ class ApplicationService:
         if waiting["state"] != "WAITING_APPROVAL":
             raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以保存为草稿", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
+        self._check_account_operations(account_slot, "save-draft", waiting.get("parameters") or {})
         task = self.publish_workflows.prepare_publish(
             task_id,
             account=account_slot,
             confirmed=True,
             preview_revision=preview_revision,
+            action="save-draft",
         )
         preview = (task.get("parameters") or {}).get("preview") or {}
         try:
@@ -950,10 +1049,10 @@ class ApplicationService:
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
         task = self.tasks.get(task_id)
-        if (
-            task["capability"] == "send-private-messages"
-            and task.get("operation") not in {"recipient", "automatic_reply"}
-        ):
+        if task["capability"] == "send-private-messages" and task.get("operation") not in {
+            "recipient",
+            "automatic_reply",
+        }:
             raise ServiceError(
                 "AGENT_CLI_ONLY",
                 "私信批次只能由 Agent 通过 Python CLI 执行",
@@ -997,6 +1096,27 @@ class ApplicationService:
             return {"success": True, "task": task}
         parameters = dict(task.get("parameters") or {})
         parameters["platform"] = task_platform
+        memory_identity = (parameters.get("memory_context") or {}).get("identity") or {}
+        live_uid = str((status.get("identity") or {}).get("live_user_id") or "")
+        if memory_identity.get("uid") and (
+            memory_identity["uid"] != live_uid
+            or memory_identity.get("platform") != task_platform
+        ):
+            task = self.tasks.transition(
+                task_id, "BLOCKED", error_code="MEMORY_IDENTITY_MISMATCH",
+                recommended_action="当前账号身份与任务记忆不一致，请核对账号后重新下发任务",
+            )
+            self._record_task_event(task, target_key)
+            return {"success": True, "task": task}
+        if task["capability"] == "random-comment" and live_uid and not memory_identity:
+            _, context = self.reply_memory_context(
+                {"event_id": task_id, "account_slot": task["account_slot"],
+                 "platform": task_platform, "payload": {"content": parameters.get("keyword", "")}},
+                live_uid,
+            )
+            from memory_context import ordered_context
+
+            parameters["memory_context"] = ordered_context(context, {**task, "parameters": parameters})
         persona_snapshot = task.get("persona_snapshot")
         if isinstance(persona_snapshot, dict) and persona_snapshot:
             parameters["persona_context"] = dict(persona_snapshot)
@@ -1043,6 +1163,25 @@ class ApplicationService:
                 )
                 self._record_task_event(blocked, target_key)
                 return {"success": True, "task": blocked}
+        try:
+            from operations_policy import check_daily_context
+
+            check_daily_context(
+                parameters, account=task["account_slot"],
+                current_uid=str((status.get("identity") or {}).get("live_user_id") or ""),
+            )
+            self._check_account_operations(
+                task["account_slot"],
+                task["capability"],
+                parameters,
+                account_state=str(status.get("error_code") or status.get("status") or ""),
+            )
+        except ServiceError as exc:
+            blocked = self.tasks.transition(
+                task_id, "BLOCKED", error_code=exc.code, recommended_action=exc.message
+            )
+            self._record_task_event(blocked, target_key)
+            return {"success": True, "task": blocked}
         claimed = self.tasks.claim_for_execution(task_id)
         if claimed["state"] == "BLOCKED":
             self._record_task_event(claimed, target_key)
@@ -1051,9 +1190,7 @@ class ApplicationService:
             from xhs.progress import record_progress_with
 
             with record_progress_with(lambda event: self.tasks.record_progress(task_id, event)):
-                result = self.runner.execute(
-                    task["account_slot"], task["capability"], parameters
-                )
+                result = self.runner.execute(task["account_slot"], task["capability"], parameters)
         except Exception as exc:
             terminated = self._finalize_requested_task_termination(task_id, target_key)
             if terminated is not None:
@@ -1078,6 +1215,19 @@ class ApplicationService:
         terminated = self._finalize_requested_task_termination(task_id, target_key)
         if terminated is not None:
             return {"success": True, "task": terminated}
+        if task["capability"] in {"fill-publish", "fill-publish-video"}:
+            waiting = self.publish_workflows.wait_for_confirmation(
+                task_id,
+                summary="发布内容已填写，请核对真实预览后确认发布",
+            )
+            return {
+                "success": True,
+                "task": waiting,
+                "result": {**result, "published": False},
+                "status": "WAITING_APPROVAL",
+                "error_code": "PUBLISH_CONFIRMATION_REQUIRED",
+                "recommended_action": "核对员工机真实发布预览并确认后，经理端继续回收结果",
+            }
         if task["capability"] == "collect-note-comments":
             collected = self.comment_collector.ingest(
                 account_slot=task["account_slot"],
@@ -1092,9 +1242,7 @@ class ApplicationService:
                 account_slot=task["account_slot"],
                 platform=task["platform"],
                 messages=list(result.get("messages") or []),
-                conversation_snapshots=list(
-                    result.get("conversation_snapshots") or []
-                ),
+                conversation_snapshots=list(result.get("conversation_snapshots") or []),
                 cursor_value=str(result.get("cursor") or ""),
                 last_seen_time=result.get("last_seen_time"),
             )
@@ -1111,14 +1259,15 @@ class ApplicationService:
                 platform=task["platform"],
             )
             result = {**result, "snapshots": snapshots}
-        missing_reply_readback = (
-            task.get("operation") == "automatic_reply" and not result.get("readback")
+        missing_reply_readback = task.get("operation") == "automatic_reply" and not result.get(
+            "readback"
         )
+        result_unknown = missing_reply_readback or bool(result.get("result_unknown"))
         completed = self.tasks.transition(
             task_id,
             (
                 "RESULT_UNKNOWN"
-                if missing_reply_readback
+                if result_unknown
                 else "PARTIAL_SUCCESS"
                 if result.get("partial")
                 else "SUCCESS"
@@ -1128,11 +1277,15 @@ class ApplicationService:
                 if missing_reply_readback
                 else self._result_summary(result)
             ),
-            error_code=("REPLY_READBACK_MISSING" if missing_reply_readback else ""),
-            recommended_action=(
-                "先检查平台当前会话或评论线程，不要直接重发"
+            error_code=(
+                "REPLY_READBACK_MISSING"
                 if missing_reply_readback
+                else "RESULT_UNKNOWN"
+                if result_unknown
                 else ""
+            ),
+            recommended_action=(
+                "先检查平台当前会话或评论线程，不要直接重发" if result_unknown else ""
             ),
         )
         self._record_task_event(completed, target_key, result=result)
@@ -1214,11 +1367,11 @@ class ApplicationService:
                 if final_state == "RESULT_UNKNOWN"
                 else "任务已由用户终止"
             ),
-            error_code=("TASK_TERMINATED_RESULT_UNKNOWN" if final_state == "RESULT_UNKNOWN" else ""),
+            error_code=(
+                "TASK_TERMINATED_RESULT_UNKNOWN" if final_state == "RESULT_UNKNOWN" else ""
+            ),
             recommended_action=(
-                "先检查平台当前状态，不要直接重试"
-                if final_state == "RESULT_UNKNOWN"
-                else ""
+                "先检查平台当前状态，不要直接重试" if final_state == "RESULT_UNKNOWN" else ""
             ),
         )
         self._record_task_event(completed, target_key)
@@ -1254,9 +1407,7 @@ class ApplicationService:
         collection_results: list[dict] = []
         for channel in selected_channels:
             capability = (
-                "collect-note-comments"
-                if channel == "comment"
-                else "collect-private-messages"
+                "collect-note-comments" if channel == "comment" else "collect-private-messages"
             )
             parameters = (
                 {"max_notes": max(1, min(int(max_notes), 50))}
@@ -1599,8 +1750,8 @@ class ApplicationService:
             if draft.get("account_slot") == account_slot
             and draft.get("action_type") == reply_action
         ][:20]
-        generation = self.reply_intelligence.generate_for_event(
-            event,
+        generation = self.generate_reply_with_memory(
+            event, verified_uid,
             account_profile=account_profile,
             knowledge=knowledge,
             reply_style=reply_style,
@@ -1720,19 +1871,11 @@ class ApplicationService:
                 "INVALID_REQUEST",
                 f"未知回复渠道: {', '.join(sorted(unknown))}",
             )
-        return [
-            channel
-            for channel in ("comment", "private_message")
-            if channel in requested
-        ]
+        return [channel for channel in ("comment", "private_message") if channel in requested]
 
     @staticmethod
     def _reply_event_channel(event: dict) -> str:
-        return (
-            "private_message"
-            if event.get("event_type") == "private_message"
-            else "comment"
-        )
+        return "private_message" if event.get("event_type") == "private_message" else "comment"
 
     @staticmethod
     def _reply_string_list(value: object, *, limit: int = 20) -> list[str]:
@@ -2034,9 +2177,7 @@ class ApplicationService:
         try:
             for channel in selected_channels:
                 capability = (
-                    "collect-note-comments"
-                    if channel == "comment"
-                    else "collect-private-messages"
+                    "collect-note-comments" if channel == "comment" else "collect-private-messages"
                 )
                 parameters = (
                     {"max_notes": max(1, min(int(max_notes), 50))}
@@ -2070,8 +2211,7 @@ class ApplicationService:
                     handling_state="NEW",
                     limit=max(1, min(int(max_events), 100)),
                 )
-                if event.get("event_type") in event_types
-                and not event.get("created_task_id")
+                if event.get("event_type") in event_types and not event.get("created_task_id")
             ]
             for event in reversed(events):
                 decisions.append(
@@ -2095,8 +2235,7 @@ class ApplicationService:
             summary = {
                 "channels": selected_channels,
                 "collected": sum(
-                    int((item.get("result") or {}).get("count") or 0)
-                    for item in collection_results
+                    int((item.get("result") or {}).get("count") or 0) for item in collection_results
                 ),
                 "processed": len(decisions),
                 **counts,
@@ -2153,8 +2292,8 @@ class ApplicationService:
             if record.get("result_state") in {"SUCCESS", "RESULT_UNKNOWN"}
         ]
         try:
-            generation = self.reply_intelligence.generate_for_event(
-                event,
+            generation = self.generate_reply_with_memory(
+                event, verified_uid,
                 account_profile=str(rule.get("account_profile") or ""),
                 knowledge=str(rule.get("knowledge") or ""),
                 reply_style=str(rule.get("reply_style") or "natural"),
@@ -2166,19 +2305,13 @@ class ApplicationService:
                 cycle_id=cycle_id,
                 event=event,
                 decision="pending",
-                reason=(
-                    exc.code if isinstance(exc, ServiceError) else "generation_failed"
-                ),
+                reason=(exc.code if isinstance(exc, ServiceError) else "generation_failed"),
                 rule=rule,
             )
             self.inbound_events.mark_handled(event["event_id"])
             self._handoff_private_message(event)
             return decision
-        channel = (
-            "private_message"
-            if event.get("event_type") == "private_message"
-            else "comment"
-        )
+        channel = "private_message" if event.get("event_type") == "private_message" else "comment"
         rule_decision = self.reply_rules.decision(
             rule["rule_id"],
             classification=str(generation.get("intent") or "other"),
@@ -2258,7 +2391,8 @@ class ApplicationService:
         target_id = str(
             payload.get("user_id")
             if private_message
-            else payload.get("notification_id") or payload.get("comment_id")
+            else payload.get("notification_id")
+            or payload.get("comment_id")
             or event.get("platform_event_id")
             or ""
         )
@@ -2579,15 +2713,12 @@ class ApplicationService:
                 list(parameters.get("recipients") or [])
             )
             previous_results = list(parameters.get("recipient_results") or [])
-            previous_by_user = {
-                str(item.get("user_id") or ""): item for item in previous_results
-            }
+            previous_by_user = {str(item.get("user_id") or ""): item for item in previous_results}
             retryable = {
                 item["user_id"]
                 for item in normalized
                 if item["user_id"] not in previous_by_user
-                or previous_by_user[item["user_id"]].get("state")
-                in {"FAILED", "BLOCKED"}
+                or previous_by_user[item["user_id"]].get("state") in {"FAILED", "BLOCKED"}
             }
             if not retryable:
                 raise ServiceError("NO_RETRYABLE_RECIPIENTS", "该批次没有可恢复的收件人", 409)
@@ -2641,9 +2772,7 @@ class ApplicationService:
                 account_slot=claimed["account_slot"],
                 capability="send-private-messages",
                 operation="recipient",
-                request_summary=(
-                    f"发送私信：{recipient.get('nickname') or recipient['user_id']}"
-                ),
+                request_summary=(f"发送私信：{recipient.get('nickname') or recipient['user_id']}"),
                 parent_task_id=task_id,
                 target_type="user",
                 target_id=recipient["user_id"],
@@ -2656,9 +2785,7 @@ class ApplicationService:
                 "nickname": recipient.get("nickname") or "",
                 "contact_purpose": recipient["contact_purpose"],
                 "conversation_type": (
-                    ((execution.get("result") or {}).get("target") or {}).get(
-                        "conversation_type"
-                    )
+                    ((execution.get("result") or {}).get("target") or {}).get("conversation_type")
                     or recipient["conversation_type"]
                 ),
                 "content": recipient["content"],
@@ -2668,7 +2795,9 @@ class ApplicationService:
                 "error_code": child_task.get("error_code") or "",
                 "readback": (execution.get("result") or {}).get("readback") or {},
             }
-            ordered = [previous[item["user_id"]] for item in recipients if item["user_id"] in previous]
+            ordered = [
+                previous[item["user_id"]] for item in recipients if item["user_id"] in previous
+            ]
             self.tasks.update_parameters(task_id, recipient_results=ordered, stage="sending")
 
         items = [previous[item["user_id"]] for item in recipients if item["user_id"] in previous]
@@ -2689,7 +2818,11 @@ class ApplicationService:
             task_id,
             final_state,
             result_summary=summary,
-            error_code=("" if final_state in {"SUCCESS", "PARTIAL_SUCCESS"} else "PRIVATE_MESSAGE_BATCH_FAILED"),
+            error_code=(
+                ""
+                if final_state in {"SUCCESS", "PARTIAL_SUCCESS"}
+                else "PRIVATE_MESSAGE_BATCH_FAILED"
+            ),
             recommended_action=(
                 "先人工检查结果未知的会话，不要直接重发"
                 if "RESULT_UNKNOWN" in states
@@ -2705,9 +2838,7 @@ class ApplicationService:
                 "first_message": sum(
                     item.get("conversation_type") == "first_message" for item in items
                 ),
-                "existing": sum(
-                    item.get("conversation_type") == "existing" for item in items
-                ),
+                "existing": sum(item.get("conversation_type") == "existing" for item in items),
             },
             "partial": final_state == "PARTIAL_SUCCESS",
         }
@@ -2810,11 +2941,15 @@ class ApplicationService:
                 candidate_pool_size = int(parameters.get("candidate_pool_size", 20))
                 collection_minutes = int(parameters.get("collection_minutes", 2))
             except (TypeError, ValueError) as exc:
-                raise ServiceError("INVALID_REQUEST", "随机互动、候选池和搜集时间必须是整数") from exc
+                raise ServiceError(
+                    "INVALID_REQUEST", "随机互动、候选池和搜集时间必须是整数"
+                ) from exc
             if not 1 <= count <= 20:
                 raise ServiceError("INVALID_REQUEST", "随机互动数量必须在 1 到 20 篇之间")
             if not count <= candidate_pool_size <= 100:
-                raise ServiceError("INVALID_REQUEST", "候选池数量必须不少于互动数量，且不超过 100 篇")
+                raise ServiceError(
+                    "INVALID_REQUEST", "候选池数量必须不少于互动数量，且不超过 100 篇"
+                )
             if not 1 <= collection_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
         if capability == "random-comment":
@@ -2835,11 +2970,15 @@ class ApplicationService:
                 candidate_pool_size = int(parameters.get("candidate_pool_size", 20))
                 collection_minutes = int(parameters.get("collection_minutes", 2))
             except (TypeError, ValueError) as exc:
-                raise ServiceError("INVALID_REQUEST", "评论数量、候选池和搜集时间必须是整数") from exc
+                raise ServiceError(
+                    "INVALID_REQUEST", "评论数量、候选池和搜集时间必须是整数"
+                ) from exc
             if not 1 <= count <= 3:
                 raise ServiceError("INVALID_REQUEST", "随机评论数量必须在 1 到 3 篇之间")
             if not count <= candidate_pool_size <= 100:
-                raise ServiceError("INVALID_REQUEST", "候选池数量必须不少于评论数量，且不超过 100 篇")
+                raise ServiceError(
+                    "INVALID_REQUEST", "候选池数量必须不少于评论数量，且不超过 100 篇"
+                )
             if not 1 <= collection_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
         if capability == "home-engagement":
@@ -2847,18 +2986,20 @@ class ApplicationService:
                 browse_count = int(parameters.get("browse_count"))
                 like_count = int(parameters.get("like_count"))
                 duration_minutes = int(parameters.get("duration_minutes"))
-                min_read_seconds = float(parameters.get("min_read_seconds", 8))
-                max_read_seconds = float(parameters.get("max_read_seconds", 15))
+                min_read_seconds = float(parameters.get("min_read_seconds", 15))
+                max_read_seconds = float(parameters.get("max_read_seconds", 45))
             except (TypeError, ValueError) as exc:
                 raise ServiceError("INVALID_REQUEST", "首页互动参数必须是有效数字") from exc
             if not 1 <= browse_count <= 50:
                 raise ServiceError("INVALID_REQUEST", "浏览数量必须在 1 到 50 篇之间")
             if not 0 <= like_count <= browse_count:
                 raise ServiceError("INVALID_REQUEST", "点赞数量不能超过浏览数量")
-            if not 1 <= duration_minutes <= 10:
-                raise ServiceError("INVALID_REQUEST", "最长执行时间必须在 1 到 10 分钟之间")
+            if not 1 <= duration_minutes <= 120:
+                raise ServiceError("INVALID_REQUEST", "最长执行时间必须在 1 到 120 分钟之间")
             if min_read_seconds < 0 or max_read_seconds < min_read_seconds or max_read_seconds > 60:
-                raise ServiceError("INVALID_REQUEST", "单篇阅读时间必须在 0 到 60 秒内且最短不大于最长")
+                raise ServiceError(
+                    "INVALID_REQUEST", "单篇阅读时间必须在 0 到 60 秒内且最短不大于最长"
+                )
         if capability == "get-feed-detail":
             if not str(parameters.get("feed_id") or "").strip():
                 raise ServiceError("INVALID_REQUEST", "查看笔记详情必须填写笔记 ID")
@@ -2946,10 +3087,28 @@ class ApplicationService:
             for note in result.get("notes") or []
             if note.get("entity_id")
         ]
+        growth = result.get("growth_notifications") or {}
+        growth_events = []
+        for event in growth.get("events") or []:
+            saved = self.inbound_events.record(
+                account_slot=account_slot,
+                platform=platform,
+                event_type=event["event_type"],
+                platform_event_id=event["platform_event_id"],
+                occurred_at=event["occurred_at"],
+                actor_user_id=event["actor_user_id"],
+                object_type="notification",
+                object_id=event["platform_event_id"],
+                payload=dict(event),
+                classification="growth_notification",
+            )
+            growth_events.append(saved["event"])
         return {
             "account": account_snapshot,
             "notes": note_snapshots,
+            "events": growth_events,
             "note_count": len(note_snapshots),
+            "growth_coverage": growth.get("coverage", "not_collected"),
         }
 
     def create_draft(self, **values) -> dict:
@@ -2998,9 +3157,8 @@ class ApplicationService:
                 "被动回复任务已经离开待确认状态",
                 409,
             )
-        private_message_reply = (
-            draft["action_type"] == "send-private-messages"
-            and bool(draft.get("source_event_id"))
+        private_message_reply = draft["action_type"] == "send-private-messages" and bool(
+            draft.get("source_event_id")
         )
         if private_message_reply:
             source_event = self.inbound_events.get(draft["source_event_id"])
@@ -3014,9 +3172,7 @@ class ApplicationService:
                 or source_event.get("actor_user_id")
                 or ""
             )
-            nickname = str(
-                task_context.get("nickname") or event_context.get("nickname") or ""
-            )
+            nickname = str(task_context.get("nickname") or event_context.get("nickname") or "")
             original_content = str(
                 task_context.get("original_content") or event_context.get("content") or ""
             )
@@ -3029,9 +3185,7 @@ class ApplicationService:
             event_context = source_event.get("payload") or {}
             task_context = (linked_task or {}).get("parameters") or {}
             notification_id = str(
-                task_context.get("notification_id")
-                or event_context.get("notification_id")
-                or ""
+                task_context.get("notification_id") or event_context.get("notification_id") or ""
             )
             feed_id = str(task_context.get("feed_id") or event_context.get("feed_id") or "")
             xsec_token = str(
@@ -3048,9 +3202,7 @@ class ApplicationService:
                 or source_event.get("actor_user_id")
                 or ""
             )
-            nickname = str(
-                task_context.get("nickname") or event_context.get("nickname") or ""
-            )
+            nickname = str(task_context.get("nickname") or event_context.get("nickname") or "")
             original_content = str(
                 task_context.get("original_content") or event_context.get("content") or ""
             )
@@ -3325,7 +3477,10 @@ class ApplicationService:
                 409,
             )
         platform = normalize_platform(getattr(page, "platform", None))
-        identity = {**identity, "platform": normalize_platform(identity.get("platform") or platform)}
+        identity = {
+            **identity,
+            "platform": normalize_platform(identity.get("platform") or platform),
+        }
         if require_uid and not identity.get("logged_in"):
             raise ServiceError("LOGIN_REQUIRED", "当前 Profile 尚未登录目标平台", 409)
         if require_uid and not identity.get("user_id"):
