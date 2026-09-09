@@ -439,6 +439,34 @@ def test_identity_check_allows_page_navigation_timeout(tmp_path) -> None:
     assert observed_timeout == [90.0]
 
 
+def test_worker_forwards_identity_confirmation_with_expected_uid(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    calls = []
+
+    def local_api(
+        method: str,
+        path: str,
+        body: dict | None = None,
+        *,
+        token: str = "",
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        if path == "/session":
+            return {"session_token": "test-session"}
+        calls.append((method, path, body, token, timeout_seconds))
+        return {"success": True, "identity": {"current": {"user_id": "red-user"}}}
+
+    service._local_api_request = local_api
+    values = {"confirmed": True, "expected_user_id": "red-user"}
+    result = service.account_lifecycle({
+        "account": "red account", "action": "identity-record", "values": values,
+    })
+    assert result["identity"]["current"]["user_id"] == "red-user"
+    assert calls == [(
+        "POST", "/accounts/red%20account/identity/record", values, "test-session", 90,
+    )]
+
+
 def test_account_field_request_is_visible_and_completed_after_identity_readback(
     tmp_path,
 ) -> None:

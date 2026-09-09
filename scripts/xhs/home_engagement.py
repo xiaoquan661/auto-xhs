@@ -35,9 +35,10 @@ def home_engagement(
     like_count: int = 2,
     video_only: bool = False,
     excluded_feed_ids: Sequence[str] = (),
-    duration_seconds: int = 180,
-    min_read_seconds: float = 8.0,
-    max_read_seconds: float = 15.0,
+    excluded_user_ids: Sequence[str] = (),
+    duration_seconds: int = 600,
+    min_read_seconds: float = 15.0,
+    max_read_seconds: float = 45.0,
     chooser: Callable[[Sequence[Feed]], Feed] = random.choice,
     reader: Callable = _simulate_reading,
     liker: Callable = like_current_feed,
@@ -63,10 +64,17 @@ def home_engagement(
     items: list[dict] = []
     skipped: list[dict] = []
     liked_count = 0
+    next_like_at = 0.0
+    intervening_browses = 2
+    result_unknown = False
+    stopped_by = ""
     empty_scrolls = 0
 
     while len(items) < browse_count and time.monotonic() < deadline:
         candidates = _browse_candidates(page, seen)
+        own = [feed for feed in candidates if feed.note_card.user.user_id in excluded_user_ids]
+        seen.update(feed.id for feed in own)
+        candidates = [feed for feed in candidates if feed not in own]
         if video_only:
             video_candidates = [
                 feed for feed in candidates if str(feed.note_card.type).casefold() == "video"
@@ -98,18 +106,46 @@ def home_engagement(
             deadline,
         )
 
-        if liked_count < like_count and not feed.note_card.interact_info.liked:
+        like_due = (
+            liked_count < like_count
+            and intervening_browses >= 2
+            and not feed.note_card.interact_info.liked
+        )
+        if like_due and next_like_at < deadline:
+            wait_seconds = max(0.0, next_like_at - time.monotonic())
+            if wait_seconds:
+                emit_progress("waiting", "等待下一次点赞间隔", feed_id=feed.id)
+                time.sleep(wait_seconds)
+        if like_due and next_like_at <= time.monotonic() < deadline:
+            intervening_browses = 0
+            next_like_at = time.monotonic() + random.uniform(90.0, 180.0)
             try:
                 result = liker(page, feed.id)
+                changed = result.changed is not False
                 item["like"] = {
-                    "status": "success" if result.success else "failed",
+                    "status": "success"
+                    if result.success and changed
+                    else "skipped"
+                    if result.success
+                    else "failed",
                     "message": result.message,
                     "success": bool(result.success),
+                    "changed": changed,
+                    "platform_readback": bool(result.success),
                 }
-                if result.success:
+                if result.success and changed:
                     liked_count += 1
             except Exception as exc:
-                item["like"] = {"status": "failed", "message": str(exc), "success": False}
+                result_unknown = bool(getattr(exc, "result_unknown", True))
+                item["like"] = {
+                    "status": "result_unknown" if result_unknown else "failed",
+                    "message": str(exc),
+                    "success": False,
+                    "platform_readback": False,
+                }
+                stopped_by = "like_result_unknown" if result_unknown else "like_state_unavailable"
+        else:
+            intervening_browses += 1
 
         try:
             item["closed_by"] = _close_detail(page, feed.id)
@@ -131,6 +167,9 @@ def home_engagement(
             item_index=len(items),
         )
 
+        if stopped_by:
+            break
+
         if len(items) < browse_count and time.monotonic() < deadline:
             viewport = int(page.evaluate("window.innerHeight || 768") or 768)
             page.scroll_by(0, int(viewport * random.uniform(0.65, 0.95)))
@@ -142,12 +181,14 @@ def home_engagement(
         or any(item["browse"]["status"] != "success" for item in items)
     )
     elapsed = round(max(0.0, time.monotonic() - started), 2)
-    if browsed_count >= browse_count:
+    if stopped_by:
+        stop_reason = stopped_by
+    elif browsed_count >= browse_count and liked_count >= like_count:
         stop_reason = "count_reached"
     elif time.monotonic() >= deadline:
         stop_reason = "time_limit"
     else:
-        stop_reason = "no_more_feeds"
+        stop_reason = "browse_limit" if browsed_count >= browse_count else "no_more_feeds"
     message = (
         f"首页浏览点赞完成：浏览 {browsed_count} 篇，点赞 {liked_count} 篇"
         if not partial
@@ -159,6 +200,7 @@ def home_engagement(
     return {
         "success": not partial,
         "partial": partial,
+        "result_unknown": result_unknown,
         "result_type": "home_engagement",
         "message": message,
         "requested": {
@@ -169,6 +211,8 @@ def home_engagement(
             "duration_seconds": duration_seconds,
             "min_read_seconds": min_read_seconds,
             "max_read_seconds": max_read_seconds,
+            "like_interval_seconds": [90, 180],
+            "min_intervening_browses": 2,
         },
         "counts": {
             "browsed": browsed_count,

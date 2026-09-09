@@ -92,6 +92,39 @@ def build_parser() -> argparse.ArgumentParser:
     daily_save.set_defaults(handler=_daily_plan_save)
     daily_list = daily_actions.add_parser("list", help="读取每日数量计划")
     daily_list.set_defaults(handler=_daily_plan_list)
+    for action, method, help_text in (
+        ("generate", "generate_daily_plan", "生成每日运营建议草稿"),
+        ("preview", "preview_daily_plan", "查看已保存版本的执行材料"),
+        ("submit", "submit_daily_plan", "提交已保存版本到经理执行队列"),
+    ):
+        command = daily_actions.add_parser(action, help=help_text)
+        _add_input_file(command, "包含 plan_date、version 或账号草稿的 JSON 绝对路径")
+        command.set_defaults(handler=_daily_plan_action, daily_method=method)
+    daily_prepare = daily_actions.add_parser("prepare", help="将已保存每日计划交给经理 Agent")
+    daily_prepare.add_argument("--date", required=True, help="计划日期 YYYY-MM-DD")
+    _add_input_file(daily_prepare, "账号动作目标及素材参数 JSON 文件")
+    daily_prepare.set_defaults(handler=_daily_plan_prepare)
+    daily_inputs = daily_actions.add_parser("inputs", help="追加每日任务的目标与素材")
+    daily_inputs.add_argument("--operation-task-id", required=True)
+    _add_input_file(daily_inputs, "包含 action_inputs 对象的 JSON 绝对路径")
+    daily_inputs.set_defaults(handler=_daily_plan_inputs)
+
+    memory = resources.add_parser("memory", help="账号记忆、经验审核和来源追溯")
+    memory_actions = memory.add_subparsers(dest="action", required=True)
+    for action in ("save", "search", "review", "history", "recall", "update", "usage", "review-pending"):
+        command = memory_actions.add_parser(action)
+        _add_input_file(command, "记忆操作 JSON 文件的绝对路径")
+        command.set_defaults(handler=_memory_action)
+
+    employee = resources.add_parser("employee", help="员工机运营配置与汇总")
+    employee_actions = employee.add_subparsers(dest="action", required=True)
+    employee_summary = employee_actions.add_parser("summary", help="读取运营指标与昨日日报")
+    employee_summary.set_defaults(handler=_employee_summary)
+    employee_config = employee_actions.add_parser("configure", help="更新账号运营配置")
+    employee_config.add_argument("--machine-id", required=True, help="执行机编号")
+    employee_config.add_argument("--account", required=True, help="账号槽位")
+    _add_input_file(employee_config, "运营配置 JSON 文件的绝对路径")
+    employee_config.set_defaults(handler=_employee_configure)
 
     persona = resources.add_parser("persona", help="保存和读取账号人设卡")
     persona_actions = persona.add_subparsers(dest="action", required=True)
@@ -312,6 +345,32 @@ def _daily_plan_save(args: argparse.Namespace, service: ManagerService) -> dict:
 
 def _daily_plan_list(_args: argparse.Namespace, service: ManagerService) -> dict:
     return service.list_daily_plans()
+
+
+def _daily_plan_action(args: argparse.Namespace, service: ManagerService) -> dict:
+    return getattr(service, args.daily_method)(load_json_object(args.input_file))
+
+
+def _daily_plan_prepare(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.prepare_daily_plan(args.date, load_json_object(args.input_file))
+
+
+def _daily_plan_inputs(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.supply_daily_inputs(args.operation_task_id, load_json_object(args.input_file))
+
+
+def _employee_summary(_args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.employee_summary()
+
+
+def _employee_configure(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.save_account_operations(
+        args.machine_id, args.account, load_json_object(args.input_file)
+    )
+
+
+def _memory_action(args: argparse.Namespace, service: ManagerService) -> dict:
+    return service.memory_action(args.action, load_json_object(args.input_file))
 
 
 def _persona_save(args: argparse.Namespace, service: ManagerService) -> dict:

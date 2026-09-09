@@ -109,3 +109,31 @@ def _wait_for_initial_state(page: Page, timeout: float = 10.0) -> None:
             return
         time.sleep(0.5)
     logger.warning("等待 __INITIAL_STATE__ 超时")
+
+
+def collect_profile_history(
+    page: Page, profile: UserProfileResponse, *, max_notes: int = 200
+) -> tuple[UserProfileResponse, str]:
+    """Collect loaded history up to the requested limit and report page coverage."""
+    limit = max(1, min(int(max_notes), 1000))
+    feeds = {feed.id: feed for feed in profile.feeds if feed.id}
+    unchanged = 0
+    complete = False
+    for _ in range(50):
+        complete = bool(
+            page.evaluate(
+                "Boolean([...document.querySelectorAll('.end-container, .no-more, .end-text')]"
+                ".some(el => /没有更多|到底了|no more/i.test(el.innerText || '')))"
+            )
+        )
+        if complete or len(feeds) >= limit or unchanged >= 2:
+            break
+        page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+        page.wait_dom_stable()
+        time.sleep(0.4)
+        newer = _extract_user_profile_data(page)
+        before = len(feeds)
+        feeds.update({feed.id: feed for feed in newer.feeds if feed.id})
+        unchanged = unchanged + 1 if len(feeds) == before else 0
+    profile.feeds = list(feeds.values())[:limit]
+    return profile, "profile_complete" if complete and len(feeds) <= limit else "profile_sample"

@@ -41,6 +41,11 @@ body { background: #f5f7fb; }
 .manager-account-tools form { display: grid; gap: 16px; }
 .manager-account-tools p { color: #63738d; font-size: 13px; }
 .manager-account-tools-result { white-space: pre-wrap; overflow-wrap: anywhere; }
+.manager-identity-summary { display: grid; gap: 12px; padding: 16px; background: #f3f5fa; border-radius: 10px; }
+.manager-identity-summary > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
+.manager-identity-summary dt { color: #63738d; font-size: 13px; }
+.manager-identity-summary dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.manager-identity-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .manager-account-more { margin-top: 12px; }
 .manager-account-more summary { color: #2455d6; cursor: pointer; margin-bottom: 10px; }
 .worker-next-panel { margin-bottom: 16px; }
@@ -216,6 +221,12 @@ body { background: #f5f7fb; }
 .control-room .manager-rail-avatar[data-tone="danger"] { color: var(--danger); background: var(--danger-soft); }
 .control-room .manager-rail-copy strong, .control-room .manager-overview-switch strong { font-size: 12px; }
 .control-room .manager-rail-copy small, .control-room .manager-overview-switch small { font-size: 10px; }
+.control-room .manager-machine-nav-item .manager-rail-copy strong {
+  white-space: normal; overflow-wrap: anywhere; line-height: 1.45;
+}
+.control-room .manager-machine-nav-item .manager-rail-copy small {
+  white-space: normal; overflow-wrap: anywhere; line-height: 1.5;
+}
 .control-room .manager-machine-nav { display: grid; gap: 4px; margin: 0; }
 .room-sidebar-caption { margin: 0; padding: 14px 5px 6px; color: var(--muted); font-size: 11px; }
 .room-sidebar-note { background: var(--paper); color: var(--muted); border-radius: 7px; margin: 12px 3px 2px; padding: 8px; font-size: 10px; }
@@ -271,6 +282,7 @@ body { background: #f5f7fb; }
 .room-node-head > div { min-width: 0; }
 .room-node-head small { color: var(--muted); font-size: 9px; letter-spacing: .08em; }
 .room-node-head h3 { margin: 4px 0 0; font: 800 17px/1 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.room-account-card .room-node-head h3 { font-family: inherit; line-height: 1.4; }
 .room-node-card dl { margin: 17px 0 10px; }
 .room-node-card dl > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); margin-top: 6px; font-size: 10px; }
 .room-node-card dt { color: var(--muted); }

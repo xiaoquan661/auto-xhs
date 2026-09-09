@@ -31,8 +31,8 @@ window.AutoXhsPlanning = function ({state, mutateJson, managerApi, localDateValu
   function summary() {
     const current = draft();
     const rows = current.accounts.filter((row) => row.participating);
-    const facts = [["参与员工机", new Set(rows.map((row) => row.machine_id)).size],
-      ["参与账号", rows.length], ...fields.map((kind) => [metricLabels[kind],
+    const facts = [["参与账号", rows.length],
+      ["所属机器", new Set(rows.map((row) => row.machine_id)).size], ...fields.map((kind) => [metricLabels[kind],
         rows.reduce((sum, row) => sum + Number(row.metrics[kind] || 0), 0)])];
     $("#daily-plan-summary").replaceChildren(...facts.map(([label, value]) => {
       const card = node("article", "daily-plan-summary-card");
@@ -53,8 +53,8 @@ window.AutoXhsPlanning = function ({state, mutateJson, managerApi, localDateValu
       const card = node("article", "daily-plan-card");
       const head = node("div", "daily-plan-card-head");
       const title = node("div", "");
-      title.append(node("h2", "", row.machine_id),
-        node("p", "", `${account?.nickname || row.account_slot} · ${row.account_slot}`));
+      title.append(node("h2", "", account?.nickname || row.account_slot),
+        node("p", "", `所属机器 ${row.machine_id} · ${row.account_slot}`));
       const status = node("span", "daily-plan-participation",
         row.participating ? "参与规划" : "暂不参与");
       head.append(title, status);

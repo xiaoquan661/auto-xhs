@@ -121,9 +121,12 @@ class PublishWorkflowService:
         account: str,
         confirmed: bool,
         preview_revision: str,
+        action: str = "click-publish",
     ) -> dict:
         if not confirmed:
-            raise ServiceError("CONFIRMATION_REQUIRED", "发布必须在用户确认预览后提供 --confirm", 409)
+            raise ServiceError(
+                "CONFIRMATION_REQUIRED", "发布必须在用户确认预览后提供 --confirm", 409
+            )
         task = self._waiting_task(task_id, account=account)
         stage = (task.get("parameters") or {}).get("stage")
         if stage != "preview_ready":
@@ -135,6 +138,25 @@ class PublishWorkflowService:
                 "发布预览内容已变化，请刷新后重新核对",
                 409,
             )
+        from operations_policy import check_daily_context, check_operations_policy
+
+        if action == "click-publish":
+            check_daily_context(task.get("parameters") or {}, account=account)
+
+        config = (task.get("parameters") or {}).get("operations_config") or self.store.get_setting(
+            f"operations_config:{account}", {}
+        )
+        events = {
+            event.get("task_id"): event
+            for event in self.store.list("events")
+            if event.get("account_slot") == account
+        }
+        history = [
+            {**row, "result": (events.get(row["task_id"]) or {}).get("result") or {}}
+            for row in self.tasks.list()
+            if row["account_slot"] == account
+        ]
+        check_operations_policy(config, action, history)
         return self.resume_preparation(task_id, account=account)
 
     def complete_publish(self, task_id: str, result: dict) -> dict:

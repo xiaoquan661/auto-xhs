@@ -7,7 +7,7 @@ import logging
 import time
 
 from .cdp import Page
-from .errors import NoFeedDetailError
+from .errors import ActionResultUnknownError, InteractionStateError, NoFeedDetailError
 from .selectors import COLLECT_BUTTON, LIKE_BUTTON
 from .types import ActionResult
 from .urls import make_feed_detail_url
@@ -42,14 +42,13 @@ def _get_interact_state(page: Page, feed_id: str) -> tuple[bool, bool]:
 
     note_detail_map = json.loads(result)
     detail = note_detail_map.get(feed_id)
-    if not detail and len(note_detail_map) == 1:
-        detail = next(iter(note_detail_map.values()))
-
     if not detail:
         raise NoFeedDetailError()
 
     interact = detail.get("note", {}).get("interactInfo", {})
-    return interact.get("liked", False), interact.get("collected", False)
+    if not isinstance(interact.get("liked"), bool):
+        raise NoFeedDetailError()
+    return interact["liked"], interact.get("collected", False)
 
 
 def _prepare_page(page: Page, feed_id: str, xsec_token: str) -> None:
@@ -87,34 +86,28 @@ def _toggle_like(page: Page, feed_id: str, target_liked: bool) -> ActionResult:
 
     try:
         liked, _ = _get_interact_state(page, feed_id)
-    except NoFeedDetailError:
-        logger.warning("无法读取互动状态，直接点击")
-        liked = not target_liked  # 强制执行点击
+    except NoFeedDetailError as exc:
+        raise InteractionStateError(f"{action_name}前未读到当前笔记状态，请刷新后核对") from exc
 
     # 幂等检查
     if liked == target_liked:
         logger.info("feed %s 已%s，跳过", feed_id, action_name)
-        return ActionResult(feed_id=feed_id, success=True, message=f"已{action_name}")
+        return ActionResult(feed_id, True, f"已{action_name}", changed=False)
 
-    # 点击
-    page.click_element(LIKE_BUTTON)
-    time.sleep(3)
-
-    # 验证
+    # 单次点击后只读取平台状态，等待异步页面更新。
     try:
-        liked, _ = _get_interact_state(page, feed_id)
-        if liked == target_liked:
-            logger.info("feed %s %s成功", feed_id, action_name)
-            return ActionResult(feed_id=feed_id, success=True, message=f"{action_name}成功")
-    except NoFeedDetailError:
-        pass
-
-    # 重试一次
-    logger.warning("feed %s %s可能未成功，重试", feed_id, action_name)
-    page.click_element(LIKE_BUTTON)
-    time.sleep(2)
-
-    return ActionResult(feed_id=feed_id, success=True, message=f"{action_name}已执行")
+        page.click_element(LIKE_BUTTON)
+        for _ in range(10):
+            time.sleep(0.3)
+            try:
+                liked, _ = _get_interact_state(page, feed_id)
+            except NoFeedDetailError:
+                continue
+            if liked == target_liked:
+                return ActionResult(feed_id, True, f"{action_name}成功", changed=True)
+    except Exception as exc:
+        raise ActionResultUnknownError(f"{action_name}结果待核对：{exc}") from exc
+    raise ActionResultUnknownError(f"{action_name}已点击，平台状态尚未确认，请先回读核对")
 
 
 # ========== 收藏 ==========

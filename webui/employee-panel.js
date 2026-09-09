@@ -1,12 +1,15 @@
-/* Employee unit overview, planning template and profile receipts. */
+/* Employee unit overview, shared daily plans and profile receipts. */
 window.AutoXhsEmployeePanel = function (services) {
   "use strict";
-  const {state, workerDayMetrics, nextWorkerPlan, localDateValue, resultDate, resultAccount,
+  const {state, workerDayMetrics, localDateValue, resultDate, resultAccount,
     resultLinks, resultActionKind, workerTaskDate, accountPersona, labelFor, operationalExceptions} = services;
   const host = document.querySelector("#employee-unit-content");
-  const storageKey = "auto-xhs:employee-plan-templates";
-  const metricFields = [["publish", "发帖"], ["like", "点赞"], ["comment", "评论"],
-    ["friend_request", "加好友"], ["new_followers", "新增粉丝"],
+  let legacyTemplates;
+  try { legacyTemplates = JSON.parse(localStorage.getItem("auto-xhs:employee-plan-templates") || "{}"); }
+  catch { legacyTemplates = {}; }
+  const metricFields = [["browse", "浏览"], ["publish", "发帖"], ["like", "点赞"],
+    ["comment", "评论"], ["reply", "回复"],
+    ["friend_request", "关注博主"], ["new_followers", "新增粉丝"],
     ["received_likes", "收获点赞"], ["received_comments", "收到新评论"],
     ["received_private_messages", "收到私信"]];
   const actionKinds = ["publish", "like", "comment", "friend_request"];
@@ -17,13 +20,14 @@ window.AutoXhsEmployeePanel = function (services) {
   let selected = "";
   let renderedSelection = null;
   let planDate = localDateValue(new Date(Date.now() + 86400000));
-  let savedTemplates;
-  try { savedTemplates = JSON.parse(localStorage.getItem(storageKey) || "{}"); }
-  catch { savedTemplates = {}; }
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g,
     (char) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[char]));
   const number = (value) => value === null || value === undefined ? "—" : esc(value);
   const key = (account) => `${account.machine_id}:${account.account_slot}`;
+  const accountName = (account) => account.nickname || account.account_slot;
+  const platformName = (account) => account.platform === "rednote" ? "RedNote" : "小红书";
+  const machineFor = (account) => state.machines.find((machine) =>
+    machine.machine_id === account.machine_id) || {machine_id: account.machine_id};
   const tone = (status) => ({READY: "good", SUCCESS: "good", COMPLETED: "good",
     WARNING: "warn", OFFLINE: "warn", BLOCKED: "bad", FAILED: "bad"}[status] || "muted");
   const badge = (text, color = "muted") => `<span class="status-pill tone-${color}">${esc(text)}</span>`;
@@ -49,9 +53,14 @@ window.AutoXhsEmployeePanel = function (services) {
 
   function dailyMetrics(account, date) {
     const metrics = workerDayMetrics(account.machine_id, account.account_slot, date);
-    return metricFields.map(([kind, label]) => ({kind, label,
-      ...(metrics.find((item) => item.kind === kind) || {
-        target: null, actual: null, status: "未接入", tone: "info", incomplete: false})}));
+    const observed = (state.employeeSummary?.daily_metrics || []).find((row) =>
+      row.machine_id === account.machine_id && row.account_slot === account.account_slot && row.date === date);
+    return metricFields.map(([kind, label]) => {
+      const local = metrics.find((item) => item.kind === kind);
+      const metric = observed?.metrics[kind];
+      return {kind, label, ...(local || metric || {
+        target: null, actual: null, status: "等待采集", tone: "info", incomplete: false})};
+    });
   }
 
   function receipts(account, date) {
@@ -66,13 +75,15 @@ window.AutoXhsEmployeePanel = function (services) {
         ? result.item_results : [result];
       return items.map((item, index) => ({
         id: `${result.result_id || result.task_id}:${index}`,
+        recordId: result.record_id || "", itemIndex: index,
         kind: resultActionKind(result), label: ({publish: "发帖", like: "点赞", comment: "评论",
-          browse: "浏览", reply: "回复"}[resultActionKind(result)] || "执行动作"),
+          browse: "浏览", reply: "回复", friend_request: "关注博主"}[resultActionKind(result)] || "执行动作"),
         at: item.completed_at || result.completed_at || result.created_at || result.collected_at,
         url: resultLinks(item)[0]?.url || "",
         content: item.comment_text || item.content || item.title || item.note_title || result.summary || "",
         status: item.state || item.status || result.business_state || result.state || "UNKNOWN",
-        source: item.execution_source || "machine",
+        source: item.execution_source || result.execution_source || "machine",
+        attributed: Boolean(item.attribution_updated_at || result.attribution_updated_at),
       }));
     }).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
   }
@@ -82,6 +93,8 @@ window.AutoXhsEmployeePanel = function (services) {
     return [...new Set([
       ...(state.dailyPlans || []).filter((plan) => plan.accounts.some((row) => key(row) === key(account)))
         .map((plan) => plan.plan_date),
+      ...(state.employeeSummary?.daily_metrics || []).filter((row) => key(row) === key(account))
+        .map((row) => row.date),
       ...receipts(account).map(resultDate),
       ...state.tasks.filter((task) => task.machine_id === account.machine_id
         && task.request?.account_slot === account.account_slot).map(workerTaskDate),
@@ -91,21 +104,21 @@ window.AutoXhsEmployeePanel = function (services) {
   }
 
   function planDraft() {
+    const saved = (state.dailyPlans || []).find((plan) => plan.plan_date === planDate);
     let draft = drafts.get(planDate);
-    if (!draft) {
-      const source = savedTemplates[planDate];
-      draft = {date: planDate, rows: (source?.rows || []).map((row) =>
+    if (!draft || (!draft.dirty && draft.version !== saved?.version)) {
+      const legacy = !saved && legacyTemplates[planDate];
+      draft = {date: planDate, rows: (saved?.accounts || legacy?.rows || []).map((row) =>
         ({...row, metrics: metricValues(row.metrics)})),
-        updatedAt: source?.updatedAt || "", dirty: false};
+        updatedAt: saved?.updated_at || "", version: saved?.version, dirty: Boolean(legacy)};
       drafts.set(planDate, draft);
     }
-    const saved = (state.dailyPlans || []).find((plan) => plan.plan_date === planDate);
     state.accounts.forEach((account) => {
       if (draft.rows.some((row) => key(row) === key(account))) return;
       const row = saved?.accounts.find((item) => key(item) === key(account));
       draft.rows.push({machine_id: account.machine_id, account_slot: account.account_slot,
         participating: row?.participating ?? account.health_state === "READY",
-        stage: "", pressure: "", notes: row?.notes || "",
+        stage: row?.stage || account.stage || "", pressure: row?.pressure || account.pressure || "", notes: row?.notes || "",
         metrics: metricValues(row?.metrics)});
     });
     return draft;
@@ -119,7 +132,7 @@ window.AutoXhsEmployeePanel = function (services) {
     const evidence = account?.planning_evidence || {};
     return `<details class="strategy-node-card ${row.participating ? "is-enabled" : "is-paused"}"
       data-expanded="plan:${esc(rowKey)}" data-plan-row="${esc(rowKey)}"${open(`plan:${rowKey}`, row.participating)}>
-      <summary><div><strong>${esc(row.machine_id)}</strong><span data-plan-caption>${esc(stage)} · ${esc(pressure)}</span></div>
+      <summary><div><strong>${esc(accountName(account || row))}</strong><small>所属机器 ${esc(row.machine_id)} · ${esc(row.account_slot)}</small><span data-plan-caption>${esc(stage)} · ${esc(pressure)}</span></div>
         <span data-plan-badge>${badge(row.participating ? "参与规划" : "静默观察", row.participating ? "good" : "warn")}</span>
         <div class="strategy-plan-preview">${metricFields.map(([kind, label]) =>
           `<span>${label}<b data-plan-preview="${kind}">${number(row.metrics[kind])}</b></span>`).join("")}</div></summary>
@@ -127,11 +140,11 @@ window.AutoXhsEmployeePanel = function (services) {
         <label><span>是否参与</span><select data-plan-field="participating">${options(
           [["yes", "参与明日规划"], ["no", "暂停 / 静默"]], row.participating ? "yes" : "no")}</select></label>
         <label><span>账号阶段</span><select data-plan-field="stage">${options(["", "稳定运营", "新机第 1 天", "新机第 2–3 天", "账号安全观察"], row.stage)}</select></label>
-        ${input("压力等级", row.pressure, "text", 'data-plan-field="pressure" placeholder="待配置"')}
+        ${input("压力等级", row.pressure, "text", 'data-plan-field="pressure" placeholder="高压 / 低压"')}
       </div><div class="strategy-exact-grid">${metricFields.map(([kind, label]) => input(label,
         row.metrics[kind] ?? "", "number", `min="0" step="1" placeholder="—" data-plan-metric="${kind}" aria-label="${esc(row.machine_id)} ${esc(row.account_slot)} ${label}"`)).join("")}</div>
       <div class="strategy-evidence-grid" aria-label="${esc(row.machine_id)} 自动运营依据">${facts([
-        ["累计主页帖子", evidence.lifetime_posts ?? "未读取"], ["上次发帖日期", evidence.last_post_date || "未读取"],
+        ["已采集主页帖子", evidence.lifetime_posts ?? "未读取"], ["上次发帖日期", evidence.last_post_date || "未读取"],
         ["运营天数", account?.operating_days ?? "未读取"], ["暖互动线索", evidence.warm_candidate_count ?? "未读取"],
       ])}</div><div class="strategy-range-line"><span>长期区间：评论 ${esc(evidence.comment_range || "—")}</span>
         <span>${esc(row.notes || "等待经理 Agent 配置运营依据。")}</span></div>
@@ -141,54 +154,65 @@ window.AutoXhsEmployeePanel = function (services) {
   function planSummary() {
     const draft = planDraft();
     const rows = draft.rows.filter((row) => row.participating);
-    const values = rows.flatMap((row) => actionKinds.map((kind) => row.metrics[kind]))
+    const values = rows.flatMap((row) => ["browse", "publish", "like", "comment", "reply", "friend_request"].map((kind) => row.metrics[kind]))
       .filter((value) => value !== null);
-    return facts([["参与规划", `${new Set(rows.map((row) => row.machine_id)).size} 台`],
-      ["计划动作上限", values.length ? values.reduce((sum, value) => sum + value, 0) : "—", "统计发帖、点赞、评论和加好友"],
-      ["发帖规则", "待配置", "等待经理 Agent 配置发帖总量与间隔"],
-      ["账号异常", "待配置", "手机验证、人脸验证或安全检查"]]);
+    const configs = rows.map((row) => state.accounts.find((a) => key(a) === key(row)) || {});
+    const rules = configs.map((a) => {
+      const rule = a.publish_rules || {};
+      return rule.daily_limit != null || rule.min_interval_minutes != null
+        ? `${a.machine_id}/${a.account_slot}：每日 ${rule.daily_limit ?? "—"} 篇，间隔 ${rule.min_interval_minutes ?? "—"} 分钟` : "";
+    }).filter(Boolean);
+    const policies = configs.map((a) => a.exception_policy ? `${a.machine_id}/${a.account_slot}：${a.exception_policy}` : "").filter(Boolean);
+    return facts([["参与规划", `${rows.length} 个账号`],
+      ["计划动作上限", values.length ? values.reduce((sum, value) => sum + value, 0) : "—", "统计浏览、发帖、点赞、评论、回复与关注博主"],
+      ["发帖规则", rules.join("；") || "待配置", "经理 Agent 配置的发帖总量与间隔"],
+      ["账号异常", policies.join("；") || "待配置", "经理 Agent 配置的异常处理策略"]]);
   }
 
   function planningPanel() {
     const draft = planDraft();
+    const submitted = (state.dailyPlans || []).find((plan) => plan.plan_date === draft.date)?.submissions?.[0];
     return `<section class="panel strategy-panel" data-panel="tomorrow-plan">
       <div class="strategy-heading"><div><p class="eyebrow">经理机运营策略</p><h2>明日任务规划</h2>
-        <p class="plain-help">这里决定每台机器的确切数量。保存计划不会创建 Trigger，也不会启动员工机。</p></div>
+        <p class="plain-help">生成建议后按账号调整，保存版本并预览执行材料；提交后进入经理执行队列。</p></div>
       <div class="strategy-save-bar">${input("计划日期", planDate, "date", 'data-plan-date')}
         <button type="button" data-unit-action="save-plan">保存计划</button>
-        <small class="save-state" data-plan-message role="status">${draft.dirty ? "已修改，待保存" : draft.updatedAt ? `本机模板上次保存 ${stamp(draft.updatedAt)}` : "尚未保存"}</small></div></div>
+        <button type="button" data-unit-action="generate-plan">生成智能建议</button>
+        <button type="button" data-unit-action="preview-plan"${draft.dirty || !draft.version ? " disabled" : ""}>预览执行材料</button>
+        <button type="button" data-unit-action="submit-plan"${draft.dirty || !draft.version || submitted ? " disabled" : ""}>${submitted ? `已提交 v${esc(submitted.version)}` : "提交经理执行"}</button>
+        <small class="save-state" data-plan-message role="status">${draft.dirty ? "已修改，待保存" : draft.updatedAt ? `计划上次保存 ${stamp(draft.updatedAt)}` : "尚未保存"}</small></div></div>
       <div class="strategy-summary" data-plan-summary>${planSummary()}</div>
-      <div class="strategy-rules">${["评论必须符合对应账号人设", "图片不能重复使用", "点赞约为评论的 1/3", "好友申请只看暖互动机会", "每天检查真实入站"]
+      ${submitted ? `<p class="plain-help">执行与日报依据已提交的 v${esc(submitted.version)}；目标与素材可在原每日任务中追加。</p>` : ""}
+      <div class="strategy-rules">${["执行材料包含账号人设", "发帖经过预览确认", "点赞约为评论的 1/3", "关注博主仅针对暖互动对象", "按配置检查真实入站", "完成率按硬指标分别封顶"]
         .map((text) => `<span>${text}</span>`).join("")}</div>
       <div class="strategy-node-grid">${draft.rows.map(planCard).join("") || '<p class="empty-state">等待员工机账号同步。</p>'}</div>
       <div class="dispatch-template" data-dispatch-template${draft.updatedAt ? "" : " hidden"}>
-        <div class="dispatch-template-head"><div><strong>复制到经理 Agent 的下发模板</strong><span>模板包含当前保存的逐机数量和运营说明。</span></div>
+        <div class="dispatch-template-head"><div><strong>复制到经理 Agent 的下发模板</strong><span>模板包含每个账号的运营数量和所属机器。</span></div>
         <button type="button" data-unit-action="copy-template">复制模板</button></div>
         <textarea rows="16" readonly aria-label="下发模板">${esc(dispatchText(draft))}</textarea>
         <small class="save-state" data-copy-message role="status"></small></div></section>`;
   }
 
   function dispatchText(draft) {
-    return `${draft.date} 员工机运营计划\n\n${draft.rows.map((row) =>
-      `${row.machine_id} / ${row.account_slot} · ${row.participating ? "参与规划" : "暂停"}\n`
+    return `${draft.date} 账号运营计划\n\n${draft.rows.map((row) =>
+      `${accountName(state.accounts.find((account) => key(account) === key(row)) || row)} · ${row.participating ? "参与规划" : "暂停"}\n所属机器：${row.machine_id}；账号：${row.account_slot}\n`
       + `账号阶段：${row.stage || "待配置"}；压力等级：${row.pressure || "待配置"}\n`
       + metricFields.map(([kind, label]) => `${label}：${row.metrics[kind] ?? "未设置"}`).join("；")
-      + (row.notes ? `\n说明：${row.notes}` : "")).join("\n\n")}\n\n请经理 Agent 审阅这些数量，补齐未设置字段后安排执行。`;
+      + (row.notes ? `\n说明：${row.notes}` : "")).join("\n\n")}\n\n计划版本：${draft.version ?? "待保存"}。浏览、发帖、点赞、评论、回复为硬指标；关注博主按机会预算执行，增长数据单独观察。\n请预览执行材料，核对账号人设、时间窗口、间隔、发帖规则和待办要求后提交经理执行。`;
   }
 
-  function machineCard(machine) {
-    const accounts = state.accounts.filter((account) => account.machine_id === machine.machine_id);
-    const residents = accounts.map(accountPersona).filter(Boolean);
-    return `<button type="button" class="overview-node-card tone-${tone(machine.status)}"
-      data-employee-machine-select="${esc(machine.machine_id)}">
-      <div class="overview-node-head"><div><span>员工机 · ${esc(machine.machine_id)}</span>
-        <h3>${esc(machine.host_alias || machine.machine_id)}</h3></div>${badge(labelFor(machine.status), tone(machine.status))}</div>
-      <dl>${[["物理资产", machine.machine_id], ["执行单元", machine.worker_id || accounts.map((a) => a.account_slot).join("、") || "待绑定"],
-        ["Resident", residents.map((p) => p.display_name || p.persona_id).join("、") || "待配置"],
-        ["运行状态", labelFor(machine.status)]].map(([name, value]) => `<div><dt>${name}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
-      ${accounts.map((a) => `<div class="overview-account-line"><span>账号</span><strong>${esc(a.nickname || a.account_slot)} · ${esc(a.account_slot)} · ${esc(a.current_uid || a.uid || "身份待同步")}</strong></div>`).join("")
-        || '<p class="overview-node-detail">等待账号绑定回执</p>'}
-      <small class="overview-node-updated">更新 ${stamp(machine.outbox_collection?.observed_at || machine.updated_at)}</small></button>`;
+  function accountCard(account) {
+    const machine = machineFor(account);
+    const persona = accountPersona(account);
+    return `<button type="button" class="overview-node-card tone-${tone(account.health_state)}"
+      data-employee-account-select="${esc(key(account))}">
+      <div class="overview-node-head"><div><span>${platformName(account)} · ${esc(account.account_slot)}</span>
+        <h3>${esc(accountName(account))}</h3></div>${badge(labelFor(account.health_state), tone(account.health_state))}</div>
+      <dl>${[["所属机器", machine.host_alias || machine.machine_id], ["账号人设", persona?.display_name || persona?.persona_id || "待配置"],
+        ["设备连接", labelFor(machine.ssh_state || "UNKNOWN")],
+        ["当前任务", account.current_task_title || "暂无任务"]].map(([name, value]) => `<div><dt>${name}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
+      <div class="overview-account-line"><span>账号 UID</span><strong>${esc(account.current_uid || account.uid || "身份待同步")}</strong></div>
+      <small class="overview-node-updated">更新 ${stamp(account.updated_at)}</small></button>`;
   }
 
   function dailyReport() {
@@ -198,26 +222,24 @@ window.AutoXhsEmployeePanel = function (services) {
     if (!plan) return `<section class="panel daily-report-panel" data-panel="daily-report">
       <div class="section-heading compact"><div><p class="eyebrow">昨日日报</p><h2>${yesterday}</h2></div>${badge("暂无日报")}</div>
       <p class="daily-report-empty">没有找到该日期保存的运营计划</p></section>`;
-    const rows = plan.accounts.filter((row) => row.participating);
-    const dayResults = state.results.filter((item) => resultDate(item) === yesterday);
-    const values = rows.flatMap((row) => dailyMetrics(row, yesterday))
-      .filter((metric) => actionKinds.includes(metric.kind));
-    const actual = values.filter((item) => item.actual !== null);
+    const report = state.employeeSummary?.daily_report;
+    if (!report || report.date !== yesterday) return `<section class="panel daily-report-panel" data-panel="daily-report"><h2>${yesterday} 运营日报</h2><p>等待日报数据。</p></section>`;
+    const rows = report.rows;
+    const percent = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
     return `<section class="panel daily-report-panel" data-panel="daily-report"><div class="daily-report-heading">
-      <div><p class="eyebrow">昨日计划复盘</p><h2>${yesterday} 运营日报</h2><p>自动对比保存计划与员工机正式回执。</p></div>${badge("已回收", "accent")}</div>
-      <div class="daily-report-summary">${facts([["计划机器", new Set(rows.map((r) => r.machine_id)).size],
-        ["实际执行", new Set(dayResults.map((r) => r.machine_id)).size],
-        ["计划动作", values.reduce((sum, r) => sum + (r.target || 0), 0)],
-        ["实际动作", actual.length ? actual.reduce((sum, r) => sum + r.actual, 0) : null], ["出现异常", null]])}</div>
-      <div class="pressure-conclusion"><div><span>高压 / 低压结论</span><strong>等待运营分析结果</strong></div>
-      <small>压力分组与对比结论尚未回传。</small></div>
-      <div class="pressure-group-grid">${["高压组", "低压组"].map((group) => `<div><strong>${group}</strong><span>纳入对比 — · 动作 —</span><span>平均完成率 — · 异常率 —</span></div>`).join("")}</div>
+      <div><p class="eyebrow">昨日计划复盘</p><h2>${yesterday} 运营日报</h2><p>自动对比保存计划与员工机正式回执。</p></div>${badge("持续汇总", "accent")}</div>
+      <div class="daily-report-summary">${facts([["计划账号", plan.accounts.filter((row) => row.participating).length],
+        ["所属机器", report.planned_machines], ["计划动作", report.target],
+        ["实际动作", report.actual], ["出现异常", report.exception_count]])}</div>
+      <div class="pressure-conclusion"><div><span>高压 / 低压结论</span><strong>${esc(report.conclusion)}</strong></div>
+      <small>完成率采用有完整动作回执的账号；异常率按已回收任务计算。</small></div>
+      <div class="pressure-group-grid">${report.groups.map((group) => `<div><strong>${esc(group.label)}</strong><span>纳入对比 ${group.analyzed_count}/${group.account_count} · 动作 ${number(group.actual)}</span><span>平均完成率 ${percent(group.completion_rate)} · 异常率 ${percent(group.exception_rate)}</span></div>`).join("")}</div>
       <div class="daily-report-table-wrap"><table class="daily-report-table"><thead><tr>
-      ${["员工机", "压力", ...metricFields.map(([, label]) => label), "外部动作", "完成率", "结果"].map((label) => `<th>${label}</th>`).join("")}
+      ${["账号 / 所属机器", "压力", ...metricFields.map(([, label]) => label), "外部动作", "完成率", "结果"].map((label) => `<th>${label}</th>`).join("")}
       </tr></thead><tbody>${rows.map((row) => {const metrics = dailyMetrics(row, yesterday); return `<tr>
-        <th>${esc(row.machine_id)}<small>${esc(row.account_slot)}</small></th><td>—</td>
+        <th>${esc(accountName(state.accounts.find((account) => key(account) === key(row)) || row))}<small>${esc(row.machine_id)} · ${esc(row.account_slot)}</small></th><td>${esc(row.pressure || "待分组")}</td>
         ${metrics.map((metric) => `<td>${number(metric.target)} / ${number(metric.actual)}</td>`)
-          .join("")}<td>—</td><td>—</td><td>等待分析</td></tr>`;}).join("")}</tbody></table></div>
+          .join("")}<td>${number(row.external_actions)}</td><td>${percent(row.completion_rate)}</td><td>${esc(row.status)}</td></tr>`;}).join("")}</tbody></table></div>
       <small class="daily-report-footnote">每格格式为“目标 / 实际”。</small></section>`;
   }
 
@@ -226,18 +248,18 @@ window.AutoXhsEmployeePanel = function (services) {
     const online = state.machines.filter((machine) => machine.ssh_state === "ONLINE").length;
     const today = localDateValue(new Date());
     const metrics = state.accounts.flatMap((account) => workerDayMetrics(account.machine_id, account.account_slot, today));
-    const actual = metrics.filter((item) => item.actual !== null);
+    const actual = metrics.filter((item) => actionKinds.includes(item.kind) && item.actual != null);
     return `<div class="workspace-overview"><div class="workspace-heading"><div><p class="eyebrow">经理机管理面板</p>
-      <h2>员工机集群与执行单元</h2><p class="plain-help">点击任意卡片，右侧查看这台机器和账号的详细情况。</p></div>${badge("实时只读")}</div>
-      <div class="overview-summary">${facts([["物理机器总数", state.machines.length, "不含已退役机器"],
+      <h2>账号运营总览</h2><p class="plain-help">每个账号独立展示运营计划与执行结果，机器标明账号所属设备。</p></div>${badge("实时只读")}</div>
+      <div class="overview-summary">${facts([["账号单元", state.accounts.length, "每个账号一个运营单元"],
         ["今日已记录动作", actual.length ? actual.reduce((sum, r) => sum + r.actual, 0) : null, "来自员工机回执"],
-        ["设备连接正常", online, "经理机可以正常收取节点数据"], ["需要查看", alerts.length, "告警和待处理项"]])}</div>
-      <section class="overview-node-panel" data-panel="machines"><div class="overview-section-head"><div><strong>机器与账号</strong>
-        <span>状态颜色：绿色正常，黄色受限，红色需要人工处理</span></div><span>${state.machines.length} 个管理单元</span></div>
-        <div class="overview-node-grid">${state.machines.map(machineCard).join("") || '<p class="empty-state">等待员工机同步</p>'}</div></section>
+        ["所属机器", state.machines.length, `${online} 台设备连接正常`], ["需要查看", alerts.length, "告警和待处理项"]])}</div>
+      <section class="overview-node-panel" data-panel="accounts"><div class="overview-section-head"><div><strong>账号单元</strong>
+        <span>状态颜色：绿色正常，黄色受限，红色需要人工处理</span></div><span>${state.accounts.length} 个账号</span></div>
+        <div class="overview-node-grid">${state.accounts.map(accountCard).join("") || '<p class="empty-state">等待员工机账号同步</p>'}</div></section>
       ${dailyReport()}<div data-plan-host>${planningPanel()}</div>
       <div class="overview-lower-grid"><section class="panel plain-panel" data-panel="actual-summary">
-        <div class="section-heading compact"><div><p class="eyebrow">今日进度</p><h2>实际动作汇总</h2></div><span>${online}/${state.machines.length} 员工已接入</span></div>
+        <div class="section-heading compact"><div><p class="eyebrow">今日进度</p><h2>实际动作汇总</h2></div><span>${state.accounts.length} 个账号</span></div>
         <div class="result-grid">${facts([["物理员工机", state.machines.length, `${online} 台连接正常`],
           ["需要人工查看", alerts.length, "员工机上报后仍未处理的异常"],
           ["尚未绑定账号", state.machines.filter((machine) => !state.accounts.some((a) => a.machine_id === machine.machine_id)).length, "员工机账号绑定情况"]]).replaceAll("<div>", '<div class="result-item">')}</div></section>
@@ -246,15 +268,18 @@ window.AutoXhsEmployeePanel = function (services) {
           || '<p class="empty-state">现在没有未关闭告警</p>'}</div></section></div></div>`;
   }
 
-  function nextDay(machine) {
-    const plan = nextWorkerPlan(machine.machine_id, localDateValue(new Date()));
-    const row = plan?.accounts.find((item) => item.machine_id === machine.machine_id && item.participating);
-    const saved = plan && savedTemplates[plan.plan_date]?.rows.find((item) => key(item) === key(row));
+  function nextDay(account) {
+    const today = localDateValue(new Date());
+    const plan = [...(state.dailyPlans || [])].filter((item) => item.plan_date > today
+      && item.accounts.some((row) => key(row) === key(account) && row.participating))
+      .sort((a, b) => a.plan_date.localeCompare(b.plan_date))[0];
+    const row = plan?.accounts.find((item) => key(item) === key(account) && item.participating);
+    const saved = row;
     return `<section class="panel node-strategy-card" data-panel="next-day"><div class="node-strategy-head"><div>
       <p class="eyebrow">下一个运营日</p><h3>${plan ? esc(`${plan.plan_date} · ${saved?.stage || "账号阶段待配置"}`) : "等待运营规划"}${saved?.pressure ? ` · ${esc(saved.pressure)}` : ""}</h3></div>
       ${badge(plan ? "已规划" : "待规划", plan ? "good" : "muted")}</div>
       <div class="node-strategy-plan">${facts(metricFields.map(([kind, label]) => [label, saved?.metrics?.[kind] ?? row?.metrics?.[kind]]))}</div>
-      <p>${esc(row?.notes || "等待经理 Agent 下发该员工机的下一运营日目标。")}</p></section>`;
+      <p>${esc(row?.notes || "等待经理 Agent 下发该账号的下一运营日目标。")}</p></section>`;
   }
 
   function todayTable(account, date, accountActions) {
@@ -287,17 +312,17 @@ window.AutoXhsEmployeePanel = function (services) {
   function actionList(account, accountActions) {
     return `<details class="action-details" data-panel="action-links" data-expanded="actions:${esc(key(account))}"${open(`actions:${key(account)}`)}>
       <summary>动作与对应链接（${accountActions.length}）</summary><div class="action-list">
-      ${accountActions.map((action) => `<div class="action-row"><div><strong>${esc(action.label)} · ${action.source === "human" ? "人工" : "机器"}执行（回执导入）</strong>
+      ${accountActions.map((action) => `<div class="action-row"><div><strong>${esc(action.label)} · ${action.source === "human" ? "人工" : "机器"}执行（${action.attributed ? "归属标注" : "回执导入"}）</strong>
         <time>${stamp(action.at)}</time><small class="action-account">账号：${esc(account.nickname || account.account_slot)} · Profile ${esc(account.current_uid || account.uid || "未记录")}</small></div>
         ${link(action.url, "查看目标链接")}<div class="visibility-state">${badge(labelFor(action.status), tone(action.status))}<small>执行回执状态</small></div>
-        <p>${esc(action.content)}</p><div class="action-management-controls"><label><span>执行者</span><select disabled>${options([["machine", "机器"], ["human", "人工"]], action.source)}</select></label>
+        <p>${esc(action.content)}</p><div class="action-management-controls"><label><span>执行者</span><select data-action-record="${esc(action.recordId)}" data-action-item="${action.itemIndex}" data-action-source="${esc(action.source)}"${action.recordId ? "" : " disabled"}>${options([["machine", "机器"], ["human", "人工"]], action.source)}</select></label><small data-attribution-message role="status"></small>
         </div></div>`).join("")
         || '<p>当前回执没有可展示的发帖、点赞或评论链接。</p>'}</div></details>`;
   }
 
   function moduleDetails(account) {
     const streams = [["comment", "评论回复提醒", account.comment_reply_alerts, "当前快照没有新增评论回复。"],
-      ["friend", "好友模块明细", account.friend_events, "当前快照没有好友模块明细。"],
+      ["friend", "关注博主明细", account.friend_events, "当前快照没有关注博主明细。"],
       ["private", "私聊明细", account.private_message_events, "当前快照没有私聊明细。"]];
     return `<div class="module-details-grid">${streams.map(([kind, title, items, empty]) => {
       const records = Array.isArray(items) ? items : [];
@@ -308,7 +333,9 @@ window.AutoXhsEmployeePanel = function (services) {
           <div class="module-event-head"><strong>${esc(item.actor_name || item.peer_name || "未知用户")}</strong>${badge(labelFor(item.read_status || item.event_type || "UNKNOWN"))}</div>
           <time>${stamp(item.occurred_at)}</time><p>${esc(item.reply_text || item.message_preview || item.note || "内容未回传")}</p>
           ${item.parent_comment_text ? `<small>回复了：${esc(item.parent_comment_text)}</small>` : ""}
-          ${link(item.target_url || item.thread_url || item.profile_url, kind === "private" ? "打开会话" : kind === "friend" ? "查看用户主页" : "查看评论位置")}</article>`).join("")}</div>` : `<p>${empty}</p>`}</details>`;
+          ${item.location_hint ? `<small>${esc(item.location_hint)}</small>` : ""}
+          ${kind === "private" ? `<small>平台阅读状态：${esc(({READ: "已读", UNREAD: "采集前未读", UNKNOWN: "未读取"})[item.platform_read_status] || "未读取")} · 处理状态：${esc(labelFor(item.handling_state || "NEW"))}</small>` : ""}
+          ${link(item.target_url || item.thread_url || item.profile_url, item.target_label || (kind === "private" ? "打开会话" : kind === "friend" ? "查看用户主页" : "打开笔记并查看评论"))}</article>`).join("")}</div>` : `<p>${empty}</p>`}</details>`;
     }).join("")}</div>`;
   }
 
@@ -317,7 +344,8 @@ window.AutoXhsEmployeePanel = function (services) {
     const accountActions = actions(account, date);
     const last = accountActions[0];
     const uid = account.current_uid || account.uid || "未绑定";
-    const profileUrl = account.profile_url || (uid !== "未绑定" ? `https://www.xiaohongshu.com/user/profile/${encodeURIComponent(uid)}` : "");
+    const domain = account.platform === "rednote" ? "www.rednote.com" : "www.xiaohongshu.com";
+    const profileUrl = account.profile_url || (uid !== "未绑定" ? `https://${domain}/user/profile/${encodeURIComponent(uid)}` : "");
     const tasks = state.tasks.filter((task) => task.machine_id === machine.machine_id
       && task.request?.account_slot === account.account_slot && workerTaskDate(task) === date);
     return `<details class="machine-card tone-${tone(account.health_state)}" data-panel="employee-profile"
@@ -329,39 +357,38 @@ window.AutoXhsEmployeePanel = function (services) {
       <small class="machine-summary-activity">运营 ${number(account.operating_days)} 天 · 最后 ${last ? `${esc(last.label)} ${stamp(last.at)}` : "暂无动作"}</small></div></div></summary>
       <div class="machine-card-body"><div class="account-status-editor"><div><strong>账号状态</strong><small>员工机回执 · ${stamp(account.updated_at)}</small></div>
         <select aria-label="${esc(account.account_slot)} 账号状态" disabled>${options([[account.health_state, labelFor(account.health_state)]], account.health_state)}</select></div>
-      <div class="machine-profile-link-row"><div><span>小红书账号主页</span><strong>Profile ${esc(uid)}</strong></div>${link(profileUrl, "打开主页", "facebook-profile-link")}</div>
+      <div class="machine-profile-link-row"><div><span>${platformName(account)}账号主页</span><strong>Profile ${esc(uid)}</strong></div>${link(profileUrl, "打开主页", "facebook-profile-link")}</div>
       ${todayTable(account, date, accountActions)}${historyTable(account)}
       <div class="worker-business-strip" aria-label="${esc(account.account_slot)} 业务数据">${facts(
         dailyMetrics(account, date).filter((metric) => !actionKinds.includes(metric.kind))
           .map((metric) => [metric.label, metric.actual]))}</div>
-      <div class="machine-task">${facts([["当前阶段", account.stage || "未接入"], ["今日会话", account.session_count ?? null],
-        ["运营天数", account.operating_days === undefined ? null : `${account.operating_days} 天`],
+      <div class="machine-task">${facts([["当前阶段", account.stage || "待配置"], ["今日已采集会话", account.session_count ?? null],
+        ["运营天数", account.operating_days == null ? null : `${account.operating_days} 天`],
         ["最后动作", last ? `${last.label} · ${stamp(last.at)}` : "暂无动作"]])}
       <div class="machine-task-wide"><span>最后动作链接</span>${link(last?.url, "打开最后动作", "last-action-link")}</div>
-      <div class="machine-task-wide"><span>发帖受众</span><strong>${esc(account.publish_audience || "未接入")}</strong></div>
+      <div class="machine-task-wide"><span>发帖受众</span><strong>${esc(account.publish_audience || "待配置")}</strong></div>
       <div class="machine-task-wide"><span>当前任务</span><strong>${esc(account.current_task_title || tasks[0]?.request?.title || "暂无任务")}</strong></div></div>
       ${actionList(account, accountActions)}${moduleDetails(account)}
       <div class="machine-footer"><span>${esc(labelFor(machine.status))}</span><span>心跳 ${stamp(machine.updated_at)} · 抓取 ${stamp(machine.outbox_collection?.observed_at)}</span></div></div></details>`;
   }
 
-  function detail(machine) {
-    const accounts = state.accounts.filter((account) => account.machine_id === machine.machine_id);
-    return `<div class="workspace-detail"><div class="workspace-heading detail-heading"><div><p class="eyebrow">单台员工机详情 · ${esc(machine.machine_id)}</p>
-      <h2>${esc(machine.host_alias || machine.machine_id)} · 员工机</h2><p class="plain-help">机器、账号、今日任务和实际回执都集中在这里。</p></div>
-      <button type="button" data-employee-machine-select="">返回总览</button></div>${nextDay(machine)}
-      <div class="node-machine-list">${accounts.map((account) => profileCard(account, machine)).join("")
-        || '<section class="panel node-detail-empty"><h3>等待账号同步</h3><p>该机器的 Employee / Profile 在账号回执到达后显示。</p></section>'}</div></div>`;
+  function detail(account) {
+    const machine = machineFor(account);
+    return `<div class="workspace-detail"><div class="workspace-heading detail-heading"><div><p class="eyebrow">账号运营详情 · ${platformName(account)}</p>
+      <h2>${esc(accountName(account))}</h2><p class="plain-help">所属机器 ${esc(account.machine_id)} · 账号 ${esc(account.account_slot)} · 独立查看运营计划、今日进度与历史回执。</p></div>
+      <button type="button" data-employee-account-select="">返回全部账号</button></div>${nextDay(account)}
+      <div class="node-machine-list">${profileCard(account, machine)}</div></div>`;
   }
 
-  function render(machineId = selected) {
-    selected = machineId;
+  function render(accountKey = selected) {
+    selected = state.accounts.some((account) => key(account) === accountKey) ? accountKey : "";
     if (!host) return;
     host.querySelectorAll("details[data-expanded]").forEach((item) => expanded.set(item.dataset.expanded, item.open));
     if (renderedSelection === selected && host.contains(document.activeElement)
       && document.activeElement.matches("input, select, textarea")) return;
     const preservedPlan = !selected && renderedSelection === "" ? host.querySelector("[data-plan-host]") : null;
-    const machine = state.machines.find((item) => item.machine_id === selected);
-    host.innerHTML = machine ? detail(machine) : overview();
+    const account = state.accounts.find((item) => key(item) === selected);
+    host.innerHTML = account ? detail(account) : overview();
     if (preservedPlan && planDraft().dirty) host.querySelector("[data-plan-host]").replaceWith(preservedPlan);
     renderedSelection = selected;
   }
@@ -390,7 +417,22 @@ window.AutoXhsEmployeePanel = function (services) {
 
   function init() {
     host.addEventListener("input", (event) => updatePlan(event.target));
-    host.addEventListener("change", (event) => {
+    host.addEventListener("change", async (event) => {
+      if (event.target.matches("[data-action-record]")) {
+        const select = event.target;
+        const message = select.closest(".action-management-controls").querySelector("[data-attribution-message]");
+        select.disabled = true;
+        try {
+          await services.mutateJson(`${services.managerApi}/results/${encodeURIComponent(select.dataset.actionRecord)}/attribution`, "PATCH", {
+            item_index: Number(select.dataset.actionItem), execution_source: select.value,
+          });
+          select.dataset.actionSource = select.value;
+          message.textContent = "执行者已保存";
+          await services.load?.();
+        } catch (error) {select.value = select.dataset.actionSource; message.textContent = error.message;}
+        finally {select.disabled = false;}
+        return;
+      }
       if (event.target.matches("[data-plan-date]")) {
         if (!event.target.value) return;
         planDate = event.target.value;
@@ -401,7 +443,33 @@ window.AutoXhsEmployeePanel = function (services) {
       const button = event.target.closest("[data-unit-action]");
       if (!button) return;
       const action = button.dataset.unitAction;
-      if (action === "save-plan") {
+      if (["generate-plan", "preview-plan", "submit-plan"].includes(action)) {
+        const draft = planDraft();
+        if (action !== "generate-plan" && (draft.dirty || !draft.version)) {
+          host.querySelector("[data-plan-message]").textContent = "请先保存当前修改。";
+          return;
+        }
+        try {
+          button.disabled = true;
+          const suffix = action.split("-")[0];
+          const payload = await services.mutateJson(`${services.managerApi}/daily-plans/${suffix}`, "POST", {
+            plan_date: draft.date, version: draft.version, accounts: draft.rows,
+          });
+          if (action === "generate-plan") {
+            draft.rows = payload.plan.accounts.map((row) => ({...row, metrics: metricValues(row.metrics)}));
+            draft.dirty = true;
+            host.querySelector("[data-plan-host]").innerHTML = planningPanel();
+            host.querySelector("[data-plan-message]").textContent = "智能建议已生成，请审阅后保存。";
+          } else if (action === "preview-plan") {
+            host.querySelector("[data-dispatch-template] textarea").value = JSON.stringify(payload, null, 2);
+            host.querySelector("[data-plan-message]").textContent = "执行材料已显示，可查看规则、预算和待办要求。";
+          } else {
+            host.querySelector("[data-plan-message]").textContent = "已提交经理执行队列，可在运营任务中查看进度。";
+            await services.load?.();
+          }
+        } catch (error) { host.querySelector("[data-plan-message]").textContent = error.message; }
+        finally { button.disabled = false; }
+      } else if (action === "save-plan") {
         const draft = planDraft();
         if (draft.rows.some((row) => Object.values(row.metrics).some((value) => value !== null
           && (!Number.isInteger(value) || value < 0)))) {
@@ -409,14 +477,17 @@ window.AutoXhsEmployeePanel = function (services) {
           return;
         }
         try {
-          const saved = {...draft, dirty: false, updatedAt: new Date().toISOString()};
-          const templates = {...savedTemplates, [planDate]: saved};
-          localStorage.setItem(storageKey, JSON.stringify(templates));
-          savedTemplates = templates;
-          drafts.set(planDate, saved);
+          button.disabled = true;
+          const payload = await services.mutateJson(`${services.managerApi}/daily-plans`, "POST", {
+            plan_date: draft.date, accounts: draft.rows,
+          });
+          state.dailyPlans = [...(state.dailyPlans || []).filter((p) => p.plan_date !== draft.date), payload.plan];
+          draft.dirty = false;
           host.querySelector("[data-plan-host]").innerHTML = planningPanel();
-          host.querySelector("[data-plan-message]").textContent = "模板已保存到本机，可复制给经理 Agent 审阅并安排执行。";
-        } catch { host.querySelector("[data-plan-message]").textContent = "本机模板保存失败，请复制模板保留当前数量。"; }
+          host.querySelector("[data-plan-message]").textContent = "计划已保存，经理 Agent 可读取并安排执行。";
+          await services.load?.();
+        } catch (error) { host.querySelector("[data-plan-message]").textContent = error.message; }
+        finally { button.disabled = false; }
       } else if (action === "copy-template") {
         try {
           await navigator.clipboard.writeText(host.querySelector("[data-dispatch-template] textarea").value);

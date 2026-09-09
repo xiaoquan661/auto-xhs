@@ -19,6 +19,19 @@ class NoFeedDetailError(XHSError):
         super().__init__("没有捕获到 feed 详情数据")
 
 
+class InteractionStateError(XHSError):
+    """互动前未取得可用状态。"""
+
+    result_unknown = False
+
+
+class ActionResultUnknownError(XHSError):
+    """操作已尝试，等待平台结果核对。"""
+
+    result_unknown = True
+    code = "RESULT_UNKNOWN"
+
+
 class NotLoggedInError(XHSError):
     """未登录。"""
 

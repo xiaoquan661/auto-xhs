@@ -450,6 +450,20 @@ def initialize_connection_identity(config: AccountConfig) -> AccountConfig:
     return updated
 
 
+def set_unpaired_account_platform(name: str, platform: str) -> AccountConfig:
+    """Save the platform chosen during initial extension pairing."""
+    platform = normalize_platform(platform)
+    with account_registry_transaction():
+        config = load_account(name, allow_legacy_default=False)
+        if config.platform == platform:
+            return config
+        if config.extension_instance_id:
+            raise ValueError("已配对账号的平台已固定，请为其他平台创建独立账号槽位")
+        updated = AccountConfig(**{**asdict(config), "platform": platform})
+        _write_config(updated)
+        return updated
+
+
 def enroll_extension_instance(config: AccountConfig, instance_id: str) -> AccountConfig:
     """Bind an account slot to one observed extension installation instance."""
     normalized = instance_id.strip()

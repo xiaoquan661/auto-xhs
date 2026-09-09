@@ -40,6 +40,9 @@ class BusinessRunner:
         try:
             if not lock.acquire(timeout=30):
                 raise ServiceError("ACCOUNT_BUSY", "该账号正在执行其他任务", 409)
+            from operations_policy import check_daily_context
+
+            check_daily_context(parameters, account=account)
             return self._executor(account, capability, parameters)
         finally:
             lock.release()
@@ -101,16 +104,27 @@ class BusinessRunner:
                 excluded_by_action=parameters.get("excluded_by_action") or {},
             )
         if capability == "random-comment":
+            from memory_comment import MemoryCommentGenerator
             from xhs.random_comment import random_comment
 
-            return random_comment(
+            context = parameters.get("memory_context") or {}
+            generator = MemoryCommentGenerator(context) if context.get("identity", {}).get("uid") else None
+            result = random_comment(
                 page,
                 count=int(parameters.get("count") or 1),
                 candidate_pool_size=int(parameters.get("candidate_pool_size") or 20),
                 collection_duration_seconds=int(parameters.get("collection_minutes") or 2) * 60,
                 style=str(parameters.get("style") or "natural"),
                 excluded_feed_ids=parameters.get("excluded_feed_ids") or [],
+                excluded_user_ids=parameters.get("excluded_user_ids") or [],
+                content_generator=generator,
             )
+            if generator:
+                result["memory_usages"] = generator.usages
+                result["adopted_memory_refs"] = list(dict.fromkeys(
+                    ref for usage in generator.usages for ref in usage["adopted_refs"]
+                ))
+            return result
         if capability == "home-engagement":
             from xhs.home_engagement import home_engagement
 
@@ -120,9 +134,10 @@ class BusinessRunner:
                 like_count=int(parameters.get("like_count") or 0),
                 video_only=parameters.get("video_only") is True,
                 excluded_feed_ids=parameters.get("excluded_feed_ids") or [],
-                duration_seconds=int(parameters.get("duration_minutes") or 3) * 60,
-                min_read_seconds=float(parameters.get("min_read_seconds") or 8),
-                max_read_seconds=float(parameters.get("max_read_seconds") or 15),
+                excluded_user_ids=parameters.get("excluded_user_ids") or [],
+                duration_seconds=int(parameters.get("duration_minutes") or 10) * 60,
+                min_read_seconds=float(parameters.get("min_read_seconds", 15)),
+                max_read_seconds=float(parameters.get("max_read_seconds", 45)),
             )
         if capability == "get-feed-detail":
             from xhs.feed_detail import get_feed_detail
@@ -202,14 +217,25 @@ class BusinessRunner:
                 max_items=int(parameters.get("max_notes") or 20),
             )
         if capability == "collect-operations-metrics":
+            from xhs.growth_notifications import collect_growth_notifications
             from xhs.metrics_collector import collect_operations_metrics
 
-            return collect_operations_metrics(
+            metrics = collect_operations_metrics(
                 page,
                 owner_user_id=str(parameters.get("owner_user_id") or ""),
                 owner_xsec_token=str(parameters.get("owner_xsec_token") or ""),
-                max_notes=int(parameters.get("max_notes") or 50),
+                max_notes=int(parameters.get("max_notes") or 200),
             )
+            if parameters.get("collect_growth", True):
+                try:
+                    metrics["growth_notifications"] = collect_growth_notifications(page)
+                except Exception as exc:
+                    metrics["growth_notifications"] = {
+                        "events": [],
+                        "partial": True,
+                        "error": str(exc),
+                    }
+            return metrics
         if capability in {"like-feed", "favorite-feed"}:
             from xhs.like_favorite import (
                 favorite_feed,
@@ -262,6 +288,35 @@ class BusinessRunner:
                 user_id=str(parameters.get("user_id") or ""),
             )
             return {"success": True, "message": "回复发送成功"}
+        if capability in {"fill-publish", "fill-publish-video"}:
+            from xhs.types import PublishImageContent, PublishVideoContent
+
+            preview = parameters["preview"]
+            common = {
+                "title": preview["title"],
+                "content": preview["content"],
+                "tags": list(preview.get("tags") or []),
+                "schedule_time": preview.get("schedule_at"),
+                "visibility": preview.get("visibility") or "公开可见",
+            }
+            if capability == "fill-publish":
+                from xhs.publish import fill_publish_form
+
+                fill_publish_form(
+                    page,
+                    PublishImageContent(
+                        **common,
+                        image_paths=preview["assets"],
+                        is_original=bool(preview.get("original")),
+                    ),
+                )
+            else:
+                from xhs.publish_video import fill_publish_video_form
+
+                fill_publish_video_form(
+                    page, PublishVideoContent(**common, video_path=preview["assets"][0])
+                )
+            return {"success": True, "published": False, "preview": preview}
         if capability == "click-publish":
             from xhs.publish import click_publish_button
 

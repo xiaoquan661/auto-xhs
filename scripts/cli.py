@@ -1174,6 +1174,7 @@ def cmd_save_draft(args: argparse.Namespace) -> None:
         account=args.account,
         confirmed=args.confirm,
         preview_revision=args.preview_revision,
+        action="save-draft",
     )
     browser = None
     draft_attempted = False
@@ -2288,9 +2289,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--browse-count", type=int, default=6, help="点开笔记数量")
     sub.add_argument("--like-count", type=int, default=2, help="点赞数量")
     sub.add_argument("--video-only", action="store_true", help="只浏览视频笔记")
-    sub.add_argument("--duration-minutes", type=int, default=3, help="最长执行分钟数")
-    sub.add_argument("--min-read-seconds", type=float, default=8, help="单篇最短阅读秒数")
-    sub.add_argument("--max-read-seconds", type=float, default=15, help="单篇最长阅读秒数")
+    sub.add_argument("--duration-minutes", type=int, default=10, help="最长执行分钟数")
+    sub.add_argument("--min-read-seconds", type=float, default=15, help="单篇最短阅读秒数")
+    sub.add_argument("--max-read-seconds", type=float, default=45, help="单篇最长阅读秒数")
     sub.set_defaults(func=cmd_home_engagement)
 
     # get-feed-detail

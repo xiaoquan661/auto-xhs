@@ -2,10 +2,23 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from xhs.errors import XHSError
+import pytest
+from xhs.errors import ActionResultUnknownError, XHSError
 from xhs.home_engagement import home_engagement
 from xhs.types import ActionResult, Feed, InteractInfo, NoteCard, User
 from xhs.urls import HOME_URL
+
+
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    current = [0.0]
+
+    def sleep(seconds):
+        current[0] += seconds
+
+    monkeypatch.setattr("time.monotonic", lambda: current[0])
+    monkeypatch.setattr("time.sleep", sleep)
+    return current
 
 
 def _feed(index: int, *, feed_type: str = "normal") -> Feed:
@@ -84,7 +97,9 @@ def test_home_engagement_reuses_one_home_session_and_records_actions() -> None:
     progress: list[dict] = []
 
     def read_with_progress_check(_page, _seconds, _deadline):
-        assert len(progress) == int(page.current_feed.split("-")[-1])
+        assert sum(event["stage"] == "browsing" for event in progress) == int(
+            page.current_feed.split("-")[-1]
+        )
         return 10.0
 
     with (
@@ -92,20 +107,22 @@ def test_home_engagement_reuses_one_home_session_and_records_actions() -> None:
             "xhs.home_engagement._browse_candidates",
             side_effect=lambda _page, seen: [feed for feed in feeds if feed.id not in seen],
         ),
-        patch("xhs.browse_like.time.sleep"),
         record_progress_with(progress.append),
     ):
         result = home_engagement(
             page,
             browse_count=6,
             like_count=2,
+            duration_seconds=600,
             reader=read_with_progress_check,
             liker=lambda _page, feed_id: ActionResult(feed_id, True, "点赞成功"),
             chooser=lambda candidates: candidates[0],
         )
 
     assert result["success"] is True
-    assert [event["metrics"]["browse"]["actual"] for event in progress] == list(range(1, 7))
+    assert [
+        event["metrics"]["browse"]["actual"] for event in progress if event["stage"] == "browsing"
+    ] == list(range(1, 7))
     assert result["counts"] == {"browsed": 6, "liked": 2, "skipped": 0}
     assert page.navigate_calls == [HOME_URL]
     assert len({item["feed_id"] for item in result["items"]}) == 6
@@ -180,3 +197,79 @@ def test_home_engagement_video_only_filters_non_video_candidates() -> None:
     assert result["requested"]["excluded_feed_count"] == 1
     assert [item["feed_id"] for item in result["items"]] == ["feed-4"]
     assert {item["type"] for item in result["items"]} == {"video"}
+
+
+def test_like_spacing_and_intervening_reads(clock) -> None:
+    feeds = [_feed(index) for index in range(10)]
+    calls = []
+
+    def like(page, feed_id):
+        calls.append((feed_id, clock[0]))
+        return ActionResult(feed_id, True, "点赞成功", changed=True)
+
+    with patch(
+        "xhs.home_engagement._browse_candidates",
+        side_effect=lambda p, seen: [feed for feed in feeds if feed.id not in seen],
+    ):
+        result = home_engagement(
+            FakePage(),
+            browse_count=10,
+            like_count=2,
+            duration_seconds=600,
+            reader=lambda *args: 15,
+            liker=like,
+            chooser=lambda candidates: candidates[0],
+        )
+    assert result["success"]
+    assert [item[0] for item in calls] == ["feed-0", "feed-3"]
+    assert 90 <= calls[1][1] - calls[0][1] <= 180
+
+
+def test_unknown_like_stops_batch_and_keeps_item_result() -> None:
+    feeds = [_feed(index) for index in range(10)]
+    with (
+        patch("xhs.home_engagement._browse_candidates", return_value=feeds),
+    ):
+
+        def like(page, feed_id):
+            raise ActionResultUnknownError("平台状态尚未确认")
+
+        result = home_engagement(
+            FakePage(),
+            browse_count=10,
+            like_count=2,
+            reader=lambda *args: 15,
+            liker=like,
+            chooser=lambda candidates: candidates[0],
+        )
+    assert result["result_unknown"]
+    assert result["stop_reason"] == "like_result_unknown"
+    assert result["counts"]["liked"] == 0
+    assert len(result["items"]) == 1
+    assert result["items"][0]["like"]["status"] == "result_unknown"
+
+
+def test_deadline_preserves_partial_counts(clock) -> None:
+    feeds = [_feed(index) for index in range(4)]
+    calls = []
+    with patch(
+        "xhs.home_engagement._browse_candidates",
+        side_effect=lambda p, seen: [feed for feed in feeds if feed.id not in seen],
+    ):
+
+        def like(page, feed_id):
+            calls.append(feed_id)
+            return ActionResult(feed_id, True, "点赞成功")
+
+        result = home_engagement(
+            FakePage(),
+            browse_count=4,
+            like_count=2,
+            duration_seconds=30,
+            reader=lambda *args: 15,
+            liker=like,
+            chooser=lambda candidates: candidates[0],
+        )
+    assert result["partial"]
+    assert len(calls) == 1
+    assert not result["result_unknown"]

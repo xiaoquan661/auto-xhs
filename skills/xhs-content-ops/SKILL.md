@@ -118,13 +118,16 @@ python scripts/cli.py --account <账号别名> search-feeds `
 python scripts/cli.py --account <账号别名> home-engagement `
   --browse-count 6 `
   --like-count 2 `
-  --duration-minutes 3 `
-  --min-read-seconds 8 `
-  --max-read-seconds 15
+  --duration-minutes 10 `
+  --min-read-seconds 15 `
+  --max-read-seconds 45
 ```
 
 该流程只打开首页一次，互动对象必须来自本次成功点开的笔记；卡片临时消失时记录跳过并继续，
 不会重新搜集一批目标。结果按篇保留 Feed ID、XSEC Token、阅读秒数、点赞状态与失败原因。
+
+两次点赞间隔 90–180 秒，中间至少完成两篇浏览。点赞点击后等待平台回读确认，
+结果未知时停止该批次并保留已完成数量。时间或可用笔记不足时按实际数量返回部分完成。
 
 `home-engagement` 不生成或发送评论。需要评论时，Agent 从已浏览结果中选定目标，先调用
 `get-feed-detail` 读取标题、正文、标签和可用图片文字，再生成与上下文一致的最终文本并调用

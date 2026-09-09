@@ -7,8 +7,9 @@
     <title>auto-xhs · 经理机运营控制台</title>
     <link rel="stylesheet" href="/styles.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
-    <link rel="stylesheet" href="/control-room.css?v=20260907-worker-progress-1" />
-    <link rel="stylesheet" href="/employee-panel.css?v=20260907-employee-panel-1" />
+    <link rel="stylesheet" href="/control-room.css?v=20260909-account-units-3" />
+    <link rel="stylesheet" href="/employee-panel.css?v=20260909-account-units-2" />
+    <link rel="stylesheet" href="/manager-results.css?v=20260908-results-1" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -35,12 +36,12 @@
       </section>
       <div class="room-dashboard">
             <aside class="manager-unit-rail">
-              <div class="manager-rail-heading"><div><strong>员工单元</strong></div><span id="manager-rail-total">0 个</span></div>
-              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-employee-machine-select="">
+              <div class="manager-rail-heading"><div><strong>账号单元</strong></div><span id="manager-rail-total">0 个</span></div>
+              <button class="manager-overview-switch active" id="manager-overview-switch" type="button" data-employee-account-select="">
               <span class="manager-rail-avatar manager-rail-avatar-all">总览</span>
-              <span><strong>全部机器</strong><small>查看总体进度</small></span><b id="manager-overview-count">0</b>
+              <span><strong>全部账号</strong><small>查看总体进度</small></span><b id="manager-overview-count">0</b>
               </button>
-              <p class="room-sidebar-caption">单台员工单元</p><div class="manager-machine-nav" id="manager-machine-nav"></div>
+              <p class="room-sidebar-caption">按账号查看</p><div class="manager-machine-nav" id="manager-machine-nav" aria-label="账号单元导航"></div>
 <p class="room-sidebar-caption">工作区</p>        <nav class="nav-list">
           <a class="nav-item active" href="#overview" data-manager-view-link="overview">
             <span class="nav-icon">⌂</span><span>运营总览</span>
@@ -67,7 +68,7 @@
             <span class="nav-icon">⌘</span><span>系统设置</span>
           </a>
         </nav>
-<p class="room-sidebar-note">选择员工机查看账号、执行进度与回收结果。</p></aside>
+<p class="room-sidebar-note">选择账号查看计划、执行进度与回收结果，机器标明所属设备。</p></aside>
 
       <main class="main" id="main-content">
         <section class="workspace-view" id="employee-units" data-manager-view="employee-units" hidden>
@@ -115,9 +116,9 @@
               <div class="record-list" id="manager-publish-review-list"></div>
             </section>
             <details class="room-overview-details">
-              <summary>机器与账号</summary>
+              <summary>账号单元</summary>
             <section class="room-node-panel">
-              <div class="room-section-head"><div><strong>机器与账号</strong><span>绿色正常 · 橙色关注 · 红色阻塞 · 灰色待同步</span></div><span id="room-node-count">—</span></div>
+              <div class="room-section-head"><div><strong>账号单元</strong><span>每个账号独立展示 · 机器标明所属设备</span></div><span id="room-node-count">—</span></div>
               <a class="room-machine-entry" href="#settings" data-manager-view-link="settings">查看员工机连接配置 →</a>
               <div class="room-node-grid" id="manager-machine-list"></div>
             </section>
@@ -186,7 +187,7 @@
         <section class="workspace-view" id="accounts" data-manager-view="accounts" hidden>
           <header class="page-topbar"><div><p class="eyebrow">ACCOUNT MANAGEMENT</p><h1>账号管理</h1>
             <p>管理员工机账号与专属人设，支持手动编辑和经理 Agent 对话配置。</p></div>
-            <div class="manager-card-actions"><button class="primary-button" id="manager-account-add" type="button">新增账号</button><button class="secondary-button" id="manager-account-refresh" type="button">刷新所选节点</button></div></header>
+            <div class="manager-card-actions"><button class="secondary-button" id="manager-memory-open" type="button">账号记忆</button><button class="primary-button" id="manager-account-add" type="button">新增账号</button><button class="secondary-button" id="manager-account-refresh" type="button">刷新所选节点</button></div></header>
           <p class="action-message" id="manager-account-message" role="status"></p>
           <section class="manager-account-layout">
             <aside class="manager-account-node-rail">
@@ -223,33 +224,51 @@
         </section>
 
         <section class="workspace-view" id="results" data-manager-view="results" hidden>
-          <header class="page-topbar"><div><p class="eyebrow">DATA COLLECTION</p><h1>数据回收</h1><p>当前结果采用最高修订版本，原始回执保留在审计历史。</p></div></header>
-          <section class="manager-result-workspace">
-            <section class="subpage-panel" aria-label="员工机回执自动收集">
-              <div class="lane-heading"><h2>员工机回执自动收集</h2><span id="manager-collection-schedule">等待首次收集</span></div>
-              <p class="manager-inline-message">经理机后台定时收集并导入员工机回执。当前结果、逐项记录和审计历史随收集更新。</p>
-              <div class="manager-collection-grid" id="manager-collection-list"></div>
-            </section>
-            <div class="manager-result-toolbar">
+          <header class="page-topbar recovery-heading"><div><h1>数据回收</h1><p>查看执行成果，及时处理需要关注的记录。</p></div></header>
+          <div class="recovery-sync" id="recovery-sync-bar"><strong id="recovery-sync-label">正在同步员工机数据</strong><span id="recovery-sync-time">等待首次回收</span><button id="recovery-sync-details" type="button">同步详情 →</button></div>
+          <div class="recovery-overview">
+            <article><span>已回收结果</span><strong id="manager-result-total">—</strong></article>
+            <article><span>已完成</span><strong id="recovery-success-total">—</strong></article>
+            <article class="recovery-attention"><span>需关注</span><strong id="recovery-attention-total">—</strong></article>
+            <article><span>成功率</span><strong id="manager-success-rate">—</strong></article>
+          </div>
+          <div class="recovery-action-strip" aria-label="所选范围的动作目标与实际">
+            <div><span>浏览 · 目标 / 实际</span><strong id="manager-action-browse">—</strong></div>
+            <div><span>点赞 · 目标 / 实际</span><strong id="manager-action-like">—</strong></div>
+            <div><span>评论 · 目标 / 实际</span><strong id="manager-action-comment">—</strong></div>
+            <div><span>回复 · 目标 / 实际</span><strong id="manager-action-reply">—</strong></div>
+            <div><span>发布 · 目标 / 实际</span><strong id="manager-action-publish">—</strong></div>
+          </div>
+          <section class="recovery-content">
+            <div class="recovery-tabs" role="tablist" aria-label="回收数据视图">
+              <button id="recovery-tab-results" type="button" role="tab" data-recovery-tab="results" aria-selected="true" aria-controls="recovery-pane-results">执行结果 <b data-recovery-count="results">0</b></button>
+              <button id="recovery-tab-incremental" type="button" role="tab" data-recovery-tab="incremental" aria-selected="false" aria-controls="recovery-pane-incremental" tabindex="-1">增量记录 <b data-recovery-count="incremental">0</b></button>
+              <button id="recovery-tab-reports" type="button" role="tab" data-recovery-tab="reports" aria-selected="false" aria-controls="recovery-pane-reports" tabindex="-1">运营报告 <b data-recovery-count="reports">0</b></button>
+              <button id="recovery-tab-audit" type="button" role="tab" data-recovery-tab="audit" aria-selected="false" aria-controls="recovery-pane-audit" tabindex="-1">同步与审计 <b data-recovery-count="audit">0</b></button>
+            </div>
+            <div class="recovery-filters" aria-label="员工机、账号与日期筛选">
               <label><span>员工机</span><select id="manager-result-machine"></select></label>
               <label><span>账号</span><select id="manager-result-account"></select></label>
               <label><span>开始日期</span><input id="manager-result-start" type="date" /></label>
               <label><span>结束日期</span><input id="manager-result-end" type="date" /></label>
               <button class="secondary-button" id="manager-result-reset" type="button">重置筛选</button>
+              <div class="recovery-collect"><label><input id="manager-collect-evidence" type="checkbox" checked /> 同步证据</label><button class="secondary-button" id="manager-collect-results" type="button">立即回收</button></div>
             </div>
-            <div class="manager-action-summary">
-              <article><span>目标</span><strong id="manager-target-total">—</strong></article><article><span>实际</span><strong id="manager-actual-total">—</strong></article><article><span>成功率</span><strong id="manager-success-rate">—</strong></article><article><span>异常率</span><strong id="manager-exception-rate">—</strong></article><article><span>需人工处理</span><strong id="manager-manual-total">—</strong></article><article><span>增量记录</span><strong id="manager-incremental-total">—</strong></article>
-            </div>
-            <div class="manager-action-summary compact-actions"><article><span>浏览 目标/实际</span><strong id="manager-action-browse">—</strong></article><article><span>点赞 目标/实际</span><strong id="manager-action-like">—</strong></article><article><span>评论 目标/实际</span><strong id="manager-action-comment">—</strong></article><article><span>回复 目标/实际</span><strong id="manager-action-reply">—</strong></article><article><span>发布 目标/实际</span><strong id="manager-action-publish">—</strong></article></div>
-            <div class="manager-inline-actions"><label><input id="manager-collect-evidence" type="checkbox" checked /> 同步证据</label><button class="secondary-button" id="manager-collect-results" type="button">立即回收所选员工机</button></div>
             <p class="action-message" id="manager-collect-message" role="status"></p>
-            <div class="manager-result-columns">
-              <section class="subpage-panel"><div class="lane-heading"><h2>当前结果</h2></div><div class="record-list" id="manager-result-list"></div></section>
-              <section class="subpage-panel"><div class="lane-heading"><h2>逐项与增量记录</h2></div><div class="record-list" id="manager-incremental-list"></div></section>
-              <section class="subpage-panel manager-result-audit-panel"><div class="lane-heading"><h2>审计历史</h2></div><div class="manager-result-audit-list" id="manager-result-audit-list"></div></section>
+            <div class="recovery-list-tools" id="recovery-list-tools">
+              <div class="recovery-scopes" aria-label="结果状态"><button type="button" data-recovery-scope="all" aria-pressed="true">全部结果</button><button type="button" data-recovery-scope="attention" aria-pressed="false">需关注</button><button type="button" data-recovery-scope="success" aria-pressed="false">已完成</button></div>
+              <input id="recovery-search" type="search" aria-label="搜索执行结果" placeholder="搜索动作、账号或执行内容" />
             </div>
-            <section class="subpage-panel manager-operation-report-panel"><div class="lane-heading"><h2>运营报告</h2></div><div class="record-list" id="manager-operation-report-list"></div></section>
+            <section id="recovery-pane-results" role="tabpanel" aria-labelledby="recovery-tab-results" data-recovery-pane="results"><div id="manager-result-list"></div></section>
+            <section id="recovery-pane-incremental" role="tabpanel" aria-labelledby="recovery-tab-incremental" data-recovery-pane="incremental" hidden><div id="manager-incremental-list"></div></section>
+            <section id="recovery-pane-reports" role="tabpanel" aria-labelledby="recovery-tab-reports" data-recovery-pane="reports" hidden><div id="manager-operation-report-list"></div></section>
+            <section id="recovery-pane-audit" role="tabpanel" aria-labelledby="recovery-tab-audit" data-recovery-pane="audit" hidden>
+              <details class="recovery-technical"><summary>员工机同步状态与回执归档</summary><p id="manager-collection-schedule">等待首次收集</p><div class="manager-collection-grid" id="manager-collection-list"></div></details>
+              <div id="manager-result-audit-list"></div>
+            </section>
+            <footer class="recovery-pager"><span id="recovery-page-info" aria-live="polite">正在读取记录</span><button id="recovery-prev" type="button">上一页</button><span id="recovery-page-number">1 / 1</span><button id="recovery-next" type="button">下一页</button></footer>
           </section>
+          <dialog class="recovery-detail" id="recovery-detail-dialog" aria-labelledby="recovery-detail-title"><header class="recovery-detail-head"><h2 id="recovery-detail-title">执行详情</h2><button id="recovery-detail-close" type="button">关闭</button></header><div id="recovery-detail-content"></div></dialog>
         </section>
 
         <section class="workspace-view" id="exceptions" data-manager-view="exceptions" hidden>
@@ -307,6 +326,10 @@
           <label><span>人设名称</span><input name="display_name" required /></label>
           <label><span>语言</span><input name="language" required /></label>
           <label><span>状态</span><select name="status"><option value="ACTIVE">启用</option><option value="INACTIVE">停用</option></select></label>
+          <label><span>身份背景</span><textarea name="identity_background" rows="3"></textarea></label>
+          <label><span>专业方向</span><textarea name="professional_direction" rows="3"></textarea></label>
+          <label><span>回复长度</span><input name="reply_length" placeholder="例如：1 至 2 句" /></label>
+          <label><span>行为边界</span><textarea name="behavior_boundaries" rows="3"></textarea></label>
           <label><span>角色定位</span><textarea name="role" rows="3"></textarea></label>
           <label><span>目标受众</span><textarea name="audience" rows="3"></textarea></label>
           <label><span>内容主题</span><textarea name="content_topics" rows="3" placeholder="多个主题用顿号或换行分隔"></textarea></label>
@@ -388,9 +411,11 @@
     </dialog>
 
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
-    <script src="/manager-planning.js?v=20260907-daily-plan-1" defer></script>
-    <script src="/manager-account-tools.js?v=20260907-daily-plan-1" defer></script>
-    <script src="/employee-panel.js?v=20260907-employee-panel-1" defer></script>
-    <script src="/manager-console.js?v=20260907-daily-plan-1" defer></script>
+    <script src="/manager-planning.js?v=20260909-account-units-2" defer></script>
+    <script src="/manager-account-tools.js?v=20260908-account-identity-1" defer></script>
+    <script src="/employee-panel.js?v=20260909-follow-blogger-1" defer></script>
+    <script src="/manager-results.js?v=20260909-follow-blogger-1" defer></script>
+    <script src="/manager-memory.js?v=20260909" defer></script>
+    <script src="/manager-console.js?v=20260909-follow-blogger-1" defer></script>
   </body>
 </html>

@@ -5,6 +5,8 @@ const vm = require("node:vm");
 
 process.env.TZ = "Asia/Shanghai";
 const source = fs.readFileSync(path.join(__dirname, "../webui/manager-console.js"), "utf8");
+const metricLabels = vm.runInNewContext(`(${source.match(/const metricLabels = (\{[\s\S]*?\});/)[1]})`);
+assert.equal(metricLabels.friend_request, "关注博主");
 function extract(name) {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
@@ -280,6 +282,7 @@ console.log("PASS: next operating day selects the nearest participating plan and
 
 async function checkPersonaEditor() {
   const fields = Object.fromEntries(["display_name", "role", "audience", "language", "tone",
+    "identity_background", "professional_direction", "reply_length", "behavior_boundaries",
     "interaction_style", "fact_boundaries", "knowledge", "status", "content_topics"]
     .map((field) => [field, {value: ""}]));
   const submit = {disabled: false};
@@ -315,6 +318,8 @@ async function checkPersonaEditor() {
   assert.equal(saved.body.account_slot, "account-a");
   assert.equal(saved.body.persona_id, "persona-a");
   assert.equal(saved.body.display_name, "阅读分享者");
+  assert.ok(Object.hasOwn(saved.body, "reply_length"));
+  assert.ok(Object.hasOwn(saved.body, "behavior_boundaries"));
   assert.deepEqual(Array.from(saved.body.content_topics), ["生活", "阅读", "旅行", "摄影"]);
   assert.equal(editor.state.personas.length, 1);
   assert.equal(editor.state.personas[0].version, 4);
@@ -334,7 +339,10 @@ checkPersonaEditor().catch((error) => {console.error(error); process.exitCode = 
 
 const machineNodes = {};
 const machineContext = vm.createContext({
-  state: {machines: [{machine_id: "QA-A", status: "READY"}, {machine_id: "QA-B"}]},
+  state: {available: true, machines: [{machine_id: "QA-A", status: "READY"}, {machine_id: "QA-B"}],
+    accounts: [{machine_id: "QA-A", account_slot: "first"},
+      {machine_id: "QA-A", account_slot: "second"}, {machine_id: "QA-B", account_slot: "first"}]},
+  selectedEmployeeAccount: "",
   selectedMachineId: "QA-A", selectedView: "workers", VIEW_STORAGE_KEY: "view",
   viewScrollPositions: new Map(),
   $: (selector) => machineNodes[selector] ||= {
@@ -346,12 +354,13 @@ const machineContext = vm.createContext({
   document: {querySelectorAll: () => []},
   window: {scrollY: 400, location: {hash: "#workers"}, history: {replaceState() {}},
     requestAnimationFrame() {}},
-  machineNavButton: (machine) => machine.machine_id,
+  accountUnitNavButton: (account) => `${account.machine_id}:${account.account_slot}`,
+  accountThumbnailCard: (account) => `${account.machine_id}:${account.account_slot}`,
   machineThumbnailCard: (machine) => machine.machine_id,
   renderMachineDetail: (machine) => {machineNodes.detailId = machine.machine_id;},
   emptyCard: (title) => title,
 });
-for (const name of ["renderMachineNavigation", "renderMachineStage", "selectMachine",
+for (const name of ["employeeAccountKey", "renderMachineNavigation", "renderMachineStage", "selectMachine",
   "renderMachines", "selectManagerView"]) vm.runInContext(extract(name), machineContext);
 machineContext.selectMachine("");
 assert.equal(machineContext.selectedView, "workers");
@@ -359,6 +368,7 @@ assert.equal(machineContext.selectedMachineId, "");
 assert.equal(machineNodes["#manager-machine-detail"].hidden, true);
 assert.equal(machineNodes["#manager-all-machine-list"].items.join(","), "QA-A,QA-B");
 machineContext.renderMachines();
+assert.equal(machineNodes["#manager-machine-list"].items.join(","), "QA-A:first,QA-A:second,QA-B:first");
 machineContext.selectManagerView("workers");
 assert.equal(machineContext.selectedMachineId, "");
 assert.equal(machineNodes[".control-room"].dataset.machineScope, "all");
@@ -372,17 +382,60 @@ machineContext.renderMachines();
 assert.equal(machineNodes["#manager-machine-detail"].hidden, true);
 assert.equal(machineNodes["#manager-all-machine-list"].items[0], "等待员工机同步");
 console.log("PASS: all-machine cards, single-machine detail and selection retained after refresh");
-machineContext.selectedEmployeeMachine = "";
+machineContext.selectedEmployeeAccount = "";
 machineContext.employeePanel = {render(id) {machineNodes.employeeId = id;}};
 machineContext.state.machines = [{machine_id: "QA-A"}, {machine_id: "QA-B"}];
 machineContext.selectedMachineId = "QA-A";
-vm.runInContext(extract("selectEmployeeMachine"), machineContext);
-machineContext.selectEmployeeMachine("QA-B");
+vm.runInContext(extract("selectEmployeeAccount"), machineContext);
+machineContext.selectEmployeeAccount("QA-A:second");
 assert.equal(machineContext.selectedView, "employee-units");
-assert.equal(machineNodes.employeeId, "QA-B");
+assert.equal(machineNodes.employeeId, "QA-A:second");
 assert.equal(machineContext.selectedMachineId, "QA-A");
-machineContext.selectEmployeeMachine("");
+assert.equal(machineNodes["#manager-machine-nav"].items.join(","), "QA-A:first,QA-A:second,QA-B:first");
+machineContext.selectEmployeeAccount("QA-B:first");
+assert.equal(machineNodes.employeeId, "QA-B:first");
+machineContext.state.accounts.pop();
+machineContext.state.available = false;
+machineContext.renderMachineNavigation();
+assert.equal(machineContext.selectedEmployeeAccount, "QA-B:first");
+machineContext.state.available = true;
+machineContext.renderMachineNavigation();
+assert.equal(machineContext.selectedEmployeeAccount, "");
+machineContext.selectEmployeeAccount("");
 assert.equal(machineNodes.employeeId, "");
 machineContext.selectManagerView("workers");
 assert.equal(machineContext.selectedMachineId, "QA-A");
-console.log("PASS: employee unit navigation keeps the workspace machine selection independent");
+console.log("PASS: account unit navigation and removal keep the workspace machine selection independent");
+
+const cardContext = vm.createContext({
+  state: {machines: [{machine_id: "QA-A", status: "READY", ssh_state: "ONLINE"}]},
+  element: (tag, className = "", textContent = "") => ({tag, className, textContent,
+    dataset: {}, children: [], appendChild(child) {this.children.push(child);},
+    setAttribute(name, value) {this[name] = value;}}),
+  append: (parent, ...children) => {children.forEach((child) => parent.appendChild(child)); return parent;},
+  accountPersona: (account) => ({display_name: account.persona_name}),
+  stateBadge: (status) => ({textContent: status, children: []}),
+  labelFor: (value) => value, toneFor: (value) => value, formatTime: (value) => value || "—",
+});
+for (const name of ["employeeAccountKey", "accountThumbnailCard"]) {
+  vm.runInContext(extract(name), cardContext);
+}
+const cardText = (node) => [node.textContent, ...node.children.map(cardText)].join(" ");
+const firstCard = cardContext.accountThumbnailCard({machine_id: "QA-A", account_slot: "first",
+  nickname: "First account", current_uid: "uid-first", persona_name: "First persona", health_state: "READY"});
+const secondCard = cardContext.accountThumbnailCard({machine_id: "QA-A", account_slot: "second",
+  nickname: "Second account", current_uid: "uid-second", persona_name: "Second persona",
+  health_state: "BLOCKED", platform: "rednote"});
+assert.equal(firstCard.dataset.employeeAccountSelect, "QA-A:first");
+assert.equal(secondCard.dataset.employeeAccountSelect, "QA-A:second");
+assert.equal(secondCard.dataset.tone, "BLOCKED");
+assert.ok(cardText(firstCard).includes("First account"));
+assert.ok(!cardText(firstCard).includes("Second"));
+assert.ok(cardText(secondCard).includes("RedNote"));
+assert.ok(cardText(secondCard).includes("uid-second"));
+assert.ok(cardText(secondCard).includes("Second persona"));
+assert.ok(!cardText(secondCard).includes("First"));
+cardContext.state.machines = [];
+assert.ok(cardText(cardContext.accountThumbnailCard({machine_id: "QA-A", account_slot: "cached"}))
+  .includes("cached"));
+console.log("PASS: overview account cards keep same-machine identity, persona and health separate");

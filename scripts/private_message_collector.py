@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collector_service import CollectorService
-from conversation_ownership_service import ConversationOwnershipService, OWNER_HUMAN
+from conversation_ownership_service import OWNER_HUMAN, ConversationOwnershipService
 from inbound_event_service import InboundEventService
 from service_errors import ServiceError
 
@@ -91,6 +91,9 @@ class PrivateMessageCollector:
                 payload={
                     "user_id": user_id,
                     "nickname": str(message.get("nickname") or ""),
+                    "thread_url": str(message.get("thread_url") or ""),
+                    "read_status": str(message.get("read_status") or "UNKNOWN"),
+                    "read_status_observed_at": str(message.get("read_status_observed_at") or ""),
                     "content": content,
                     "display_time": str(message.get("display_time") or ""),
                     "message_count": int(message.get("message_count") or 0),
@@ -98,21 +101,15 @@ class PrivateMessageCollector:
                     "peer_turn": list(message.get("peer_turn") or [content]),
                     "source": str(message.get("source") or "chat_inbox"),
                     "conversation_owner": ownership["owner_state"],
-                    "handled_through_message_count": ownership[
-                        "handled_through_message_count"
-                    ],
-                    "resume_after_message_count": ownership[
-                        "resume_after_message_count"
-                    ],
+                    "handled_through_message_count": ownership["handled_through_message_count"],
+                    "resume_after_message_count": ownership["resume_after_message_count"],
                 },
                 classification="incoming_text",
             )
             if not result["created"]:
                 existing.append(result["event"])
             elif ownership["owner_state"] == OWNER_HUMAN:
-                human_owned.append(
-                    self.events.mark_handled(result["event"]["event_id"])
-                )
+                human_owned.append(self.events.mark_handled(result["event"]["event_id"]))
             else:
                 created.append(result["event"])
 
@@ -135,6 +132,7 @@ class PrivateMessageCollector:
             "resume_events": resume_events,
             "codex_outbound_reconciliations": reconciliations,
             "created_events": created,
+            "existing_events": existing,
             "human_owned_events": human_owned,
             "cursor": cursor,
         }

@@ -178,6 +178,8 @@ def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> l
                 ),
                 "feed_id": str(item_info.get("id") or item_info.get("note_id") or ""),
                 "xsec_token": str(item_info.get("xsec_token") or ""),
+                "target_url": str(comment_info.get("url") or item_info.get("url") or ""),
+                "location_scope": "comment" if comment_info.get("url") else "note",
                 "user_id": str(
                     user_info.get("userid")
                     or user_info.get("user_id")
@@ -254,6 +256,8 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         if (!content || !stableId) continue;
         rows.push({{
           notification_id: stableId,
+          target_url: noteLink ? noteLink.href : '',
+          location_scope: 'note',
           comment_id: commentId,
           parent_comment_id: '',
           feed_id: feedId,

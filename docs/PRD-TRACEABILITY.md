@@ -122,3 +122,19 @@
 
 任何涉及 Chrome、扩展、Windows 或真实登录身份的需求，在取得真实设备证据前不得从
 `AUTOMATED_TESTED` 直接视为发布完成。
+
+## REQ-20260904-001 v1.1：账号记忆与人格
+
+| 功能编号 | 需求 | 状态 | 实现及证据 |
+| --- | --- | --- | --- |
+| MEMORY-01 | 共享核心和账号长期记忆分层维护、审核、生效与来源追溯 | AUTOMATED_TESTED | `account_memory.py`、`manager_memory.py`、账号记忆 WebUI；平台 UID 隔离与知识版本测试 |
+| MEMORY-02 | 员工短期观察、摘要、有效期与上下文恢复 | AUTOMATED_TESTED | `worker_memory.py`；重启、任务/会话筛选、过期及交接存储测试 |
+| REPLY-01 | 账号人格配置、身份关联、历史版本与任务快照 | AUTOMATED_TESTED | `ManagerService.save_persona`、`attach_memory`；人格编辑浏览器回读及派发快照测试 |
+| MEMORY-03 | 动作事实、交接摘要和经验建议的过程与结束回传 | AUTOMATED_TESTED | 既有 Worker outbox 与经理回收接入；重放去重、事实/建议分流及结果保留测试 |
+| MEMORY-04 | 经验五态审核、普通经验经理 Agent 审核、核心规则用户确认、账号或共享入库 | AUTOMATED_TESTED | `memory_review_service.py`、`memory_governance.py`；语义审核模拟、版本校验、重复/冲突、共享入库来源及浏览器审核回读 |
+| MEMORY-05 | 按治理、共享、账号、短期、任务顺序召回并记录生成采用来源 | AUTOMATED_TESTED | `memory_context.py`、`application_memory.py`、`memory_comment.py`；任务执行、评论与回复生成采用版本、员工上下文缓存和账号隔离测试 |
+| MEMORY-06 | 纠正、替换、过期和版本追溯，验证跨日恢复与更新效果 | AUTOMATED_TESTED | `tests/test_memory_lifecycle.py`；更新前后生成正文与引用版本、跨日恢复、重复回传、失效排除和使用记录回收 |
+
+该表编号属于 `REQ-20260904-001 v1.1` 需求范围。调用方法、分层存储和验收边界见
+[账号记忆与人格](ACCOUNT-MEMORY-PERSONA.md)。专项测试见 `tests/test_account_memory.py`；
+员工机部署与真实账号运行状态在实机验收时登记。

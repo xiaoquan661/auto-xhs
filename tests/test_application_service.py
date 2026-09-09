@@ -1808,7 +1808,10 @@ def test_random_comment_executes_immediately_and_preserves_item_results(tmp_path
     assert received["parameters"]["direct_send_authorized"] is True
 
 
-def test_home_engagement_preserves_browse_and_like_behavior_record(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("unknown", [False, True])
+def test_home_engagement_preserves_browse_and_like_behavior_record(
+    tmp_path, monkeypatch, unknown
+) -> None:
     received: dict = {}
 
     def execute(account, capability, parameters):
@@ -1817,6 +1820,7 @@ def test_home_engagement_preserves_browse_and_like_behavior_record(tmp_path, mon
             "success": True,
             "partial": False,
             "result_type": "home_engagement",
+            "result_unknown": unknown,
             "message": "首页浏览点赞完成",
             "counts": {"browsed": 6, "liked": 2, "skipped": 0},
             "items": [{"feed_id": "feed-1", "read_seconds": 9, "like": {"status": "success"}}],
@@ -1846,7 +1850,7 @@ def test_home_engagement_preserves_browse_and_like_behavior_record(tmp_path, mon
     )["task"]
     result = service.execute_task(task["task_id"])
 
-    assert result["task"]["state"] == "SUCCESS"
+    assert result["task"]["state"] == ("RESULT_UNKNOWN" if unknown else "SUCCESS")
     assert result["result"]["counts"]["browsed"] == 6
     assert received["capability"] == "home-engagement"
     assert "comment_count" not in received["parameters"]
