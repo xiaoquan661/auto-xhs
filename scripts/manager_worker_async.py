@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
 
 try:
@@ -60,9 +62,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-root", required=True)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--remote-execution-id", required=True)
+    parser.add_argument("--startup-receipt")
     return parser
 
 
 if __name__ == "__main__":
     arguments = build_parser().parse_args()
+    if arguments.startup_receipt:
+        receipt = Path(arguments.startup_receipt)
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        temporary = receipt.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"pid": os.getpid()}, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(receipt)
     raise SystemExit(run(arguments.state_root, arguments.task_id, arguments.remote_execution_id))

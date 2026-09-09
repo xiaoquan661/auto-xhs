@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-08",
+  "machine_id": "PC057",
+  "account_slot": "tesssst",
+  "verification": "employee_codex_read_only_account_and_ssl",
+  "state": "SUCCESS",
+  "identity_match": true,
+  "python_ssl_available": true,
+  "external_writes": 0,
+  "evidence_path": "C:\\auto-xhs\\deploy\\agent-desktop-preflight-20260908\\preflight-result.json",
+  "automated_tests_passed": 63,
+  "windows_powershell_parser": "PASSED"
+}

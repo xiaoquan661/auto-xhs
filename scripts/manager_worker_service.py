@@ -24,11 +24,13 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 try:
+    from .employee_process import start_employee_process
     from .executor_lifecycle import restart_executor_service, start_executor_service
     from .run_lock import RunLock
     from .worker_callback import OpenSSHManagerCallback, WorkerCallbackError
     from .worker_memory import WorkerMemory
 except ImportError:
+    from employee_process import start_employee_process
     from executor_lifecycle import restart_executor_service, start_executor_service
     from run_lock import RunLock
     from worker_callback import OpenSSHManagerCallback, WorkerCallbackError
@@ -275,7 +277,7 @@ class ManagerWorkerService(WorkerMemory):
         executor_restarter: Callable[[], dict[str, Any]] | None = None,
         webui_starter: Callable[[], dict[str, Any]] | None = None,
         webui_restarter: Callable[[], dict[str, Any]] | None = None,
-        process_starter: Callable[..., subprocess.Popen] = subprocess.Popen,
+        process_starter: Callable[..., Any] = start_employee_process,
         callback_sender: Callable[[dict[str, Any], str, dict[str, Any]], dict[str, Any]]
         | None = None,
     ) -> None:
