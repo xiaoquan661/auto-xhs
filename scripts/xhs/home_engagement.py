@@ -5,8 +5,10 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from .browse_like import _browse_candidates, _close_detail, _open_from_feed, _simulate_reading
+from .engagement_pacing import MAX_READ_SECONDS, MIN_READ_SECONDS, EngagementPacing
 from .errors import XHSError
 from .like_favorite import like_current_feed
 from .progress import emit_progress
@@ -37,8 +39,9 @@ def home_engagement(
     excluded_feed_ids: Sequence[str] = (),
     excluded_user_ids: Sequence[str] = (),
     duration_seconds: int = 600,
-    min_read_seconds: float = 15.0,
-    max_read_seconds: float = 45.0,
+    min_read_seconds: float = MIN_READ_SECONDS,
+    max_read_seconds: float = MAX_READ_SECONDS,
+    pacing_path: Path | None = None,
     chooser: Callable[[Sequence[Feed]], Feed] = random.choice,
     reader: Callable = _simulate_reading,
     liker: Callable = like_current_feed,
@@ -64,11 +67,10 @@ def home_engagement(
     items: list[dict] = []
     skipped: list[dict] = []
     liked_count = 0
-    next_like_at = 0.0
-    intervening_browses = 2
     result_unknown = False
     stopped_by = ""
     empty_scrolls = 0
+    pacing = EngagementPacing(pacing_path)
 
     while len(items) < browse_count and time.monotonic() < deadline:
         candidates = _browse_candidates(page, seen)
@@ -100,6 +102,7 @@ def home_engagement(
             continue
 
         item = _feed_item(feed)
+        attempted_like = False
         item["read_seconds"] = reader(
             page,
             random.uniform(min_read_seconds, max_read_seconds),
@@ -108,17 +111,19 @@ def home_engagement(
 
         like_due = (
             liked_count < like_count
-            and intervening_browses >= 2
+            and pacing.notes_ready
             and not feed.note_card.interact_info.liked
         )
-        if like_due and next_like_at < deadline:
-            wait_seconds = max(0.0, next_like_at - time.monotonic())
+        wait_seconds = 0.0
+        if like_due:
+            wait_seconds = min(pacing.remaining_seconds, max(0.0, deadline - time.monotonic()))
             if wait_seconds:
                 emit_progress("waiting", "等待下一次点赞间隔", feed_id=feed.id)
                 time.sleep(wait_seconds)
-        if like_due and next_like_at <= time.monotonic() < deadline:
-            intervening_browses = 0
-            next_like_at = time.monotonic() + random.uniform(90.0, 180.0)
+        item["pacing_wait_seconds"] = round(wait_seconds, 2)
+        if like_due and pacing.remaining_seconds == 0 and time.monotonic() < deadline:
+            attempted_like = True
+            item["next_like_interval_seconds"] = pacing.record_attempt()
             try:
                 result = liker(page, feed.id)
                 changed = result.changed is not False
@@ -144,8 +149,6 @@ def home_engagement(
                     "platform_readback": False,
                 }
                 stopped_by = "like_result_unknown" if result_unknown else "like_state_unavailable"
-        else:
-            intervening_browses += 1
 
         try:
             item["closed_by"] = _close_detail(page, feed.id)
@@ -154,6 +157,8 @@ def home_engagement(
             items.append(item)
             break
         items.append(item)
+        if not attempted_like:
+            pacing.record_unliked_note()
 
         emit_progress(
             "browsing",
@@ -213,6 +218,7 @@ def home_engagement(
             "max_read_seconds": max_read_seconds,
             "like_interval_seconds": [90, 180],
             "min_intervening_browses": 2,
+            "unliked_notes_between_likes": 2,
         },
         "counts": {
             "browsed": browsed_count,

@@ -533,6 +533,7 @@ def cmd_random_comment(args: argparse.Namespace) -> None:
 
 def cmd_home_engagement(args: argparse.Namespace) -> None:
     """在同一个首页会话中完成浏览和点赞。"""
+    from account_manager import account_dir
     from xhs.home_engagement import home_engagement
 
     browser, page = _connect(args)
@@ -545,6 +546,7 @@ def cmd_home_engagement(args: argparse.Namespace) -> None:
             duration_seconds=args.duration_minutes * 60,
             min_read_seconds=args.min_read_seconds,
             max_read_seconds=args.max_read_seconds,
+            pacing_path=account_dir(args.account) / "engagement-pacing.json",
         )
         _output(result, exit_code=0 if result.get("success") else 2)
     finally:

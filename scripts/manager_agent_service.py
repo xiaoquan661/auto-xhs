@@ -370,9 +370,12 @@ class ManagerAgentService:
                             "browse_count": effective_browse,
                             "like_count": like_count,
                             "video_only": video_only,
-                            "duration_minutes": max(3, math.ceil(effective_browse / 2)),
-                            "min_read_seconds": 6,
-                            "max_read_seconds": 10,
+                            "duration_minutes": max(
+                                10,
+                                math.ceil((effective_browse * 60 + like_count * 180) / 60),
+                            ),
+                            "min_read_seconds": 15,
+                            "max_read_seconds": 45,
                         },
                         "write_intent": like_count > 0,
                     }
@@ -514,7 +517,11 @@ class ManagerAgentService:
                 "authorized_by": str(task.get("requested_by") or "WebUI用户"),
             },
             "write_intent": bool(action.get("write_intent")),
-            "timeout_seconds": 600.0 if capability == "home-engagement" else 300.0,
+            "timeout_seconds": (
+                float((action.get("parameters") or {}).get("duration_minutes", 10)) * 60 + 120
+                if capability == "home-engagement"
+                else 300.0
+            ),
         }
 
     def _find_execution_task(self, task_id: str) -> dict[str, Any] | None:

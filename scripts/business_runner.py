@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from account_manager import load_account
+from account_manager import account_dir, load_account
 from platforms import CapabilitySupport, get_platform_capability, normalize_platform
 from run_lock import for_account
 from service_errors import ServiceError
@@ -138,6 +138,7 @@ class BusinessRunner:
                 duration_seconds=int(parameters.get("duration_minutes") or 10) * 60,
                 min_read_seconds=float(parameters.get("min_read_seconds", 15)),
                 max_read_seconds=float(parameters.get("max_read_seconds", 45)),
+                pacing_path=account_dir(account) / "engagement-pacing.json",
             )
         if capability == "get-feed-detail":
             from xhs.feed_detail import get_feed_detail
