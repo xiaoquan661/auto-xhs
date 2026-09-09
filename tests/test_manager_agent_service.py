@@ -5,12 +5,14 @@ from pathlib import Path
 from manager_agent_service import ManagerAgentService
 from manager_service import ManagerService
 from manager_store import ManagerStore
+from manager_sync_service import ManagerSyncService
 
 
 class AgentTransport:
     def __init__(self) -> None:
         self.accepted: list[dict] = []
         self.returned: set[str] = set()
+        self.collection_calls = 0
 
     def invoke(
         self,
@@ -62,12 +64,13 @@ class AgentTransport:
                 "status": "TASK_ACK",
                 "execution": {
                     "remote_execution_id": payload["remote_execution_id"],
-                    "state": "SUCCESS",
+                    "state": "ACCEPTED",
                     "project_version": "0.1.0",
                     "result_summary": "员工Agent执行完成",
                 },
             }
         if action == "collect-results":
+            self.collection_calls += 1
             results = []
             for sequence, request in enumerate(self.accepted, start=1):
                 task_id = str(request["task_id"])
@@ -187,7 +190,12 @@ def test_manager_agent_claims_plans_dispatches_collects_and_finishes(tmp_path: P
     assert first_cycle["status"] == "SUCCESS"
     assert len(transport.accepted) == 1
     assert transport.accepted[0]["parameters"]["video_only"] is True
+    assert transport.collection_calls == 0
 
+    sync = ManagerSyncService(manager)
+    sync.run_result_cycle()
+    agent.run_cycle()
+    sync.run_result_cycle()
     result = agent.run_cycle()
     operation = manager.get_operation_task(operation_task_id)["operation_task"]
     messages = manager.list_agent_messages(operation_task_id)["agent_messages"]
@@ -200,6 +208,7 @@ def test_manager_agent_claims_plans_dispatches_collects_and_finishes(tmp_path: P
         "like": 3,
     }
     assert len(transport.accepted) == 2
+    assert transport.collection_calls == 2
     assert transport.accepted[1]["parameters"]["direct_send_authorized"] is True
     assert {message["message_type"] for message in messages} >= {
         "TASK_AVAILABLE",
@@ -229,7 +238,11 @@ def test_completed_results_can_reconcile_a_previously_blocked_operation(tmp_path
     manager, _transport = build_manager(tmp_path)
     operation_task_id = create_operation(manager, {"browse": 10, "like": 3, "comment": 1})
     agent = ManagerAgentService(manager, agent_id="MANAGER-AGENT-01")
+    sync = ManagerSyncService(manager)
     agent.run_cycle()
+    sync.run_result_cycle()
+    agent.run_cycle()
+    sync.run_result_cycle()
     agent.run_cycle()
     manager.store.update(
         "operation_tasks",

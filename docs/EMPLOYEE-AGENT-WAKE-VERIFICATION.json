@@ -1,0 +1,16 @@
+{
+  "manager_collected_at": "2026-09-08T13:57:31.143372+08:00",
+  "task_id": "pc057-agent-connection-20260908-03",
+  "total_seconds": 70.926,
+  "accepted_at": "2026-09-08T13:54:35.797618+08:00",
+  "result_count": 1,
+  "claimed_at": "2026-09-08T13:55:19.055556+08:00",
+  "sync_interval_seconds": 300.0,
+  "claim_seconds": 43.258,
+  "automated_tests_passed": 65,
+  "next_collection_at": "2026-09-08T14:02:31.272172+08:00",
+  "machine_id": "PC057",
+  "finished_at": "2026-09-08T13:55:46.723387+08:00",
+  "status": "SUCCESS",
+  "probe_scope": "local_file_read_write"
+}

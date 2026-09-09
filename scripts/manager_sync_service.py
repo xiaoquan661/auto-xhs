@@ -13,7 +13,7 @@ except ImportError:  # Direct execution from the scripts directory.
     from manager_service import ManagerService
 
 HEALTH_ACCOUNT_SYNC_SECONDS = 30.0
-RESULT_SYNC_SECONDS = 60.0
+RESULT_SYNC_SECONDS = 300.0
 
 
 def utc_now() -> str:

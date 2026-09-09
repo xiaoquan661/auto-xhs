@@ -285,14 +285,6 @@ class ManagerAgentService:
                 raise
             occupied_accounts.add(account_key)
 
-        machine_ids = {
-            str(target.get("machine_id") or "").upper()
-            for target in task.get("targets") or []
-            if target.get("machine_id")
-        }
-        for machine_id in sorted(machine_ids):
-            self.manager.collect_results(machine_id, download_evidence=True)
-
         refreshed = self.manager.get_operation_task(operation_task_id)["operation_task"]
         linked_tasks = self._linked_execution_tasks(operation_task_id)
         if any(item.get("reconciliation_required") for item in linked_tasks):
