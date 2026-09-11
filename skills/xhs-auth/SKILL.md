@@ -14,7 +14,7 @@ description: |
 - V1.0 当前代码保留部分二维码和手机验证码命令，但不再把它们作为产品主流程。
 - V1.5 产品入口只保留：检查状态、自动退出、用户手动登录、核验新 UID。
 - V1.5 联合启动已完成自动化测试：扩展未连接时可打开绑定 Profile；真实 Windows 环境仍按
-  Profile、扩展实例和 UID 回读判断是否 READY。
+  Profile、扩展实例和槽位已绑定 UID 判断是否 READY。
 
 ## 允许命令
 
@@ -110,7 +110,7 @@ python scripts/cli.py --account <账号别名> account-switch-cancel --confirm
 → 扩展未连接时自动打开槽位绑定 Profile
 → 等待扩展连接
 → 核对 Profile 声明和扩展实例
-→ 检查登录 UID
+→ 复用槽位已绑定 UID（首次绑定或手动换号时核验页面身份）
 ```
 
 - 正确 Profile 已连接时不重复打开。

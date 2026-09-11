@@ -45,7 +45,7 @@
   const metricLabels = { browse: "浏览", like: "点赞", comment: "评论" };
   const actionLabels = {
     doctor: "运行诊断",
-    "profile-start": "启动 Profile",
+    "profile-start": "启动并连接账号",
     "bridge-restart": "重启 Bridge",
     "identity-check": "核验身份",
   };

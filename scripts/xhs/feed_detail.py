@@ -70,7 +70,6 @@ _SCAN_QRCODE_KEYWORDS = [
 ]
 
 _REPLY_COUNT_RE = re.compile(r"展开\s*(\d+)\s*条回复")
-_TOTAL_COMMENT_RE = re.compile(r"共(\d+)条评论")
 
 
 def get_feed_detail(
@@ -484,17 +483,6 @@ def _scroll_to_last_comment(page: Page) -> None:
 def _get_comment_count(page: Page) -> int:
     """获取当前评论数量。"""
     return page.get_elements_count(PARENT_COMMENT)
-
-
-def _get_total_comment_count(page: Page) -> int:
-    """获取总评论数（从 "共N条评论" 提取）。"""
-    text = page.get_element_text(".comments-container .total")
-    if not text:
-        return 0
-    match = _TOTAL_COMMENT_RE.search(text)
-    if match:
-        return int(match.group(1))
-    return 0
 
 
 def _check_no_comments(page: Page) -> bool:

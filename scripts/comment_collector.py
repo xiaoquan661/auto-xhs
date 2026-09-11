@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import uuid
+from datetime import UTC, datetime
+
 from collector_service import CollectorService
 from inbound_event_service import InboundEventService
 from service_errors import ServiceError
@@ -24,6 +28,74 @@ class CommentCollector:
         comments: list[dict],
         cursor_value: str = "",
         last_seen_time: str | None = None,
+        task_id: str | None = None,
+        scope: dict | None = None,
+        coverage: str = "UNKNOWN",
+        failures: list[dict] | None = None,
+    ) -> dict:
+        batch_id = uuid.uuid4().hex
+        database = self.events.database
+        now = datetime.now(UTC).isoformat()
+        with database.transaction() as connection:
+            connection.execute(
+                """INSERT INTO comment_collection_batches
+                (batch_id, account_slot, platform, task_id, started_at, scope_json, coverage)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    batch_id,
+                    account_slot,
+                    platform,
+                    task_id,
+                    now,
+                    json.dumps(scope or {}, ensure_ascii=False),
+                    coverage,
+                ),
+            )
+        try:
+            result = self._ingest(
+                account_slot=account_slot,
+                platform=platform,
+                comments=comments,
+                cursor_value=cursor_value,
+                last_seen_time=last_seen_time,
+                batch_id=batch_id,
+            )
+        except Exception as exc:
+            with database.transaction() as connection:
+                connection.execute(
+                    """UPDATE comment_collection_batches SET finished_at=?, result_state='FAILED',
+                    error_json=? WHERE batch_id=?""",
+                    (
+                        datetime.now(UTC).isoformat(),
+                        json.dumps([{"message": str(exc)}], ensure_ascii=False),
+                        batch_id,
+                    ),
+                )
+            raise
+        with database.transaction() as connection:
+            connection.execute(
+                """UPDATE comment_collection_batches SET finished_at=?, result_state=?,
+                observed_count=?, new_count=?, error_json=? WHERE batch_id=?""",
+                (
+                    datetime.now(UTC).isoformat(),
+                    "PARTIAL" if failures else "SUCCESS",
+                    result["observed_count"],
+                    result["created_count"],
+                    json.dumps(failures or [], ensure_ascii=False),
+                    batch_id,
+                ),
+            )
+        return {**result, "batch_id": batch_id, "coverage": coverage}
+
+    def _ingest(
+        self,
+        *,
+        account_slot: str,
+        platform: str = "xiaohongshu",
+        comments: list[dict],
+        cursor_value: str = "",
+        last_seen_time: str | None = None,
+        batch_id: str,
     ) -> dict:
         created: list[dict] = []
         existing: list[dict] = []
@@ -64,10 +136,22 @@ class CommentCollector:
                     "note_tags": list(comment.get("note_tags") or []),
                     "is_own_note": bool(comment.get("is_own_note", not notification_id)),
                     "source": str(comment.get("source") or ""),
+                    "time_scope": comment.get("time_scope") or "platform",
+                    "event_occurred_at": comment.get("event_occurred_at", occurred_at),
+                    "captured_at": comment.get("captured_at"),
                 },
                 classification=str(comment.get("classification") or ""),
             )
             (created if result["created"] else existing).append(result["event"])
+            with self.events.database.transaction() as connection:
+                connection.execute(
+                    "INSERT OR IGNORE INTO comment_batch_events VALUES (?, ?, ?)",
+                    (
+                        batch_id,
+                        result["event"]["event_id"],
+                        json.dumps(comment, ensure_ascii=False),
+                    ),
+                )
 
         cursor = self.collectors.record_success(
             account_slot=account_slot,

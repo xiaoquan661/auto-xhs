@@ -221,14 +221,15 @@ def test_system_settings_display_agent_managed_configuration() -> None:
     script = _source("manager-console.js")
 
     settings = html.split('id="settings"', 1)[1].split("</main>", 1)[0]
-    for tag in ("<form", "<input", "<select", "<textarea", "<button"):
-        assert tag not in settings
+    assert 'id="manager-polling-form"' in settings
+    assert 'id="manager-polling-save"' in settings
+    assert 'src="/manager-polling.js' in html
     assert 'id="manager-setting-concurrency"' in settings
     assert 'id="manager-system-pause-state"' in settings
     assert 'id="manager-settings-machines"' in settings
     assert 'id="manager-transfer-list"' in settings
     assert 'id="manager-version-list"' in settings
-    assert "经理 Agent 在对话中管理" in settings
+    assert "由经理 Agent 登记与维护" in settings
     assert "reply-intelligence" not in script
     assert "submitRuntimeSettings" not in script
     assert "submitMachine" not in script

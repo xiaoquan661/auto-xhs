@@ -1,0 +1,11 @@
+.manager-debug-dialog { width: min(860px, 92vw); max-height: 88vh; overflow: auto; border: 1px solid #d9dfe5; border-radius: 16px; padding: 24px; }
+.manager-debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.manager-debug-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.manager-debug-fields label { display: flex; flex-direction: column; gap: 6px; }
+.manager-debug-fields input, .manager-debug-fields select, .manager-debug-fields textarea { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #c9d1da; border-radius: 8px; font: inherit; }
+.manager-debug-fields textarea { min-height: 85px; resize: vertical; }
+.manager-debug-evidence { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.manager-debug-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.manager-debug-actions button, .manager-debug-heading button { border: 1px solid #c9d1da; border-radius: 8px; padding: 8px 13px; background: #f5f7fa; color: #24354c; font: inherit; cursor: pointer; }
+.manager-debug-actions button:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 600px) { .manager-debug-fields { grid-template-columns: 1fr; } }

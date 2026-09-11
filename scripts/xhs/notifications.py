@@ -288,7 +288,11 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
             continue
         row = dict(item)
         if not row.get("occurred_at"):
-            row["occurred_at"] = _epoch_to_iso(int(row.get("create_time") or 0)) or now
+            platform_time = _epoch_to_iso(int(row.get("create_time") or 0))
+            row["occurred_at"] = platform_time or now
+            row["time_scope"] = "platform" if platform_time else "first_observed"
+            row["event_occurred_at"] = platform_time or None
+            row["captured_at"] = now
         normalized.append(row)
     return normalized
 

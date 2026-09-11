@@ -460,8 +460,16 @@ def _dispatch_manager_api(
     if not path.startswith(f"{prefix}/"):
         return None
     manager = _require_manager_service(manager_service)
+    if path == f"{prefix}/debug":
+        return manager.debug_action("list")
     if path == f"{prefix}/dashboard-snapshot":
         return manager.dashboard_snapshot()
+    if path == f"{prefix}/database/schema":
+        return manager.query_business_data()
+    if path == f"{prefix}/acceptance":
+        return manager.operations_acceptance()
+    if path == f"{prefix}/polling-settings":
+        return manager.get_polling_settings()
     if path == f"{prefix}/employee-summary":
         return manager.employee_summary()
     if path == f"{prefix}/machines":
@@ -540,6 +548,14 @@ def _dispatch_manager_mutation(
     if not path.startswith(f"{prefix}/"):
         return None
     manager = _require_manager_service(manager_service)
+    if method == "POST" and path.startswith(f"{prefix}/debug/"):
+        return manager.debug_action(path.rsplit("/", 1)[-1], body)
+    if method == "POST" and path == f"{prefix}/database/query":
+        return manager.query_business_data(body)
+    if method == "POST" and path == f"{prefix}/acceptance":
+        return manager.operations_acceptance(body)
+    if method == "POST" and path == f"{prefix}/polling-settings":
+        return manager.update_polling_settings(body)
     if method == "POST" and path.startswith(f"{prefix}/memory/"):
         return manager.memory_action(path.rsplit("/", 1)[-1], body)
     if method == "POST" and path == f"{prefix}/machines":

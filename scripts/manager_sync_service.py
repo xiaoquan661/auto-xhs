@@ -12,9 +12,6 @@ try:
 except ImportError:  # Direct execution from the scripts directory.
     from manager_service import ManagerService
 
-HEALTH_ACCOUNT_SYNC_SECONDS = 30.0
-RESULT_SYNC_SECONDS = 300.0
-
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -27,19 +24,34 @@ class ManagerSyncService:
         self,
         manager: ManagerService,
         *,
-        health_interval_seconds: float = HEALTH_ACCOUNT_SYNC_SECONDS,
-        result_interval_seconds: float = RESULT_SYNC_SECONDS,
+        health_interval_seconds: float | None = None,
+        result_interval_seconds: float | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        if health_interval_seconds <= 0 or result_interval_seconds <= 0:
+        if any(
+            value is not None and value <= 0
+            for value in (health_interval_seconds, result_interval_seconds)
+        ):
             raise ValueError("经理机同步间隔必须大于0")
         self.manager = manager
-        self.health_interval_seconds = float(health_interval_seconds)
-        self.result_interval_seconds = float(result_interval_seconds)
+        self._health_interval_seconds = health_interval_seconds
+        self._result_interval_seconds = result_interval_seconds
         self._monotonic = monotonic
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
+
+    @property
+    def health_interval_seconds(self) -> float:
+        if self._health_interval_seconds is not None:
+            return float(self._health_interval_seconds)
+        return float(self.manager.polling_settings["health_accounts_seconds"])
+
+    @property
+    def result_interval_seconds(self) -> float:
+        if self._result_interval_seconds is not None:
+            return float(self._result_interval_seconds)
+        return float(self.manager.polling_settings["results_seconds"])
 
     @property
     def running(self) -> bool:
@@ -84,20 +96,22 @@ class ManagerSyncService:
         )
 
     def _run(self) -> None:
-        next_health = self._monotonic()
-        next_results = next_health
+        last_health = None
+        last_results = None
         while not self._stop_event.is_set():
             now = self._monotonic()
-            if now >= next_health:
+            if last_health is None or now >= last_health + self.health_interval_seconds:
                 self.run_health_cycle()
-                next_health = self._monotonic() + self.health_interval_seconds
+                last_health = self._monotonic()
             if self._stop_event.is_set():
                 break
             now = self._monotonic()
-            if now >= next_results:
+            if last_results is None or now >= last_results + self.result_interval_seconds:
                 self.run_result_cycle()
-                next_results = self._monotonic() + self.result_interval_seconds
-            delay = max(0.05, min(next_health, next_results) - self._monotonic())
+                last_results = self._monotonic()
+            next_health = last_health + self.health_interval_seconds
+            next_results = last_results + self.result_interval_seconds
+            delay = min(1.0, max(0.05, min(next_health, next_results) - self._monotonic()))
             self._stop_event.wait(delay)
 
     def _run_cycle(
@@ -170,7 +184,18 @@ class ManagerSyncService:
 
     def _sync_machine_results(self, machine_id: str) -> dict:
         result = self.manager.collect_results(machine_id, download_evidence=True)
+        machine = next((row for row in self.manager.list_machines()["machines"]
+                        if row["machine_id"] == machine_id), {})
+        business_data = None
+        if machine.get("business_data_sync_enabled"):
+            try:
+                business_data = self.manager.collect_business_data(machine_id)
+            except Exception as exc:
+                business_data = {"success": False, "message": str(exc)}
+            if not business_data.get("success"):
+                result = {**result, "status": "PARTIAL_SUCCESS"}
         return {
+            "business_data": business_data,
             "success": result.get("success") is True,
             "status": str(result.get("status") or "UNKNOWN"),
             "collected": int(result.get("collected") or 0),

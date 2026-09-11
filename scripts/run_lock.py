@@ -49,6 +49,9 @@ class RunLock:
                     self._force_release()
                     continue
                 time.sleep(1)
+            except PermissionError:
+                # Windows 文件共享冲突可能短暂拒绝打开，沿用本次获取期限。
+                time.sleep(0.05)
 
         logger.warning("获取锁超时: %s", self.lock_file)
         return False
@@ -83,8 +86,11 @@ class RunLock:
             with open(self.lock_file) as f:
                 pid = int(f.read().strip())
             return not process_is_running(pid)
-        except (ValueError, OSError):
+        except FileNotFoundError:
             return True
+        except (ValueError, OSError):
+            # 创建者可能尚未写入 PID；无法读取并不证明持有者已经退出。
+            return False
 
     def _force_release(self) -> None:
         """强制释放过时的锁。"""

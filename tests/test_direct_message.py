@@ -117,6 +117,7 @@ class AtomicSendPage(FakePage):
         self.atomic_sends: list[tuple[str, str]] = []
 
     def send_content_editable(self, selector: str, content: str) -> dict:
+        assert self.trusted_clicked[-1] == CHAT_EDITOR, "会话需先由输入框点击初始化"
         self.atomic_sends.append((selector, content))
         self.entered = content
         if self.append_after_send:
@@ -193,6 +194,28 @@ def test_prefers_atomic_contenteditable_send_when_available() -> None:
     assert result["success"] is True
 
 
+def test_atomic_capable_page_prefers_visible_send_button() -> None:
+    page = AtomicSendPage(existing=True, send_button=True)
+    result = send_private_message(page, "user-1", "", "专属私信")
+    assert page.atomic_sends == []
+    assert page.trusted_clicked == [CHAT_EDITOR, CHAT_SEND_ENTRY]
+    assert result["success"] is True
+
+
+def test_peer_echo_is_not_outgoing_confirmation(monkeypatch) -> None:
+    page = FakePage(existing=True, append_after_send=False)
+
+    def peer_echo(key: str) -> None:
+        page.messages.append({"role": "peer", "content": "专属私信"})
+
+    page.press_key = peer_echo
+    moments = iter([0.0, 1.0, 9.0])
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", lambda: next(moments))
+    monkeypatch.setattr("scripts.xhs.direct_message.time.sleep", lambda _: None)
+    with pytest.raises(PrivateMessageResultUnknownError):
+        send_private_message(page, "user-1", "", "专属私信")
+
+
 def test_syncs_contenteditable_input_state_before_send() -> None:
     page = FakePage(existing=True)
 
@@ -225,7 +248,7 @@ def test_prefers_visible_send_button_when_chat_exposes_one() -> None:
 
     result = send_private_message(page, "user-1", "", "专属私信")
 
-    assert page.trusted_clicked == [CHAT_SEND_ENTRY]
+    assert page.trusted_clicked == [CHAT_EDITOR, CHAT_SEND_ENTRY]
     assert page.pressed == []
     assert page.focus_requested is False
     assert result["success"] is True

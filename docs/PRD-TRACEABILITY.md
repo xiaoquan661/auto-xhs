@@ -41,7 +41,7 @@
 | BRG-001 | 每槽位独立端口并校验 CLI/Bridge/扩展身份 | AUTOMATED_TESTED | 双 Bridge 错路由拒绝测试 |
 | BRG-002 | Bridge 脱离临时父会话运行 | AUTOMATED_TESTED | 关闭父会话后状态可读 |
 | BRG-003 | Bridge PID、stop/restart、健康守护和有限恢复 | AUTOMATED_TESTED | PID 登记、重复启动、异常 PID 和仅登记进程停止已测试 |
-| ID-001 | 读取、记录并强制校验当前小红书 UID | AUTOMATED_TESTED | 真实账号身份验收 |
+| ID-001 | 首次确认绑定 UID，业务复用绑定，手动换号重新核验 | AUTOMATED_TESTED | 跨任务绑定复用、显式身份检查和换号专项测试；真实账号待验收 |
 | ID-002 | 安全换号状态机暂停业务并保留历史 | AUTOMATED_TESTED | 换号成功、取消和中断测试 |
 | PERM-001 | 所有能力登记固定 L0-L3 权限元数据 | AUTOMATED_TESTED | 公开 CLI 命令元数据覆盖，复合命令操作级策略已测试 |
 | PERM-002 | L3 必须显式确认，不能由 UI 或 Agent 降级 | AUTOMATED_TESTED | 账号、配对、身份和设置服务/API 均校验确认 |
@@ -138,3 +138,14 @@
 该表编号属于 `REQ-20260904-001 v1.1` 需求范围。调用方法、分层存储和验收边界见
 [账号记忆与人格](ACCOUNT-MEMORY-PERSONA.md)。专项测试见 `tests/test_account_memory.py`；
 员工机部署与真实账号运行状态在实机验收时登记。
+
+## DEBUG：员工故障与修复
+
+| 功能编号 | 需求 | 状态 | 实现及证据 |
+| --- | --- | --- | --- |
+| DEBUG-01 | 员工自动/主动报障、机器与槽位隔离、outbox 回收去重 | AUTOMATED_TESTED | `debug_common.py`、`worker_debug.py`、`test_debug_workflow.py` |
+| DEBUG-02 | 经理领取、诊断、修复交接单与处理历史 | AUTOMATED_TESTED | `manager_debug.py`、经理 CLI、WebUI 故障与修复入口 |
+| DEBUG-03 | 经理测试构建、传输、员工备份安装测试与回滚 | AUTOMATED_TESTED | 既有 transfer 新增 repair_package，隔离项目实文件测试 |
+| DEBUG-04 | 安装回执核对、服务验证与验收关闭 | AUTOMATED_TESTED | 响应中断、延迟回执、服务失败与验收门槛测试 |
+
+操作流程见[员工故障与修复](DEBUG-WORKFLOW.md)。员工实际部署和平台恢复按实机回执登记。

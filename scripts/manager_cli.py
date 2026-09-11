@@ -18,6 +18,34 @@ CommandHandler = Callable[[argparse.Namespace, ManagerService], dict]
 ServiceFactory = Callable[[argparse.Namespace], ManagerService]
 
 
+def _database_action(args: argparse.Namespace, service: ManagerService) -> dict:
+    from manager_database import ManagerDatabase
+
+    database = ManagerDatabase(service.store.root)
+    synced = service.store._transaction(lambda state: database.sync(state), write=False)
+    if args.action == "collect":
+        return service.collect_business_data(args.machine_id)
+    if args.action == "sync":
+        return synced
+    if args.action == "schema":
+        return database.schema()
+    payload = load_json_object(args.input_file)
+    return database.query(payload.get("sql", ""), payload.get("parameters"),
+                          int(payload.get("limit", 200)))
+
+
+def _acceptance_report(args: argparse.Namespace, service: ManagerService) -> dict:
+    from operations_acceptance import acceptance_report
+
+    return acceptance_report(service.store.snapshot(), day=args.date or "",
+                             accounts=args.account)
+
+
+def _debug_action(args: argparse.Namespace, service: ManagerService) -> dict:
+    payload = load_json_object(args.input_file) if args.action != "list" else {}
+    return service.debug_action(args.action, payload)
+
+
 class ManagerArgumentParser(argparse.ArgumentParser):
     """Convert command-line usage failures into the shared JSON error contract."""
 
@@ -68,6 +96,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manager-home", help="经理机状态目录的绝对路径")
     parser.add_argument("--openssh-home", help="包含 ssh.exe 和 scp.exe 的绝对目录")
     resources = parser.add_subparsers(dest="resource", required=True)
+    database = resources.add_parser("database", help="经理运营数据库与全字段只读查询")
+    database_actions = database.add_subparsers(dest="action", required=True)
+    for name in ("sync", "schema", "query", "collect"):
+        command = database_actions.add_parser(name)
+        if name == "collect":
+            command.add_argument("--machine-id", required=True)
+        if name == "query":
+            _add_input_file(command, "包含 sql、parameters、limit 的查询 JSON 文件")
+        command.set_defaults(handler=_database_action)
+    acceptance = resources.add_parser("acceptance", help="逐动作目标、实际与成功证据")
+    acceptance.add_argument("--date", help="按完成日期筛选 YYYY-MM-DD；省略则历史累计")
+    acceptance.add_argument("--account", action="append", help="机器:账号；可重复指定")
+    acceptance.set_defaults(handler=_acceptance_report)
+
+    debug = resources.add_parser("debug", help="员工报障、经理修复和安装验收")
+    debug_actions = debug.add_subparsers(dest="action", required=True)
+    for action in (
+        "list", "report", "show", "claim", "diagnose", "build", "dispatch", "apply",
+        "reconcile", "verify", "accept", "resolve", "reopen", "rollback",
+    ):
+        command = debug_actions.add_parser(action)
+        if action != "list":
+            _add_input_file(command, "调试操作 JSON 文件的绝对路径")
+        command.set_defaults(handler=_debug_action)
 
     machine = resources.add_parser("machine", help="注册和控制执行机")
     machine_actions = machine.add_subparsers(dest="action", required=True)

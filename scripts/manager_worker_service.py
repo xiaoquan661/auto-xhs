@@ -38,7 +38,7 @@ except ImportError:
 
 
 STATE_SCHEMA_VERSION = 1
-TRANSFER_TYPES = {"task_package", "function_package", "config"}
+TRANSFER_TYPES = {"task_package", "function_package", "config", "repair_package"}
 TASK_FINAL_STATES = {
     "SUCCESS",
     "PARTIAL_SUCCESS",
@@ -263,6 +263,11 @@ def _allowed_versions(value: Any) -> list[str]:
 
 class ManagerWorkerService(WorkerMemory):
     """执行机固定入口背后的本地服务。"""
+
+    def debug_action(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from worker_debug import WorkerDebugService
+
+        return WorkerDebugService(self).action(action, payload)
 
     def __init__(
         self,
@@ -1651,6 +1656,14 @@ class ManagerWorkerService(WorkerMemory):
             return copy.deepcopy(execution), copy.deepcopy(result)
 
         execution, result = self._store.mutate(prepare)
+        from debug_common import incident_from_result
+
+        incident = incident_from_result(
+            str(execution["machine_id"]),
+            {**result, "account_slot": execution["task"].get("account_slot", "")},
+        )
+        if incident:
+            self.debug_action("report", incident)
         self._publish_outbox_record(
             "result",
             str(execution["task_id"]),
@@ -3032,6 +3045,8 @@ class ManagerWorkerService(WorkerMemory):
             "acknowledgement": "acknowledgements",
             "event": "events",
             "result": "results",
+            "debug_incident": "incidents",
+            "debug_receipt": "repairs",
         }
         folder = folders.get(record_type)
         if folder is None:
@@ -3061,6 +3076,7 @@ class ManagerWorkerService(WorkerMemory):
                 "payload": copy.deepcopy(payload),
             }
             outbox_root = Path(config["task_outbox_root"])
+            (outbox_root / folder).mkdir(parents=True, exist_ok=True)
             _write_json_atomic(outbox_root / Path(relative_path), body)
             state["outbox_records"][record_id] = metadata
             index = {

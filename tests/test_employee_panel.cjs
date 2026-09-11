@@ -53,7 +53,7 @@ assert.equal((root.innerHTML.match(/class="overview-node-card /g) || []).length,
 assert.ok(!root.innerHTML.includes('data-panel="employee-profile"'));
 panel.render("QA-A:same-slot");
 for (const section of ["下一个运营日", "EMPLOYEE / PROFILE", "今日目标 / 实际", "往日目标 / 实际",
-  "动作与对应链接", "评论回复提醒", "关注博主明细", "私聊明细"]) {
+  "执行记录", "收到的评论与回复", "关注博主明细", "私聊明细"]) {
   assert.ok(root.innerHTML.includes(section), section);
 }
 assert.ok(root.innerHTML.includes("&lt;script&gt;name&lt;/script&gt;"));
@@ -66,6 +66,7 @@ for (const section of ["today-targets", "history"]) {
   assert.ok(html.includes("关注博主"), section);
 }
 const followPanel = context.window.AutoXhsEmployeePanel({...services,
+  state: {...state, results: state.results.map((result) => ({...result, capability: "follow-user"}))},
   resultActionKind: () => "friend_request"});
 assert.equal(followPanel.actions(state.accounts[0], today)[0].label, "关注博主");
 assert.equal(metrics.find((item) => item.kind === "publish").actual, 0);
@@ -78,7 +79,10 @@ assert.ok(!root.innerHTML.includes("https://example.com/note"));
 console.log("PASS: employee templates, all/detail views, account isolation and missing metrics");
 
 state.employeeSummary = {daily_metrics: [{machine_id: "QA-A", account_slot: "same-slot", date: today,
-  metrics: {new_followers: {target: 3, actual: -2, status: "采样净增", incomplete: true}}}],
+  metrics: {new_followers: {target: 3, actual: null, observed_new: 1,
+    actual_display: "至少 1", status: "当日总量待确认", incomplete: true,
+    metric_semantics: "daily_event_count", current_total: 8,
+    sampled_net_change: {value: -2, from: yesterday, to: today}}}}],
   daily_report: {date: yesterday, rows: [{machine_id: "QA-A", account_slot: "same-slot",
     pressure: "高压", external_actions: 1, completion_rate: 0.5, status: "已回收"}],
     groups: [{label: "高压组", account_count: 1, analyzed_count: 1, actual: 2,
@@ -89,8 +93,10 @@ assert.ok(root.innerHTML.includes("高压组平均完成率 50%"));
 assert.match(root.innerHTML, /<th>关注博主<\/th>/);
 assert.ok(root.innerHTML.includes("纳入对比 1/1"));
 panel.render("QA-A:same-slot");
-assert.ok(root.innerHTML.includes("采样净增"));
-assert.equal(panel.dailyMetrics(state.accounts[0], today).find((m) => m.kind === "new_followers").actual, -2);
+assert.ok(root.innerHTML.includes("至少 1"));
+assert.ok(root.innerHTML.includes("采样净变化：-2"));
+assert.ok(root.innerHTML.includes("截至采集时总量：8"));
+assert.equal(panel.dailyMetrics(state.accounts[0], today).find((m) => m.kind === "new_followers").actual, null);
 assert.equal(panel.dailyMetrics(state.accounts[1], today).find((m) => m.kind === "new_followers").actual, null);
 state.employeeSummary = {};
 console.log("PASS: server daily report and account-scoped growth metrics");

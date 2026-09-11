@@ -76,17 +76,6 @@ class ImageDownloader:
         logger.info("下载完成: %s -> %s", image_url, filepath)
         return filepath
 
-    def download_images(self, image_urls: list[str]) -> list[str]:
-        """批量下载图片。"""
-        paths = []
-        for url in image_urls:
-            try:
-                path = self.download_image(url)
-                paths.append(path)
-            except Exception as e:
-                logger.error("下载失败 %s: %s", url, e)
-        return paths
-
     def _detect_extension(self, url: str) -> str:
         """从 URL 推断文件扩展名。"""
         parsed = urlparse(url)

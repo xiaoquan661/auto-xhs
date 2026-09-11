@@ -789,12 +789,17 @@ async function cmdNavigate({ url, _retried = false }) {
   }
   const tab = await getOrOpenPlatformTab();
 
+  const before = await readNavigationState(tab.id).catch(() => null);
+  const reuse = before?.ready && before.reason === "note"
+    && sameNavigationTarget(before.url, url) && !tab.pendingUrl;
   // 若当前已在 xiaohongshu.com，用页面内 window.location.href 发起导航。
   // 这样浏览器将导航标记为 same-origin（Sec-Fetch-Site: same-origin），
   // 与真实用户点击链接行为一致，避免 chrome.tabs.update 产生的
   // Sec-Fetch-Site: none/cross-site 被 XHS 服务端识别为自动化访问。
   const isOnSamePlatform = platformForUrl(tab.url || "") === expectedPlatform;
-  if (isOnSamePlatform) {
+  if (reuse) {
+    // The detail reader and comment command can share the already open note.
+  } else if (isOnSamePlatform) {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -805,7 +810,9 @@ async function cmdNavigate({ url, _retried = false }) {
     await chrome.tabs.update(tab.id, { url });
   }
 
-  await waitForTabComplete(tab.id, url, 60000);
+  const readiness = await waitForTabComplete(
+    tab.id, url, 60000, reuse ? null : before?.documentId,
+  );
 
   // ── 最终落地 URL 检测：XHS 风控 302 重定向到 /404?source=原路径 ──
   const finalTab = await chrome.tabs.get(tab.id).catch(() => null);
@@ -891,46 +898,76 @@ async function cmdNavigate({ url, _retried = false }) {
     },
   }).catch(() => {});
 
-  return null;
+  return { ...readiness, reused: reuse };
 }
 
 async function cmdWaitForLoad({ timeout = 60000 }) {
   const tab = await getOrOpenPlatformTab();
-  await waitForTabComplete(tab.id, null, timeout);
-  return null;
+  return await waitForTabComplete(tab.id, tab.pendingUrl || tab.url, timeout);
 }
 
-async function waitForTabComplete(tabId, expectedUrlPrefix, timeout) {
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + timeout;
+function sameNavigationTarget(current, target) {
+  try {
+    const a = new URL(current), b = new URL(target);
+    if (a.origin !== b.origin || a.pathname !== b.pathname) return false;
+    // Note identity is its route; refreshed access tokens do not require a reload.
+    if (/^\/(explore|discovery\/item)\/[\w-]+\/?$/.test(a.pathname)) return true;
+    return a.search === b.search && a.hash === b.hash;
+  } catch (_) { return current === target; }
+}
 
-    function listener(id, info, updatedTab) {
-      if (id !== tabId) return;
-      if (info.status !== "complete") return;
-      if (expectedUrlPrefix && !updatedTab.url?.startsWith(expectedUrlPrefix.slice(0, 20))) return;
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }
-
-    chrome.tabs.onUpdated.addListener(listener);
-
-    // 轮询兜底：若事件在监听前已触发
-    const poll = async () => {
-      if (Date.now() > deadline) {
-        chrome.tabs.onUpdated.removeListener(listener);
-        reject(new Error("页面加载超时"));
-        return;
+async function readNavigationState(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId }, world: "MAIN",
+    func: () => {
+      const unwrap = value => value?.value ?? value?._value ?? value;
+      const url = location.href;
+      const path = location.pathname;
+      const state = window.__INITIAL_STATE__;
+      const blocked = /\/404(?:\/|$)/.test(path) || Array.from(document.querySelectorAll(
+        ".access-wrapper, .access-error-wrapper, .captcha-container, .login-container",
+      )).some(el => el.getClientRects().length > 0);
+      let ready = document.readyState !== "loading" && !!document.body;
+      let reason = blocked ? "blocked" : "dom";
+      const noteId = path.match(/^\/(?:explore|discovery\/item)\/([\w-]+)/)?.[1];
+      if (noteId) {
+        const note = unwrap(state?.note?.noteDetailMap)?.[noteId]?.note;
+        ready = ready && !!note && !!document.querySelector(
+          "#detail-title, #detail-desc, .note-detail-mask .note-content",
+        );
+        reason = "note";
+      } else if (/^\/user\/profile\//.test(path)) {
+        ready = ready && !!unwrap(state?.user?.userPageData)?.basicInfo
+          && !!document.querySelector(".user-page, .user-info, .user-profile");
+        reason = "profile";
       }
-      const tab = await chrome.tabs.get(tabId).catch(() => null);
-      if (tab && tab.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-        return;
-      }
-      setTimeout(poll, 400);
-    };
-    setTimeout(poll, 600);
+      return { url, documentId: performance.timeOrigin,
+        ready: blocked || ready, reason: blocked ? "blocked" : reason,
+        readyState: document.readyState };
+    },
   });
+  return results?.[0]?.result || null;
+}
+
+async function waitForTabComplete(tabId, expectedUrl, timeout, previousDocument = null) {
+  const started = Date.now();
+  let last = null;
+  while (Date.now() - started < timeout) {
+    const tab = await chrome.tabs.get(tabId);
+    if (expectedUrl === "about:blank" && tab.url === expectedUrl && tab.status === "complete") {
+      return { elapsed_ms: Date.now() - started, readiness: "blank", tab_status: tab.status };
+    }
+    last = await readNavigationState(tabId).catch(() => null);
+    const documentChanged = previousDocument == null || last?.documentId !== previousDocument;
+    const targetReached = !expectedUrl || sameNavigationTarget(last?.url, expectedUrl);
+    if (last?.ready && documentChanged && !tab.pendingUrl
+        && (targetReached || last.reason === "blocked")) {
+      return { elapsed_ms: Date.now() - started, readiness: last.reason,
+        ready_state: last.readyState, tab_status: tab.status };
+    }
+    await sleep(200);
+  }
+  throw new Error(`页面加载超时（目标页面就绪等待，readyState=${last?.readyState || "unknown"}）`);
 }
 
 // ───────────────────────── 截图 ─────────────────────────

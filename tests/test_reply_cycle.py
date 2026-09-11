@@ -121,6 +121,8 @@ def test_reply_cycle_collects_generates_sends_and_records_readback(tmp_path) -> 
     assert result["decisions"][0]["rule_version"] == enabled_rule["rule_version"]
     records = service.reply_records.list(account_slot="alpha")
     assert len(records) == 1
+    assert records[0]["send_state"] == "CONFIRMED"
+    assert any(row["event_type"] == "outbound_reply" for row in result["incremental_data"])
     assert records[0]["readback_state"] == "VERIFIED"
     assert records[0]["rule_id"] == enabled_rule["rule_id"]
     assert records[0]["rule_version"] == enabled_rule["rule_version"]
@@ -131,6 +133,32 @@ def test_reply_cycle_collects_generates_sends_and_records_readback(tmp_path) -> 
     )
     assert historical["reply_style"] == "natural"
     assert service.inbound_events.list(account_slot="alpha")[0]["handling_state"] == "HANDLED"
+
+
+def test_inspection_collects_all_channels_when_reply_disabled(tmp_path) -> None:
+    service = ApplicationService(
+        product_store=ProductStore(tmp_path / "product"),
+        operations_database=OperationsDatabase(tmp_path),
+    )
+    service._resolve_account_platform = lambda _account: "xiaohongshu"
+    service.tasks._platform_resolver = lambda _account: "xiaohongshu"
+    service.get_account_status = lambda _account: {
+        "ready": True, "identity": {"live_user_id": "owner-1"},
+    }
+    service.reply_rules.create(account_slot="alpha")
+    calls = []
+
+    def collect(task_id):
+        task = service.tasks.get(task_id)
+        calls.append(task["capability"])
+        return {"task": {**task, "state": "SUCCESS"}, "result": {"count": 0}}
+
+    service.execute_task = collect
+    result = service.run_reply_cycle(account_slot="alpha", inspection=True)
+    assert calls == ["collect-operations-metrics", "collect-note-comments",
+                     "collect-private-messages"]
+    assert result["decisions"] == []
+    assert len(result["incremental_data"]) == 4
 
 
 def test_reply_cycle_routes_changed_private_message_context_to_pending(tmp_path) -> None:

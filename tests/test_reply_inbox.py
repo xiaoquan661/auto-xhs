@@ -381,7 +381,7 @@ def test_codex_private_message_result_unknown_stays_pending_with_original_task(t
     assert event["handling_state"] == "TASK_CREATED"
     assert event["created_task_id"] == result["task"]["task_id"]
     conversation = service.list_private_message_conversations(
-        "alpha", owner_state=OWNER_HUMAN
+        "alpha", owner_state=OWNER_CODEX
     )["conversations"][0]
     assert conversation["user_id"] == "user-1"
     assert conversation["handoff_event_id"] == event_id

@@ -427,3 +427,11 @@ body { background: #f5f7fb; }
   .control-room .manager-result-columns, .control-room .manager-settings-grid,
   .control-room .manager-progress-filters { grid-template-columns: minmax(0, 1fr); }
 }
+.manager-polling-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.manager-polling-field { display: grid; align-content: start; gap: 8px; }
+.manager-polling-field label { font-weight: 600; }
+.manager-polling-field p, .manager-polling-note { color: #5f6d89; font-size: 14px; line-height: 1.7; }
+.manager-polling-field p { margin: 0; }
+.manager-polling-field small { color: #465bb8; line-height: 1.6; }
+.manager-polling-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+@media (max-width: 820px) { .manager-polling-grid { grid-template-columns: 1fr; } }

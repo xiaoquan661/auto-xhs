@@ -50,7 +50,25 @@ class ConversationOwnershipService:
             if key in seen:
                 continue
             seen.add(key)
-            if self.get(*key) is not None:
+            current = self.get(*key)
+            technical = str(row.get("reason") or "") in {"result_unknown", "send_failed"}
+            if current is not None:
+                if technical and current["owner_state"] == OWNER_HUMAN and (
+                    current["handoff_event_id"] == row["event_id"]
+                ):
+                    with self.database.transaction() as connection:
+                        connection.execute(
+                            "UPDATE private_message_conversations SET owner_state = 'CODEX' "
+                            "WHERE account_slot = ? AND platform = ? AND user_id = ?", key
+                        )
+                        connection.execute(
+                            "UPDATE inbound_events SET handling_state = 'NEW' "
+                            "WHERE account_slot = ? AND platform = ? AND object_id = ? "
+                            "AND handling_state = 'HANDLED' AND created_task_id IS NULL "
+                            "AND json_extract(payload_json, '$.conversation_owner') = 'HUMAN' "
+                            "AND event_id NOT IN (SELECT inbound_event_id FROM reply_decisions)",
+                            key,
+                        )
                 continue
             payload = json.loads(str(row.get("payload_json") or "{}"))
             message_count = int(payload.get("message_count") or 0)
@@ -60,6 +78,7 @@ class ConversationOwnershipService:
             ):
                 self.handoff(
                     *key,
+                    owner_state=OWNER_CODEX if technical else OWNER_HUMAN,
                     event_id=str(row.get("event_id") or ""),
                     message_count=message_count,
                     updated_at=str(row.get("updated_at") or utc_now()),
@@ -140,7 +159,7 @@ class ConversationOwnershipService:
         )
         resumed = False
         reconciliation = None
-        if owner_state == OWNER_HUMAN:
+        if owner_state == OWNER_HUMAN or handoff_event_id:
             latest_self = self._latest_self_message(message_count, context)
             if latest_self and latest_self["message_count"] > handled_through:
                 handoff_event = handoff_event_id
@@ -148,24 +167,25 @@ class ConversationOwnershipService:
                     handoff_event_id,
                     str(latest_self["content"]),
                 )
-                owner_state = OWNER_CODEX
-                handled_through = int(latest_self["message_count"])
-                handoff_event_id = ""
-                resume_after = handled_through
-                resume_source = (
-                    RESUME_CODEX_OUTBOUND if attribution else RESUME_HUMAN_REPLY
-                )
-                matched_reply_task_id = str(
-                    (attribution or {}).get("reply_task_id") or ""
-                )
-                if attribution:
-                    reconciliation = {
-                        "inbound_event_id": handoff_event,
-                        "reply_task_id": matched_reply_task_id,
-                        "message_count": handled_through,
-                        "content": str(latest_self["content"]),
-                    }
-                resumed = True
+                if owner_state == OWNER_HUMAN or attribution:
+                    owner_state = OWNER_CODEX
+                    handled_through = int(latest_self["message_count"])
+                    handoff_event_id = ""
+                    resume_after = handled_through
+                    resume_source = (
+                        RESUME_CODEX_OUTBOUND if attribution else RESUME_HUMAN_REPLY
+                    )
+                    matched_reply_task_id = str(
+                        (attribution or {}).get("reply_task_id") or ""
+                    )
+                    if attribution:
+                        reconciliation = {
+                            "inbound_event_id": handoff_event,
+                            "reply_task_id": matched_reply_task_id,
+                            "message_count": handled_through,
+                            "content": str(latest_self["content"]),
+                        }
+                    resumed = True
         result = self._upsert(
             account_slot=account_slot,
             platform=platform,
@@ -191,6 +211,7 @@ class ConversationOwnershipService:
         event_id: str,
         message_count: int,
         updated_at: str | None = None,
+        owner_state: str = OWNER_HUMAN,
     ) -> dict:
         current = self.get(account_slot, platform, user_id) or {}
         boundary = max(
@@ -201,7 +222,7 @@ class ConversationOwnershipService:
             account_slot=account_slot,
             platform=platform,
             user_id=user_id,
-            owner_state=OWNER_HUMAN,
+            owner_state=owner_state,
             handled_through_message_count=boundary,
             handoff_event_id=event_id,
             resume_after_message_count=int(

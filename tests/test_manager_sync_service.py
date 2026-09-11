@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import threading
 
+from manager_polling import DEFAULT_POLLING
 from manager_sync_service import ManagerSyncService
 
 
 class FakeManager:
     def __init__(self) -> None:
+        self.polling_settings = dict(DEFAULT_POLLING)
         self.health_calls: list[str] = []
         self.account_calls: list[str] = []
         self.result_calls: list[str] = []

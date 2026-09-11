@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import pytest
+from service_errors import ServiceError
 
 from scripts.conversation_ownership_service import (
-    ConversationOwnershipService,
     OWNER_CODEX,
     OWNER_HUMAN,
     RESUME_CODEX_OUTBOUND,
+    ConversationOwnershipService,
 )
 from scripts.inbound_event_service import InboundEventService
 from scripts.operations_db import OperationsDatabase
 from scripts.reply_cycle_service import ReplyCycleService
-from service_errors import ServiceError
 
 
 def _service(tmp_path) -> ConversationOwnershipService:
@@ -213,3 +213,40 @@ def test_result_unknown_reply_text_is_attributed_to_codex_outbound(tmp_path) -> 
         "message_count": 3,
         "content": "你好呀～",
     }
+
+
+@pytest.mark.parametrize("reason", ["result_unknown", "send_failed"])
+def test_technical_handoff_migration_reopens_new_messages_only(tmp_path, reason) -> None:
+    service = _service(tmp_path)
+    events = InboundEventService(service.database)
+    cycles = ReplyCycleService(service.database)
+    def record(message_id, count):
+        return events.record(
+            account_slot="alpha", event_type="private_message",
+            platform_event_id=message_id, occurred_at="2026-09-10T01:00:00+00:00",
+            object_type="conversation", object_id="peer",
+            payload={"message_count": count, "conversation_owner": "HUMAN"},
+        )["event"]
+    original = record("old", 3)
+    events.attach_task(original["event_id"], "original-task")
+    cycle = cycles.start(account_slot="alpha")
+    cycles.record_decision(
+        cycle_id=cycle["cycle_id"], event=original, decision="pending", reason=reason,
+        reply_task_id="original-task", result_state="RESULT_UNKNOWN",
+    )
+    service.handoff("alpha", "xiaohongshu", "peer",
+                    event_id=original["event_id"], message_count=3)
+    incoming = record("new", 4)
+    events.mark_handled(incoming["event_id"])
+    service.backfill_latest_decisions()
+    service.backfill_latest_decisions()
+    owner = service.get("alpha", "xiaohongshu", "peer")
+    assert owner["owner_state"] == OWNER_CODEX
+    assert events.get(original["event_id"])["created_task_id"] == "original-task"
+    assert events.get(original["event_id"])["handling_state"] == "TASK_CREATED"
+    assert events.get(incoming["event_id"])["handling_state"] == "NEW"
+    observed = service.observe(account_slot="alpha", platform="xiaohongshu",
+                               user_id="peer", message_count=4,
+                               context=[{"role": "peer", "content": "new"}])
+    assert observed["owner_state"] == OWNER_CODEX
+    assert observed["handoff_event_id"] == original["event_id"]

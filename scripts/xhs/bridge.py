@@ -12,11 +12,14 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import websockets.sync.client as ws_client
-
 from platforms import DEFAULT_PLATFORM, normalize_platform, rewrite_platform_url
+
 from .errors import CDPError, ElementNotFoundError
 
 BRIDGE_URL = "ws://localhost:9333"
@@ -43,6 +46,29 @@ class BridgePage:
     # ─── 内部通信 ───────────────────────────────────────────────
 
     def _call(self, method: str, params: dict | None = None) -> Any:
+        started = time.monotonic()
+        status = "error"
+        result = None
+        try:
+            result = self._request(method, params)
+            status = "ok"
+            return result
+        finally:
+            trace = os.environ.get("XHS_EXECUTION_TRACE_FILE")
+            if trace:
+                record = {
+                    "finished_at": datetime.now(UTC).isoformat(), "method": method,
+                    "elapsed_seconds": round(time.monotonic() - started, 3), "status": status,
+                }
+                if method in {"navigate", "wait_for_load"} and isinstance(result, dict):
+                    record["navigation"] = result
+                try:
+                    with Path(trace).open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+                except OSError:
+                    pass  # Timing evidence must not change a completed business operation.
+
+    def _request(self, method: str, params: dict | None = None) -> Any:
         """向 bridge server 发送一条命令并等待结果。"""
         msg: dict[str, Any] = {
             "role": "cli",

@@ -40,6 +40,8 @@
   let planning = null;
   let employeePanel = null;
   let resultView = null;
+  let pollingView = null;
+  let debugView = null;
   let selectedEmployeeAccount = localStorage.getItem("auto-xhs:employee-account") || "";
   let accountTools = null;
   let selectedMachineId = localStorage.getItem("auto-xhs:manager-machine") || "";
@@ -143,7 +145,9 @@
     browse: "浏览",
     like: "点赞",
     comment: "评论",
-    reply: "回复",
+    reply: "评论回复",
+    private_message: "私信发送",
+    private_reply: "私信回复",
     publish: "发布",
     friend_request: "关注博主",
   };
@@ -321,47 +325,6 @@
       });
       if ([...select.options].some((option) => option.value === previous)) select.value = previous;
     });
-  }
-
-  function machineActionButtons(machine) {
-    const actions = element("div", "manager-card-actions");
-    const status = String(machine.status || "REGISTERED").toUpperCase();
-    const sshState = String(machine.ssh_state || "UNVERIFIED").toUpperCase();
-    const executorService = machine.last_health?.executor_service
-      || machine.last_health?.local_service;
-    const executorServiceReady = executorService?.ready;
-    if (["REGISTERED", "OFFLINE", "BLOCKED", "CHECK_UNKNOWN", "UNKNOWN"].includes(status)) {
-      actions.appendChild(actionButton("连接检查", "machine-check", machine.machine_id, "primary"));
-    }
-    if (sshState === "ONLINE" && executorServiceReady === false) {
-      actions.appendChild(
-        actionButton(
-          "启动执行服务",
-          "machine-executor-start",
-          machine.machine_id,
-          "primary",
-        ),
-      );
-    }
-    if (sshState === "ONLINE" && executorServiceReady === true) {
-      actions.appendChild(
-        actionButton("重启执行服务", "machine-executor-restart", machine.machine_id),
-      );
-    }
-    if (status === "READY") {
-      actions.appendChild(actionButton("暂停调度", "machine-pause", machine.machine_id, "warning"));
-    }
-    if (status === "PAUSED") {
-      actions.appendChild(actionButton("恢复调度", "machine-resume", machine.machine_id, "primary"));
-    }
-    if (["READY", "PAUSED"].includes(status)) {
-      actions.appendChild(actionButton("回收结果", "machine-collect", machine.machine_id));
-    }
-    return actions;
-  }
-
-  function recordsForMachine(records, machineId) {
-    return records.filter((record) => record.machine_id === machineId);
   }
 
   function employeeAccountKey(account) {
@@ -682,7 +645,7 @@
         ["Bridge", accountSignalLabel("bridge", account.bridge_status)],
         ["扩展", accountSignalLabel("extension", account.extension_status)],
         ["Profile", accountSignalLabel("profile", account.profile_status)],
-        ["绑定人设", persona?.display_name || "尚未绑定"],
+        ["绑定人设", persona?.display_name || "友好评论者（默认）"],
         ["当前任务", activeTask?.request?.request_summary || labelFor(account.agent_task_status)],
         ["现场处理", fieldRequest.request_id ? labelFor(fieldRequest.state) : "无待处理请求"],
         ["账号备注", account.account_note || "尚未填写"],
@@ -707,7 +670,7 @@
       actions.append(
         accountActionButton("管理信息", "manage", account),
         accountActionButton("运行诊断", "doctor", account),
-        accountActionButton("启动 Profile", "profile-start", account, "primary"),
+        accountActionButton("启动并连接账号", "profile-start", account, "primary"),
         accountActionButton("重启 Bridge", "bridge-restart", account),
         accountActionButton("检查身份", "identity-check", account),
       );
@@ -727,33 +690,6 @@
     }
     card.appendChild(accountPersonaPanel(account));
     return card;
-  }
-
-  function compactAlertCard(alert) {
-    const card = element("article", "manager-alert-card");
-    const head = element("div", "manager-card-head");
-    const copy = element("div", "manager-record-copy");
-    append(
-      copy,
-      element("strong", "", `${alert.account_slot} · ${alert.reason || "账号状态待处理"}`),
-      element("small", "", formatTime(alert.last_seen_at)),
-    );
-    append(head, copy, stateBadge(alert.severity));
-    append(card, head);
-    if (alert.recommended_action) {
-      card.appendChild(element("p", "manager-inline-message", alert.recommended_action));
-    }
-    return card;
-  }
-
-  function sameLocalDay(value, reference = new Date()) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return false;
-    return date.toLocaleDateString("zh-CN") === reference.toLocaleDateString("zh-CN");
-  }
-
-  function resultOperationCount(result) {
-    return Array.isArray(result.item_results) ? result.item_results.length : 1;
   }
 
   function resultLinks(result) {
@@ -831,7 +767,8 @@
       const knownTargets = targets.filter((value) => value !== null);
       const observations = results.map((result) => workerMetric(result, kind));
       const knownActuals = observations.map((item) => item.actual).filter((value) => value !== null);
-      const target = plan ? (plan.participating ? numericCount(plan.metrics[kind]) : 0)
+      const target = plan && (!plan.participating || numericCount(plan.metrics[kind]) !== null)
+        ? (plan.participating ? numericCount(plan.metrics[kind]) : 0)
         : knownTargets.length ? knownTargets.reduce((sum, n) => sum + n, 0) : null;
       const actual = knownActuals.length ? knownActuals.reduce((sum, n) => sum + n, 0) : null;
       const incomplete = observations.some((item) => item.target !== null && item.actual === null);
@@ -843,7 +780,8 @@
         tone = actual >= target ? "success" : "warning";
       } else if (actual !== null) status = "已回传";
       const server = observed?.metrics[kind];
-      return server && (server.actual !== null || server.target !== null)
+      return server && (server.actual !== null || server.target !== null
+        || ["执行结果待核对", "已阻塞", "执行失败"].includes(server.status))
         ? {...server, target: server.target ?? target}
         : { kind, target, actual, status, tone, incomplete };
     });
@@ -860,7 +798,7 @@
       const badge = element("span", "manager-state-badge", metric.status);
       badge.dataset.tone = metric.tone;
       const actual = metric.actual === null ? "—"
-        : metric.incomplete ? `${metric.actual}（部分回传）` : metric.actual;
+        : metric.incomplete ? `${metric.actual}（已确认）` : metric.actual;
       return [metricLabels[metric.kind], metric.target ?? "—", actual, badge];
     });
     card.appendChild(observationTable(["指标", "目标", "实际", "状态"], rows,
@@ -1147,13 +1085,13 @@
       if (panel.open) expandedPersonas.add(accountKey);
       else expandedPersonas.delete(accountKey);
     });
-    const title = persona?.display_name || "待配置";
+    const title = persona?.display_name || "友好评论者（默认）";
     panel.appendChild(element("summary", "", `账号人设 · ${title}`));
     const edit = element("button", "secondary-button", persona ? "编辑人设" : "配置人设");
     edit.type = "button";
     edit.addEventListener("click", () => openPersonaEditor(account));
     panel.appendChild(append(element("div", "manager-persona-toolbar"),
-      persona ? stateBadge(persona.status) : element("span", "", "为此账号配置专属人设"), edit));
+      persona ? stateBadge(persona.status) : element("span", "", "当前使用默认人设，可配置专属人设"), edit));
     if (!persona) {
       return panel;
     }
@@ -1232,14 +1170,6 @@
     } finally {
       button.disabled = false;
     }
-  }
-
-  function metricSummary(metrics, emptyLabel = "以期望成果为准") {
-    const labels = { browse: "浏览", like: "点赞", comment: "评论", reply: "回复", publish: "发布" };
-    return Object.entries(metrics || {})
-      .filter(([, value]) => Number(value) > 0)
-      .map(([key, value]) => `${labels[key] || key} ${value}`)
-      .join(" · ") || emptyLabel;
   }
 
   function observationTable(headers, rows, caption) {
@@ -2046,7 +1976,13 @@
   function resultActionKind(result) {
     const capability = resultCapability(result);
     if (capability === "follow-user") return "friend_request";
-    if (capability.includes("reply") || capability.includes("private-message")) return "reply";
+    if (capability === "send-private-messages") {
+      return resultRequest(result).parameters?.acceptance_action === "private_reply"
+        ? "private_reply" : "private_message";
+    }
+    if (capability === "reply-inbox"
+      && resultRequest(result).parameters?.acceptance_action === "private_reply") return "private_reply";
+    if (capability.includes("reply")) return "reply";
     if (capability.includes("comment")) return "comment";
     if (capability.includes("like")) return "like";
     if (capability.includes("publish") || capability.includes("article")) return "publish";
@@ -2191,6 +2127,18 @@
 
   function actionTargetActualText(results, kind) {
     const values = results.flatMap((result) => {
+      if (resultCapability(result) === "send-private-messages") {
+        if (resultActionKind(result) !== kind) return [];
+        const items = result.item_results;
+        const actual = ["SUCCESS", "PARTIAL_SUCCESS"].includes(result.state)
+          && Array.isArray(items) ? items.filter((item) =>
+            (item.success === true || item.status === "SUCCESS")
+            && (item.platform_readback === true || item.verified === true)).length
+          : ["BLOCKED", "FAILED", "CANCELLED"].includes(result.state)
+            && actualResultCount(result) === 0 ? 0 : null;
+        return [{capability: "metric", target_count: requestedResultCount(result),
+          actual_count: actual, item_results_status: "missing"}];
+      }
       if (resultCapability(result) !== "home-engagement") {
         return resultActionKind(result) === kind ? [result] : [];
       }
@@ -2471,7 +2419,8 @@
   function collectionStatus(machine) {
     const status = machine.result_sync_status || "NEVER";
     const observedAt = Date.parse(machine.outbox_collection?.observed_at || "");
-    const interval = Number(state.sync.results?.interval_seconds || 60);
+    const interval = Number(state.snapshot.polling?.intervals?.results_seconds
+      || state.sync.results?.interval_seconds || 300);
     const stale = !Number.isFinite(observedAt) || Date.now() - observedAt > interval * 3000;
     if (["OFFLINE", "BLOCKED", "FAILED", "RESULT_UNKNOWN"].includes(status)) {
       return { status, cached: true };
@@ -2484,7 +2433,8 @@
     if (!list) return;
     const sync = state.sync.results;
     setText("#manager-collection-schedule", sync
-      ? `每 ${sync.interval_seconds || 60} 秒 · 下次 ${formatTime(sync.next_run_at)}`
+      ? `每 ${state.snapshot.polling?.intervals?.results_seconds || sync.interval_seconds || 300} 秒`
+        + ` · 最近 ${formatTime(sync.completed_at)}`
       : "等待后台首次收集");
     const cards = state.machines.map((machine) => {
       const card = element("article", "manager-result-card");
@@ -2529,6 +2479,24 @@
   }
 
   function renderResults() {
+    const acceptanceRows = $("#manager-acceptance-rows");
+    if (acceptanceRows) {
+      acceptanceRows.replaceChildren(...(state.acceptance?.actions || []).map((action) => {
+        const row = element("tr");
+        const evidence = element("td");
+        const details = element("details");
+        append(details, element("summary", "", Object.entries(action.accounts || {})
+          .map(([account, count]) => `${account}：${count}`).join("；") || "等待成功回执"));
+        (action.evidence || []).forEach((item) => append(details,
+          element("p", "", `${item.account} · ${item.task_id} · ${item.completed_at || ""}`)));
+        append(evidence, details);
+        append(row, element("td", "", action.label), element("td", "", String(action.target)),
+          element("td", "", String(action.actual)), element("td", "",
+            ({PASSED: "已通过", PENDING: "待验收", DEFERRED: "暂缓"})[action.status] || action.status),
+          evidence);
+        return row;
+      }));
+    }
     renderOutboxCollection();
     populateResultAccounts();
     const results = filteredResults();
@@ -2699,6 +2667,7 @@
   }
 
   function renderAll() {
+    debugView?.render();
     planning?.render();
     employeePanel?.render(selectedEmployeeAccount);
     renderMachines();
@@ -2717,6 +2686,7 @@
   }
 
   function renderSystemSettings() {
+    pollingView?.render();
     const system = state.errors.system ? {} : state.system;
     const limits = system.l1_limits || {};
     setText("#manager-setting-concurrency", system.global_concurrency);
@@ -2908,6 +2878,7 @@
     state.transfers = snapshot.transfers || [];
     state.versions = snapshot.versions || [];
     state.results = snapshot.results || [];
+    state.acceptance = snapshot.acceptance || {};
     state.resultHistory = snapshot.result_history || state.results;
     state.incrementalRecords = snapshot.incremental_records || [];
     state.resultSummary = snapshot.result_summary || {};
@@ -2934,8 +2905,8 @@
     window.clearTimeout(refreshTimer);
     if (document.hidden) return;
     const delay = selectedOperationTaskId
-      ? TASK_REFRESH_INTERVAL_MS
-      : DASHBOARD_REFRESH_INTERVAL_MS;
+      ? (state.snapshot.polling?.intervals?.task_detail_seconds * 1000 || TASK_REFRESH_INTERVAL_MS)
+      : (state.snapshot.polling?.intervals?.dashboard_seconds * 1000 || DASHBOARD_REFRESH_INTERVAL_MS);
     setText("#room-refresh-interval", `每 ${delay / 1000} 秒刷新`);
     setText("#room-collection-interval", `${delay / 1000} 秒`);
     refreshTimer = window.setTimeout(() => load(), delay);
@@ -3127,7 +3098,7 @@
     }
     const labels = {
       doctor: "运行账号诊断",
-      "profile-start": "启动账号 Profile",
+      "profile-start": "启动并连接账号",
       "bridge-restart": "重启账号 Bridge",
     };
     if (!window.confirm(`确认对 ${machineId} / ${account} 执行“${labels[action]}”？`)) return;
@@ -3179,6 +3150,8 @@
   }
 
   function bindEvents() {
+    pollingView = window.AutoXhsPolling({state, mutateJson, managerApi, load, formatTime});
+    debugView = window.AutoXhsDebug?.({state, mutateJson, managerApi, load});
     planning = window.AutoXhsPlanning({state, mutateJson, managerApi, localDateValue,
       workerDayMetrics, metricLabels, formatTime});
     planning.init();

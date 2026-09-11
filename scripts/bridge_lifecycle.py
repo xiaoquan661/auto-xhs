@@ -155,31 +155,6 @@ def stop_bridge(
     raise RuntimeError("Bridge 正在停止，请稍后刷新状态")
 
 
-def restart_bridge(
-    config: AccountConfig,
-    *,
-    page_factory=None,
-    process_factory=None,
-    process_checker=None,
-    sleep=time.sleep,
-    attempts: int = 10,
-) -> dict:
-    stop_bridge(
-        config,
-        page_factory=page_factory,
-        process_checker=process_checker,
-        sleep=sleep,
-        attempts=attempts,
-    )
-    return start_bridge(
-        config,
-        page_factory=page_factory,
-        process_factory=process_factory,
-        sleep=sleep,
-        attempts=attempts,
-    )
-
-
 def process_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
