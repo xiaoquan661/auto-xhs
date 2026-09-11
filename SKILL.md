@@ -10,6 +10,9 @@ description: |
 
 根据用户意图路由到对应子技能，并始终通过本项目执行。
 
+员工 inbox 任务使用 [固定任务入口](skills/employee-task-entry.md)。通过
+`call task-entry.cmd help --command <业务命令>` 查询参数，再用原生 JSON 文件调用业务。
+
 ## 规则优先级
 
 按以下顺序解释规则：
@@ -48,7 +51,7 @@ docs/PRD.md 的版本规则
 - 不使用其他小红书 MCP、Go 工具或外部自动化项目。
 - 多账号命令统一使用 `python scripts/cli.py --account <账号别名> <子命令>`。
 - 先确认目标槽位；不同账号可以并发，同一账号必须由 CLI 账号锁串行执行。
-- 高风险业务命令必须核验槽位记录 UID 与当前登录 UID。
+- 账号首次绑定时读取并确认 UID；日常业务复用槽位绑定直接执行。手动换号后重新绑定，主动检查身份时读取页面 UID。
 - 所有 Profile 使用当前工作区的同一份 `extension`，每个 Profile 独立配对槽位。
 - 文件路径使用绝对路径，CLI 输出以 JSON 结构化反馈。
 - 完成当前任务后停止，不主动扩展成持续任务或批量操作。
@@ -92,14 +95,14 @@ V1.5 产品登录只保留半自动流程：
 → 检查槽位绑定 Profile 是否已经连接
 → 未连接时自动打开 chrome_user_data_dir + chrome_profile_directory
 → 等待通用扩展连接
-→ 核对 Profile 声明、扩展实例和 UID
+→ 核对 Profile 声明、扩展实例和已绑定 UID
 → READY
 ```
 
 - 已连接正确 Profile 时不重复打开。
 - 错误 Profile 返回 `PROFILE_MISMATCH`，不得误报 READY。
 - 系统可以按上述规则打开 Chrome，但不自动关闭用户的 Chrome。
-- 联合启动已完成自动化测试；真实 Windows 环境仍必须按 Profile、扩展实例和 UID 回读判断是否 READY。
+- 联合启动已完成自动化测试；真实 Windows 环境按 Profile、扩展实例和槽位绑定判断是否 READY。
 
 ## V1.5 对外操作规则
 

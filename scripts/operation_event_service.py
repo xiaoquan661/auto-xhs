@@ -12,7 +12,9 @@ class OperationEventService:
     def __init__(self, database: OperationsDatabase) -> None:
         self.database = database
 
-    def record(self, task: dict, *, result: dict | None = None, readback: dict | None = None) -> dict:
+    def record(
+        self, task: dict, *, result: dict | None = None, readback: dict | None = None
+    ) -> dict:
         operation_event_id = uuid.uuid4().hex
         with self.database.transaction() as connection:
             connection.execute(
@@ -41,6 +43,16 @@ class OperationEventService:
                     str(task.get("recommended_action") or ""),
                     json.dumps(result or {}, ensure_ascii=False, sort_keys=True),
                     json.dumps(readback or {}, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            parameters = task.get("parameters") or {}
+            connection.execute(
+                """UPDATE operation_events SET logical_action_id=?, attempt_number=?
+                WHERE operation_event_id=?""",
+                (
+                    parameters.get("logical_action_id"),
+                    parameters.get("attempt_number"),
+                    operation_event_id,
                 ),
             )
         return self.get(operation_event_id)
@@ -137,8 +149,6 @@ class OperationEventService:
     @staticmethod
     def _decode(row: dict) -> dict:
         decoded = dict(row)
-        decoded["platform_result"] = json.loads(
-            decoded.pop("platform_result_json") or "{}"
-        )
+        decoded["platform_result"] = json.loads(decoded.pop("platform_result_json") or "{}")
         decoded["readback"] = json.loads(decoded.pop("readback_json") or "{}")
         return decoded

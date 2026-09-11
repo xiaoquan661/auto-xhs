@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
+
+from metric_temporality import GROWTH_ACTION
 
 from .urls import NOTIFICATION_URL
 
@@ -18,6 +21,11 @@ _READ_GROWTH_JS = r"""
       const kind = /开始关注了你|关注了你|followed you/i.test(text) ? 'new_follower'
         : /赞了你的|点赞了你的|liked your/i.test(text) ? 'received_like' : '';
       if (!kind || text.length > 1500) continue;
+      const actors = new Set([...card.querySelectorAll('a[href*="/user/profile/"]')]
+        .map(a => new URL(a.href).pathname));
+      const actions = text.match(/开始关注了?你|关注了你|赞了你的|点赞了你的|收藏了你的|followed you|liked your/gi) || [];
+      if (actors.size !== 1 || actions.length !== 1 || text.includes('沪ICP备')) break;
+      if (kind === 'received_like' && /收藏了你的/.test(text)) break;
       if (seen.has(card)) break;
       seen.add(card);
       const time = card.querySelector('time, [data-time], [class*="time"]');
@@ -45,6 +53,11 @@ def normalize_growth_notifications(rows: list[dict], captured_at: str) -> list[d
         user = str(row.get("user_id") or "")
         if kind not in {"new_follower", "received_like"} or not user:
             continue
+        content = str(row.get("content") or "")
+        if content and (len(GROWTH_ACTION.findall(content)) != 1 or "沪ICP备" in content):
+            continue
+        if kind == "received_like" and "收藏了你的" in content:
+            continue
         at = str(row.get("occurred_at") or "")
         if at.isdigit():
             epoch = float(at)
@@ -57,11 +70,17 @@ def normalize_growth_notifications(rows: list[dict], captured_at: str) -> list[d
             at = ""
         scope = "platform" if at else "first_observed"
         if not at:
-            at = _display_date(str(row.get("display_time") or ""), captured_at)
+            display = str(row.get("display_time") or "")
+            at = _display_date(display, captured_at)
             if at:
                 scope = "platform_display_date"
+            elif re.fullmatch(r"\d+\s*(分钟|小时|天)前", display):
+                scope = "relative_approximate"
+        # Relative labels and URL tracking parameters change between collections.
+        target = urlsplit(str(row.get("target_url") or "")).path
+        identity_text = content.replace(str(row.get("display_time") or ""), "").strip()
         identifier = str(row.get("notification_id") or "") or ":".join(
-            [str(kind), user, str(row.get("target_url") or ""), at or "undated"]
+            [str(kind), user, target, identity_text or at or "undated"]
         )
         if identifier in seen:
             continue
@@ -74,6 +93,9 @@ def normalize_growth_notifications(rows: list[dict], captured_at: str) -> list[d
                 "occurred_at": at or captured_at,
                 "captured_at": captured_at,
                 "time_scope": scope,
+                "metric_semantics": "event",
+                "identity_basis": "platform_id" if row.get("notification_id") else "content_key",
+                "event_occurred_at": at or None,
                 "source": "notification_dom",
             }
         )
@@ -91,10 +113,6 @@ def _display_date(text: str, captured_at: str) -> str:
         day = captured.date()
     elif value.startswith("昨天"):
         day = captured.date() - timedelta(days=1)
-    elif match := re.fullmatch(r"(\d+)\s*(分钟|小时|天)前", value):
-        amount, unit = int(match[1]), match[2]
-        offset = timedelta(**{{"分钟": "minutes", "小时": "hours", "天": "days"}[unit]: amount})
-        day = (captured - offset).date()
     elif re.fullmatch(r"\d{4}-\d{2}-\d{2}(?: .*)?", value):
         day = datetime.strptime(value[:10], "%Y-%m-%d").date()
     if day is None:

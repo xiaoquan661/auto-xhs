@@ -1,0 +1,121 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const test = require('node:test');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../extension/background.js'), 'utf8');
+const navigation = source.slice(source.indexOf('async function cmdNavigate('), source.indexOf('// ───────────────────────── 截图'));
+const note = 'https://www.xiaohongshu.com/explore/note1';
+
+test('profile extraction supports plain state and Vue ref wrappers', () => {
+  const python = fs.readFileSync(require('node:path').join(__dirname, '../scripts/xhs/user_profile.py'), 'utf8');
+  const userScript = python.match(/_EXTRACT_USER_DATA_JS = """([\s\S]*?)"""/)[1];
+  const notesScript = python.match(/_EXTRACT_USER_NOTES_JS = """([\s\S]*?)"""/)[1];
+  const data = { basicInfo: { nickname: 'tester' }, interactions: [] };
+  const notes = [[{ id: 'note1' }]];
+  for (const wrap of [x => x, x => ({ value: x }), x => ({ _value: x })]) {
+    const context = vm.createContext({ window: { __INITIAL_STATE__: {
+      user: { userPageData: wrap(data), notes: wrap(notes) },
+    } } });
+    assert.deepEqual(JSON.parse(vm.runInContext(userScript, context)), data);
+    assert.deepEqual(JSON.parse(vm.runInContext(notesScript, context)), notes);
+  }
+});
+
+function harness(states) {
+  let tick = 0, index = 0, navigations = 0, reads = 0;
+  const context = vm.createContext({
+    URL, console, binding: { platform: 'xiaohongshu' },
+    normalizePlatform: x => x, platformForUrl: () => 'xiaohongshu',
+    getOrOpenPlatformTab: async () => ({ id: 1, url: states[0].url }),
+    detectNavigationBlock: async () => null,
+    Date: { now: () => tick }, sleep: async ms => { tick += ms; },
+    chrome: {
+      tabs: { get: async () => ({ id: 1, status: 'loading', url: states[index].url }),
+        update: async () => { navigations++; } },
+      scripting: { executeScript: async ({ func }) => {
+        if (func.toString().includes('window.location.href = targetUrl')) navigations++;
+        return [];
+      } },
+    },
+  });
+  vm.runInContext(navigation, context);
+  context.readNavigationState = async () => {
+    reads++;
+    const state = states[Math.min(index, states.length - 1)];
+    index = Math.min(index + 1, states.length - 1);
+    return state;
+  };
+  return { context, reads: () => reads, navigations: () => navigations, time: () => tick };
+}
+const ready = (url = note, documentId = 1) => ({ url, documentId, ready: true, reason: 'note', readyState: 'interactive' });
+
+test('ready note is reused across detail and comment despite loading resources', async () => {
+  const h = harness([ready()]);
+  const result = await h.context.cmdNavigate({ url: note + '?xsec_token=fresh' });
+  assert.equal(result.reused, true);
+  assert.equal(h.navigations(), 0);
+  assert.equal(result.tab_status, 'loading');
+  await h.context.cmdWaitForLoad({});
+  assert.equal(h.time(), 0);
+});
+
+test('old complete document cannot satisfy a navigation to another note', async () => {
+  const h = harness([ready(), ready(), ready(note.replace('note1', 'note2'), 2)]);
+  await h.context.cmdNavigate({ url: note.replace('note1', 'note2') });
+  assert.equal(h.navigations(), 1);
+  assert.ok(h.time() >= 200);
+});
+
+test('matching URL with old document waits for committed navigation', async () => {
+  const h = harness([ready(note, 1), ready(note, 2)]);
+  const result = await h.context.waitForTabComplete(1, note, 1000, 1);
+  assert.equal(result.elapsed_ms, 200);
+});
+
+test('route hydration can finish while Chrome remains loading', async () => {
+  const h = harness([{ ...ready(), ready: false }, ready()]);
+  const result = await h.context.waitForTabComplete(1, note, 1000);
+  assert.equal(result.readiness, 'note');
+  assert.equal(h.time(), 200);
+});
+
+test('wrong target times out and leaves no background polls', async () => {
+  const h = harness([ready(note.replace('note1', 'other'))]);
+  await assert.rejects(h.context.waitForTabComplete(1, note, 600), /页面加载超时/);
+  assert.equal(h.reads(), 3);
+});
+
+test('blocked redirect returns promptly for the existing block handler', async () => {
+  const h = harness([{ ...ready('https://www.xiaohongshu.com/404', 2), reason: 'blocked' }]);
+  assert.equal((await h.context.waitForTabComplete(1, note, 60000, 1)).readiness, 'blocked');
+  assert.equal(h.time(), 0);
+});
+
+test('route comparison preserves host, profile and search query boundaries', () => {
+  const h = harness([ready()]);
+  assert.equal(h.context.sameNavigationTarget(note, note.replace('xiaohongshu', 'rednote')), false);
+  assert.equal(h.context.sameNavigationTarget(note, note.replace('note1', 'note2')), false);
+  assert.equal(h.context.sameNavigationTarget('https://x/search?q=a', 'https://x/search?q=b'), false);
+});
+
+for (const route of ['note', 'profile']) {
+  test(`${route} readiness requires route data and DOM`, async () => {
+    let selectorPresent = false;
+    const state = { note: { noteDetailMap: { note1: { note: { noteId: 'note1' } } } },
+      user: { userPageData: { value: { basicInfo: { nickname: 'tester' } } } } };
+    const path = route === 'note' ? '/explore/note1' : '/user/profile/u1';
+    const context = vm.createContext({ URL, window: { __INITIAL_STATE__: state },
+      location: { href: 'https://www.xiaohongshu.com' + path, pathname: path },
+      performance: { timeOrigin: 1 },
+      document: { readyState: 'interactive', body: {}, querySelectorAll: () => [], querySelector: selector =>
+        selector.includes('access-wrapper') ? null : selectorPresent ? {} : null },
+      chrome: { scripting: { executeScript: async ({ func }) => [{ result: func() }] } },
+    });
+    vm.runInContext(navigation, context);
+    assert.equal((await context.readNavigationState(1)).ready, false);
+    selectorPresent = true;
+    assert.equal((await context.readNavigationState(1)).ready, true);
+    context.window.__INITIAL_STATE__ = {};
+    assert.equal((await context.readNavigationState(1)).ready, false);
+  });
+}

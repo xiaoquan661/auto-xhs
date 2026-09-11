@@ -37,6 +37,65 @@ def view(manager: ManagerService) -> EmployeeOperations:
     )
 
 
+def test_private_message_is_separate_from_reply_and_inbound(tmp_path):
+    from manager_store import ManagerStore
+
+    manager = ManagerService(store=ManagerStore(tmp_path))
+    request = {"capability": "send-private-messages", "account_slot": "alpha",
+               "parameters": {"count": 1}}
+    manager.store.put("tasks", "dm", {"task_id": "dm", "machine_id": "PC001",
+                                      "created_at": "2026-09-08T02:00:00Z", "request": request})
+    receipt(manager, "dm", capability="send-private-messages", task_request=request,
+            item_results=[{"success": True, "platform_readback": True}])
+    metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
+    assert metrics["private_message"]["target"] == 1
+    assert metrics["private_message"]["actual"] == 1
+    assert metrics["reply"]["actual"] is None
+    assert metrics["received_private_messages"]["actual"] is None
+    assert view(manager).day_metrics("PC002", "alpha", "2026-09-08")[
+        "private_message"]["target"] is None
+
+
+@pytest.mark.parametrize("state,label", [
+    ("RESULT_UNKNOWN", "执行结果待核对"), ("BLOCKED", "已阻塞"), ("FAILED", "执行失败"),
+])
+def test_daily_metric_explains_terminal_execution(tmp_path, state, label):
+    manager = manager_at(tmp_path)
+    receipt(manager, "reply", capability="reply-inbox", state=state,
+            task_request={"capability": "reply-inbox", "account_slot": "alpha",
+                          "parameters": {"acceptance_action": "reply"}})
+    metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
+    assert metrics["reply"]["status"] == label
+    assert metrics["reply"]["incomplete"] is False
+
+
+def test_complete_worker_event_enriches_summary_with_account_isolation(tmp_path):
+    from manager_store import ManagerStore
+
+    manager = ManagerService(store=ManagerStore(tmp_path))
+    state = manager.store.snapshot()
+    summary = {"event_id": "e", "platform_event_id": "p", "event_type": "note_comment",
+               "summary": "历史通知首次入库，按规则跳过", "historical_backfill": True}
+    state["incremental_records"] = {"r": {"machine_id": "PC001", "account_slot": "alpha",
+                                            "data": summary}}
+    full = {**summary, "handling_state": "IGNORED", "occurred_at": "2026-09-01T00:00:00Z",
+            "payload": {"nickname": "阿璇日记", "content": "具体评论", "feed_id": "note",
+                        "comment_id": "comment"}}
+    state["worker_observations"] = [{"machine_id": "PC001", "account_slot": "alpha",
+                                     "data": full},
+                                    {"machine_id": "PC002", "account_slot": "alpha",
+                                     "data": {**full, "payload": {"nickname": "其他账号"}}}]
+    operations = EmployeeOperations(state, [], manager._result_metric_counts)
+    rows = operations.observations["PC001", "alpha"]
+    assert len(rows) == 1
+    item = operations.event_view(rows[0])
+    assert item["actor_name"] == "阿璇日记"
+    assert item["reply_text"] == "具体评论"
+    assert item["handling_state"] == "IGNORED" and not item["requires_reply"]
+    assert item["target_url"].endswith("/explore/note")
+    assert item["historical_backfill"] is True
+
+
 def receipt(manager: ManagerService, identifier: str, **fields: object) -> dict:
     result = {
         "machine_id": "PC001",
@@ -188,9 +247,11 @@ def test_event_replays_account_isolation_and_china_calendar(tmp_path: Path) -> N
     assert one["session_count"] == 1
     assert two["private_message_events"] == []
     metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
-    assert metrics["received_comments"]["actual"] == 1
-    assert metrics["received_private_messages"]["actual"] == 1
+    assert metrics["received_comments"]["actual"] is None
+    assert metrics["received_comments"]["observed_new"] == 1
+    assert metrics["received_private_messages"]["observed_new"] == 1
     assert metrics["received_comments"]["incomplete"]
+    assert metrics["received_comments"]["observation"]["source"] == "platform_event_time"
     assert (
         view(manager).day_metrics("PC001", "alpha", "2026-09-07")["received_comments"]["actual"]
         is None
@@ -213,9 +274,11 @@ def test_daily_growth_uses_adjacent_snapshot_dates_and_same_identity(tmp_path: P
     ]
     receipt(manager, "metrics", incremental_data=samples)
     metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
-    assert metrics["new_followers"]["actual"] == -2
-    assert metrics["received_likes"]["actual"] == 10
-    assert metrics["new_followers"]["observation"]["source"] == "snapshot_delta"
+    assert metrics["new_followers"]["actual"] is None
+    assert metrics["received_likes"]["actual"] is None
+    assert metrics["new_followers"]["sampled_net_change"]["value"] == -2
+    assert metrics["received_likes"]["sampled_net_change"]["value"] == 10
+    assert metrics["new_followers"]["current_total"] == 18
     assert (
         view(manager).day_metrics("PC001", "alpha", "2026-09-09")["new_followers"]["actual"] is None
     )

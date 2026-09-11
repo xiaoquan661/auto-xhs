@@ -7,6 +7,10 @@ process.env.TZ = "Asia/Shanghai";
 const source = fs.readFileSync(path.join(__dirname, "../webui/manager-console.js"), "utf8");
 const metricLabels = vm.runInNewContext(`(${source.match(/const metricLabels = (\{[\s\S]*?\});/)[1]})`);
 assert.equal(metricLabels.friend_request, "关注博主");
+assert.ok(source.includes('accountActionButton("启动并连接账号", "profile-start"'));
+assert.ok(source.includes('"profile-start": "启动并连接账号"'));
+const workerSource = fs.readFileSync(path.join(__dirname, "../webui/worker/worker.js"), "utf8");
+assert.ok(workerSource.includes('"profile-start": "启动并连接账号"'));
 function extract(name) {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
@@ -15,7 +19,7 @@ function extract(name) {
 }
 const controls = {};
 const collectionContext = vm.createContext({
-  state: { sync: { results: { interval_seconds: 60 } } },
+  state: { snapshot: {}, sync: { results: { interval_seconds: 60 } } },
 });
 vm.runInContext(extract("collectionStatus"), collectionContext);
 assert.equal(collectionContext.collectionStatus({result_sync_status: "IDLE",
@@ -264,6 +268,17 @@ for (const capability of ["collect-private-messages", "collect-note-comments", "
   }
 }
 console.log("PASS: worker daily targets, account/date isolation, receipt completeness and history");
+
+resultContext.state.employeeSummary = {daily_metrics: [{
+  machine_id: "QA-A", account_slot: "account-a", date: "2026-09-07", metrics: {
+    browse: {kind: "browse", target: null, actual: null, status: "执行结果待核对",
+      tone: "warning", incomplete: false},
+  },
+}]};
+assert.equal(workerMetric("browse").target, 5);
+assert.equal(workerMetric("browse").status, "执行结果待核对");
+assert.equal(workerMetric("browse").incomplete, false);
+delete resultContext.state.employeeSummary;
 
 vm.runInContext(extract("nextWorkerPlan"), resultContext);
 const dailyRow = {machine_id: "QA-A", account_slot: "account-a", participating: true,

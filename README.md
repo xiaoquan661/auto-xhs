@@ -204,11 +204,14 @@ python scripts/cli.py account-doctor --name brand-a --require-ready
 
 #### 在账号槽位中安全更换小红书账号
 
+首次确认 UID 后，日常任务直接使用槽位绑定身份，绑定在服务重启后继续有效。
+手动更换登录账号后完成新 UID 绑定；“检查身份”用于主动读取当前页面身份。
+
 `brand-a`、`account-1` 等名称是本机浏览器槽位，不是固定的小红书账号。槽位的 Profile、
 扩展和 Bridge 端口保持不变，当前登录的小红书账号可以更换：
 
 ```bash
-# 可选但推荐：首次使用时记录当前小红书 UID 作为身份基准
+# 首次使用时确认并记录小红书 UID，日常业务持续复用此绑定
 python scripts/cli.py --account account-1 account-identity --record --label "主账号"
 
 # 1. 暂停 account-1 的业务任务并退出当前登录
@@ -398,7 +401,7 @@ python scripts/cli.py --account brand-a collect-private-messages `
 ```
 
 > `account-start` 会在扩展未连接时按需打开槽位绑定 Profile；普通业务命令不会任意启动、切换
-> 或关闭 Chrome。进入 READY 仍以 Profile、扩展实例和 UID 回读为准。
+> 或关闭 Chrome。进入 READY 以 Profile、扩展实例和槽位已绑定 UID 为准。
 
 ## CLI 命令参考
 

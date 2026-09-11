@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -104,6 +105,7 @@ def test_invoke_builds_ssh_command_and_sends_payload_only_through_stdin() -> Non
     assert payload["content"] not in " ".join(command)
     assert kwargs["timeout"] == 25
     assert kwargs["encoding"] == "utf-8"
+    assert kwargs["creationflags"] == (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
 def test_invoke_maps_ssh_exit_255_to_offline() -> None:
@@ -227,11 +229,21 @@ def test_download_builds_scp_command() -> None:
 
     command, _kwargs = runner.calls[0]
     assert command[0] == r"C:\OpenSSH\scp.exe"
+    assert "-r" in command
     assert command[-2:] == [
         r"EDY@192.168.1.28:C:\manager\results\result.json",
         r"C:\results\result.json",
     ]
     assert result["destination"] == r"C:\results\result.json"
+
+
+@pytest.mark.parametrize("operation", ["download", "sftp_download"])
+def test_download_transports_run_without_console(operation: str, tmp_path: Path) -> None:
+    runner = RecordingRunner(stdout="")
+    getattr(transport(runner), operation)(machine(), "C:/outbox/evidence", tmp_path / "evidence")
+    assert runner.calls[0][1]["creationflags"] == (
+        subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    )
 
 
 def test_sftp_upload_uses_temporary_name_then_atomic_rename(tmp_path: Path) -> None:

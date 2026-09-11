@@ -6,6 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
+from comment_relations import project_reply
 from operations_db import OperationsDatabase
 from platforms import normalize_platform
 from service_errors import ServiceError
@@ -130,6 +131,12 @@ class ReplyRecordService:
                     int(parameters.get("rule_version") or 0),
                 ),
             )
+            connection.execute(
+                """UPDATE reply_records SET logical_action_id=COALESCE(?, logical_action_id),
+                persona_version=COALESCE(?, persona_version) WHERE reply_task_id=?""",
+                (parameters.get("logical_action_id"), parameters.get("persona_version"), task_id),
+            )
+            project_reply(connection, task_id)
             row = connection.execute(
                 "SELECT * FROM reply_records WHERE reply_task_id = ?",
                 (task_id,),
@@ -201,6 +208,7 @@ class ReplyRecordService:
                     reply_task_id,
                 ),
             )
+            project_reply(connection, reply_task_id)
         updated = self.database.fetch_one(
             "SELECT * FROM reply_records WHERE reply_task_id = ?",
             (reply_task_id,),

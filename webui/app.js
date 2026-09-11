@@ -574,6 +574,10 @@ async function pollGuidedAccountSetup() {
       setAccountSetupPrimary("重新检测 Profile", pollGuidedAccountSetup);
       return;
     }
+    if (status.ready) {
+      await finishGuidedAccountSetup(status.identity);
+      return;
+    }
     await inspectGuidedIdentity();
   } catch (error) {
     $("#account-setup-message").textContent = error.message;
@@ -675,10 +679,10 @@ async function finishGuidedAccountSetup(identity) {
   const accountName = activeAccountSetup.account.name;
   activeAccountSetup.phase = "READY";
   $("#account-setup-stage").textContent = "已就绪";
-  $("#account-setup-message").textContent = `${identity.nickname || identity.user_id} 已完成连接与身份核验。`;
+  $("#account-setup-message").textContent = `${identity.nickname || identity.user_id} 的连接与身份绑定已就绪。`;
   setAccountSetupPrimary("配置完成", null, { disabled: true });
   paintSetupProgress("ready", setupSteps);
-  setAccountSetupGuidance("账号已经 READY", "后续断线时点击“恢复连接”即可，UID 将自动核对。", true);
+  setAccountSetupGuidance("账号已经 READY", "后续断线时点击“恢复连接”即可，日常任务使用已绑定 UID。", true);
   await refreshAccountRoster();
   setTimeout(() => {
     if (activeAccountSetup?.account.name === accountName && activeAccountSetup.phase === "READY") closeGuidedAccountSetup();
@@ -1582,7 +1586,7 @@ function openPublishConfirmation(task) {
     });
   }
 
-  const ready = Boolean(status.ready && identity.live_user_id && identity.matches_record);
+  const ready = Boolean(status.ready && (identity.execution_user_id || identity.live_user_id) && identity.matches_record);
   const checkbox = $("#publish-preview-confirmed");
   checkbox.checked = false;
   checkbox.disabled = !ready;
@@ -1613,7 +1617,7 @@ async function executePublishConfirmation(action) {
   try {
     const result = await mutateJson(`${api}/tasks/${task.task_id}/${action}`, "POST", {
       account_slot: task.account_slot,
-      verified_uid: identity.live_user_id || "",
+      verified_uid: identity.execution_user_id || identity.live_user_id || "",
       confirmed: true,
       preview_revision: task.parameters?.preview_revision || "",
       ...(publish ? { preview_confirmed: true } : {}),
@@ -2529,7 +2533,7 @@ function accountSnapshot(accounts, statuses) {
       status.profile_verified,
       status.next_action,
       status.identity?.user_id || "",
-      status.identity?.live_user_id || "",
+      status.identity?.execution_user_id || status.identity?.live_user_id || "",
       status.identity?.nickname || "",
       status.identity?.logged_out || false,
       status.identity?.logout_confirmed || false,

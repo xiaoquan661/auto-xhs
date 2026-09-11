@@ -19,14 +19,10 @@ FILTER_BUTTON = "div.filter"
 FILTER_PANEL = "div.filters-wrapper"
 
 # ========== Feed 详情 ==========
-COMMENTS_CONTAINER = ".comments-container"
 PARENT_COMMENT = ".parent-comment"
 NO_COMMENTS_TEXT = ".no-comments-text"
 END_CONTAINER = ".end-container"
-TOTAL_COMMENT = ".comments-container .total"
 SHOW_MORE_BUTTON = ".show-more"
-NOTE_SCROLLER = ".note-scroller"
-INTERACTION_CONTAINER = ".interaction-container"
 
 # 页面不可访问容器
 ACCESS_ERROR_WRAPPER = ".access-wrapper, .error-wrapper, .not-found-wrapper, .blocked-wrapper"
@@ -72,7 +68,6 @@ TAG_FIRST_ITEM = ".item"
 
 # ========== 写长文模式 ==========
 # 注意: 长文模式的按钮（写长文、新的创作、一键排版、下一步）通过文本匹配定位
-LONG_ARTICLE_TAB_TEXT = "写长文"
 NEW_CREATION_BUTTON_TEXT = "新的创作"
 AUTO_FORMAT_BUTTON_TEXT = "一键排版"
 NEXT_STEP_BUTTON_TEXT = "下一步"
@@ -94,7 +89,6 @@ LOGOUT_MENU_ITEM = (
 )
 
 # ========== 用户主页 ==========
-SIDEBAR_PROFILE = "div.main-container li.user.side-bar-component a.link-wrapper span.channel"
 # 登录后导航栏"我"的链接（href 含 /user/profile/<user_id>）
 USER_PROFILE_NAV_LINK = ".main-container .user .link-wrapper a.link-wrapper"
 # 个人主页真实昵称

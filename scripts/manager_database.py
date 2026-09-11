@@ -1,0 +1,293 @@
+"""Queryable SQLite projection of complete manager records and their JSON fields."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from service_errors import ServiceError
+
+
+class ManagerDatabase:
+    """Keep source records intact; expose nested fields through SQLite JSON views."""
+
+    def __init__(self, root: Path) -> None:
+        self.path = root / "manager-operations.db"
+
+    def sync(self, state: dict) -> dict:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.path, timeout=30) as db:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS records (
+                    collection TEXT NOT NULL,
+                    record_key TEXT NOT NULL,
+                    machine_id TEXT NOT NULL,
+                    account_slot TEXT NOT NULL,
+                    payload TEXT NOT NULL CHECK(json_valid(payload)),
+                    PRIMARY KEY(collection, record_key)
+                );
+                CREATE INDEX IF NOT EXISTS records_account
+                    ON records(machine_id, account_slot, collection);
+                CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS daily_metric_facts (
+                    machine_id TEXT NOT NULL, account_slot TEXT NOT NULL,
+                    business_date TEXT NOT NULL, metric TEXT NOT NULL,
+                    actual INTEGER, observed_new INTEGER, current_total REAL,
+                    sampled_net_change REAL, newly_discovered INTEGER,
+                    coverage TEXT NOT NULL, payload TEXT NOT NULL CHECK(json_valid(payload)),
+                    PRIMARY KEY(machine_id, account_slot, business_date, metric)
+                );
+                CREATE TABLE IF NOT EXISTS worker_records (
+                    machine_id TEXT NOT NULL, collection TEXT NOT NULL,
+                    record_key TEXT NOT NULL, account_slot TEXT NOT NULL,
+                    payload TEXT NOT NULL CHECK(json_valid(payload)),
+                    PRIMARY KEY(machine_id, collection, record_key)
+                );
+                CREATE VIEW IF NOT EXISTS worker_fields AS
+                    SELECT r.machine_id, r.collection, r.record_key, r.account_slot,
+                           j.fullkey AS path, j.type, j.atom AS value
+                    FROM worker_records AS r, json_tree(r.payload) AS j;
+                CREATE VIEW IF NOT EXISTS fields AS
+                    SELECT r.collection, r.record_key, r.machine_id, r.account_slot,
+                           j.fullkey AS path, j.type, j.atom AS value
+                    FROM records AS r, json_tree(r.payload) AS j;
+                CREATE VIEW IF NOT EXISTS comment_reply_details AS
+                    SELECT e.machine_id, e.account_slot,
+                           json_extract(e.payload, '$.platform') AS platform,
+                           json_extract(e.payload, '$.event_id') AS event_id,
+                           json_extract(e.payload, '$.comment_id') AS comment_id,
+                           json_extract(e.payload, '$.note_id') AS note_id,
+                           json_extract(e.payload, '$.parent_comment_id') AS parent_comment_id,
+                           json_extract(e.payload, '$.author_name') AS author_name,
+                           json_extract(e.payload, '$.content') AS content,
+                           json_extract(e.payload, '$.parent_content') AS parent_content,
+                           json_extract(e.payload, '$.detail_state') AS detail_state,
+                           json_extract(e.payload, '$.handling_state') AS handling_state,
+                           json_extract(d.payload, '$.decision') AS decision,
+                           json_extract(d.payload, '$.reason') AS decision_reason,
+                           json_extract(r.payload, '$.reply_task_id') AS reply_task_id,
+                           json_extract(r.payload, '$.reply_text') AS reply_text,
+                           json_extract(r.payload, '$.send_state') AS send_state,
+                           json_extract(r.payload, '$.platform_reply_id') AS platform_reply_id,
+                           json_extract(r.payload, '$.logical_action_id') AS logical_action_id,
+                           json_extract(r.payload, '$.confirmed_at') AS confirmed_at
+                    FROM worker_records e
+                    LEFT JOIN worker_records d ON d.collection='reply_decisions'
+                        AND d.machine_id=e.machine_id AND d.account_slot=e.account_slot
+                        AND json_extract(d.payload, '$.platform')=
+                            json_extract(e.payload, '$.platform')
+                        AND json_extract(d.payload, '$.inbound_event_id')=
+                            json_extract(e.payload, '$.event_id')
+                    LEFT JOIN worker_records r ON r.collection='reply_records'
+                        AND r.machine_id=e.machine_id AND r.account_slot=e.account_slot
+                        AND json_extract(r.payload, '$.platform')=
+                            json_extract(e.payload, '$.platform')
+                        AND json_extract(r.payload, '$.inbound_event_id')=
+                            json_extract(e.payload, '$.event_id')
+                    WHERE e.collection='inbound_events'
+                        AND json_extract(e.payload, '$.event_type')='note_comment';
+            """)
+            rows = []
+            for collection, values in state.items():
+                entries = values.items() if isinstance(values, dict) else [("value", values)]
+                for key, value in entries:
+                    record = value if isinstance(value, dict) else {}
+                    request = record.get("request") or record.get("task_request") or {}
+                    rows.append(
+                        (
+                            collection,
+                            str(key),
+                            str(record.get("machine_id") or ""),
+                            str(record.get("account_slot") or request.get("account_slot") or ""),
+                            json.dumps(value, ensure_ascii=False, separators=(",", ":")),
+                        )
+                    )
+            # Replace one complete snapshot in one transaction, including removed records.
+            db.execute("DELETE FROM records")
+            db.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?)", rows)
+            synced_at = datetime.now(UTC).isoformat()
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('synced_at', ?)", (synced_at,))
+        self.sync_daily_metrics(state)
+        return {
+            "success": True,
+            "database": str(self.path),
+            "records": len(rows),
+            "synced_at": synced_at,
+        }
+
+    def import_worker(self, machine_id: str, snapshot: dict) -> dict:
+        if snapshot.get("success") is not True:
+            raise ServiceError("WORKER_DATA_UNAVAILABLE", "员工业务数据库尚未成功导出")
+        rows = []
+        for table, values in snapshot["tables"].items():
+            for index, value in enumerate(values):
+                rows.append(
+                    (
+                        machine_id,
+                        table,
+                        str(index),
+                        str(value.get("account_slot") or ""),
+                        json.dumps(value, ensure_ascii=False),
+                    )
+                )
+        rows.append(
+            (
+                machine_id,
+                "_schema",
+                "schema",
+                "",
+                json.dumps(snapshot["schema"], ensure_ascii=False),
+            )
+        )
+        if snapshot.get("product_state") is not None:
+            rows.append(
+                (
+                    machine_id,
+                    "_product_state",
+                    "state",
+                    "",
+                    json.dumps(snapshot["product_state"], ensure_ascii=False),
+                )
+            )
+        with sqlite3.connect(self.path, timeout=30) as db:
+            db.execute("DELETE FROM worker_records WHERE machine_id=?", (machine_id,))
+            db.executemany("INSERT INTO worker_records VALUES (?, ?, ?, ?, ?)", rows)
+            db.execute(
+                "INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                (
+                    f"worker:{machine_id}",
+                    json.dumps(
+                        {
+                            "exported_at": snapshot["exported_at"],
+                            "source": snapshot["source"],
+                            "imported_at": datetime.now(UTC).isoformat(),
+                            "records": len(rows),
+                        }
+                    ),
+                ),
+            )
+        return {
+            "success": True,
+            "machine_id": machine_id,
+            "records": len(rows),
+            "tables": len(snapshot["tables"]),
+            "exported_at": snapshot["exported_at"],
+        }
+
+    def query(self, sql: str, parameters: list[Any] | None = None, limit: int = 200) -> dict:
+        if not sql.strip() or not 1 <= limit <= 10000:
+            raise ServiceError("INVALID_QUERY", "请输入查询语句，返回行数为 1–10000")
+        try:
+            with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as db:
+                db.row_factory = sqlite3.Row
+                db.execute("PRAGMA query_only=ON")
+                # Permit SQL reads/functions, including JSON traversal and aggregates.
+                allowed = {
+                    sqlite3.SQLITE_SELECT,
+                    sqlite3.SQLITE_READ,
+                    sqlite3.SQLITE_FUNCTION,
+                    sqlite3.SQLITE_RECURSIVE,
+                }
+                db.set_authorizer(
+                    lambda action, *_: (
+                        sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY
+                    )
+                )
+                steps = 0
+
+                def bounded() -> int:
+                    nonlocal steps
+                    steps += 1
+                    return int(steps > 10000)
+
+                db.set_progress_handler(bounded, 1000)
+                cursor = db.execute(sql, parameters or [])
+                rows = cursor.fetchmany(limit + 1)
+                return {
+                    "success": True,
+                    "database": str(self.path),
+                    "columns": [c[0] for c in cursor.description or []],
+                    "rows": [dict(row) for row in rows[:limit]],
+                    "truncated": len(rows) > limit,
+                    "limit": limit,
+                }
+        except sqlite3.Error as exc:
+            raise ServiceError("DATABASE_QUERY_FAILED", f"数据库只读查询失败：{exc}") from exc
+
+    def schema(self) -> dict:
+        result = self.query(
+            "SELECT 'manager' AS source, collection, path, type, count(*) AS occurrences "
+            "FROM fields GROUP BY collection, path, type UNION ALL "
+            "SELECT machine_id, collection, path, type, count(*) FROM worker_fields "
+            "GROUP BY machine_id, collection, path, type ORDER BY source, collection, path",
+            limit=10000,
+        )
+        result["tables"] = {
+            "records": "每条原始记录；payload 保留全部嵌套字段，可用 json_extract 查询",
+            "fields": "全部 JSON 路径、类型和值；数组下标保留",
+            "metadata": "数据库同步时间",
+            "worker_records": "员工运营库全部表字段与本地产品状态；按机器隔离",
+            "worker_fields": "员工记录嵌套 JSON 路径；_schema 保存空表字段定义",
+            "comment_reply_details": "按机器、账号关联评论、处理决策和发送确认记录",
+            "daily_metric_facts": (
+                "按日指标：actual完整日计数、observed_new已观察日新增、current_total存量、"
+                "sampled_net_change采样净变、newly_discovered新入库；payload含区间和依据"
+            ),
+        }
+        return result
+
+    def employee_observations(self) -> list[dict]:
+        """Read complete imported events for the account views, without refreshing the DB."""
+        if not self.path.exists():
+            return []
+        with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as db:
+            rows = db.execute(
+                "SELECT machine_id, account_slot, payload FROM worker_records "
+                "WHERE collection IN ('inbound_events', 'metric_snapshots')"
+            ).fetchall()
+        observations = []
+        for machine, slot, raw in rows:
+            event = json.loads(raw)
+            payload = event.pop("payload_json", None)
+            if payload is not None:
+                event["payload"] = json.loads(payload) if isinstance(payload, str) else payload
+            extra = event.pop("extra_json", None)
+            if extra is not None:
+                event["extra"] = json.loads(extra) if isinstance(extra, str) else extra
+            observations.append({"machine_id": machine, "account_slot": slot, "data": event})
+        return observations
+
+    def sync_daily_metrics(self, state: dict) -> None:
+        """Rebuild semantic facts from preserved receipts and imported worker evidence."""
+        from employee_operations import EmployeeOperations
+        from manager_service import ManagerService
+
+        latest: dict[str, dict] = {}
+        for result in state.get("results", {}).values():
+            key = ManagerService._result_execution_key(result)
+            if key not in latest or ManagerService._result_revision_key(result) > (
+                    ManagerService._result_revision_key(latest[key])):
+                latest[key] = result
+        operations = EmployeeOperations(
+            {"daily_plans": {}, "incremental_records": {}, **state,
+             "worker_observations": self.employee_observations()},
+            list(latest.values()), ManagerService._result_metric_counts,
+        )
+        accounts = list(state.get("accounts", {}).values())
+        days = operations.summary(accounts)["daily_metrics"]
+        rows = []
+        for day in days:
+            for kind, value in day["metrics"].items():
+                rows.append((day["machine_id"], day["account_slot"], day["date"], kind,
+                             value.get("actual"), value.get("observed_new"),
+                             value.get("current_total"),
+                             (value.get("sampled_net_change") or {}).get("value"),
+                             value.get("newly_discovered"), value.get("coverage", "execution"),
+                             json.dumps(value, ensure_ascii=False)))
+        with sqlite3.connect(self.path, timeout=30) as db:
+            db.execute("DELETE FROM daily_metric_facts")
+            db.executemany("INSERT INTO daily_metric_facts VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('metric_semantics_version','2')")

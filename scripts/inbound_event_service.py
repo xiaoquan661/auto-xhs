@@ -6,6 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
+from comment_relations import project_comment
 from operations_db import OperationsDatabase
 from platforms import normalize_platform
 from service_errors import ServiceError
@@ -79,6 +80,17 @@ class InboundEventService:
                   AND event_type = ? AND platform_event_id = ?
                 """,
                 (account_slot, platform, event_type, platform_event_id),
+            ).fetchone()
+            if not created:
+                merged = json.loads(row["payload_json"] or "{}")
+                merged.update({k: v for k, v in (payload or {}).items() if v not in (None, "", [])})
+                connection.execute(
+                    "UPDATE inbound_events SET payload_json=?, last_seen_at=? WHERE event_id=?",
+                    (json.dumps(merged, ensure_ascii=False), discovered_at, row["event_id"]),
+                )
+            project_comment(connection, row["event_id"])
+            row = connection.execute(
+                "SELECT * FROM inbound_events WHERE event_id=?", (row["event_id"],)
             ).fetchone()
         return {"created": created, "event": self._decode(dict(row))}
 

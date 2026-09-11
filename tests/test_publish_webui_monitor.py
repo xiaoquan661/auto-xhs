@@ -65,7 +65,8 @@ def test_webui_only_exposes_existing_publish_preview_confirmation() -> None:
     assert 'id="publish-confirm-submit"' in page
 
 
-def test_webui_confirmation_reuses_publish_workflow(tmp_path) -> None:
+@pytest.mark.parametrize("identity_source", ["live_user_id", "execution_user_id"])
+def test_webui_confirmation_reuses_publish_workflow(tmp_path, identity_source) -> None:
     store = ProductStore(tmp_path / "product")
     calls = []
     runner = BusinessRunner(
@@ -80,7 +81,10 @@ def test_webui_confirmation_reuses_publish_workflow(tmp_path) -> None:
         }
     )
     service = ApplicationService(product_store=store, business_runner=runner)
-    service.get_account_status = lambda account: _ready_status()
+    status = _ready_status()
+    status["identity"].pop("live_user_id")
+    status["identity"][identity_source] = "owner-1"
+    service.get_account_status = lambda account: status
     task = _waiting_publish(store)
 
     result = service.confirm_publish_task(

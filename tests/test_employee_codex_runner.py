@@ -54,8 +54,77 @@ result = {'state': 'SUCCESS', 'message': '完成',
 """
 
 
+FILE_RESULT_SCRIPT = (
+    SUCCESS_SCRIPT
+    + """
+result['business_result'] = json.loads(result.pop('business_result_json'))
+result['item_results'] = json.loads(result.pop('item_results_json'))
+(root / 'execution-result.json').write_text(json.dumps(result), encoding='utf-8')
+(root / 'result.json').write_text(json.dumps({'result_file': 'execution-result.json'}))
+"""
+)
+
+
+@pytest.mark.parametrize("readback,expected", [(True, "SUCCESS"), (False, "RESULT_UNKNOWN")])
+def test_file_receipt_preserves_windows_paths_and_comment_text(
+    tmp_path: Path, monkeypatch, readback: bool, expected: str
+) -> None:
+    item = {
+        "status": "SUCCESS",
+        "platform_readback": readback,
+        "evidence_path": r"C:\Users\EDY\.xhs\new\test.json",
+        "content": '中文评论 "原文"\n第二行',
+    }
+    body = (
+        FILE_RESULT_SCRIPT
+        + f"""
+result['item_results'] = [{item!r}]
+(root / 'execution-result.json').write_text(
+    json.dumps(result, ensure_ascii=False), encoding='utf-8')
+"""
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    result = EmployeeCodexRunner(tmp_path / "state")(
+        task(
+            capability="post-comment",
+            parameters={"count": 1},
+            authorization={"authorization_id": "approved-plan"},
+        )
+    )
+    assert result["state"] == expected
+    assert result["item_results"][0]["evidence_path"] == item["evidence_path"]
+    assert result["item_results"][0]["content"] == item["content"]
+
+
+def test_malformed_legacy_receipt_stays_unknown(tmp_path: Path, monkeypatch) -> None:
+    invalid_items = '[{"evidence_path":"C:\\Users\\EDY"}]'
+    body = (
+        SUCCESS_SCRIPT
+        + f"""
+result['item_results_json'] = {invalid_items!r}
+(root / 'result.json').write_text(json.dumps(result), encoding='utf-8')
+"""
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    result = EmployeeCodexRunner(tmp_path / "state")(task(write_intent=True))
+    assert result["state"] == "RESULT_UNKNOWN"
+    assert "Invalid" in result["message"]
+
+
+def test_missing_result_file_stays_unknown(tmp_path: Path, monkeypatch) -> None:
+    body = (
+        SUCCESS_SCRIPT
+        + """
+(root / 'result.json').write_text(json.dumps({'result_file': 'execution-result.json'}))
+"""
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    result = EmployeeCodexRunner(tmp_path / "state")(task(write_intent=True))
+    assert result["state"] == "RESULT_UNKNOWN"
+
+
 def test_real_child_process_claim_and_structured_result(tmp_path: Path, monkeypatch) -> None:
-    install_fake_codex(monkeypatch, tmp_path, SUCCESS_SCRIPT)
+    install_fake_codex(monkeypatch, tmp_path, FILE_RESULT_SCRIPT)
     receipts = []
     result = EmployeeCodexRunner(tmp_path / "state", on_claim=receipts.append)(task())
     assert result["state"] == "SUCCESS"

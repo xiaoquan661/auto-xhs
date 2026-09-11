@@ -8,6 +8,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from employee_operations import BUSINESS_TIMEZONE, PLAN_METRICS
+from default_persona import friendly_commenter
 from service_errors import ServiceError
 
 HARD_METRICS = ("browse", "like", "comment", "reply", "publish")
@@ -148,7 +149,7 @@ def material(plan: dict, row: dict, account: dict, persona: dict | None) -> dict
     if not (account.get("current_uid") or account.get("uid")):
         blockers.append("账号需要同步已核验的 UID")
     if not persona:
-        blockers.append("账号需要启用人设卡")
+        persona = friendly_commenter(row.get("machine_id", ""), row.get("account_slot", ""))
     if limits["publish"] > rules["daily_limit"]:
         blockers.append("发帖计划超过账号每日上限")
     if limits["like"] > limits["browse"]:

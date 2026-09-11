@@ -193,11 +193,6 @@ def get_current_user_identity(page: Page) -> dict:
         }
 
 
-def get_current_user_nickname(page: Page) -> str:
-    """获取当前登录用户的真实昵称，失败时返回空字符串（best-effort）。"""
-    return str(get_current_user_identity(page).get("nickname") or "")
-
-
 def check_login_status(page: Page) -> bool:
     """检查登录状态。
 

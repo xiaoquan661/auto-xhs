@@ -163,13 +163,12 @@ def _connect_runtime(args: argparse.Namespace):
 
 
 def _connect(args: argparse.Namespace):
-    """返回 (browser, page)，并为高风险命令执行实时登录身份核验。"""
-    account_name, page = _connect_runtime(args)
+    """返回 (browser, page)，业务命令复用槽位已绑定身份。"""
     if getattr(args, "command", None) in _IDENTITY_GUARDED_COMMANDS:
-        from account_identity import assert_live_identity
-        from xhs.login import get_current_user_identity
+        from application_service import ApplicationService
 
-        assert_live_identity(account_name, get_current_user_identity(page))
+        ApplicationService().require_account_identity(args.account)
+    _account_name, page = _connect_runtime(args)
     return _DummyBrowser(), page
 
 
@@ -179,21 +178,10 @@ _connect_saved_tab = _connect
 
 def _connect_existing(args: argparse.Namespace):
     """复用分步任务的现有页面，不通过导航破坏已填写的发布预览。"""
-    from account_identity import assert_live_identity
+    from application_service import ApplicationService
 
-    account_name, page = _connect_runtime(args)
-    observed = getattr(args, "_runtime_identity", None) or {}
-    user_id = str(observed.get("user_id") or "").strip()
-    assert_live_identity(
-        account_name,
-        {
-            "logged_in": bool(user_id),
-            "user_id": user_id,
-            "nickname": str(observed.get("nickname") or ""),
-            "profile_url": "",
-            "observed_at": str(observed.get("observed_at") or ""),
-        },
-    )
+    ApplicationService().require_account_identity(args.account)
+    _account_name, page = _connect_runtime(args)
     return _DummyBrowser(), page
 
 
@@ -431,6 +419,11 @@ def cmd_delete_cookies(args: argparse.Namespace) -> None:
             raise RuntimeError(f"退出后无法核验登录状态：{observed_after['error']}")
         if observed_after.get("logged_in"):
             raise RuntimeError("退出后仍检测到账号登录，操作未完成")
+        from application_service import ApplicationService
+
+        ApplicationService()._remember_runtime_logged_out(
+            args.account, observed_after, event="LOGOUT_CONFIRMED"
+        )
         msg = "已退出登录" if logged_out else "未登录"
         _output(
             {
@@ -669,6 +662,7 @@ def cmd_reply_cycle(args: argparse.Namespace) -> None:
         max_events=args.max_events,
         max_notes=args.max_notes,
         max_conversations=args.max_conversations,
+        inspection=getattr(args, "inspection", False),
     )
     _output(result)
 
@@ -1124,8 +1118,6 @@ def cmd_click_publish(args: argparse.Namespace) -> None:
     from xhs.errors import PublishError
 
     workflow = PublishWorkflowService()
-    checks = workflow.store.get_setting("runtime_identity_checks", {})
-    args._runtime_identity = (checks or {}).get(args.account) or {}
     task = workflow.prepare_publish(
         args.task_id,
         account=args.account,
@@ -1875,10 +1867,18 @@ def cmd_account_connection_enroll(args: argparse.Namespace) -> None:
 
 
 def _observe_login_identity(args: argparse.Namespace) -> tuple[object, object, dict]:
+    from application_service import ApplicationService
     from xhs.login import get_current_user_identity
 
     browser, page = _connect(args)
-    return browser, page, get_current_user_identity(page)
+    observed = get_current_user_identity(page)
+    if not observed.get("error"):
+        service = ApplicationService()
+        if not observed.get("logged_in"):
+            service._remember_runtime_logged_out(args.account, observed)
+        elif observed.get("user_id"):
+            service._remember_runtime_identity(args.account, observed)
+    return browser, page, observed
 
 
 def cmd_account_identity(args: argparse.Namespace) -> None:
@@ -2386,6 +2386,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--max-events", type=int, default=20)
     sub.add_argument("--max-notes", type=int, default=20)
     sub.add_argument("--max-conversations", type=int, default=20)
+    sub.add_argument("--inspection", action="store_true",
+                     help="同时采集粉丝和点赞；关闭回复时仍采集入站数据")
     sub.set_defaults(func=cmd_reply_cycle, requires_account_lock=False)
 
     sub = subparsers.add_parser(

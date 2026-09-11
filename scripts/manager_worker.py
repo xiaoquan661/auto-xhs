@@ -36,6 +36,8 @@ def dispatch_request(
     if not action:
         raise WorkerServiceError("INVALID_REQUEST", "action不能为空")
     payload = _action_payload(request)
+    if action in {"debug-report", "debug-apply", "debug-status", "debug-rollback"}:
+        return service.debug_action(action.removeprefix("debug-"), payload)
     if action in {"memory-save", "memory-search", "memory-recall"}:
         return service.memory_action(action.removeprefix("memory-"), payload)
     if action == "health":

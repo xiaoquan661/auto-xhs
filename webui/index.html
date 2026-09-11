@@ -7,9 +7,11 @@
     <title>auto-xhs · 经理机运营控制台</title>
     <link rel="stylesheet" href="/styles.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
-    <link rel="stylesheet" href="/control-room.css?v=20260909-account-units-3" />
-    <link rel="stylesheet" href="/employee-panel.css?v=20260909-account-units-2" />
+    <link rel="stylesheet" href="/control-room.css?v=20260909-polling-1" />
+    <link rel="stylesheet" href="/employee-panel.css?v=20260910-metric-groups-1" />
     <link rel="stylesheet" href="/manager-results.css?v=20260908-results-1" />
+    <link rel="stylesheet" href="/manager-acceptance.css?v=20260910" />
+    <link rel="stylesheet" href="/manager-debug.css?v=20260910" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -232,6 +234,14 @@
             <article class="recovery-attention"><span>需关注</span><strong id="recovery-attention-total">—</strong></article>
             <article><span>成功率</span><strong id="manager-success-rate">—</strong></article>
           </div>
+          <details class="manager-acceptance-panel">
+            <summary>全动作验收 · 四账号历史合计</summary>
+            <p>每类目标至少成功 1 次；按平台证据计数。此表独立于下方日期筛选，发布暂缓项保留记录。</p>
+            <div class="manager-acceptance-scroll"><table>
+              <thead><tr><th>动作</th><th>目标</th><th>已确认实际</th><th>状态</th><th>来源账号与证据</th></tr></thead>
+              <tbody id="manager-acceptance-rows"></tbody>
+            </table></div>
+          </details>
           <div class="recovery-action-strip" aria-label="所选范围的动作目标与实际">
             <div><span>浏览 · 目标 / 实际</span><strong id="manager-action-browse">—</strong></div>
             <div><span>点赞 · 目标 / 实际</span><strong id="manager-action-like">—</strong></div>
@@ -278,8 +288,8 @@
 
         <section class="workspace-view" id="settings" data-manager-view="settings" hidden>
           <header class="page-topbar"><div><p class="eyebrow">SYSTEM STATUS</p><h1>系统设置</h1>
-            <p>查看经理机运行参数、员工机连接和版本记录。配置由经理 Agent 在对话中管理。</p></div>
-            <span class="manager-source-label">经理 Agent 管理</span></header>
+            <p>配置定时轮询，查看经理机运行参数、员工机连接和版本记录。</p></div>
+            <span class="manager-source-label">经理机配置</span></header>
           <section class="manager-system">
             <div class="manager-settings-grid">
               <section class="subpage-panel">
@@ -302,10 +312,27 @@
               </section>
             </div>
             <section class="subpage-panel">
+              <div class="lane-heading"><h2>定时轮询</h2><span>保存后生效 · 重启后保留</span></div>
+              <p class="manager-polling-note">机器与账号默认每 10 分钟检查一次。连接检查使用已有身份核验记录；实时登录核验请使用“检查身份”。</p>
+              <form id="manager-polling-form">
+                <div class="manager-polling-grid" id="manager-polling-fields"></div>
+                <p class="manager-polling-note" id="manager-polling-freshness"></p>
+                <div class="manager-polling-actions">
+                  <button class="primary-button" type="submit" id="manager-polling-save" disabled>保存轮询配置</button>
+                  <p id="manager-polling-message" class="action-message" role="status"></p>
+                </div>
+              </form>
+            </section>
+            <section class="subpage-panel">
               <div class="lane-heading"><h2>员工机连接配置</h2><span>由经理 Agent 登记与维护</span></div>
               <div class="manager-settings-grid" id="manager-settings-machines"></div>
             </section>
             <div class="manager-package-ledgers">
+              <section class="subpage-panel">
+                <div class="lane-heading"><h2>故障与修复</h2><button id="manager-debug-report" type="button" class="secondary-button">登记问题</button></div>
+                <p>查看员工报障、修复包和安装验收进度。</p>
+                <div class="record-list" id="manager-debug-list"></div>
+              </section>
               <section class="subpage-panel"><div class="lane-heading"><h2>传输记录</h2></div><div class="record-list" id="manager-transfer-list"></div></section>
               <section class="subpage-panel"><div class="lane-heading"><h2>版本记录</h2></div><div class="record-list" id="manager-version-list"></div></section>
             </div>
@@ -410,12 +437,49 @@
       <div class="manager-operation-detail-body" id="manager-goal-detail-body"></div>
     </dialog>
 
+    <dialog class="manager-debug-dialog" id="manager-debug-dialog" aria-labelledby="manager-debug-title">
+      <div class="manager-debug-heading"><h2 id="manager-debug-title">故障处理</h2><button type="button" id="manager-debug-close" aria-label="关闭故障处理">关闭</button></div>
+      <form id="manager-debug-form">
+        <div class="manager-debug-fields">
+          <label>员工机<select name="machine_id"></select></label>
+          <label>账号槽位<input name="account_slot" /></label>
+          <label>问题现象<input name="summary" /></label>
+          <label>问题类型<select name="category"><option value="code">代码问题</option><option value="operation">运行环境</option><option value="reconciliation">结果核对</option></select></label>
+          <label>复现过程<textarea name="reproduction"></textarea></label>
+          <label>根因<textarea name="root_cause"></textarea></label>
+          <label>修复或处理方案<textarea name="resolution"></textarea></label>
+          <label>修复文件（每行一个项目相对路径）<textarea name="files" placeholder="scripts/example.py"></textarea></label>
+          <label>回归测试（每行一个 pytest 用例路径）<textarea name="tests" placeholder="tests/test_example.py"></textarea></label>
+          <label>原任务结果核对结论<textarea name="reconciliation_note"></textarea></label>
+          <label>验收结论或重新打开原因<textarea name="acceptance_note"></textarea></label>
+        </div>
+        <details><summary>任务证据与处理记录</summary><p class="manager-debug-evidence" id="manager-debug-evidence"></p></details>
+        <p>安装前员工任务需要结束。安装后机器保持暂停，经理验收后按运营安排恢复。</p>
+        <div class="manager-debug-actions">
+          <button type="button" data-debug-action="report">登记问题</button>
+          <button type="button" data-debug-action="claim">领取诊断</button>
+          <button type="button" data-debug-action="diagnose">保存诊断</button>
+          <button type="button" data-debug-action="build">测试并构建修复包</button>
+          <button type="button" data-debug-action="dispatch">下发修复包</button>
+          <button type="button" data-debug-action="apply">安装修复</button>
+          <button type="button" data-debug-action="reconcile">回收安装状态</button>
+          <button type="button" data-debug-action="verify">重载并验证服务</button>
+          <button type="button" data-debug-action="accept">验收关闭</button>
+          <button type="button" data-debug-action="resolve">登记处理结论并关闭</button>
+          <button type="button" data-debug-action="rollback">恢复安装前代码</button>
+          <button type="button" data-debug-action="reopen">重新打开</button>
+        </div>
+        <p id="manager-debug-message" role="status"></p>
+      </form>
+    </dialog>
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
+    <script src="/manager-debug.js?v=20260910" defer></script>
     <script src="/manager-planning.js?v=20260909-account-units-2" defer></script>
     <script src="/manager-account-tools.js?v=20260908-account-identity-1" defer></script>
-    <script src="/employee-panel.js?v=20260909-follow-blogger-1" defer></script>
+    <script src="/employee-panel.js?v=20260910-empty-replies-1" defer></script>
     <script src="/manager-results.js?v=20260909-follow-blogger-1" defer></script>
     <script src="/manager-memory.js?v=20260909" defer></script>
-    <script src="/manager-console.js?v=20260909-follow-blogger-1" defer></script>
+    <script src="/manager-polling.js?v=20260909-polling-1" defer></script>
+    <script src="/manager-console.js?v=20260910-default-persona-1" defer></script>
   </body>
 </html>

@@ -1,0 +1,8 @@
+.manager-acceptance-panel { margin: 16px 0; padding: 16px; border: 1px solid #d8e0ed; border-radius: 12px; background: #fff; }
+.manager-acceptance-panel > summary { cursor: pointer; font-weight: 600; }
+.manager-acceptance-panel > p { color: #64748b; font-size: 13px; }
+.manager-acceptance-scroll { overflow-x: auto; }
+.manager-acceptance-panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.manager-acceptance-panel th, .manager-acceptance-panel td { padding: 10px; text-align: left; border-bottom: 1px solid #e4e9f1; vertical-align: top; }
+.manager-acceptance-panel th { white-space: nowrap; }
+.manager-acceptance-panel td p { overflow-wrap: anywhere; }

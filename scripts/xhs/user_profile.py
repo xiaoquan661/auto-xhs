@@ -19,7 +19,7 @@ _EXTRACT_USER_DATA_JS = """
         window.__INITIAL_STATE__.user &&
         window.__INITIAL_STATE__.user.userPageData) {
         const userPageData = window.__INITIAL_STATE__.user.userPageData;
-        const data = userPageData.value !== undefined ? userPageData.value : userPageData._value;
+        const data = userPageData.value ?? userPageData._value ?? userPageData;
         if (data) {
             return JSON.stringify(data);
         }
@@ -34,7 +34,7 @@ _EXTRACT_USER_NOTES_JS = """
         window.__INITIAL_STATE__.user &&
         window.__INITIAL_STATE__.user.notes) {
         const notes = window.__INITIAL_STATE__.user.notes;
-        const data = notes.value !== undefined ? notes.value : notes._value;
+        const data = notes.value ?? notes._value ?? notes;
         if (data) {
             return JSON.stringify(data);
         }

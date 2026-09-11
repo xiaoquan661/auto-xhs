@@ -27,6 +27,7 @@ def manager_root() -> Path:
 def _default_state() -> dict:
     return {
         "schema_version": MANAGER_STORE_SCHEMA_VERSION,
+        "settings": {},
         "machines": {},
         "accounts": {},
         "account_alerts": {},
@@ -46,6 +47,8 @@ def _default_state() -> dict:
         "evidence_downloads": {},
         "sync_status": {},
         "collection_cursors": {},
+        "debug_incidents": {},
+        "debug_releases": {},
     }
 
 
@@ -188,6 +191,7 @@ class ManagerStore:
     @staticmethod
     def _check_collection(collection: str) -> None:
         if collection not in {
+            "settings",
             "machines",
             "accounts",
             "account_alerts",
@@ -206,5 +210,7 @@ class ManagerStore:
             "incremental_records",
             "evidence_downloads",
             "sync_status",
+            "debug_incidents",
+            "debug_releases",
         }:
             raise ValueError(f"未知经理机数据集合: {collection}")

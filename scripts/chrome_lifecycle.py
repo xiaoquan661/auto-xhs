@@ -13,9 +13,6 @@ from pathlib import Path
 from account_manager import AccountConfig
 from platforms import get_platform_spec
 
-DEFAULT_START_URL = "https://www.xiaohongshu.com/explore"
-
-
 def launch_on_windows_desktop(
     command: list[str],
     *,

@@ -1097,7 +1097,7 @@ class ApplicationService(ApplicationMemory):
         parameters = dict(task.get("parameters") or {})
         parameters["platform"] = task_platform
         memory_identity = (parameters.get("memory_context") or {}).get("identity") or {}
-        live_uid = str((status.get("identity") or {}).get("live_user_id") or "")
+        live_uid = _execution_uid(status.get("identity") or {})
         if memory_identity.get("uid") and (
             memory_identity["uid"] != live_uid
             or memory_identity.get("platform") != task_platform
@@ -1125,7 +1125,7 @@ class ApplicationService(ApplicationMemory):
             "collect-private-messages",
             "collect-operations-metrics",
         } and not parameters.get("owner_user_id"):
-            parameters["owner_user_id"] = status["identity"].get("live_user_id") or ""
+            parameters["owner_user_id"] = _execution_uid(status["identity"])
         if task["risk_level"] == "L1":
             try:
                 if task["capability"] == "keyword-engagement":
@@ -1168,7 +1168,7 @@ class ApplicationService(ApplicationMemory):
 
             check_daily_context(
                 parameters, account=task["account_slot"],
-                current_uid=str((status.get("identity") or {}).get("live_user_id") or ""),
+                current_uid=_execution_uid(status.get("identity") or {}),
             )
             self._check_account_operations(
                 task["account_slot"],
@@ -1235,6 +1235,10 @@ class ApplicationService(ApplicationMemory):
                 comments=list(result.get("comments") or []),
                 cursor_value=str(result.get("cursor") or ""),
                 last_seen_time=result.get("last_seen_time"),
+                task_id=task_id,
+                scope={"parameters": task.get("parameters") or {}},
+                coverage=str(result.get("coverage") or "UNKNOWN"),
+                failures=list(result.get("failures") or []),
             )
             result = {**result, "inbound_events": collected}
         if task["capability"] == "collect-private-messages":
@@ -1571,7 +1575,7 @@ class ApplicationService(ApplicationMemory):
                 status.get("next_action") or "账号未就绪",
                 409,
             )
-        verified_uid = str((status.get("identity") or {}).get("live_user_id") or "")
+        verified_uid = _execution_uid(status.get("identity") or {})
         if not verified_uid:
             raise ServiceError("IDENTITY_UID_UNAVAILABLE", "当前账号缺少已核验 UID", 409)
 
@@ -2007,7 +2011,7 @@ class ApplicationService(ApplicationMemory):
         if result_state == "SUCCESS":
             self._mark_private_message_codex_handled(event)
         elif error_code != "PRIVATE_MESSAGE_CONTEXT_CHANGED":
-            self._handoff_private_message(event)
+            self._handoff_private_message(event, owner_state="CODEX")
         return {
             "decision": decision,
             "task": task,
@@ -2047,7 +2051,9 @@ class ApplicationService(ApplicationMemory):
         )
         return {"success": True, "conversation": conversation}
 
-    def _handoff_private_message(self, event: dict) -> dict | None:
+    def _handoff_private_message(
+        self, event: dict, *, owner_state: str = OWNER_HUMAN
+    ) -> dict | None:
         if event.get("event_type") != "private_message":
             return None
         payload = dict(event.get("payload") or {})
@@ -2055,6 +2061,7 @@ class ApplicationService(ApplicationMemory):
             str(event.get("account_slot") or ""),
             str(event.get("platform") or "xiaohongshu"),
             str(event.get("object_id") or payload.get("user_id") or ""),
+            owner_state=owner_state,
             event_id=str(event.get("event_id") or ""),
             message_count=int(payload.get("message_count") or 0),
         )
@@ -2132,6 +2139,7 @@ class ApplicationService(ApplicationMemory):
         max_events: int = 20,
         max_notes: int = 20,
         max_conversations: int = 20,
+        inspection: bool = False,
     ) -> dict:
         """Collect and handle a bounded batch of new inbound reply events."""
 
@@ -2144,12 +2152,12 @@ class ApplicationService(ApplicationMemory):
                 status.get("next_action") or "账号未就绪",
                 409,
             )
-        verified_uid = str((status.get("identity") or {}).get("live_user_id") or "")
+        verified_uid = _execution_uid(status.get("identity") or {})
         if not verified_uid:
             raise ServiceError("IDENTITY_UID_UNAVAILABLE", "当前账号缺少已核验 UID", 409)
         platform = self._resolve_account_platform(account_slot)
         rule = self.reply_rules.resolve(account_slot, platform=platform)
-        if not rule["enabled"]:
+        if not rule["enabled"] and not inspection:
             raise ServiceError("REPLY_RULE_DISABLED", "该账号的自动回复规则尚未启用", 409)
 
         requested_channels = set(channels or ["comment", "private_message"])
@@ -2162,7 +2170,7 @@ class ApplicationService(ApplicationMemory):
         selected_channels = [
             channel
             for channel in ("comment", "private_message")
-            if channel in requested_channels and rule[f"{channel}_enabled"]
+            if channel in requested_channels and (inspection or rule[f"{channel}_enabled"])
         ]
         if not selected_channels:
             raise ServiceError("REPLY_CHANNEL_DISABLED", "本次选择的回复渠道均未启用", 409)
@@ -2175,6 +2183,15 @@ class ApplicationService(ApplicationMemory):
         collection_results: list[dict] = []
         decisions: list[dict] = []
         try:
+            if inspection:
+                task = self.tasks.create(
+                    source=source,
+                    account_slot=account_slot,
+                    capability="collect-operations-metrics",
+                    request_summary="员工巡检采集粉丝与点赞指标",
+                    parameters={"max_notes": max_notes},
+                )
+                collection_results.append(self.execute_task(task["task_id"]))
             for channel in selected_channels:
                 capability = (
                     "collect-note-comments" if channel == "comment" else "collect-private-messages"
@@ -2203,7 +2220,10 @@ class ApplicationService(ApplicationMemory):
                 "comment": "note_comment",
                 "private_message": "private_message",
             }
-            event_types = {allowed_event_types[channel] for channel in selected_channels}
+            event_types = {
+                allowed_event_types[channel] for channel in selected_channels
+                if rule["enabled"] and rule[f"{channel}_enabled"]
+            }
             events = [
                 event
                 for event in self.inbound_events.list(
@@ -2245,8 +2265,19 @@ class ApplicationService(ApplicationMemory):
                 result_state="PARTIAL_SUCCESS" if collection_failed else "SUCCESS",
                 summary=summary,
             )
+            from polling_receipt import cycle_observations
+
+            reply_task_ids = {item.get("reply_task_id") for item in decisions}
+            reply_records = [
+                item for item in self.reply_records.list(account_slot=account_slot)
+                if item.get("reply_task_id") in reply_task_ids
+            ]
             return {
                 "success": True,
+                "state": finished["result_state"],
+                "incremental_data": cycle_observations(
+                    finished, collection_results, reply_records
+                ),
                 "cycle": finished,
                 "collection_results": collection_results,
                 "decisions": decisions,
@@ -2373,7 +2404,7 @@ class ApplicationService(ApplicationMemory):
         if result_state == "SUCCESS":
             self._mark_private_message_codex_handled(event)
         elif error_code != "PRIVATE_MESSAGE_CONTEXT_CHANGED":
-            self._handoff_private_message(event)
+            self._handoff_private_message(event, owner_state="CODEX")
         return decision
 
     def _execute_automatic_reply(
@@ -2510,7 +2541,8 @@ class ApplicationService(ApplicationMemory):
         target = preview_result.get("result") or {}
         status = self.get_account_status(account_slot)
         live_uid = str(
-            (status.get("identity") or {}).get("live_user_id")
+            (status.get("identity") or {}).get("execution_user_id")
+            or (status.get("identity") or {}).get("live_user_id")
             or (status.get("identity") or {}).get("user_id")
             or ""
         )
@@ -2594,7 +2626,7 @@ class ApplicationService(ApplicationMemory):
 
         status = self.get_account_status(account_slot)
         identity = status.get("identity") or {}
-        live_uid = str(identity.get("live_user_id") or identity.get("user_id") or "")
+        live_uid = _execution_uid(identity) or str(identity.get("user_id") or "")
         if not status.get("ready") or live_uid != draft["verified_uid"]:
             raise ServiceError(
                 "IDENTITY_MISMATCH",
@@ -2848,7 +2880,7 @@ class ApplicationService(ApplicationMemory):
     def _private_message_verified_uid(self, account_slot: str) -> str:
         status = self.get_account_status(account_slot)
         identity = status.get("identity") or {}
-        live_uid = str(identity.get("live_user_id") or identity.get("user_id") or "")
+        live_uid = _execution_uid(identity) or str(identity.get("user_id") or "")
         if not status.get("ready") or not live_uid:
             raise ServiceError(
                 "ACCOUNT_NOT_READY",
@@ -3228,7 +3260,7 @@ class ApplicationService(ApplicationMemory):
         status = self.get_account_status(draft["account_slot"])
         if not status["ready"]:
             raise ServiceError("ACCOUNT_NOT_READY", status["next_action"] or "账号未就绪", 409)
-        live_uid = status["identity"].get("live_user_id") or ""
+        live_uid = _execution_uid(status["identity"])
         consumed = self.approvals.consume(
             approval_id,
             account_slot=draft["account_slot"],
@@ -3418,7 +3450,7 @@ class ApplicationService(ApplicationMemory):
             )
         identity = status.get("identity") or {}
         recorded_uid = str(identity.get("user_id") or "").strip()
-        live_uid = str(identity.get("live_user_id") or "").strip()
+        live_uid = _execution_uid(identity).strip()
         expected_uid = str(verified_uid or "").strip()
         if not expected_uid or expected_uid != recorded_uid or expected_uid != live_uid:
             raise ServiceError(
@@ -3444,6 +3476,7 @@ class ApplicationService(ApplicationMemory):
         recorded_platform = normalize_platform(current.get("platform") or platform)
         live_platform = normalize_platform(live.get("platform") or platform)
         logged_out = bool(live) and live.get("logged_in") is False
+        execution_uid = "" if logged_out else (live_uid or recorded_uid)
         return {
             "platform": platform,
             "recorded": bool(record),
@@ -3452,18 +3485,28 @@ class ApplicationService(ApplicationMemory):
             "observed_at": str(current.get("observed_at") or ""),
             "live_checked": bool(live_uid),
             "live_user_id": live_uid,
+            "execution_user_id": execution_uid,
+            "execution_identity_source": "runtime_check" if live else "slot_binding",
             "live_nickname": str(live.get("nickname") or ""),
             "logged_out": logged_out,
             "logout_confirmed": live.get("event") == "LOGOUT_CONFIRMED",
             "matches_record": bool(
                 recorded_uid
-                and live_uid == recorded_uid
+                and execution_uid == recorded_uid
                 and recorded_platform == platform
                 and live_platform == platform
             ),
             "switch_pending": bool(switch),
             "switch": switch,
         }
+
+    def require_account_identity(self, account: str) -> dict:
+        """读取已绑定身份及已知登录状态，供业务连接使用。"""
+        identity = self._identity_summary(account)
+        state, next_action = _identity_state(identity)
+        if state != "READY":
+            raise ServiceError(state, next_action or "请完成账号身份绑定", 409)
+        return identity
 
     def _observe_identity(self, page: object, *, require_uid: bool = True) -> dict:
         try:
@@ -3494,7 +3537,9 @@ class ApplicationService(ApplicationMemory):
     def _remember_runtime_identity(self, account: str, identity: dict) -> None:
         checks = dict(self._store.get_setting("runtime_identity_checks", {}))
         checks[account] = {
-            "platform": normalize_platform(identity.get("platform")),
+            "platform": normalize_platform(
+                identity.get("platform") or self._resolve_account_platform(account)
+            ),
             "logged_in": True,
             "user_id": str(identity.get("user_id") or ""),
             "nickname": str(identity.get("nickname") or ""),
@@ -3538,14 +3583,21 @@ def _account_state(runtime: dict, identity: dict) -> tuple[str, str | None]:
         return "PLATFORM_MISMATCH", "当前扩展页面平台与账号槽位平台不一致"
     if not runtime["profile_verified"]:
         return "BLOCKED", "检查 Profile 绑定和扩展配对"
+    return _identity_state(identity)
+
+
+def _identity_state(identity: dict) -> tuple[str, str | None]:
     if identity["switch_pending"]:
         return "SWITCH_PENDING", "在对应 Chrome Profile 登录新账号，然后完成换号核验"
     if identity["logged_out"]:
         return "LOGIN_REQUIRED", "请在绑定的 Chrome Profile 中手动登录账号，登录后完成身份核验"
-    if not identity["recorded"]:
+    if not identity["recorded"] or not identity["user_id"]:
         return "IDENTITY_REQUIRED", "在 WebUI 中完成登录身份核验"
-    if not identity["live_checked"]:
-        return "IDENTITY_CHECK_REQUIRED", "运行只读登录和当前 UID 核验后进入 READY"
     if not identity["matches_record"]:
         return "IDENTITY_MISMATCH", "当前登录账号与槽位记录不一致，请停止任务并检查账号"
     return "READY", None
+
+
+def _execution_uid(identity: dict) -> str:
+    """优先使用执行身份，兼容已有状态提供方的 UID 字段。"""
+    return str(identity.get("execution_user_id") or identity.get("live_user_id") or "")

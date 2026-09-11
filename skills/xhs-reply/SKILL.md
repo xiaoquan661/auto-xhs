@@ -20,6 +20,11 @@ description: |
 
 ## 工作流
 
+员工 inbox 任务使用 [固定任务入口](../employee-task-entry.md)：
+`call task-entry.cmd help --command reply-inbox collect` 查询参数，
+`{"args":["reply-inbox","collect","--comments-only","--limit","20"]}`
+保存为独立 JSON 后交给 `invoke --input-file`。账号由任务槽位注入，渠道与数量沿用授权。
+
 先采集并列出当前账号的新事件：
 
 ```powershell

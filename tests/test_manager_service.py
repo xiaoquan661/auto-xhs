@@ -994,7 +994,10 @@ def test_dispatch_accepts_starts_and_records_fast_ack(tmp_path: Path) -> None:
     assert result["task"]["request"]["operation"] is None
 
 
-def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(tmp_path: Path) -> None:
+@pytest.mark.parametrize("internal_error", [False, True])
+def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
+    tmp_path: Path, internal_error: bool
+) -> None:
     class ExchangeTransport(FakeTransport):
         def sftp_upload_atomic(
             self,
@@ -1055,9 +1058,21 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(tmp_path
         }
     )
     manager.check_machine("PC001")
-    transport.queue("wake-task", ManagerTransportError("OFFLINE", "员工机暂时离线"))
+    if internal_error:
+        transport.queue("wake-task", {"success": False, "error": {
+            "code": "INTERNAL_ERROR", "message": "唤醒确认异常"}})
+        transport.queue("task-status", {"success": True, "execution": {
+            "remote_execution_id": "execution-1", "state": "RUNNING",
+            "project_version": "0.1.0"}})
+    else:
+        transport.queue("wake-task", ManagerTransportError("OFFLINE", "员工机暂时离线"))
 
     first = manager.dispatch_task(task_request())
+    if internal_error:
+        assert first["status"] == "RUNNING"
+        assert first["task"]["remote_execution_id"] == "execution-1"
+        assert [a for a, _ in transport.calls].count("wake-task") == 1
+        return
     second = manager.dispatch_task(task_request())
 
     assert first["status"] == "TRANSFERRED"
@@ -1344,14 +1359,12 @@ def test_persona_goal_schedule_and_recovery_keep_versioned_context(tmp_path: Pat
     assert goal["progress"]["actual_metrics"] == {"browse": 7}
 
 
-def test_goal_activation_requires_the_target_account_persona(tmp_path: Path) -> None:
+def test_goal_activation_uses_default_account_persona(tmp_path: Path) -> None:
     manager, _transport = service(tmp_path)
     goal = manager.save_goal(goal_request())["goal"]
 
-    with pytest.raises(ServiceError) as captured:
-        manager.activate_goal(goal["goal_id"])
-
-    assert captured.value.code == "PERSONA_REQUIRED"
+    result = manager.activate_goal(goal["goal_id"])
+    assert result["goal"]["persona_bindings"][0]["display_name"] == "友好评论者"
 
 
 def test_home_engagement_progress_counts_browse_and_like_separately(tmp_path: Path) -> None:

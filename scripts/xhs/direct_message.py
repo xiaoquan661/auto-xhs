@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 from service_errors import ServiceError
@@ -14,7 +15,7 @@ CHAT_URL = "https://www.xiaohongshu.com/chat"
 CHAT_EDITOR = '.xhs-im-input-bar-editor[contenteditable="true"]'
 PROFILE_MESSAGE_ENTRY = '[data-auto-xhs-private-message-entry="1"]'
 CHAT_SEND_ENTRY = '[data-auto-xhs-private-message-send="1"]'
-MESSAGE_ITEM = ".chat-item"
+logger = logging.getLogger(__name__)
 
 _READ_CHAT_JS = r"""
 (() => {
@@ -297,10 +298,15 @@ def send_private_message(
         if latest_peer_turn != normalized_expected:
             raise PrivateMessageContextChangedError()
     before_self = _matching_count(before["messages"], content, role="self")
-    before_all = _matching_count(before["messages"], content)
-
+    # 页面点击处理会初始化会话；仅 focus 不会触发该处理。
+    trusted_click = getattr(page, "click_element_trusted", None)
+    if callable(trusted_click):
+        trusted_click(CHAT_EDITOR)
     atomic_send = getattr(page, "send_content_editable", None)
-    if callable(atomic_send):
+    visible_send = callable(getattr(page, "click_element_trusted", None)) and (
+        page.evaluate(_MARK_CHAT_SEND_ENTRY_JS) is True
+    )
+    if callable(atomic_send) and not visible_send:
         send_result = atomic_send(CHAT_EDITOR, content)
         if str(send_result.get("entered") or "").strip() != content:
             raise PrivateMessageUnavailableError("私信输入框没有完整写入最终文本")
@@ -321,12 +327,12 @@ def send_private_message(
         if page.evaluate(_SYNC_CHAT_EDITOR_STATE_JS) is not True:
             raise PrivateMessageUnavailableError("私信输入框状态没有同步到页面")
         _trigger_send(page)
+    current = before
     deadline = time.monotonic() + 8.0
     while time.monotonic() < deadline:
         current = _read_chat(page)
         self_count = _matching_count(current["messages"], content, role="self")
-        all_count = _matching_count(current["messages"], content)
-        if self_count > before_self or all_count > before_all:
+        if self_count > before_self and current["target_nickname"] == before["target_nickname"]:
             return {
                 "success": True,
                 "message": f"已向 {current['target_nickname'] or user_id} 发送私信",
@@ -344,6 +350,14 @@ def send_private_message(
                 },
             }
         time.sleep(0.35)
+    logger.warning(
+        "私信发送回读未确认：method=%s before_self=%s after_self=%s "
+        "same_conversation=%s editor_retains_text=%s",
+        "button" if visible_send else "enter", before_self,
+        _matching_count(current["messages"], content, role="self"),
+        current["target_nickname"] == before["target_nickname"],
+        (current.get("composer") or {}).get("editor_text", "").strip() == content,
+    )
     raise PrivateMessageResultUnknownError()
 
 

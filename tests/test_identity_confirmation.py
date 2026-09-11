@@ -75,7 +75,7 @@ def test_initial_confirmation_keeps_existing_identity(identity_service):
     assert service.get_account_status("red")["identity"]["user_id"] == "red-user"
 
 
-def test_failed_identity_read_invalidates_previous_ready_result(identity_service):
+def test_failed_identity_read_preserves_confirmed_slot_binding(identity_service):
     service, observed = identity_service
     service.record_account_identity("red", confirmed=True, expected_user_id="red-user")
     assert service.get_account_status("red")["ready"] is True
@@ -84,5 +84,7 @@ def test_failed_identity_read_invalidates_previous_ready_result(identity_service
         service.check_account_identity("red")
     assert exc.value.code == "IDENTITY_CHECK_FAILED"
     status = service.get_account_status("red")
-    assert status["status"] == "IDENTITY_CHECK_REQUIRED"
-    assert status["ready"] is False
+    assert status["status"] == "READY"
+    assert status["identity"]["live_checked"] is False
+    assert status["identity"]["execution_identity_source"] == "slot_binding"
+    assert status["identity"]["execution_user_id"] == "red-user"

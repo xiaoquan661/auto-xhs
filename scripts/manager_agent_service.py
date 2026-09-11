@@ -15,7 +15,6 @@ try:
 except ImportError:  # Direct execution from the scripts directory.
     from manager_service import ManagerService, ServiceError
 
-AGENT_CYCLE_SECONDS = 5.0
 FINAL_OPERATION_STATES = {"COMPLETED", "BLOCKED"}
 FINAL_TASK_STATES = {
     "SUCCESS",
@@ -47,10 +46,10 @@ class ManagerAgentService:
         manager: ManagerService,
         *,
         agent_id: str | None = None,
-        interval_seconds: float = AGENT_CYCLE_SECONDS,
+        interval_seconds: float | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        if interval_seconds <= 0:
+        if interval_seconds is not None and interval_seconds <= 0:
             raise ValueError("经理Agent轮询间隔必须大于0")
         self.manager = manager
         self.agent_id = str(
@@ -58,12 +57,18 @@ class ManagerAgentService:
         ).strip()
         if not self.agent_id:
             raise ValueError("经理Agent编号不能为空")
-        self.interval_seconds = float(interval_seconds)
+        self._interval_seconds = interval_seconds
         self._monotonic = monotonic
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
-        self._next_memory_review = 0.0
+        self._last_memory_review: float | None = None
+
+    @property
+    def interval_seconds(self) -> float:
+        if self._interval_seconds is not None:
+            return float(self._interval_seconds)
+        return float(self.manager.polling_settings["agent_seconds"])
 
     @property
     def running(self) -> bool:
@@ -96,12 +101,16 @@ class ManagerAgentService:
     def run_cycle(self) -> dict[str, Any]:
         started_at = utc_now()
         memory_review = {"status": "WAITING_CYCLE"}
-        if self._monotonic() >= self._next_memory_review:
-            self._next_memory_review = self._monotonic() + 60.0
+        if (
+            self._last_memory_review is None
+            or self._monotonic()
+            >= self._last_memory_review + self.manager.polling_settings["memory_review_seconds"]
+        ):
             try:
                 memory_review = self.manager.memory_action("review-pending", {})
             except Exception as exc:
                 memory_review = {"status": "RETRY_PENDING", "message": str(exc)}
+            self._last_memory_review = self._monotonic()
         outcomes: list[dict[str, Any]] = []
         tasks = self.manager.list_operation_tasks().get("operation_tasks") or []
         tasks.sort(key=lambda item: item.get("created_at") or "")
@@ -152,9 +161,13 @@ class ManagerAgentService:
         return summary
 
     def _run(self) -> None:
+        last_cycle = None
         while not self._stop_event.is_set():
-            self.run_cycle()
-            self._stop_event.wait(self.interval_seconds)
+            if last_cycle is None or self._monotonic() >= last_cycle + self.interval_seconds:
+                self.run_cycle()
+                last_cycle = self._monotonic()
+            remaining = max(0.05, last_cycle + self.interval_seconds - self._monotonic())
+            self._stop_event.wait(min(1.0, remaining))
 
     def _process_operation(self, task: dict[str, Any]) -> dict[str, Any]:
         if task.get("daily_material"):

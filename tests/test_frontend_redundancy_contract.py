@@ -1,8 +1,25 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("directory", ["webui", "webui/worker"])
+def test_console_entrypoint_assets_exist(directory: str) -> None:
+    static_root = ROOT / directory
+    html = (static_root / "index.html").read_text(encoding="utf-8")
+    assets = re.findall(r'<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"', html)
+
+    assert assets
+    for asset in assets:
+        url = urlsplit(asset)
+        if not url.scheme and not url.netloc:
+            assert (static_root / url.path.lstrip("/")).is_file(), asset
 
 
 def test_content_script_forwards_diagnostic_and_netlog_events() -> None:

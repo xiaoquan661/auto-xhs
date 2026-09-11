@@ -956,7 +956,7 @@ def test_service_requires_explicit_confirmation_for_slot_changes(tmp_path) -> No
     assert exc_info.value.code == "CONFIRMATION_REQUIRED"
 
 
-def test_account_reaches_ready_only_after_matching_live_uid_check(tmp_path) -> None:
+def test_bound_account_stays_ready_after_explicit_uid_check(tmp_path) -> None:
     config = _config()
     StatusPage.status = {
         "extension_connected": True,
@@ -984,7 +984,7 @@ def test_account_reaches_ready_only_after_matching_live_uid_check(tmp_path) -> N
         product_store=store,
     )
 
-    assert service.get_account_status("alpha")["status"] == "IDENTITY_CHECK_REQUIRED"
+    assert service.get_account_status("alpha")["status"] == "READY"
     service.check_account_identity("alpha")
     result = service.get_account_status("alpha")
 
@@ -2346,7 +2346,7 @@ def test_account_status_blocks_without_user_hot_session() -> None:
     assert "手动打开" not in result["next_action"]
 
 
-def test_account_status_requires_live_uid_check_after_connection_is_ready() -> None:
+def test_account_status_reuses_bound_uid_after_connection_is_ready() -> None:
     config = _config()
     StatusPage.status = {
         "extension_connected": True,
@@ -2372,9 +2372,12 @@ def test_account_status_requires_live_uid_check_after_connection_is_ready() -> N
 
     result = service.get_account_status("alpha")
 
-    assert result["status"] == "IDENTITY_CHECK_REQUIRED"
+    assert result["status"] == "READY"
+    assert result["identity"]["execution_user_id"] == "user-1"
+    assert result["identity"]["live_checked"] is False
+    assert result["identity"]["execution_identity_source"] == "slot_binding"
     assert result["connection_ready"] is True
-    assert result["ready"] is False
+    assert result["ready"] is True
     assert result["profile_verified"] is True
     assert result["identity"]["nickname"] == "测试账号"
 

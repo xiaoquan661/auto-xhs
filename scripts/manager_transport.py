@@ -170,10 +170,10 @@ class OpenSSHTransport:
         *,
         timeout_seconds: float | None = None,
     ) -> dict[str, object]:
-        """Download one execution-machine file with SCP."""
+        """Download an execution-machine file or evidence directory with SCP."""
         config = self._machine_config(machine)
         remote = f"{self._destination(config)}:{remote_path}"
-        command = [*self._scp_command(config), remote, str(destination)]
+        command = [*self._scp_command(config), "-r", remote, str(destination)]
         with self._machine_lock(config):
             self._run(command, action="下载文件", timeout_seconds=timeout_seconds)
         return {"success": True, "remote_path": remote_path, "destination": str(destination)}
@@ -318,6 +318,20 @@ class OpenSSHTransport:
         with self._machine_locks_guard:
             return self._machine_locks.setdefault(key, threading.Lock())
 
+    def export_business_data(self, machine: Mapping[str, object]) -> dict:
+        """Read the employee SQLite snapshot through its fixed, read-only exporter."""
+        config = self._machine_config(machine)
+        script = ntpath.join(config.working_directory, "scripts", "worker_data_export.py")
+        command = [*self._ssh_command(config),
+                   subprocess.list2cmdline([config.python_executable, script])]
+        with self._machine_lock(config):
+            result = self._run(command, input_text="", action="运营数据回收", timeout_seconds=120)
+        try:
+            response = json.loads(result.stdout or "")
+        except json.JSONDecodeError as exc:
+            raise RemoteFailedError("员工运营数据导出格式无效") from exc
+        return response
+
     def _remote_worker_command(self, machine: ManagerMachineConfig) -> str:
         worker = ntpath.join(
             machine.working_directory,
@@ -368,6 +382,7 @@ class OpenSSHTransport:
                 encoding="utf-8",
                 timeout=timeout,
                 check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except subprocess.TimeoutExpired as exc:
             raise ResultUnknownError(f"{action}超时，执行机结果未知") from exc

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from product_store import product_root
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 12
 
 _MIGRATIONS = {
     1: """
@@ -384,6 +384,44 @@ _MIGRATIONS = {
         CREATE INDEX operation_reports_revision_idx
             ON operation_reports (root_report_id, revision_number DESC);
     """,
+    10: """
+        ALTER TABLE inbound_events ADD COLUMN comment_id TEXT;
+        ALTER TABLE inbound_events ADD COLUMN note_id TEXT;
+        ALTER TABLE inbound_events ADD COLUMN parent_comment_id TEXT;
+        ALTER TABLE inbound_events ADD COLUMN author_name TEXT;
+        ALTER TABLE inbound_events ADD COLUMN content TEXT;
+        ALTER TABLE inbound_events ADD COLUMN parent_content TEXT;
+        ALTER TABLE inbound_events ADD COLUMN target_url TEXT;
+        ALTER TABLE inbound_events ADD COLUMN last_seen_at TEXT;
+        ALTER TABLE inbound_events ADD COLUMN detail_state TEXT NOT NULL DEFAULT 'MISSING';
+        CREATE INDEX inbound_comment_relation_idx
+            ON inbound_events(account_slot, platform, comment_id, parent_comment_id);
+        CREATE TABLE comment_collection_batches (
+            batch_id TEXT PRIMARY KEY, account_slot TEXT NOT NULL, platform TEXT NOT NULL,
+            task_id TEXT, started_at TEXT NOT NULL, finished_at TEXT,
+            scope_json TEXT NOT NULL DEFAULT '{}', coverage TEXT NOT NULL DEFAULT 'UNKNOWN',
+            result_state TEXT NOT NULL DEFAULT 'RUNNING', observed_count INTEGER,
+            new_count INTEGER, error_json TEXT NOT NULL DEFAULT '[]'
+        );
+        CREATE TABLE comment_batch_events (
+            batch_id TEXT NOT NULL REFERENCES comment_collection_batches(batch_id),
+            event_id TEXT NOT NULL REFERENCES inbound_events(event_id),
+            PRIMARY KEY(batch_id, event_id)
+        );
+        ALTER TABLE reply_records ADD COLUMN send_state TEXT NOT NULL DEFAULT 'UNKNOWN';
+        ALTER TABLE reply_records ADD COLUMN platform_reply_id TEXT;
+        ALTER TABLE reply_records ADD COLUMN confirmed_at TEXT;
+        ALTER TABLE reply_records ADD COLUMN logical_action_id TEXT;
+        ALTER TABLE reply_records ADD COLUMN persona_version TEXT;
+        ALTER TABLE operation_events ADD COLUMN logical_action_id TEXT;
+        ALTER TABLE operation_events ADD COLUMN attempt_number INTEGER;
+        CREATE INDEX reply_records_send_state_idx
+            ON reply_records(account_slot, platform, send_state);
+    """,
+    11: """
+        ALTER TABLE comment_batch_events ADD COLUMN observation_json TEXT NOT NULL DEFAULT '{}';
+    """,
+    12: "SELECT 1;",
 }
 
 
@@ -411,8 +449,17 @@ class OperationsDatabase:
             if current > SCHEMA_VERSION:
                 raise RuntimeError("运营数据库版本高于当前程序支持范围")
             for version in range(current + 1, SCHEMA_VERSION + 1):
-                connection.executescript(_MIGRATIONS[version])
-                connection.execute(f"PRAGMA user_version = {version}")
+                try:
+                    connection.executescript("BEGIN IMMEDIATE;\n" + _MIGRATIONS[version])
+                    if version in {10, 12}:
+                        from comment_relations import backfill_relations
+
+                        backfill_relations(connection)
+                    connection.execute(f"PRAGMA user_version = {version}")
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
             connection.commit()
 
     @contextmanager

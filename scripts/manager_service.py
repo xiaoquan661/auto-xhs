@@ -6,18 +6,18 @@ import copy
 import json
 import os
 import shutil
-import socket
-import sys
+import tempfile
 import uuid
 from collections import Counter
 from contextlib import suppress
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from daily_operations_plan import generate_account, material
 from daily_operations_plan import plan_date as parse_plan_date
 from employee_operations import PLAN_METRICS, EmployeeOperations, normalize_config
 from manager_memory import ManagerMemory
+from manager_polling import ManagerPolling
 from manager_store import ManagerStore
 from manager_transport import ManagerTransportError, OpenSSHTransport
 from operations_policy import check_operations_policy
@@ -45,8 +45,6 @@ ACCOUNT_WARNING_STATES = {
     "SWITCH_PENDING",
     "WAITING_EXTENSION",
 }
-MACHINE_STALE_SECONDS = 90.0
-ACCOUNT_STALE_SECONDS = 90.0
 PERSONA_STATES = {"ACTIVE", "INACTIVE"}
 GOAL_STATES = {"DRAFT", "ACTIVE", "PAUSED", "COMPLETED"}
 OPERATION_TASK_STATES = {
@@ -64,21 +62,39 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class ManagerService(ManagerMemory):
+class ManagerService(ManagerMemory, ManagerPolling):
     """Persist remote intent separately from transport and platform outcomes."""
+
+    def debug_action(self, action: str, payload: dict | None = None) -> dict:
+        from manager_debug import ManagerDebugService
+
+        return ManagerDebugService(self).action(action, payload or {})
 
     def __init__(
         self,
         *,
         store: ManagerStore | None = None,
         transport: OpenSSHTransport | None = None,
-        machine_stale_seconds: float = MACHINE_STALE_SECONDS,
-        account_stale_seconds: float = ACCOUNT_STALE_SECONDS,
+        machine_stale_seconds: float | None = None,
+        account_stale_seconds: float | None = None,
     ) -> None:
         self.store = store or ManagerStore()
         self.transport = transport or OpenSSHTransport()
-        self.machine_stale_seconds = float(machine_stale_seconds)
-        self.account_stale_seconds = float(account_stale_seconds)
+        self._machine_stale_seconds = machine_stale_seconds
+        self._account_stale_seconds = account_stale_seconds
+        self._init_polling()
+
+    @property
+    def machine_stale_seconds(self) -> float:
+        if self._machine_stale_seconds is not None:
+            return float(self._machine_stale_seconds)
+        return float(self.polling_settings["health_accounts_seconds"] * 3)
+
+    @property
+    def account_stale_seconds(self) -> float:
+        if self._account_stale_seconds is not None:
+            return float(self._account_stale_seconds)
+        return float(self.polling_settings["health_accounts_seconds"] * 3)
 
     def register_machine(self, values: dict) -> dict:
         machine = self._normalize_machine(values)
@@ -307,7 +323,7 @@ class ManagerService(ManagerMemory):
         operation_tasks_payload = self.list_operation_tasks()
         messages_payload = self.list_agent_messages()
         employee_summary = EmployeeOperations(
-            self.store.snapshot(), results_payload["current_results"], self._result_metric_counts
+            self._employee_view_state(), results_payload["current_results"], self._result_metric_counts
         ).summary(accounts_payload["accounts"])
 
         machines = machines_payload["machines"]
@@ -365,11 +381,13 @@ class ManagerService(ManagerMemory):
                 "alert_total": len(alerts),
             },
             "collection": sync,
+            "polling": self.get_polling_settings(),
             "machines": machines,
             "tasks": tasks,
             "schedules": schedules_payload["schedules"],
             "operation_reports": reports_payload["reports"],
             "transfers": transfers_payload["transfers"],
+            "debug": self.debug_action("list"),
             "results": results_payload["current_results"],
             "result_history": results_payload["result_history"],
             "incremental_records": results_payload["incremental_records"],
@@ -380,6 +398,7 @@ class ManagerService(ManagerMemory):
             "goals": goals_payload["goals"],
             "daily_plans": self.list_daily_plans()["plans"],
             "employee_summary": employee_summary,
+            "acceptance": self.operations_acceptance(),
             "operation_tasks": operation_tasks_payload["operation_tasks"],
             "agent_messages": messages_payload["agent_messages"],
             "versions": self.store.list("versions"),
@@ -623,10 +642,17 @@ class ManagerService(ManagerMemory):
 
     def employee_summary(self) -> dict:
         return EmployeeOperations(
-            self.store.snapshot(),
+            self._employee_view_state(),
             self.list_results()["current_results"],
             self._result_metric_counts,
         ).summary(self.list_accounts()["accounts"])
+
+    def _employee_view_state(self) -> dict:
+        from manager_database import ManagerDatabase
+
+        state = self.store.snapshot()
+        state["worker_observations"] = ManagerDatabase(self.store.root).employee_observations()
+        return state
 
     def save_account_operations(self, machine_id: str, account: str, request: dict) -> dict:
         machine_id = self._get_machine(machine_id)["machine_id"]
@@ -1477,6 +1503,18 @@ class ManagerService(ManagerMemory):
                 409,
             )
         if existing is None:
+            if normalized["capability"] == "post-comment" and not (
+                normalized.get("persona_snapshot") or normalized["parameters"].get("persona")
+            ):
+                persona = next((p for p in self.store.list("personas")
+                    if p.get("machine_id") == machine["machine_id"]
+                    and p.get("account_slot") == normalized["account_slot"]
+                    and p.get("status") == "ACTIVE"), None)
+                if persona is None:
+                    from default_persona import friendly_commenter
+
+                    persona = friendly_commenter(machine["machine_id"], normalized["account_slot"])
+                normalized["parameters"]["persona"] = self._persona_snapshot(persona)
             config = (managed_account or {}).get("operations_config") or {}
             if config:
                 check_operations_policy(
@@ -1502,6 +1540,9 @@ class ManagerService(ManagerMemory):
                     }
             self._validate_scheduled_dispatch(normalized)
         if existing is not None:
+            saved_persona = (existing["request"].get("parameters") or {}).get("persona")
+            if saved_persona and not normalized["parameters"].get("persona"):
+                normalized["parameters"]["persona"] = copy.deepcopy(saved_persona)
             previous_policy = (existing["request"].get("parameters") or {}).get("operations_config")
             if previous_policy and "operations_config" not in normalized["parameters"]:
                 normalized["parameters"] = {
@@ -2331,6 +2372,34 @@ class ManagerService(ManagerMemory):
             self._cache_transfer_version(machine["machine_id"], projection)
         return {"success": remote_state == "SUCCESS", "status": remote_state, "transfer": record}
 
+    def query_business_data(self, payload: dict | None = None) -> dict:
+        """Discover every stored field or execute a read-only manager SQL query."""
+        from manager_database import ManagerDatabase
+
+        database = ManagerDatabase(self.store.root)
+        self.store._transaction(lambda state: database.sync(state), write=False)
+        if payload is None:
+            return database.schema()
+        return database.query(str(payload.get("sql") or ""), payload.get("parameters"),
+                              int(payload.get("limit", 200)))
+
+    def operations_acceptance(self, payload: dict | None = None) -> dict:
+        from operations_acceptance import acceptance_report
+
+        payload = payload or {}
+        return acceptance_report(self.store.snapshot(), day=str(payload.get("date") or ""),
+                                 accounts=payload.get("accounts"))
+
+    def collect_business_data(self, machine_id: str) -> dict:
+        """Import complete employee business tables into the manager query database."""
+        from manager_database import ManagerDatabase
+
+        machine = self._get_machine(machine_id)
+        database = ManagerDatabase(self.store.root)
+        self.store._transaction(lambda state: database.sync(state), write=False)
+        snapshot = self.transport.export_business_data(machine)
+        return database.import_worker(machine["machine_id"], snapshot)
+
     def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
         machine = self._get_machine(machine_id)
         machine_id = machine["machine_id"]
@@ -2559,6 +2628,8 @@ class ManagerService(ManagerMemory):
                     "acknowledgement",
                     "event",
                     "result",
+                    "debug_incident",
+                    "debug_receipt",
                 }:
                     break
                 sequence = int(metadata.get("sequence") or 0)
@@ -2575,7 +2646,9 @@ class ManagerService(ManagerMemory):
             sequence = int(metadata.get("sequence") or 0)
             relative_path = str(metadata.get("relative_path") or "")
             record_type = str(metadata.get("record_type") or "")
-            if not relative_path or record_type not in {"acknowledgement", "event", "result"}:
+            if not relative_path or record_type not in {
+                "acknowledgement", "event", "result", "debug_incident", "debug_receipt"
+            }:
                 collection_error = f"回执 {sequence} 的文件路径或类型无法识别"
                 break
             local_record = collector_root / "records" / f"{sequence:012d}.json"
@@ -2599,7 +2672,20 @@ class ManagerService(ManagerMemory):
                 collection_error = f"回执 {sequence}（{relative_path}）收集失败：{exc}"
                 break
 
-            if record_type == "result":
+            if record_type in {"debug_incident", "debug_receipt"}:
+                from manager_debug import ManagerDebugService
+
+                debug = ManagerDebugService(self)
+                try:
+                    if record_type == "debug_incident":
+                        debug.ingest_incident(machine_id, payload["incident"])
+                    else:
+                        debug.ingest_receipt(machine_id, payload["receipt"])
+                except (ServiceError, KeyError) as exc:
+                    collection_error = f"调试回执 {sequence} 导入失败：{exc}"
+                    break
+                event_count += 1
+            elif record_type == "result":
                 raw_result = payload.get("result")
                 if not isinstance(raw_result, dict):
                     collection_error = f"回执 {sequence} 缺少任务结果"
@@ -2903,6 +2989,12 @@ class ManagerService(ManagerMemory):
                 }
             )
             _, created = self.store.record_result(result_key, result)
+            from debug_common import incident_from_result
+            from manager_debug import ManagerDebugService
+
+            incident = incident_from_result(machine_id, result)
+            if incident:
+                ManagerDebugService(self).ingest_incident(machine_id, incident)
             inserted += int(created)
             duplicates += int(not created)
             new_records, replayed_records = self._record_incremental_data(machine_id, result)
@@ -3230,7 +3322,7 @@ class ManagerService(ManagerMemory):
             existing = self.store.get("evidence_downloads", evidence_key)
             if existing and existing.get("state") == "SUCCESS":
                 continue
-            error = self._attempt_evidence_download(machine, record)
+            error = self._attempt_evidence_download(machine, existing or record)
             if error:
                 errors.append(error)
         return errors
@@ -3249,28 +3341,44 @@ class ManagerService(ManagerMemory):
         return errors
 
     def _attempt_evidence_download(self, machine: dict, record: dict) -> dict | None:
+        if record.get("state") == "SUCCESS":
+            return None
+        retry_at = record.get("next_retry_at")
+        if retry_at and datetime.fromisoformat(retry_at) > datetime.now(UTC):
+            return {
+                "index": int(record.get("index") or 0),
+                "remote_path": str(record["remote_path"]),
+                "error_code": record.get("error_code", ""),
+                "message": record.get("message", ""),
+                "next_retry_at": retry_at,
+            }
         target = Path(str(record["destination"]))
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.is_file():
-            self.store.put(
-                "evidence_downloads",
-                record["evidence_key"],
-                {**record, "state": "SUCCESS", "updated_at": utc_now()},
-            )
-            return None
         try:
-            self.transport.download(
-                machine,
-                str(record["remote_path"]),
-                str(target),
-                timeout_seconds=120,
-            )
+            # A failed transfer must not leave a partial file that looks complete.
+            with tempfile.TemporaryDirectory(prefix=".evidence-", dir=target.parent) as staging:
+                downloaded = Path(staging) / "content"
+                self.transport.download(
+                    machine,
+                    str(record["remote_path"]),
+                    str(downloaded),
+                    timeout_seconds=120,
+                )
+                evidence_type = "directory" if downloaded.is_dir() else "file"
+                if downloaded.is_dir():
+                    shutil.copytree(downloaded, target, dirs_exist_ok=True)
+                else:
+                    os.replace(downloaded, target)
         except ManagerTransportError as exc:
+            attempts = int(record.get("attempt_count") or 0) + 1
+            delay = 0 if attempts == 1 else min(21600, 600 * 2 ** min(attempts - 1, 6))
             pending = {
                 **record,
                 "state": "PENDING",
                 "error_code": exc.code,
                 "message": str(exc),
+                "attempt_count": attempts,
+                "next_retry_at": (datetime.now(UTC) + timedelta(seconds=delay)).isoformat(),
                 "updated_at": utc_now(),
             }
             self.store.put("evidence_downloads", record["evidence_key"], pending)
@@ -3288,6 +3396,8 @@ class ManagerService(ManagerMemory):
                 "state": "SUCCESS",
                 "error_code": "",
                 "message": "",
+                "evidence_type": evidence_type,
+                "next_retry_at": None,
                 "updated_at": utc_now(),
             },
         )
@@ -4143,6 +4253,8 @@ class ManagerService(ManagerMemory):
         }
 
     def _active_persona(self, machine_id: str, account_slot: str) -> dict | None:
+        from default_persona import friendly_commenter
+
         account_key = self._account_key(machine_id, account_slot)
         return next(
             (
@@ -4150,7 +4262,7 @@ class ManagerService(ManagerMemory):
                 for item in self.store.list("personas")
                 if item.get("account_key") == account_key and item.get("status") == "ACTIVE"
             ),
-            None,
+            friendly_commenter(machine_id, account_slot),
         )
 
     @classmethod
@@ -4269,8 +4381,11 @@ class ManagerService(ManagerMemory):
                     target["machine_id"], target["account_slot"], current.isoformat()
                 )
                 for kind in requested:
-                    if values[kind]["actual"] is not None:
-                        counts[kind] += values[kind]["actual"]
+                    confirmed = values[kind]["actual"]
+                    if confirmed is None:
+                        confirmed = values[kind].get("observed_new")
+                    if confirmed is not None:
+                        counts[kind] += confirmed
             current += timedelta(days=1)
         return counts
 
@@ -4713,7 +4828,15 @@ class ManagerService(ManagerMemory):
     def _result_action_kind(result: dict) -> str:
         request = result.get("task_request") if isinstance(result.get("task_request"), dict) else {}
         capability = str(result.get("capability") or request.get("capability") or "").lower()
-        if "reply" in capability or "private-message" in capability:
+        if capability == "send-private-messages":
+            return "private_reply" if (request.get("parameters") or {}).get(
+                "acceptance_action"
+            ) == "private_reply" else "private_message"
+        if capability == "reply-inbox" and (request.get("parameters") or {}).get(
+            "acceptance_action"
+        ) == "private_reply":
+            return "private_reply"
+        if "reply" in capability:
             return "reply"
         if "comment" in capability:
             return "comment"
@@ -4818,6 +4941,18 @@ class ManagerService(ManagerMemory):
     def _result_metric_counts(cls, result: dict) -> Counter[str]:
         request = result.get("task_request") if isinstance(result.get("task_request"), dict) else {}
         capability = str(result.get("capability") or request.get("capability") or "").lower()
+        if capability == "send-private-messages":
+            if result.get("state") not in {"SUCCESS", "PARTIAL_SUCCESS"}:
+                if result.get("state") in {"BLOCKED", "FAILED", "CANCELLED"} and (
+                    cls._result_actual_count(result) == 0
+                ):
+                    return Counter({cls._result_action_kind(result): 0})
+                return Counter()
+            from operations_acceptance import confirmed_counts
+
+            request = {**request, "parameters": {**(request.get("parameters") or {}),
+                       "acceptance_action": cls._result_action_kind(result)}}
+            return confirmed_counts(result, request)
         if capability in {
             "collect-operations-metrics",
             "collect-note-comments",
@@ -4915,7 +5050,7 @@ class ManagerService(ManagerMemory):
             for item in terminal
         )
         action_summary: dict[str, dict[str, int | None]] = {}
-        for kind in ("browse", "like", "comment", "reply", "publish"):
+        for kind in ("browse", "like", "comment", "reply", "publish", "private_message", "private_reply"):
             selected = [item for item in results if self._result_action_kind(item) == kind]
             targets = [
                 count for item in selected if (count := self._result_target_count(item)) is not None
@@ -5181,6 +5316,16 @@ class ManagerService(ManagerMemory):
         remote_error = self._remote_error(acknowledgement)
         if remote_error:
             error_code, message = remote_error
+            if error_code == "INTERNAL_ERROR":
+                self._update_task(
+                    task_id,
+                    dispatch_state="WAKE_UNKNOWN",
+                    connectivity="ONLINE",
+                    reconciliation_required=True,
+                    error_code=error_code,
+                    message="唤醒确认异常，正在按原任务编号核对员工执行状态",
+                )
+                return self.reconcile_task(task_id)
             updated = self._update_task(
                 task_id,
                 dispatch_state="BLOCKED",
@@ -5227,31 +5372,6 @@ class ManagerService(ManagerMemory):
         )
         os.replace(temporary, path)
         return path
-
-    def _manager_callback(self, machine: dict) -> dict:
-        inbox_path = self.store.root / "callback-inbox"
-        inbox_path.mkdir(parents=True, exist_ok=True)
-        return {
-            "ssh_host": str(os.getenv("XHS_MANAGER_CALLBACK_HOST") or socket.gethostname()).strip(),
-            "ssh_port": int(os.getenv("XHS_MANAGER_CALLBACK_PORT") or 22),
-            "ssh_user": str(
-                os.getenv("XHS_MANAGER_CALLBACK_USER")
-                or os.getenv("USERNAME")
-                or os.getenv("USER")
-                or ""
-            ).strip(),
-            "working_directory": str(Path(__file__).resolve().parents[1]),
-            "python_executable": str(sys.executable),
-            "state_root": str(self.store.root),
-            "inbox_path": str(inbox_path),
-            "identity_file": str(
-                os.getenv("XHS_MANAGER_CALLBACK_IDENTITY_FILE")
-                or machine.get("identity_file")
-                or ""
-            ).strip(),
-            "connect_timeout_seconds": int(os.getenv("XHS_MANAGER_CALLBACK_CONNECT_TIMEOUT") or 10),
-            "timeout_seconds": 30,
-        }
 
     @staticmethod
     def _normalize_version_policy_request(request: dict) -> dict:
@@ -5384,8 +5504,8 @@ class ManagerService(ManagerMemory):
         if missing:
             raise ServiceError("INVALID_TRANSFER", f"传输请求缺少字段: {', '.join(missing)}")
         transfer_type = str(request["transfer_type"])
-        if transfer_type not in {"task_package", "function_package", "config"}:
-            raise ServiceError("INVALID_TRANSFER", "传输类型必须是任务包、功能包或配置")
+        if transfer_type not in {"task_package", "function_package", "config", "repair_package"}:
+            raise ServiceError("INVALID_TRANSFER", "传输类型必须是任务包、功能包、修复包或配置")
         source = Path(str(request["source_path"])).expanduser()
         if not source.is_absolute():
             raise ServiceError("INVALID_TRANSFER", "传输源路径必须是绝对路径")

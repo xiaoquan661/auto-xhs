@@ -8,11 +8,16 @@ window.AutoXhsEmployeePanel = function (services) {
   try { legacyTemplates = JSON.parse(localStorage.getItem("auto-xhs:employee-plan-templates") || "{}"); }
   catch { legacyTemplates = {}; }
   const metricFields = [["browse", "浏览"], ["publish", "发帖"], ["like", "点赞"],
-    ["comment", "评论"], ["reply", "回复"],
-    ["friend_request", "关注博主"], ["new_followers", "新增粉丝"],
+    ["comment", "评论"], ["private_message", "私信发送"], ["friend_request", "关注博主"],
+    ["reply", "评论回复"], ["private_reply", "私信回复"], ["new_followers", "新增粉丝"],
     ["received_likes", "收获点赞"], ["received_comments", "收到新评论"],
     ["received_private_messages", "收到私信"]];
-  const actionKinds = ["publish", "like", "comment", "friend_request"];
+  const actionKinds = ["publish", "like", "comment", "friend_request", "private_message", "private_reply"];
+  const executionStatus = (value) => ({SKIP: "已跳过", SKIPPED: "已跳过",
+    PENDING_MANUAL: "待人工处理", PENDING: "待处理", RESULT_UNKNOWN: "结果待核对",
+    NOT_ATTEMPTED: "未执行"})[String(value || "").toUpperCase()] || labelFor(value);
+  const businessText = (value) => String(value || "").replaceAll("RESULT_UNKNOWN", "结果待核对")
+    .replaceAll("PENDING_MANUAL", "待人工处理");
   const metricValues = (values) => Object.fromEntries(metricFields.map(([kind]) =>
     [kind, values?.[kind] ?? null]));
   const expanded = new Map();
@@ -23,6 +28,17 @@ window.AutoXhsEmployeePanel = function (services) {
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g,
     (char) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[char]));
   const number = (value) => value === null || value === undefined ? "—" : esc(value);
+  const metricActual = (metric) => {
+    const text = metric.actual_display ?? metric.actual;
+    const details = [];
+    if (metric.metric_semantics === "daily_event_count") {
+      details.push("按平台发生日期统计；至少表示已确认的部分事件，待确认表示全天数量尚不确定");
+      if (metric.current_total != null) details.push(`截至采集时总量：${metric.current_total}`);
+      if (metric.sampled_net_change) details.push(`采样净变化：${metric.sampled_net_change.value}（${metric.sampled_net_change.from} 至 ${metric.sampled_net_change.to}）`);
+      details.push(`当日首次入库：${metric.newly_discovered ?? 0} 条记录`);
+    }
+    return `<span title="${esc(details.join("；"))}">${number(text)}</span>`;
+  };
   const key = (account) => `${account.machine_id}:${account.account_slot}`;
   const accountName = (account) => account.nickname || account.account_slot;
   const platformName = (account) => account.platform === "rednote" ? "RedNote" : "小红书";
@@ -58,7 +74,7 @@ window.AutoXhsEmployeePanel = function (services) {
     return metricFields.map(([kind, label]) => {
       const local = metrics.find((item) => item.kind === kind);
       const metric = observed?.metrics[kind];
-      return {kind, label, ...(local || metric || {
+      return {kind, label, ...(metric || local || {
         target: null, actual: null, status: "等待采集", tone: "info", incomplete: false})};
     });
   }
@@ -69,18 +85,40 @@ window.AutoXhsEmployeePanel = function (services) {
   }
 
   function actions(account, date) {
-    return receipts(account, date).filter((result) => !/^collect-/i.test(
-      services.resultCapability?.(result) || result.capability || result.action || "")).flatMap((result) => {
+    return receipts(account, date).flatMap((result) => {
+      const request = result.task_request || state.tasks.find((task) => task.task_id === result.task_id)?.request || {};
+      const capability = result.capability || request.capability || "";
+      const labels = {"home-engagement": "浏览笔记与点赞", "favorite-feed": "收藏笔记",
+        "like-feed": "点赞笔记", "post-comment": "发表评论", "random-comment": "发表评论",
+        "reply-comment": "回复评论", "reply-inbox": request.parameters?.acceptance_action === "reply"
+          ? "回复收到的评论" : request.parameters?.acceptance_action === "private_reply"
+            ? "回复收到的私信" : "处理收到的评论或私信",
+        "follow-user": "关注博主", "send-private-messages": "发送私信",
+        "collect-note-comments": "采集收到的评论", "collect-private-messages": "采集收到的私信",
+        "collect-operations-metrics": "采集账号与笔记指标", "search-feeds": "搜索笔记",
+        "get-feed-detail": "读取笔记详情", "reply-cycle": "巡检并处理收到的消息", "fill-publish": "图文发布",
+        "fill-publish-video": "视频发布", "long-article": "长文发布"};
+      const body = result.business_result || {};
       const items = Array.isArray(result.item_results) && result.item_results.length
         ? result.item_results : [result];
       return items.map((item, index) => ({
         id: `${result.result_id || result.task_id}:${index}`,
         recordId: result.record_id || "", itemIndex: index,
-        kind: resultActionKind(result), label: ({publish: "发帖", like: "点赞", comment: "评论",
-          browse: "浏览", reply: "回复", friend_request: "关注博主"}[resultActionKind(result)] || "执行动作"),
+        kind: resultActionKind(result), label: labels[capability]
+          || (/patrol/i.test(result.task_id || "") ? "定时巡检" : "") || request.request_summary
+          || result.request_summary || result.message || "任务记录（动作类型待补全）",
+        taskId: result.task_id, capability,
+        target: item.nickname || item.target?.nickname || body.target?.nickname || item.title
+          || item.note_title || item.user_id || item.feed_id || "",
+        outcome: businessText(item.message || result.message || result.result_summary
+          || (typeof result.summary === "string" ? result.summary : "")),
+        steps: [item.browse ? `阅读：${executionStatus(item.browse.status || "UNKNOWN")}` : "",
+          item.like ? `点赞：${executionStatus(item.like.status || "UNKNOWN")}`
+            : item.browse ? "点赞：未记录执行" : ""].filter(Boolean).join("；"),
         at: item.completed_at || result.completed_at || result.created_at || result.collected_at,
-        url: resultLinks(item)[0]?.url || "",
-        content: item.comment_text || item.content || item.title || item.note_title || result.summary || "",
+        url: resultLinks(item)[0]?.url || resultLinks(result)[0]?.url || "",
+        content: item.comment_text || item.content || item.reply_text || "",
+        contentLabel: /comment|reply|send-private/.test(capability) ? "本次文本" : "内容摘要",
         status: item.state || item.status || result.business_state || result.state || "UNKNOWN",
         source: item.execution_source || result.execution_source || "machine",
         attributed: Boolean(item.attribution_updated_at || result.attribution_updated_at),
@@ -208,7 +246,7 @@ window.AutoXhsEmployeePanel = function (services) {
       data-employee-account-select="${esc(key(account))}">
       <div class="overview-node-head"><div><span>${platformName(account)} · ${esc(account.account_slot)}</span>
         <h3>${esc(accountName(account))}</h3></div>${badge(labelFor(account.health_state), tone(account.health_state))}</div>
-      <dl>${[["所属机器", machine.host_alias || machine.machine_id], ["账号人设", persona?.display_name || persona?.persona_id || "待配置"],
+      <dl>${[["所属机器", machine.host_alias || machine.machine_id], ["账号人设", persona?.display_name || persona?.persona_id || "友好评论者（默认）"],
         ["设备连接", labelFor(machine.ssh_state || "UNKNOWN")],
         ["当前任务", account.current_task_title || "暂无任务"]].map(([name, value]) => `<div><dt>${name}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
       <div class="overview-account-line"><span>账号 UID</span><strong>${esc(account.current_uid || account.uid || "身份待同步")}</strong></div>
@@ -238,7 +276,7 @@ window.AutoXhsEmployeePanel = function (services) {
       ${["账号 / 所属机器", "压力", ...metricFields.map(([, label]) => label), "外部动作", "完成率", "结果"].map((label) => `<th>${label}</th>`).join("")}
       </tr></thead><tbody>${rows.map((row) => {const metrics = dailyMetrics(row, yesterday); return `<tr>
         <th>${esc(accountName(state.accounts.find((account) => key(account) === key(row)) || row))}<small>${esc(row.machine_id)} · ${esc(row.account_slot)}</small></th><td>${esc(row.pressure || "待分组")}</td>
-        ${metrics.map((metric) => `<td>${number(metric.target)} / ${number(metric.actual)}</td>`)
+        ${metrics.map((metric) => `<td>${number(metric.target)} / ${metricActual(metric)}</td>`)
           .join("")}<td>${number(row.external_actions)}</td><td>${percent(row.completion_rate)}</td><td>${esc(row.status)}</td></tr>`;}).join("")}</tbody></table></div>
       <small class="daily-report-footnote">每格格式为“目标 / 实际”。</small></section>`;
   }
@@ -287,10 +325,11 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<div class="daily-targets" data-panel="today-targets"><div class="daily-targets-head"><strong>今日目标 / 实际</strong><small>${esc(date)} · ${esc(account.current_task_title || "等待运营任务回传")}</small></div>
       <div class="daily-account-snapshot"><span>今日执行账号</span><strong>${esc(account.nickname || account.account_slot)}</strong><small>Profile ${esc(uid)}</small></div>
       <div class="daily-targets-table"><div class="daily-target-row daily-target-header"><span>指标</span><span>目标</span><span>实际</span><span>状态</span></div>
-      ${dailyMetrics(account, date).map((metric) => `<div class="daily-target-row"><span>${metric.label}</span><span>${number(metric.target)}</span>
-        <span class="daily-actual-cell"><strong>${number(metric.actual)}${metric.incomplete ? "（部分回传）" : ""}</strong>
+      ${dailyMetrics(account, date).map((metric) => `${metric.kind === "browse" ? '<div class="daily-metric-group">主动动作</div>' : metric.kind === "reply" ? '<div class="daily-metric-group" title="员工机定时巡检执行或采集，经 Outbox 回传后展示">被动动作与信息</div>' : ""}<div class="daily-target-row"><span${metric.execution_source === "worker_polling" ? ' title="员工机定时巡检执行或采集，经 Outbox 回传后展示"' : ""}>${metric.label}</span><span>${number(metric.target)}</span>
+        <span class="daily-actual-cell"><strong>${metricActual(metric)}</strong>
         <span class="daily-action-links">${accountActions.filter((a) => a.kind === metric.kind && a.url).map((a, index) => link(a.url, `机器${index + 1}`)).join("")}</span></span>
-        <span>${badge(metric.status, ({success: "good", warning: "warn", info: "muted"}[metric.tone] || "muted"))}</span></div>`).join("")}</div></div>`;
+        <span>${badge(metric.status, ({success: "good", warning: "warn", info: "muted"}[metric.tone] || "muted"))}
+        ${metric.collection?.last_collected_at ? `<small>最近采集：${esc(metric.collection.last_collected_at)}</small>` : ""}</span></div>`).join("")}</div></div>`;
   }
 
   function historyTable(account) {
@@ -303,25 +342,30 @@ window.AutoXhsEmployeePanel = function (services) {
         const receipt = receipts(account, date)[0] || {};
         const identity = receipt.account_snapshot || {};
         return `<tr><th>${date}</th><td class="history-account-cell">${esc(identity.nickname || receipt.account_name || account.account_slot)}<small>Profile ${esc(identity.uid || receipt.account_uid || "未记录")}</small></td>
-        ${dailyMetrics(account, date).map((metric) => `<td>${number(metric.target)} / ${number(metric.actual)}</td>`).join("")}</tr>`;
+        ${dailyMetrics(account, date).map((metric) => `<td>${number(metric.target)} / ${metricActual(metric)}</td>`).join("")}</tr>`;
       }).join("")
         || `<tr><td colspan="${metricFields.length + 2}">还没有读取到往日的任务记录。</td></tr>`}</tbody></table></div>
-      <small class="history-note">每格格式为“目标 / 实际”，最多显示最近 30 天；— 表示尚未设置或未回传。</small></details>`;
+      <small class="history-note">每格为“目标 / 实际”。被动信息按发生日期统计；“至少”为已确认部分，“待确认”为全天数量待确认。鼠标悬停查看总量与采样净变化。</small></details>`;
   }
 
   function actionList(account, accountActions) {
     return `<details class="action-details" data-panel="action-links" data-expanded="actions:${esc(key(account))}"${open(`actions:${key(account)}`)}>
-      <summary>动作与对应链接（${accountActions.length}）</summary><div class="action-list">
-      ${accountActions.map((action) => `<div class="action-row"><div><strong>${esc(action.label)} · ${action.source === "human" ? "人工" : "机器"}执行（${action.attributed ? "归属标注" : "回执导入"}）</strong>
+      <summary>执行记录（${accountActions.length} 条，含未完成任务）</summary><div class="action-list">
+      ${accountActions.map((action) => `<div class="action-row"><div><strong>${esc(action.label)}</strong>
         <time>${stamp(action.at)}</time><small class="action-account">账号：${esc(account.nickname || account.account_slot)} · Profile ${esc(account.current_uid || account.uid || "未记录")}</small></div>
-        ${link(action.url, "查看目标链接")}<div class="visibility-state">${badge(labelFor(action.status), tone(action.status))}<small>执行回执状态</small></div>
-        <p>${esc(action.content)}</p><div class="action-management-controls"><label><span>执行者</span><select data-action-record="${esc(action.recordId)}" data-action-item="${action.itemIndex}" data-action-source="${esc(action.source)}"${action.recordId ? "" : " disabled"}>${options([["machine", "机器"], ["human", "人工"]], action.source)}</select></label><small data-attribution-message role="status"></small>
-        </div></div>`).join("")
-        || '<p>当前回执没有可展示的发帖、点赞或评论链接。</p>'}</div></details>`;
+        ${action.url ? link(action.url, "查看对应笔记或会话") : ""}<div class="visibility-state">${badge(executionStatus(action.status), tone(action.status))}</div>
+        <div>${action.target ? `<p>操作对象：${esc(action.target)}</p>` : ""}
+        ${action.content ? `<p>${esc(action.contentLabel)}：${esc(action.content)}</p>` : ""}
+        ${action.steps ? `<p>${esc(action.steps)}</p>` : ""}
+        <p>结果说明：${esc(action.outcome || "该回执未提供具体执行说明，尚无法确认做了哪些操作。")}</p></div>
+        <details><summary>技术信息与执行归属</summary><p>任务：${esc(action.taskId)} · 命令：${esc(action.capability || "未记录")}</p>
+        <div class="action-management-controls"><label><span>执行者</span><select data-action-record="${esc(action.recordId)}" data-action-item="${action.itemIndex}" data-action-source="${esc(action.source)}"${action.recordId ? "" : " disabled"}>${options([["machine", "机器"], ["human", "人工"]], action.source)}</select></label><small data-attribution-message role="status"></small>
+        </div></details></div>`).join("")
+        || '<p>当前账号暂无执行记录。</p>'}</div></details>`;
   }
 
   function moduleDetails(account) {
-    const streams = [["comment", "评论回复提醒", account.comment_reply_alerts, "当前快照没有新增评论回复。"],
+    const streams = [["comment", "收到的评论与回复", account.comment_reply_alerts, "当前快照没有收到的评论或回复。"],
       ["friend", "关注博主明细", account.friend_events, "当前快照没有关注博主明细。"],
       ["private", "私聊明细", account.private_message_events, "当前快照没有私聊明细。"]];
     return `<div class="module-details-grid">${streams.map(([kind, title, items, empty]) => {
@@ -330,8 +374,10 @@ window.AutoXhsEmployeePanel = function (services) {
         data-expanded="${kind}:${esc(key(account))}"${open(`${kind}:${key(account)}`, records.some((item) => item.requires_reply))}>
         <summary><span>${title}</span><strong>${records.length}</strong></summary>
         ${records.length ? `<div class="module-event-list">${records.map((item) => `<article class="module-event${item.requires_reply ? " needs-attention" : ""}">
-          <div class="module-event-head"><strong>${esc(item.actor_name || item.peer_name || "未知用户")}</strong>${badge(labelFor(item.read_status || item.event_type || "UNKNOWN"))}</div>
+          <div class="module-event-head"><strong>${esc(item.actor_name || item.peer_name || "用户信息待补全")}</strong>${badge(({NEW: "待处理", IGNORED: "已忽略", REPLIED: "已回复", PENDING_MANUAL: "待人工处理", RESULT_UNKNOWN: "结果待核对"})[item.handling_state] || labelFor(item.handling_state || "UNKNOWN"))}</div>
+          <small>${esc(({note_comment: "收到评论", comment_reply: "收到评论回复", private_message: "收到私信", follow_user: "关注博主"})[item.event_type] || "收到的事件")}${item.historical_backfill ? " · 历史补采" : ""}</small>
           <time>${stamp(item.occurred_at)}</time><p>${esc(item.reply_text || item.message_preview || item.note || "内容未回传")}</p>
+          ${item.summary ? `<small>处理说明：${esc(item.summary)}</small>` : ""}
           ${item.parent_comment_text ? `<small>回复了：${esc(item.parent_comment_text)}</small>` : ""}
           ${item.location_hint ? `<small>${esc(item.location_hint)}</small>` : ""}
           ${kind === "private" ? `<small>平台阅读状态：${esc(({READ: "已读", UNREAD: "采集前未读", UNKNOWN: "未读取"})[item.platform_read_status] || "未读取")} · 处理状态：${esc(labelFor(item.handling_state || "NEW"))}</small>` : ""}
