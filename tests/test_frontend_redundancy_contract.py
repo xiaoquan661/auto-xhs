@@ -44,10 +44,10 @@ def test_file_upload_uses_single_debugger_route() -> None:
     assert "atob(f.data)" not in background
 
 
-def test_workspace_initialization_has_single_render_owner() -> None:
-    workspace = (ROOT / "webui" / "workspace.js").read_text(encoding="utf-8")
-    app = (ROOT / "webui" / "app.js").read_text(encoding="utf-8")
+def test_manager_initialization_binds_navigation_once() -> None:
+    script = (ROOT / "webui" / "manager-console.js").read_text(encoding="utf-8")
 
-    assert workspace.count("render(window.location.hash, { focus: false })") == 1
-    assert "setupNavigation" not in app
-    assert "AutoXhsWorkspace?.render" not in app
+    assert script.count("\n  initialize();") == 1
+    assert script.count("\n    bindEvents();") == 1
+    assert script.count('window.addEventListener("hashchange"') == 1
+    assert "selectManagerView(window.location.hash.slice(1), false)" in script
