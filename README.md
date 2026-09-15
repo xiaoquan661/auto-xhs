@@ -521,9 +521,10 @@ xiaohongshu-skills/
 │   ├── styles.css
 │   ├── workspace.css
 │   ├── api-client.js
-│   ├── task-catalog.js
-│   ├── workspace.js
-│   └── app.js
+│   ├── manager-console.js          # 经理控制台入口
+│   ├── manager-account-tools.js    # 账号配置与身份管理
+│   ├── employee-panel.js           # 员工账号运营视图
+│   └── worker/                     # 员工机工作台
 ├── docs/                            # PRD、用户指南、架构、专题和验收文档
 ├── prompts/                         # 评论与私信智能回复提示词
 ├── skills/                         # Claude Code Skills 定义

@@ -42,6 +42,7 @@ async function setup(identity, options = {}) {
   });
   await tools.open("identity-check", {machine_id: "PC057", account_slot: "red account", platform: "rednote"});
   return {body, calls,
+    retry: find(body, (node) => node.textContent === "重新检查身份"),
     confirm: find(body, (node) => node.textContent === "确认此账号并绑定"),
     result: find(body, (node) => node.className === "manager-account-tools-result")};
 }
@@ -72,6 +73,20 @@ async function setup(identity, options = {}) {
   const failed = await setup({}, {checkError: "页面读取超时"});
   assert.equal(failed.confirm.hidden, true);
   assert.equal(failed.result.textContent, "页面读取超时");
+  const loggedOut = await setup({recorded: true, logged_out: true});
+  assert.equal(loggedOut.confirm.hidden, true);
+  assert.match(loggedOut.result.textContent, /确认登录后重新检查/);
+  assert.equal(loggedOut.calls.length, 1);
+  assert.equal(loggedOut.retry.disabled, false);
+  await loggedOut.retry.click();
+  assert.equal(loggedOut.calls.length, 2);
+  const loginRequired = await setup({}, {checkError: "LOGIN_REQUIRED：请先登录"});
+  assert.equal(loginRequired.confirm.hidden, true);
+  assert.match(loginRequired.result.textContent, /请先登录/);
+  assert.equal(loginRequired.calls.length, 1);
+  assert.equal(loginRequired.retry.disabled, false);
+  await loginRequired.retry.click();
+  assert.equal(loginRequired.calls.length, 2);
   const changed = await setup({recorded: false}, {confirmError: "当前登录 UID 与确认页面不一致"});
   await changed.confirm.click();
   assert.match(changed.result.textContent, /重新检查身份/);
