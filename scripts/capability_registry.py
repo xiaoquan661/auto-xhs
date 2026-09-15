@@ -136,6 +136,9 @@ _POLICIES = [
     _policy("verify-code", RiskLevel.SECURITY_CONFIG, requires_result_verification=True),
     _policy("delete-cookies", RiskLevel.SECURITY_CONFIG, requires_result_verification=True),
     # Read-only discovery and diagnostics.
+    _policy("browser-snapshot", RiskLevel.READ_ONLY),
+    _policy("browser-action", RiskLevel.STATE_CHANGE,
+            requires_identity_check=True, requires_result_verification=True),
     _policy("list-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("browse-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("search-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
@@ -243,19 +246,22 @@ _POLICIES = [
         requires_result_verification=True,
         enabled_in_v1=True,
     ),
-    # One-step publishing remains disabled. V1.5 enables only the split
-    # prepare/preview/confirm workflow used by the Agent CLI.
+    # Publishing tasks prepare content, submit, and verify the platform result.
     _policy(
         "publish",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
     ),
     _policy(
         "publish-video",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,
+        requires_confirmation=False,
+        enabled_in_v1=True,
     ),
     _policy(
         "fill-publish",
@@ -264,6 +270,7 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
         enabled_in_v1=True,
+        requires_confirmation=False,
     ),
     _policy(
         "fill-publish-video",
@@ -272,6 +279,7 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
         enabled_in_v1=True,
+        requires_confirmation=False,
     ),
     _policy(
         "click-publish",
@@ -279,6 +287,7 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
         enabled_in_v1=True,
+        requires_confirmation=False,
     ),
     _policy(
         "save-draft",
@@ -292,18 +301,21 @@ _POLICIES = [
         requires_identity_check=True,
         requires_result_verification=True,
         enabled_in_v1=True,
+        requires_confirmation=False,
     ),
     _policy(
         "select-template",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         enabled_in_v1=True,
+        requires_confirmation=False,
     ),
     _policy(
         "next-step",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         enabled_in_v1=True,
+        requires_confirmation=False,
     ),
 ]
 

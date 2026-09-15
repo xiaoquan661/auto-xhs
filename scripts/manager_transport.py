@@ -8,11 +8,13 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from manager_sync_log import write_sync_log
 from xhs.errors import XHSError
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -104,12 +106,14 @@ class OpenSSHTransport:
         runner: CommandRunner = subprocess.run,
         environ: Mapping[str, str] | None = None,
         which: ExecutableFinder = shutil.which,
+        activity_log: Path | None = None,
     ) -> None:
         self.connect_timeout = connect_timeout
         self.operation_timeout = operation_timeout
         self._runner = runner
         self._environ = os.environ if environ is None else environ
         self._which = which
+        self.activity_log = activity_log
         self._executables: dict[str, str] = {}
         self._machine_locks: dict[str, threading.Lock] = {}
         self._machine_locks_guard = threading.Lock()
@@ -131,7 +135,7 @@ class OpenSSHTransport:
             result = self._run(
                 command,
                 input_text=input_text,
-                action="远程任务",
+                action=f"{config.ssh_host} · 远程请求 {action}",
                 timeout_seconds=timeout_seconds,
             )
         output = (result.stdout or "").strip()
@@ -159,7 +163,8 @@ class OpenSSHTransport:
             command.append("-r")
         command.extend([str(source), remote])
         with self._machine_lock(config):
-            self._run(command, action="上传文件", timeout_seconds=timeout_seconds)
+            self._run(command, action=f"{config.ssh_host} · 上传文件",
+                      timeout_seconds=timeout_seconds)
         return {"success": True, "source": str(source), "remote_path": remote_path}
 
     def download(
@@ -175,7 +180,8 @@ class OpenSSHTransport:
         remote = f"{self._destination(config)}:{remote_path}"
         command = [*self._scp_command(config), "-r", remote, str(destination)]
         with self._machine_lock(config):
-            self._run(command, action="下载文件", timeout_seconds=timeout_seconds)
+            self._run(command, action=f"{config.ssh_host} · 下载文件",
+                      timeout_seconds=timeout_seconds)
         return {"success": True, "remote_path": remote_path, "destination": str(destination)}
 
     def sftp_upload_atomic(
@@ -373,6 +379,8 @@ class OpenSSHTransport:
         timeout_seconds: float | None,
     ) -> subprocess.CompletedProcess[str]:
         timeout = self.operation_timeout if timeout_seconds is None else timeout_seconds
+        started = time.monotonic()
+        write_sync_log(self.activity_log, f"{action}：开始")
         try:
             result = self._runner(
                 command,
@@ -385,10 +393,15 @@ class OpenSSHTransport:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except subprocess.TimeoutExpired as exc:
+            write_sync_log(self.activity_log, f"{action}：超时（{timeout:g}秒），等待核对")
             raise ResultUnknownError(f"{action}超时，执行机结果未知") from exc
         except OSError as exc:
+            write_sync_log(self.activity_log, f"{action}：连接失败，详情见管理台")
             raise OfflineError(f"无法连接执行机：{exc}") from exc
 
+        elapsed = time.monotonic() - started
+        outcome = "通信完成" if result.returncode == 0 else f"失败，退出码 {result.returncode}"
+        write_sync_log(self.activity_log, f"{action}：{outcome}，耗时 {elapsed:.1f}秒")
         stderr = (result.stderr or "").strip()
         if result.returncode == 255:
             message = "执行机离线或 SSH 连接不可用"

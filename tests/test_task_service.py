@@ -122,18 +122,12 @@ def test_authorized_random_comment_is_immediately_queued(tmp_path) -> None:
     assert task["state"] == "QUEUED"
 
 
-def test_disabled_task_is_rejected(tmp_path) -> None:
+def test_publish_task_enters_execution_queue(tmp_path) -> None:
     service = _service(tmp_path)
-
-    with pytest.raises(ServiceError) as exc_info:
-        service.create(
-            source="codex",
-            account_slot="alpha",
-            capability="publish",
-            request_summary="发布内容",
-        )
-
-    assert exc_info.value.code == "CAPABILITY_DISABLED"
+    task = service.create(
+        source="codex", account_slot="alpha", capability="publish", request_summary="发布内容"
+    )
+    assert task["state"] == "QUEUED"
 
 
 def test_task_transition_has_stable_final_state(tmp_path) -> None:

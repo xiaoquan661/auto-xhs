@@ -9,10 +9,9 @@ from scripts.cli import (
     build_parser,
     cmd_reply_inbox_apply,
     cmd_reply_inbox_collect,
-    cmd_reply_inbox_conversations,
     cmd_reply_inbox_context,
+    cmd_reply_inbox_conversations,
     cmd_reply_inbox_list,
-    cmd_reply_inbox_resume,
 )
 
 
@@ -35,26 +34,13 @@ def test_reply_inbox_parser_exposes_composable_codex_commands() -> None:
         ]
     )
     conversations = parser.parse_args(
-        ["--account", "alpha", "reply-inbox", "conversations", "--owner", "HUMAN"]
+        ["--account", "alpha", "reply-inbox", "conversations", "--owner", "CODEX"]
     )
-    resume = parser.parse_args(
-        [
-            "--account",
-            "alpha",
-            "reply-inbox",
-            "resume",
-            "--user-id",
-            "user-1",
-            "--confirm",
-        ]
-    )
-
     assert collect.func is cmd_reply_inbox_collect
     assert listing.func is cmd_reply_inbox_list
     assert context.func is cmd_reply_inbox_context
     assert apply.func is cmd_reply_inbox_apply
     assert conversations.func is cmd_reply_inbox_conversations
-    assert resume.func is cmd_reply_inbox_resume
     assert collect.requires_account_lock is False
     assert apply.requires_account_lock is False
 
@@ -65,8 +51,8 @@ def test_reply_inbox_apply_reads_structured_decision_file(tmp_path, monkeypatch,
         json.dumps(
             {
                 "event_id": "event-1",
-                "action": "pending",
-                "reason": "需要确认活动名额",
+                "action": "skip",
+                "reason": "当前消息无需继续回复",
             },
             ensure_ascii=False,
         ),
@@ -77,7 +63,7 @@ def test_reply_inbox_apply_reads_structured_decision_file(tmp_path, monkeypatch,
     class FakeApplicationService:
         def apply_codex_reply_decision(self, account, values):
             calls.append((account, values))
-            return {"success": True, "decision": {"decision": "pending"}}
+            return {"success": True, "decision": {"decision": "skip"}}
 
     monkeypatch.setattr("application_service.ApplicationService", FakeApplicationService)
     args = argparse.Namespace(account="alpha", decision_file=str(decision.resolve()))
@@ -86,14 +72,14 @@ def test_reply_inbox_apply_reads_structured_decision_file(tmp_path, monkeypatch,
         cmd_reply_inbox_apply(args)
 
     assert exited.value.code == 0
-    assert json.loads(capsys.readouterr().out)["decision"]["decision"] == "pending"
+    assert json.loads(capsys.readouterr().out)["decision"]["decision"] == "skip"
     assert calls == [
         (
             "alpha",
             {
                 "event_id": "event-1",
-                "action": "pending",
-                "reason": "需要确认活动名额",
+                "action": "skip",
+                "reason": "当前消息无需继续回复",
             },
         )
     ]

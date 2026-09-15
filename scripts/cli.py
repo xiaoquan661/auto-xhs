@@ -15,6 +15,12 @@ import json
 import logging
 import os
 import sys
+import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from publish_workflow import PublishWorkflowService
+    from xhs.bridge import BridgePage
 
 # Windows 控制台默认编码（如 cp1252）不支持中文，强制 UTF-8
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -526,6 +532,8 @@ def cmd_random_comment(args: argparse.Namespace) -> None:
 
 def cmd_home_engagement(args: argparse.Namespace) -> None:
     """在同一个首页会话中完成浏览和点赞。"""
+    from pathlib import Path
+
     from account_manager import account_dir
     from xhs.home_engagement import home_engagement
 
@@ -540,6 +548,11 @@ def cmd_home_engagement(args: argparse.Namespace) -> None:
             min_read_seconds=args.min_read_seconds,
             max_read_seconds=args.max_read_seconds,
             pacing_path=account_dir(args.account) / "engagement-pacing.json",
+            checkpoint_path=(
+                Path(os.environ["XHS_EXECUTION_TRACE_FILE"]).with_suffix(".progress.json")
+                if os.environ.get("XHS_EXECUTION_TRACE_FILE")
+                else account_dir(args.account) / "home-engagement-progress" / f"{uuid.uuid4().hex}.json"
+            ),
         )
         _output(result, exit_code=0 if result.get("success") else 2)
     finally:
@@ -760,20 +773,6 @@ def cmd_reply_inbox_conversations(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_reply_inbox_resume(args: argparse.Namespace) -> None:
-    """Return one human-owned private-message conversation to Codex."""
-
-    from application_service import ApplicationService
-
-    _output(
-        ApplicationService().resume_private_message_conversation(
-            args.account,
-            args.user_id,
-            confirmed=args.confirm,
-        )
-    )
-
-
 def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
     """Collect account and own-note metrics into local snapshots."""
     from application_service import ApplicationService
@@ -943,15 +942,8 @@ def cmd_favorite_feed(args: argparse.Namespace) -> None:
 
 
 def cmd_publish(args: argparse.Namespace) -> None:
-    """Reject the legacy one-step image publishing command."""
-    _output(
-        {
-            "success": False,
-            "error_code": "ONE_STEP_PUBLISH_DISABLED",
-            "error": "禁止一步直发，请先运行 fill-publish 生成预览任务",
-        },
-        exit_code=2,
-    )
+    """填写图文并正式发布，回读平台结果。"""
+    cmd_fill_publish(args)
 
 
 def _account_platform(account: str) -> str:
@@ -962,7 +954,7 @@ def _account_platform(account: str) -> str:
 
 
 def cmd_fill_publish(args: argparse.Namespace) -> None:
-    """只填写图文表单，不发布。"""
+    """填写图文并正式发布。"""
     from image_downloader import process_images
     from publish_workflow import PublishWorkflowService
     from xhs.publish import fill_publish_form
@@ -1013,24 +1005,12 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
         )
         task = workflow.wait_for_confirmation(
             task["task_id"],
-            summary="图文已填写到浏览器，等待用户确认真实预览",
+            summary="图文已填写到浏览器，准备正式发布",
         )
-        _output(
-            {
-                "success": True,
-                "task_id": task["task_id"],
-                "task": task,
-                "preview": preview,
-                "status": "表单已填写，等待确认发布",
-                "next_command": (
-                    f"python scripts/cli.py --account {args.account} click-publish "
-                    f"--task-id {task['task_id']} --preview-revision "
-                    f"{task['parameters']['preview_revision']} --confirm"
-                ),
-            }
-        )
+        _publish_prepared_form(workflow, task, page, args.account)
     except Exception as exc:
-        workflow.fail(task["task_id"], exc)
+        if workflow.get(task["task_id"], account=args.account)["state"] == "RUNNING":
+            workflow.fail(task["task_id"], exc)
         raise
     finally:
         if browser:
@@ -1038,7 +1018,7 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
 
 
 def cmd_fill_publish_video(args: argparse.Namespace) -> None:
-    """只填写视频表单，不发布。"""
+    """填写视频并正式发布。"""
     from pathlib import Path
 
     from publish_workflow import PublishWorkflowService
@@ -1087,32 +1067,41 @@ def cmd_fill_publish_video(args: argparse.Namespace) -> None:
         )
         task = workflow.wait_for_confirmation(
             task["task_id"],
-            summary="视频已填写到浏览器，等待用户确认真实预览",
+            summary="视频已填写到浏览器，准备正式发布",
         )
-        _output(
-            {
-                "success": True,
-                "task_id": task["task_id"],
-                "task": task,
-                "preview": preview,
-                "status": "视频表单已填写，等待确认发布",
-                "next_command": (
-                    f"python scripts/cli.py --account {args.account} click-publish "
-                    f"--task-id {task['task_id']} --preview-revision "
-                    f"{task['parameters']['preview_revision']} --confirm"
-                ),
-            }
-        )
+        _publish_prepared_form(workflow, task, page, args.account)
     except Exception as exc:
-        workflow.fail(task["task_id"], exc)
+        if workflow.get(task["task_id"], account=args.account)["state"] == "RUNNING":
+            workflow.fail(task["task_id"], exc)
         raise
     finally:
         if browser:
             browser.close()
 
 
+def _publish_prepared_form(
+    workflow: PublishWorkflowService, task: dict, page: BridgePage, account: str,
+) -> None:
+    """在已绑定的发布页面提交一次并记录平台回读。"""
+    from xhs.publish import click_publish_button
+
+    task = workflow.prepare_publish(task["task_id"], account=account)
+    try:
+        preview = (task.get("parameters") or {}).get("preview") or {}
+        result = click_publish_button(page, expected_title=str(preview.get("title") or ""))
+    except Exception as exc:
+        workflow.fail(task["task_id"], exc, result_unknown=getattr(exc, "result_unknown", True))
+        raise
+    task = workflow.complete_publish(task["task_id"], result)
+    _output(
+        {"success": task["state"] == "SUCCESS", "task_id": task["task_id"],
+         "task": task, "result": result, "status": task["state"]},
+        exit_code=0 if task["state"] == "SUCCESS" else 2,
+    )
+
+
 def cmd_click_publish(args: argparse.Namespace) -> None:
-    """点击发布按钮（在用户确认后调用）。"""
+    """继续已准备完成的发布任务并回读结果。"""
     from publish_workflow import PublishWorkflowService
     from xhs.publish import click_publish_button
     from xhs.errors import PublishError
@@ -1317,25 +1306,13 @@ def cmd_next_step(args: argparse.Namespace) -> None:
         click_next_and_fill_description(page, description)
         task = workflow.wait_for_confirmation(
             task["task_id"],
-            summary="长文已进入浏览器发布页，等待用户确认真实预览",
+            summary="长文已进入浏览器发布页，准备正式发布",
             preview_updates={"description": description},
         )
-        _output(
-            {
-                "success": True,
-                "task_id": task["task_id"],
-                "task": task,
-                "preview": task["parameters"]["preview"],
-                "status": "已进入发布页，等待确认发布",
-                "next_command": (
-                    f"python scripts/cli.py --account {args.account} click-publish "
-                    f"--task-id {task['task_id']} --preview-revision "
-                    f"{task['parameters']['preview_revision']} --confirm"
-                ),
-            }
-        )
+        _publish_prepared_form(workflow, task, page, args.account)
     except Exception as exc:
-        workflow.fail(task["task_id"], exc)
+        if workflow.get(task["task_id"], account=args.account)["state"] == "RUNNING":
+            workflow.fail(task["task_id"], exc)
         raise
     finally:
         if browser:
@@ -1465,15 +1442,8 @@ def cmd_risk_report(args: argparse.Namespace) -> None:
 
 
 def cmd_publish_video(args: argparse.Namespace) -> None:
-    """Reject the legacy one-step video publishing command."""
-    _output(
-        {
-            "success": False,
-            "error_code": "ONE_STEP_PUBLISH_DISABLED",
-            "error": "禁止一步直发，请先运行 fill-publish-video 生成预览任务",
-        },
-        exit_code=2,
-    )
+    """填写视频并正式发布，回读平台结果。"""
+    cmd_fill_publish_video(args)
 
 
 # ─── 多账号管理 ────────────────────────────────────────────────────────────────
@@ -2421,19 +2391,14 @@ def build_parser() -> argparse.ArgumentParser:
     inbox_sub.add_argument("--event-id", required=True)
     inbox_sub.set_defaults(func=cmd_reply_inbox_context, requires_account_lock=False)
 
-    inbox_sub = inbox.add_parser("apply", help="应用 Codex 生成的 reply、pending 或 skip 决策")
+    inbox_sub = inbox.add_parser("apply", help="应用 Codex 生成的 reply 或 skip 决策")
     inbox_sub.add_argument("--decision-file", required=True, help="UTF-8 JSON 决策文件绝对路径")
     inbox_sub.set_defaults(func=cmd_reply_inbox_apply, requires_account_lock=False)
 
     inbox_sub = inbox.add_parser("conversations", help="查看私信会话所有权与处理边界")
-    inbox_sub.add_argument("--owner", choices=["CODEX", "HUMAN"])
+    inbox_sub.add_argument("--owner", choices=["CODEX"])
     inbox_sub.add_argument("--limit", type=int, default=100)
     inbox_sub.set_defaults(func=cmd_reply_inbox_conversations, requires_account_lock=False)
-
-    inbox_sub = inbox.add_parser("resume", help="将一个人工接管会话恢复给 Codex")
-    inbox_sub.add_argument("--user-id", required=True, help="私信联系人用户 ID")
-    inbox_sub.add_argument("--confirm", action="store_true", help="确认从当前边界恢复 Codex 处理")
-    inbox_sub.set_defaults(func=cmd_reply_inbox_resume, requires_account_lock=False)
 
     sub = subparsers.add_parser(
         "collect-operations-metrics",
@@ -2474,7 +2439,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_favorite_feed)
 
     # publish
-    sub = subparsers.add_parser("publish", help="旧版一步图文发布（已禁用）")
+    sub = subparsers.add_parser("publish", help="填写图文并正式发布")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
     sub.add_argument("--images", nargs="+", required=True)
@@ -2485,7 +2450,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_publish)
 
     # publish-video
-    sub = subparsers.add_parser("publish-video", help="旧版一步视频发布（已禁用）")
+    sub = subparsers.add_parser("publish-video", help="填写视频并正式发布")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
     sub.add_argument("--video", required=True)
@@ -2495,7 +2460,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_publish_video)
 
     # fill-publish
-    sub = subparsers.add_parser("fill-publish", help="填写图文表单（不发布）")
+    sub = subparsers.add_parser("fill-publish", help="填写图文并正式发布")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
     sub.add_argument("--images", nargs="+", required=True)
@@ -2506,7 +2471,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_fill_publish)
 
     # fill-publish-video
-    sub = subparsers.add_parser("fill-publish-video", help="填写视频表单（不发布）")
+    sub = subparsers.add_parser("fill-publish-video", help="填写视频并正式发布")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
     sub.add_argument("--video", required=True)
@@ -2516,10 +2481,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_fill_publish_video)
 
     # click-publish
-    sub = subparsers.add_parser("click-publish", help="确认预览后执行发布")
+    sub = subparsers.add_parser("click-publish", help="继续已准备完成的发布任务")
     sub.add_argument("--task-id", required=True, help="fill/long-article 返回的发布任务 ID")
-    sub.add_argument("--preview-revision", required=True, help="最终预览版本")
-    sub.add_argument("--confirm", action="store_true", help="确认已核对浏览器真实预览")
+    sub.add_argument("--preview-revision", default="", help="可选的表单版本校验")
+    sub.add_argument("--confirm", action="store_true", help="兼容旧调用参数")
     sub.set_defaults(func=cmd_click_publish)
 
     # save-draft
@@ -2573,6 +2538,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("risk-report", help="基于 NetLog 生成风控分析报告")
     sub.set_defaults(func=cmd_risk_report)
 
+    from visual_browser import register_commands
+
+    register_commands(subparsers)
     return parser
 
 

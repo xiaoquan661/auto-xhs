@@ -55,6 +55,12 @@ class PublishError(XHSError):
     """发布失败。"""
 
 
+class PublishPreviewUnavailableError(PublishError):
+    """The confirmed editor is unavailable before a publish click."""
+
+    code = "PUBLISH_PREVIEW_UNAVAILABLE"
+
+
 class AccountRiskControlError(PublishError):
     """账号被风控，无法发布。
 

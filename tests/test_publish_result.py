@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-
-from xhs.errors import AccountRiskControlError, PublishError
+from xhs.errors import AccountRiskControlError, PublishError, PublishPreviewUnavailableError
 from xhs.publish import click_publish_button, save_as_draft
 
 
@@ -75,6 +74,27 @@ def test_click_publish_returns_verified_platform_response(monkeypatch) -> None:
     assert result["evidence"] == "platform_response"
     assert result["note_id"] == "note-1"
     assert page.click_point == (712.0, 855.0)
+
+
+def test_publish_selects_matching_preview_before_observation(monkeypatch) -> None:
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _: None)
+    page = PublishPage(
+        [_observation(feedback={"source": "xhr", "code": 0, "data": {"note_id": "note-1"}})]
+    )
+    titles = []
+    page.select_publish_tab = lambda title: titles.append(title) or {"status": "ready"}
+    click_publish_button(page, expected_title="测试标题")
+    assert titles == ["测试标题"]
+    assert page.click_point is not None
+
+
+def test_unavailable_preview_never_clicks_or_installs_observer() -> None:
+    page = PublishPage([])
+    page.select_publish_tab = lambda title: {"status": "preview_unavailable"}
+    page.evaluate = lambda _: pytest.fail("预览不可用时不操作页面")
+    with pytest.raises(PublishPreviewUnavailableError):
+        click_publish_button(page, expected_title="测试标题")
+    assert page.click_point is None
 
 
 def test_click_publish_accepts_new_success_toast(monkeypatch) -> None:

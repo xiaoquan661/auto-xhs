@@ -1,4 +1,7 @@
 # Byte-compiled / optimized / DLL files
+# Local account diagnostic data
+/artifacts/follower-detail-check/
+
 __pycache__/
 *.py[codz]
 *$py.class

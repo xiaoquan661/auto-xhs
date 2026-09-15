@@ -21,7 +21,7 @@ def event_time(row: dict) -> dict[str, Any]:
     scope = payload.get("time_scope") or row.get("time_scope") or ""
     display = str(payload.get("display_time") or row.get("display_time") or "")
     observed_at = payload.get("captured_at") or row.get("discovered_at") or ""
-    occurred_at = row.get("occurred_at") or ""
+    occurred_at = payload.get("event_occurred_at") or row.get("occurred_at") or ""
     reason = ""
     if kind in {"new_follower", "received_like"} and source == "notification_dom":
         actions = GROWTH_ACTION.findall(content)
@@ -50,6 +50,32 @@ def event_time(row: dict) -> dict[str, Any]:
     return {"occurred_at": occurred_at or None, "observed_at": observed_at,
             "time_basis": basis, "countable": True,
             "reason": "缺少可归属到自然日的平台发生时间" if not occurred_at else ""}
+
+
+def display_date(text: str, captured_at: str) -> str:
+    """Resolve a displayed day, including relative intervals within one calendar day."""
+    captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00")).astimezone(ZONE)
+    value = text.strip()
+    day = None
+    if value.startswith("今天") or value == "刚刚":
+        day = captured.date()
+    elif value.startswith("昨天"):
+        day = captured.date() - timedelta(days=1)
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}(?: .*|T.*)?", value):
+        day = datetime.strptime(value[:10], "%Y-%m-%d").date()
+    elif re.fullmatch(r"\d{2}-\d{2}(?: .*)?", value):
+        day = datetime.strptime(f"{captured.year}-{value[:5]}", "%Y-%m-%d").date()
+        if day > captured.date():
+            day = day.replace(year=day.year - 1)
+    else:
+        relative = re.fullmatch(r"(\d+)\s*(分钟|小时|天)前", value)
+        if relative:
+            size = {"分钟": 60, "小时": 3600, "天": 86400}[relative[2]]
+            right = captured - timedelta(seconds=int(relative[1]) * size)
+            left = right - timedelta(seconds=size)
+            if left.date() == right.date():
+                day = right.date()
+    return f"{day.isoformat()}T00:00:00+08:00" if day else ""
 
 
 def event_day(row: dict) -> str:

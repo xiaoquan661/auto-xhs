@@ -233,7 +233,7 @@ class ManagerDatabase:
             "worker_fields": "员工记录嵌套 JSON 路径；_schema 保存空表字段定义",
             "comment_reply_details": "按机器、账号关联评论、处理决策和发送确认记录",
             "daily_metric_facts": (
-                "按日指标：actual完整日计数、observed_new已观察日新增、current_total存量、"
+                "按日指标：actual已确认采集范围计数、observed_new已观察日新增、current_total存量、"
                 "sampled_net_change采样净变、newly_discovered新入库；payload含区间和依据"
             ),
         }
@@ -248,6 +248,24 @@ class ManagerDatabase:
                 "SELECT machine_id, account_slot, payload FROM worker_records "
                 "WHERE collection IN ('inbound_events', 'metric_snapshots')"
             ).fetchall()
+            related = db.execute(
+                "SELECT machine_id, account_slot, collection, payload FROM worker_records "
+                "WHERE collection IN ('reply_records', 'reply_decisions', "
+                "'reply_rules', 'reply_rule_versions')"
+            ).fetchall()
+        groups = {}
+        for machine, slot, collection, raw in related:
+            row = json.loads(raw)
+            scope = (machine, slot, row.get("platform", "xiaohongshu"))
+            groups.setdefault((*scope, collection), []).append(row)
+
+        def rule_for(scope: tuple, record: dict) -> dict | None:
+            rule_id, version = record.get("rule_id"), record.get("rule_version")
+            if not rule_id or not version:
+                return None
+            return next((r for r in groups.get((*scope, "reply_rule_versions"), [])
+                         if r.get("rule_id") == rule_id and r.get("rule_version") == version), None)
+
         observations = []
         for machine, slot, raw in rows:
             event = json.loads(raw)
@@ -257,6 +275,27 @@ class ManagerDatabase:
             extra = event.pop("extra_json", None)
             if extra is not None:
                 event["extra"] = json.loads(extra) if isinstance(extra, str) else extra
+            if event.get("event_type") == "private_message":
+                scope = (machine, slot, event.get("platform", "xiaohongshu"))
+                event_id = event.get("event_id")
+                replies = [dict(r) for r in groups.get((*scope, "reply_records"), [])
+                           if r.get("inbound_event_id") == event_id]
+                replies.sort(key=lambda r: r.get("sent_at") or r.get("updated_at") or "")
+                decisions = [r for r in groups.get((*scope, "reply_decisions"), [])
+                             if r.get("inbound_event_id") == event_id]
+                decision = max(decisions, key=lambda r: r.get("updated_at") or "", default={})
+                for reply in replies:
+                    reply["processing_rule"] = rule_for(scope, reply)
+                event["reply_history"] = replies
+                event["processing_decision"] = decision
+                applied = decision or (replies[-1] if replies else {})
+                event["processing_rule"] = rule_for(scope, applied)
+                event["processing_rule_basis"] = "applied" if applied else "current"
+                if not applied:
+                    event["processing_rule"] = max(
+                        groups.get((*scope, "reply_rules"), []),
+                        key=lambda r: r.get("updated_at") or "", default=None,
+                    )
             observations.append({"machine_id": machine, "account_slot": slot, "data": event})
         return observations
 
@@ -290,4 +329,4 @@ class ManagerDatabase:
         with sqlite3.connect(self.path, timeout=30) as db:
             db.execute("DELETE FROM daily_metric_facts")
             db.executemany("INSERT INTO daily_metric_facts VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
-            db.execute("INSERT OR REPLACE INTO metadata VALUES ('metric_semantics_version','2')")
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('metric_semantics_version','3')")

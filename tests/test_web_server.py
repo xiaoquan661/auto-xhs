@@ -668,10 +668,10 @@ def test_webui_contains_manager_operations_and_account_workspace() -> None:
     html = (web_root / "index.html").read_text(encoding="utf-8")
     controller_script = (web_root / "manager-console.js").read_text(encoding="utf-8")
 
-    assert "运营总览" in html
+    assert "全部账号" in html
     assert "员工机" in html
     assert "账号管理" in html
-    assert 'id="manager-executions-panel"' in html
+    assert 'data-manager-view="employee-units"' in html
     assert "数据回收" in html
     assert "异常中心" in html
     assert 'id="manager-operation-detail-dialog"' in html
@@ -762,6 +762,34 @@ def test_http_server_maps_service_errors_to_json(tmp_path: Path) -> None:
         payload = json.loads(exc_info.value.read().decode("utf-8"))
         assert exc_info.value.code == 404
         assert payload["error"]["code"] == "ACCOUNT_NOT_FOUND"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_large_json_compression_preserves_payload() -> None:
+    import gzip
+
+    service = FakeService()
+    expected = {"success": True, "tasks": [{"summary": "运营结果" * 2000}]}
+    service.list_tasks = lambda: expected
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(service))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/api/v1/tasks"
+        for encoding in ("gzip, deflate, br", "identity", "gzip;q=0"):
+            with urlopen(Request(url, headers={"Accept-Encoding": encoding}), timeout=3) as reply:
+                raw = reply.read()
+                assert int(reply.headers["Content-Length"]) == len(raw)
+                if encoding.startswith("gzip,"):
+                    assert reply.headers["Content-Encoding"] == "gzip"
+                    assert len(raw) < 1000
+                    raw = gzip.decompress(raw)
+                else:
+                    assert reply.headers.get("Content-Encoding") is None
+                assert json.loads(raw) == expected
     finally:
         server.shutdown()
         server.server_close()

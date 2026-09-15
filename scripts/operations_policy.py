@@ -9,7 +9,14 @@ from publish_workflow import VERIFIED_PUBLISH_EVIDENCE
 from service_errors import ServiceError
 
 BUSINESS_TZ = timezone(timedelta(hours=8))
-PUBLISH_ACTIONS = {"fill-publish", "fill-publish-video", "long-article", "click-publish"}
+PUBLISH_ACTIONS = {
+    "publish",
+    "publish-video",
+    "fill-publish",
+    "fill-publish-video",
+    "long-article",
+    "click-publish",
+}
 
 
 def check_daily_context(

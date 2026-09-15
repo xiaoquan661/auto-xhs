@@ -12,6 +12,9 @@ def cycle_observations(cycle: dict, collections: list[dict], replies: list[dict]
         result = item.get("result") or {}
         rows.extend(flatten_observations(result.get("inbound_events") or {}))
         rows.extend(flatten_observations(result.get("snapshots") or {}))
+        rows.extend(flatten_observations(result.get("collection_observations") or []))
+        if result.get("collection_observations"):
+            continue
         channels = {
             "collect-note-comments": ["received_comments"],
             "collect-private-messages": ["received_private_messages"],

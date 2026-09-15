@@ -14,7 +14,7 @@ def test_manager_console_exposes_six_product_views() -> None:
     html = _source("index.html")
 
     for view, label in (
-        ("overview", "运营总览"),
+        ("employee-units", "全部账号"),
         ("workers", "员工机"),
         ("accounts", "账号管理"),
         ("results", "数据回收"),
@@ -29,27 +29,19 @@ def test_manager_console_exposes_six_product_views() -> None:
     assert 'src="/manager-console.js' in html
     assert 'href="/workspace.css' in html
     assert 'src="/overview.js' not in html
-    overview = html.split('id="overview"', 1)[1].split('id="workers"', 1)[0]
-    assert 'id="manager-progress"' in overview
-    assert 'id="manager-goals-panel"' in overview
-    assert 'id="manager-executions-panel"' in overview
+    for view in ("overview", "planning"):
+        assert f'data-manager-view="{view}"' not in html
+        assert f'data-manager-view-link="{view}"' not in html
+    assert 'src="/manager-planning.js' not in html
     assert 'data-manager-view="operations"' not in html
     assert 'data-manager-view-link="operations"' not in html
 
 
-def test_manager_overview_displays_fleet_results_and_attention() -> None:
+def test_account_workspace_displays_units_and_attention() -> None:
     html = _source("index.html")
-
     for marker in (
-        'id="manager-online-total"',
-        'id="manager-healthy-total"',
-        'id="manager-account-total"',
-        'id="manager-completed-goal-total"',
-        'id="manager-overview-result-total"',
-        'id="manager-exception-total"',
-        'id="manager-overview-results"',
-        'id="manager-overview-alerts"',
-        'id="manager-machine-list"',
+        'id="employee-unit-content"', 'id="manager-machine-nav"',
+        'id="manager-overview-exception-total"', 'id="manager-exception-total"',
     ):
         assert marker in html
 
@@ -120,19 +112,12 @@ def test_personas_are_displayed_with_their_worker_account() -> None:
     assert "item.machine_id === account.machine_id" in script
 
 
-def test_operation_tasks_have_filters_detail_and_agent_timeline() -> None:
+def test_operation_tasks_keep_detail_and_agent_timeline() -> None:
     html = _source("index.html")
     script = _source("manager-console.js")
 
     for marker in (
-        'id="manager-goals-panel"',
-        'id="manager-executions-panel"',
         'id="manager-goal-detail-dialog"',
-        'id="manager-operation-filter-state"',
-        'id="manager-operation-filter-machine"',
-        'id="manager-operation-filter-account"',
-        'id="manager-operation-filter-date"',
-        'id="manager-operation-filter-keyword"',
         'id="manager-operation-detail-dialog"',
         'id="manager-operation-timeline"',
         'id="manager-operation-technical-json"',

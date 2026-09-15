@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 
 from .cdp import Page
-from .errors import NoFeedsError
+from .errors import NoFeedsError, XHSError
 from .selectors import FILTER_BUTTON, FILTER_PANEL
 from .types import Feed, FilterOption
 from .urls import make_search_url
@@ -131,7 +131,11 @@ def search_feeds(
         ValueError: 筛选选项无效。
     """
     search_url = make_search_url(keyword)
-    page.navigate(search_url)
+    try:
+        page.navigate(search_url)
+    except XHSError:
+        logger.warning("搜索导航失败，页面状态：%s", page.evaluate(_SEARCH_DIAGNOSTICS_JS))
+        raise
     page.wait_for_load()
     page.wait_dom_stable()
 

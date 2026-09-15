@@ -22,7 +22,7 @@ def _draft(service: ApprovalService) -> dict:
     )
 
 
-def test_draft_only_allows_v1_comment_and_reply(tmp_path) -> None:
+def test_publish_uses_direct_workflow(tmp_path) -> None:
     service = _service(tmp_path)
 
     assert _draft(service)["action_type"] == "post-comment"
@@ -35,7 +35,7 @@ def test_draft_only_allows_v1_comment_and_reply(tmp_path) -> None:
             target_summary="发布",
             content="内容",
         )
-    assert exc_info.value.code == "CAPABILITY_DISABLED"
+    assert exc_info.value.code == "APPROVAL_NOT_REQUIRED"
 
 
 def test_editing_draft_invalidates_old_confirmation(tmp_path) -> None:

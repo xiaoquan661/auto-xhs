@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collector_service import CollectorService
-from conversation_ownership_service import OWNER_HUMAN, ConversationOwnershipService
+from conversation_ownership_service import ConversationOwnershipService
 from inbound_event_service import InboundEventService
 from service_errors import ServiceError
 
@@ -31,7 +31,6 @@ class PrivateMessageCollector:
     ) -> dict:
         created: list[dict] = []
         existing: list[dict] = []
-        human_owned: list[dict] = []
         resumed_count = 0
         ownership_by_user: dict[str, dict] = {}
         resume_events: list[dict] = []
@@ -113,8 +112,6 @@ class PrivateMessageCollector:
             )
             if not result["created"]:
                 existing.append(result["event"])
-            elif ownership["owner_state"] == OWNER_HUMAN:
-                human_owned.append(self.events.mark_handled(result["event"]["event_id"]))
             else:
                 created.append(result["event"])
 
@@ -132,12 +129,10 @@ class PrivateMessageCollector:
             "observed_conversation_count": len(snapshots),
             "created_count": len(created),
             "duplicate_count": len(existing),
-            "human_owned_count": len(human_owned),
             "resumed_count": resumed_count,
             "resume_events": resume_events,
             "codex_outbound_reconciliations": reconciliations,
             "created_events": created,
             "existing_events": existing,
-            "human_owned_events": human_owned,
             "cursor": cursor,
         }

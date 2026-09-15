@@ -76,7 +76,7 @@ SSH 唤醒员工机 Agent。
 - 账号：粉丝数、关注数、获赞与收藏数、公开笔记数；
 - 笔记：点赞、收藏、评论、分享，以及页面或创作中心能够稳定读取的曝光和阅读数据；
 - 任务：计划数量、实际执行数量、成功、失败、阻塞、结果未知；
-- 回复：新评论数量、已处理、待处理、转人工、回复成功和失败。
+- 回复：新评论数量、已处理、待处理、回复成功和失败。
 
 首期输出：
 
@@ -233,10 +233,6 @@ account_slot
 enabled
 content_scope
 reply_style
-active_time_range
-hourly_limit
-daily_limit
-manual_categories
 ```
 
 #### `metric_snapshots`
@@ -290,16 +286,16 @@ COLLECTED
 → 拉取最新一级评论及回复
 → 使用 comment_id 去重
 → 保存 inbound_event
-→ 分类：普通 / 咨询 / 争议 / 广告 / 需人工
+→ Agent 结合上下文理解意图
 → 创建回复任务
 → 生成草稿
-→ 人工确认，或命中已启用的账号回复规则
+→ Agent 生成回复并通过执行链发送
 → 调用现有 reply-comment 原子能力
 → 回读评论线程确认回复存在
 → 保存结果并标记原评论已处理
 ```
 
-首期默认人工确认。自动回复必须由用户按账号主动启用，并受生效时间、每小时/每日数量和全局暂停约束。
+账号启用后由 Agent 智能回复，执行遵循全局暂停设置。
 
 ### 6.2 个性化私信
 
@@ -316,7 +312,7 @@ COLLECTED
 某个收件人失败不阻断其余收件人；已经确认成功或进入 `RESULT_UNKNOWN` 的收件人不自动重发。
 主动私信批次由经理 Agent 通过 Python CLI 规划，经 SFTP 投递并由 SSH 唤醒；WebUI 可以创建包含私信目标的运营
 任务，但不直接生成或发送员工机业务命令。收到的新私信走独立的 WebUI 收件箱流程：只读采集、
-AI 草稿、逐条人工确认、发送回读，不开放无人值守自动回复。
+Agent 根据上下文生成回复，执行发送和平台回读。
 
 ### 6.3 主加（暂按关注博主）
 
@@ -397,7 +393,7 @@ scripts/
   operations_db.py          SQLite 连接、迁移和事务
   inbound_event_service.py  平台事件保存、去重和处理状态
   collector_service.py      采集调度、游标和失败记录
-  reply_rule_service.py     回复规则匹配和配额
+  reply_rule_service.py     回复规则匹配
   metric_service.py         指标快照、增量和查询
   report_service.py         日报、周报和单篇复盘数据
 
@@ -445,7 +441,6 @@ WebUI 的定位是经理机控制面板：创建运营任务，展示账号、�
 - 新评论；
 - 待回复；
 - 已处理；
-- 转人工；
 - 后续的私信会话与通知。
 
 ### 8.2 任务中心

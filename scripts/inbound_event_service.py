@@ -83,10 +83,25 @@ class InboundEventService:
             ).fetchone()
             if not created:
                 merged = json.loads(row["payload_json"] or "{}")
+                from metric_temporality import event_time
+
+                previous_time = event_time({**dict(row), "payload": merged})
+                incoming_time = event_time({"event_type": event_type,
+                                            "occurred_at": occurred_at,
+                                            "payload": payload or {}})
                 merged.update({k: v for k, v in (payload or {}).items() if v not in (None, "", [])})
+                resolved = incoming_time["occurred_at"] or previous_time["occurred_at"]
+                if resolved:
+                    merged["event_occurred_at"] = resolved
+                    merged["time_scope"] = (
+                        (payload or {}).get("time_scope", "platform")
+                        if incoming_time["occurred_at"] else "platform"
+                    )
                 connection.execute(
-                    "UPDATE inbound_events SET payload_json=?, last_seen_at=? WHERE event_id=?",
-                    (json.dumps(merged, ensure_ascii=False), discovered_at, row["event_id"]),
+                    "UPDATE inbound_events SET payload_json=?, occurred_at=?, last_seen_at=? "
+                    "WHERE event_id=?",
+                    (json.dumps(merged, ensure_ascii=False), resolved or row["occurred_at"],
+                     discovered_at, row["event_id"]),
                 )
             project_comment(connection, row["event_id"])
             row = connection.execute(

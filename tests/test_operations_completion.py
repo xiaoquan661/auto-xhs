@@ -223,7 +223,7 @@ def test_growth_events_deduplicate_and_do_not_invent_platform_time(tmp_path):
     assert second["events"][0]["platform"] == "rednote"
 
 
-def test_manager_publish_generates_preview_without_clicking_publish(tmp_path, monkeypatch):
+def test_manager_publish_records_unknown_when_readback_is_missing(tmp_path, monkeypatch):
     calls = []
     app = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
@@ -251,19 +251,11 @@ def test_manager_publish_generates_preview_without_clicking_publish(tmp_path, mo
         },
     )
     task = app.execute_task(result["task"]["task_id"])
-    assert task["task"]["state"] == "WAITING_APPROVAL"
-    assert task["task"]["parameters"]["stage"] == "preview_ready"
-    assert calls == ["fill-publish"]
+    assert task["task"]["state"] == "RESULT_UNKNOWN"
+    assert calls == ["fill-publish", "click-publish"]
     with pytest.raises(ServiceError) as error:
-        app.confirm_publish_task(
-            task["task"]["task_id"],
-            account_slot="alpha",
-            verified_uid="owner",
-            confirmed=False,
-            preview_confirmed=False,
-            preview_revision="",
-        )
-    assert error.value.code == "CONFIRMATION_REQUIRED"
+        app.execute_task(task["task"]["task_id"])
+    assert error.value.code == "INVALID_TASK_STATE"
 
 
 def test_employee_checks_publish_policy_before_browser_action(tmp_path, monkeypatch):
@@ -421,7 +413,7 @@ def test_cli_publish_confirmation_rechecks_account_policy(tmp_path):
             preview_revision=waiting["parameters"]["preview_revision"],
         )
     assert error.value.code == "OPERATIONS_PUBLISH_LIMIT"
-    assert workflow.tasks.get(task["task_id"])["state"] == "WAITING_APPROVAL"
+    assert workflow.tasks.get(task["task_id"])["state"] == "RUNNING"
 
 
 def test_saving_draft_remains_available_when_publish_limit_is_reached(tmp_path):

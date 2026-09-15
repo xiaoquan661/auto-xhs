@@ -353,13 +353,13 @@ async function checkPersonaEditor() {
 checkPersonaEditor().catch((error) => {console.error(error); process.exitCode = 1;});
 
 const machineNodes = {};
+const navigationFrames = [];
 const machineContext = vm.createContext({
   state: {available: true, machines: [{machine_id: "QA-A", status: "READY"}, {machine_id: "QA-B"}],
     accounts: [{machine_id: "QA-A", account_slot: "first"},
       {machine_id: "QA-A", account_slot: "second"}, {machine_id: "QA-B", account_slot: "first"}]},
   selectedEmployeeAccount: "",
   selectedMachineId: "QA-A", selectedView: "workers", VIEW_STORAGE_KEY: "view",
-  viewScrollPositions: new Map(),
   $: (selector) => machineNodes[selector] ||= {
     dataset: {}, classList: {toggle() {}}, setAttribute() {},
     replaceChildren(...items) {this.items = items;},
@@ -368,7 +368,8 @@ const machineContext = vm.createContext({
   localStorage: {setItem() {}},
   document: {querySelectorAll: () => []},
   window: {scrollY: 400, location: {hash: "#workers"}, history: {replaceState() {}},
-    requestAnimationFrame() {}},
+    requestAnimationFrame(callback) {navigationFrames.push(callback);},
+    scrollTo({top}) {this.scrollY = top;}},
   accountUnitNavButton: (account) => `${account.machine_id}:${account.account_slot}`,
   accountThumbnailCard: (account) => `${account.machine_id}:${account.account_slot}`,
   machineThumbnailCard: (machine) => machine.machine_id,
@@ -421,6 +422,22 @@ assert.equal(machineNodes.employeeId, "");
 machineContext.selectManagerView("workers");
 assert.equal(machineContext.selectedMachineId, "QA-A");
 console.log("PASS: account unit navigation and removal keep the workspace machine selection independent");
+
+navigationFrames.length = 0;
+for (const navigate of [
+  () => machineContext.selectEmployeeAccount("QA-A:first"),
+  () => machineContext.selectEmployeeAccount("QA-A:second"),
+  () => machineContext.selectManagerView("settings"),
+  () => machineContext.selectManagerView("employee-units"),
+  () => machineContext.selectMachine("QA-A"),
+]) {
+  machineContext.window.scrollY = 780;
+  navigate();
+  machineContext.window.scrollY = 0;
+  navigationFrames.splice(0).forEach((callback) => callback());
+  assert.equal(machineContext.window.scrollY, 780);
+}
+console.log("PASS: account, machine and workspace navigation retain the reading position");
 
 const cardContext = vm.createContext({
   state: {machines: [{machine_id: "QA-A", status: "READY", ssh_state: "ONLINE"}]},

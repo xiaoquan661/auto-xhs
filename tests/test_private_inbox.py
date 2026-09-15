@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from scripts.xhs.private_inbox import collect_private_messages
 
 
@@ -58,3 +60,23 @@ def test_private_inbox_only_returns_conversations_last_authored_by_peer() -> Non
     assert result["skipped"] == [
         {"user_id": "user-2", "reason": "latest_message_not_peer"}
     ]
+
+
+@pytest.mark.parametrize("empty_confirmed", [False, True])
+def test_empty_inbox_requires_visible_empty_state(empty_confirmed: bool) -> None:
+    class EmptyPage(FakePage):
+        def evaluate(self, script: str):
+            if "const markers" in script:
+                return empty_confirmed
+            if "node.scrollTop" in script:
+                return False
+            return []
+
+    result = collect_private_messages(EmptyPage())
+    assert result["count"] == (0 if empty_confirmed else None)
+    assert result["conversation_count"] == (0 if empty_confirmed else None)
+    assert result["partial"] is not empty_confirmed
+    assert result["status"] == ("SUCCESS" if empty_confirmed else "UNKNOWN")
+    assert result["collection_batches"][0]["coverage"] == (
+        "complete" if empty_confirmed else "unknown"
+    )

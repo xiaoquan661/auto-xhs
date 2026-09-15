@@ -31,17 +31,6 @@ INTENTS = {
     "insufficient_context",
     "other",
 }
-AI_STYLE_MARKERS = (
-    "值得注意的是",
-    "综上所述",
-    "总而言之",
-    "希望对你有所帮助",
-    "感谢您的分享",
-)
-
-
-def _compact(value: str) -> str:
-    return re.sub(r"\s+", "", str(value or "")).lower()
 
 
 def _trim(value: object, limit: int) -> str:
@@ -66,13 +55,11 @@ class ReplyIntelligenceService:
 
     def status(self) -> dict:
         client_status = (
-            self.client.status()
-            if hasattr(self.client, "status")
-            else {"configured": True}
+            self.client.status() if hasattr(self.client, "status") else {"configured": True}
         )
         return {
             **client_status,
-            "mode": "review_only",
+            "mode": "automatic",
             "prompt_path": str(self.prompt_path),
             "private_message_prompt_path": str(self.private_message_prompt_path),
             "profile_root": str(self.profile_root),
@@ -98,7 +85,7 @@ class ReplyIntelligenceService:
         knowledge: str = "",
         reply_style: str = "natural",
         recent_replies: list[str] | None = None,
-        mode: str = "review_only",
+        mode: str = "automatic",
         memory_context: dict | None = None,
     ) -> dict:
         event_type = str(event.get("event_type") or "")
@@ -179,7 +166,6 @@ class ReplyIntelligenceService:
         except (TypeError, ValueError):
             confidence = 0.0
         confidence = min(1.0, max(0.0, confidence))
-        flags = self.quality_flags(reply, recent_replies or [])
         facts_used = self._string_list(parsed.get("facts_used"), limit=20)
         missing_information = self._string_list(
             parsed.get("missing_information"),
@@ -188,8 +174,11 @@ class ReplyIntelligenceService:
         from memory_context import source_refs
 
         allowed = {row["ref"] for row in source_refs(memory)}
-        adopted = [ref for ref in self._string_list(parsed.get("adopted_memory_refs"), limit=150)
-                   if ref in allowed]
+        adopted = [
+            ref
+            for ref in self._string_list(parsed.get("adopted_memory_refs"), limit=150)
+            if ref in allowed
+        ]
 
         return {
             "reply": reply,
@@ -198,8 +187,6 @@ class ReplyIntelligenceService:
             "reason": _trim(parsed.get("reason"), 300),
             "facts_used": facts_used,
             "missing_information": missing_information,
-            "quality_flags": flags,
-            "manual_review_required": mode != "automatic",
             "mode": mode,
             "model": str(response.get("model") or ""),
             "adopted_memory_refs": adopted,
@@ -242,8 +229,7 @@ class ReplyIntelligenceService:
         except OSError as exc:
             raise ServiceError("REPLY_PROMPT_MISSING", f"无法读取智能回复提示词：{exc}") from exc
         values = {
-            "{{ACCOUNT_PROFILE}}": _trim(account_profile, 4000)
-            or "未配置；保持自然、真诚、简短。",
+            "{{ACCOUNT_PROFILE}}": _trim(account_profile, 4000) or "未配置；保持自然、真诚、简短。",
             "{{ACCOUNT_KNOWLEDGE}}": _trim(knowledge, 12000)
             or "未配置；不能补充上下文中不存在的事实。",
             "{{REPLY_STYLE}}": reply_style.strip() or "natural",
@@ -269,24 +255,12 @@ class ReplyIntelligenceService:
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ServiceError("LLM_INVALID_RESPONSE", "模型返回的智能回复不是有效 JSON", 502) from exc
+            raise ServiceError(
+                "LLM_INVALID_RESPONSE", "模型返回的智能回复不是有效 JSON", 502
+            ) from exc
         if not isinstance(parsed, dict):
             raise ServiceError("LLM_INVALID_RESPONSE", "模型返回的智能回复结构不正确", 502)
         return parsed
-
-    @staticmethod
-    def quality_flags(reply: str, recent_replies: list[str]) -> list[str]:
-        """Apply deterministic reply checks without invoking a language model."""
-
-        flags: list[str] = []
-        if len(reply) > 120:
-            flags.append("too_long")
-        if any(marker in reply for marker in AI_STYLE_MARKERS):
-            flags.append("ai_style_phrase")
-        normalized = _compact(reply)
-        if normalized and normalized in {_compact(item) for item in recent_replies}:
-            flags.append("duplicate_recent_reply")
-        return flags
 
     @staticmethod
     def _string_list(value: object, *, limit: int) -> list[str]:

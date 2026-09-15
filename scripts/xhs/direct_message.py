@@ -67,7 +67,11 @@ _READ_CHAT_JS = r"""
         const classText = String(item.className || '') + ' ' +
             Array.from(item.querySelectorAll('*')).map((node) => String(node.className || '')).join(' ');
         const role = /--right\b/.test(classText) ? 'self' : 'peer';
-        return { role, content };
+        const time = item.querySelector('time, [data-time], [class*="time"]');
+        return { role, content,
+            platform_message_id: item.getAttribute('data-message-id') || item.getAttribute('data-msg-id') || '',
+            occurred_at: item.getAttribute('data-timestamp') || time?.getAttribute('datetime') || time?.getAttribute('data-time') || '',
+            display_time: String(time?.innerText || '').trim() };
     }).filter((item) => item.content);
     return JSON.stringify({
         available: Boolean(editor),
@@ -77,6 +81,8 @@ _READ_CHAT_JS = r"""
             chatWindow ? chatWindow.innerText || chatWindow.textContent || '' : ''
         ).includes('只能发送1条消息'),
         messages,
+        history_complete: Boolean(chatWindow && [...chatWindow.querySelectorAll('.no-more, .end-text')]
+            .some(el => el.getClientRects().length && /没有更多|no more/i.test(el.innerText || ''))),
         composer: {
             active: document.activeElement === editor,
             editor_class: String(editor ? editor.className || '' : ''),
@@ -257,6 +263,7 @@ def inspect_private_message_context(
         "messages": state["messages"][-limit:],
         "message_count": len(state["messages"]),
         "composer": state["composer"],
+
     }
 
 
@@ -434,11 +441,14 @@ def _read_chat(page: Page) -> dict:
             {
                 "role": "self" if item.get("role") == "self" else "peer",
                 "content": str(item.get("content") or "").strip(),
+                **{key: item[key] for key in ("platform_message_id", "occurred_at", "display_time")
+                   if item.get(key)},
             }
             for item in list(data.get("messages") or [])
             if str(item.get("content") or "").strip()
         ],
         "composer": dict(data.get("composer") or {}),
+        "history_complete": bool(data.get("history_complete")),
     }
 
 

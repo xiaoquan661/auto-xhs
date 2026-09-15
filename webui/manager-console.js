@@ -37,7 +37,6 @@
   const expandedPersonas = new Set();
   const expandedWorkerDays = new Set();
   let editingPersona = null;
-  let planning = null;
   let employeePanel = null;
   let resultView = null;
   let pollingView = null;
@@ -49,10 +48,9 @@
   let selectedOperationTaskId = "";
   let selectedGoalId = "";
   let selectedProgressTab = "goals";
-  let selectedView = localStorage.getItem(VIEW_STORAGE_KEY) || "overview";
+  let selectedView = localStorage.getItem(VIEW_STORAGE_KEY) || "employee-units";
   let refreshTimer = null;
   let refreshPromise = null;
-  const viewScrollPositions = new Map();
 
   const terminalTaskStates = new Set([
     "SUCCESS",
@@ -512,15 +510,12 @@
       String(account.health_state || "").toUpperCase() === "READY" &&
       (account.uid || identity.live_user_id),
     );
-    const checkbox = $("#publish-preview-confirmed");
-    checkbox.checked = false;
-    checkbox.disabled = !ready;
-    $("#publish-confirm-submit").disabled = true;
+    $("#publish-confirm-submit").disabled = !ready;
     $("#publish-save-draft").disabled = !ready;
     setText(
       "#publish-confirm-message",
       ready
-        ? "请在绑定的 Chrome Profile 中核对真实预览，再勾选确认。"
+        ? "继续该任务将正式发布，完成后自动回读平台结果。"
         : "当前账号尚未达到可发布状态，请先处理账号连接或身份。",
     );
     $("#publish-confirm-dialog").showModal();
@@ -530,7 +525,6 @@
     const task = state.activePublishTask;
     if (!task) return;
     const publish = action === "publish-confirm";
-    if (publish && !$("#publish-preview-confirmed").checked) return;
     if (!publish && !window.confirm("确认不发布，并把当前内容保存到小红书草稿箱？")) return;
     const account = publishAccount(task);
     const identity = account?.identity || {};
@@ -540,7 +534,7 @@
     draft.disabled = true;
     setText(
       "#publish-confirm-message",
-      publish ? "正在确认发布并等待平台结果回读…" : "正在保存到草稿箱…",
+      publish ? "正在正式发布并等待平台结果回读…" : "正在保存到草稿箱…",
     );
     try {
       const payload = await mutateJson(`${api}/tasks/${task.task_id}/${action}`, "POST", {
@@ -558,7 +552,7 @@
       }
     } catch (error) {
       setText("#publish-confirm-message", error.message);
-      primary.disabled = !$("#publish-preview-confirmed").checked;
+      primary.disabled = false;
       draft.disabled = false;
     }
   }
@@ -834,9 +828,6 @@
   function renderWorkerNextDay(machineId, today) {
     const plan = nextWorkerPlan(machineId, today);
     const host = $("#worker-next-day");
-    $("#worker-next-plan-link").onclick = () => {
-      if (plan) planning.selectDate(plan.plan_date);
-    };
     if (!plan) {
       host.replaceChildren(emptyCard("待规划", "保存该员工机的未来计划后，在这里展示操作数量。"));
       return;
@@ -919,10 +910,7 @@
       ? nextId
       : "";
     localStorage.setItem("auto-xhs:manager-machine", selectedMachineId);
-    renderMachineNavigation();
-    renderMachineStage();
     selectManagerView("workers");
-    viewScrollPositions.set("workers", 0);
   }
 
   function selectEmployeeAccount(accountKey) {
@@ -930,7 +918,6 @@
       ? accountKey : "";
     localStorage.setItem("auto-xhs:employee-account", selectedEmployeeAccount);
     selectManagerView("employee-units");
-    viewScrollPositions.set("employee-units", 0);
   }
 
   function accountsForSelectedNode() {
@@ -1690,7 +1677,6 @@
 
   function renderMachines() {
     const list = $("#manager-machine-list");
-    if (!list) return;
     setText("#node-total", state.machines.length);
     populateMachineSelects();
     renderMachineNavigation();
@@ -1700,7 +1686,7 @@
     const badge = $("#manager-attention-badge");
     if (badge) badge.dataset.tone = attention || !state.machines.length ? "warning" : "success";
     const cards = state.accounts.map(accountThumbnailCard);
-    list.replaceChildren(...(cards.length ? cards
+    list?.replaceChildren(...(cards.length ? cards
       : [emptyCard("等待账号同步", "员工机上报的每个账号会独立显示在这里。")]));
     renderMachineStage();
   }
@@ -1819,7 +1805,7 @@
     setText("#room-report-date", yesterdayDate);
     const labels = { browse: "浏览", like: "点赞", comment: "评论", reply: "回复", publish: "发布" };
     [["#room-yesterday-metrics", yesterdayResults], ["#room-today-metrics", todayResults]]
-      .forEach(([selector, results]) => $(selector).replaceChildren(
+      .forEach(([selector, results]) => $(selector)?.replaceChildren(
         ...controlRoomDayMetrics(results).map(({ kind, actual }) => append(element("div"),
           element("span", "", labels[kind]), element("strong", "", actual))),
       ));
@@ -2668,7 +2654,6 @@
 
   function renderAll() {
     debugView?.render();
-    planning?.render();
     employeePanel?.render(selectedEmployeeAccount);
     renderMachines();
     renderPublishReviews();
@@ -2738,17 +2723,15 @@
 
   function selectManagerView(viewId, updateHash = true) {
     const allowed = new Set([
-      "overview",
       "employee-units",
-      "planning",
       "workers",
       "accounts",
       "results",
       "exceptions",
       "settings",
     ]);
-    const next = allowed.has(viewId) ? viewId : "overview";
-    viewScrollPositions.set(selectedView, window.scrollY);
+    const next = allowed.has(viewId) ? viewId : "employee-units";
+    const scrollPosition = window.scrollY;
     selectedView = next;
     $(".control-room").dataset.currentView = next;
     renderMachineNavigation();
@@ -2769,7 +2752,7 @@
     if ((updateHash || viewId === "operations") && window.location.hash !== `#${next}`) {
       window.history.replaceState(null, "", `#${next}`);
     }
-    window.requestAnimationFrame(() => window.scrollTo(0, viewScrollPositions.get(next) || 0));
+    window.requestAnimationFrame(() => window.scrollTo({top: scrollPosition, behavior: "instant"}));
   }
 
   function renderPartialErrors() {
@@ -2843,31 +2826,31 @@
 
   async function performLoad() {
     state.errors = {};
-    const [
-      snapshotResult,
-      localTasksResult,
-      systemResult,
-    ] = await Promise.allSettled([
-      fetchJson(`${managerApi}/dashboard-snapshot`),
+    let snapshotRendered = false;
+    const auxiliary = Promise.allSettled([
       fetchJson(`${api}/tasks`),
       fetchJson(`${api}/system/status`),
-    ]);
-    if (snapshotResult.status === "rejected") {
-      const error = snapshotResult.reason;
+    ]).then(([localTasksResult, systemResult]) => {
+      if (localTasksResult.status === "fulfilled") {
+        state.localTasks = localTasksResult.value.tasks || [];
+      } else {
+        state.errors.localTasks = localTasksResult.reason;
+      }
+      if (systemResult.status === "fulfilled") {
+        state.system = systemResult.value;
+      } else {
+        state.errors.system = systemResult.reason;
+      }
+      if (snapshotRendered) renderAll();
+    });
+    let snapshot;
+    try {
+      snapshot = await fetchJson(`${managerApi}/dashboard-snapshot`);
+    } catch (error) {
       state.errors.snapshot = error;
       renderUnavailable(error);
+      await auxiliary;
       return false;
-    }
-    const snapshot = snapshotResult.value;
-    if (localTasksResult.status === "fulfilled") {
-      state.localTasks = localTasksResult.value.tasks || [];
-    } else {
-      state.errors.localTasks = localTasksResult.reason;
-    }
-    if (systemResult.status === "fulfilled") {
-      state.system = systemResult.value;
-    } else {
-      state.errors.system = systemResult.reason;
     }
     state.available = true;
     state.snapshot = snapshot;
@@ -2891,6 +2874,7 @@
     state.employeeSummary = snapshot.employee_summary || {};
     state.operationTasks = snapshot.operation_tasks || [];
     state.agentMessages = snapshot.agent_messages || [];
+    snapshotRendered = true;
     renderAll();
     const readTime = new Date().toLocaleTimeString("zh-CN", { hour12: false });
     setText("#manager-last-read", readTime);
@@ -2898,6 +2882,7 @@
     $("#room-live-dot").dataset.tone = "success";
     setMessage("#manager-cluster-message", `集群状态已更新 · ${readTime}`, "success");
     setMessage("#manager-account-message", `账号缓存已更新 · ${readTime}`, "success");
+    await auxiliary;
     return true;
   }
 
@@ -3152,9 +3137,6 @@
   function bindEvents() {
     pollingView = window.AutoXhsPolling({state, mutateJson, managerApi, load, formatTime});
     debugView = window.AutoXhsDebug?.({state, mutateJson, managerApi, load});
-    planning = window.AutoXhsPlanning({state, mutateJson, managerApi, localDateValue,
-      workerDayMetrics, metricLabels, formatTime});
-    planning.init();
     accountTools = window.AutoXhsAccountTools({state, mutateJson, fetchJson, managerApi, load});
     employeePanel = window.AutoXhsEmployeePanel({state, workerDayMetrics, nextWorkerPlan, mutateJson, managerApi, load,
       localDateValue, resultDate, resultAccount, resultLinks, resultActionKind, resultCapability, workerTaskDate,
@@ -3247,9 +3229,6 @@
     });
     $("#publish-confirm-dialog")?.addEventListener("close", () => {
       state.activePublishTask = null;
-    });
-    $("#publish-preview-confirmed")?.addEventListener("change", (event) => {
-      $("#publish-confirm-submit").disabled = !event.target.checked;
     });
     $("#publish-confirm-submit")?.addEventListener("click", () => {
       executePublishConfirmation("publish-confirm");

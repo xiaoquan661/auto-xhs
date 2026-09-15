@@ -18,7 +18,8 @@ function renderStatus(status = {}) {
   document.getElementById("unpaired-controls").style.display = paired ? "none" : "block";
   document.getElementById("paired-controls").style.display = paired ? "block" : "none";
   document.getElementById("hint").textContent = paired
-    ? (wsConnected ? "配对与连接正常，可以运行 Python CLI。" : "配对已保存，请启动对应账号 Bridge。")
+    ? (wsConnected ? (status.activity?.busy ? `员工 Agent · ${status.activity.text}`
+      : "连接正常，员工 Agent 可读取页面、截图并操作。") : "配对已保存，请启动对应账号 Bridge。")
     : (backgroundPlatformReady ? "请先用 account-pair-begin 生成一次性配对包。" : STALE_BACKGROUND_MESSAGE);
   if (!backgroundPlatformReady) {
     document.getElementById("pair-error").textContent = STALE_BACKGROUND_MESSAGE;

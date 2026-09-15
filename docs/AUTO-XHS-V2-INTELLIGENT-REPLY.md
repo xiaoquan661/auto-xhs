@@ -18,14 +18,10 @@
 每个账号规则包含：
 
 - 总开关，以及评论回复、私信回复两个独立开关；
-- 生效时段、每小时上限、每天上限；
 - 评论范围，默认只处理自己笔记下的评论；
 - 回复风格、账号人设和可确认知识；
-- 自动回复类别和待处理类别。
 
-默认自动回复类别：普通问题、感谢或夸赞、一般讨论、知识中已有明确答案的咨询。
-
-默认待处理类别：投诉或争议、合作、报价、库存、退款、联系方式、线下见面、业务承诺和上下文或知识不足。
+Agent 根据账号人设、知识和上下文自主理解意图、生成回复；信息不足时自然追问。
 
 ## 3. Codex 回复收件箱
 
@@ -36,7 +32,7 @@ Codex 每次只处理指定上限内的新事件：
 → 按平台事件 ID 去重
 → 补充笔记、评论线程或近期会话上下文
 → Codex 生成 reply / intent / facts_used / missing_information
-→ Codex 提交 reply / pending / skip 决策
+→ Codex 提交 reply / skip 决策
 → Python 按账号规则复核授权
 → 只发送 reply
 → 页面回读
@@ -50,7 +46,7 @@ Codex 每次只处理指定上限内的新事件：
 
 - 只处理明确标记为“评论了你的笔记”的通知事件；回复自己评论、提及和其他笔记事件会跳过；
 - Codex 上下文包含笔记标题、正文、标签、当前评论、父评论和评论者；
-- 同一平台事件只处理一次；已有人工接管任务的事件不会进入自动周期；
+- 同一平台事件只处理一次，已关联发送任务的事件按原任务核对结果；
 - 回复通过通知卡片发送，并以页面确认状态作为成功证据；
 - 缺少页面回读时终态为 `RESULT_UNKNOWN`。
 
@@ -60,16 +56,13 @@ Codex 每次只处理指定上限内的新事件：
 - 对方最新连续发送的多条消息合并为一次回复单位；
 - Codex 上下文保留近期双方消息和最新对方轮次；
 - 采集器同时保留所有可见会话快照；只有最新轮次来自对方时才创建待回复事件，己方消息只参与
-  所有权和发送回读判断；
+  处理边界和发送回读判断；
 - 发送前重新读取会话。最新对方轮次与生成时不一致时，本次不发送，由下一次采集建立新事件；
 - 发送后必须读取到新的己方消息气泡才记为 `SUCCESS`；
-- 明确需要人工判断的 `pending` 决策将会话交给人工；接管期间新消息去重入库；
-- 发送失败和 `RESULT_UNKNOWN` 按原事件保留任务与对账记录，会话继续由 Codex 处理新消息。
-  历史技术异常接管在初始化时迁移，恢复尚未创建回复任务的新消息；原发送保持原状态；
-- 接管边界后的己方消息会先与该事件的 Codex 出站记录精确匹配：匹配项记为 `CODEX_OUTBOUND`，
-  未匹配项记为 `HUMAN_REPLY`；两者都从该消息之后恢复 Codex，但只有前者补正延迟发送回读；
-- 也可以通过确认命令显式恢复；
-- `RESULT_UNKNOWN` 不会自动重发。
+- 会话由 Agent 持续处理，新消息去重入库；
+- 发送失败和 `RESULT_UNKNOWN` 按原事件保留任务与核对记录；
+- 后续快照中的己方消息与原 Agent 出站记录匹配时，补正延迟发送回读；
+- `RESULT_UNKNOWN` 先核对平台结果。
 
 ## 6. Codex 决策文件
 
@@ -88,8 +81,7 @@ Codex 为每个事件写入一个 UTF-8 JSON 决策文件：
 }
 ```
 
-`action` 支持 `reply`、`pending` 和 `skip`。Python 会对过长、明显 AI 表达、近期完全重复、事实缺失、
-时段和配额进行确定性复核；复核未授权的回复进入待处理或跳过。
+`action` 支持 `reply` 和 `skip`。Agent 负责内容判断，Python 核验账号、渠道和会话轮次。
 
 ## 7. CLI、API 与 WebUI
 
@@ -101,9 +93,7 @@ python scripts/cli.py --account brand-a reply-inbox list --state NEW --limit 20
 python scripts/cli.py --account brand-a reply-inbox context --event-id EVENT_ID
 python scripts/cli.py --account brand-a reply-inbox apply `
   --decision-file "C:\Temp\reply-decision.json"
-python scripts/cli.py --account brand-a reply-inbox conversations --owner HUMAN
-python scripts/cli.py --account brand-a reply-inbox resume `
-  --user-id USER_ID --confirm
+python scripts/cli.py --account brand-a reply-inbox conversations
 ```
 
 API 模型兼容入口：
@@ -129,14 +119,14 @@ python scripts/cli.py --account brand-a reply-cycle `
 - `GET /api/v1/data-recovery/reply-records`
 
 WebUI“账号回复规则”提供规则编辑、API 模型周期、待处理内容和回复记录。Codex 回复使用
-`skills/xhs-reply/SKILL.md` 与 `reply-inbox` CLI；评论与私信草稿入口保留为单条人工接管流程。
+`skills/xhs-reply/SKILL.md` 与 `reply-inbox` CLI；单条草稿入口用于生成候选内容。
 
 ## 8. 结果状态
 
 - `SUCCESS`：页面已回读到明确发送结果；
 - `FAILED`：页面明确失败或发送前检查失败；
 - `RESULT_UNKNOWN`：已经触发发送，但未取得确定回读；
-- `pending`：需要业务判断、缺少知识、超过时段或配额、质量检查未通过，或发送结果未闭环；
+- `pending`：生成失败或发送结果待核对；
 - `skip`：不在规则范围、渠道关闭或重复回复。
 
 外发结果不确定时先检查平台当前状态，不自动重发。

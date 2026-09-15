@@ -48,7 +48,7 @@ def test_publish_workflow_persists_preview_for_webui_monitoring(tmp_path) -> Non
     persisted = service.tasks.get(task["task_id"])
 
     assert persisted["source"] == "agent"
-    assert persisted["state"] == "WAITING_APPROVAL"
+    assert persisted["state"] == "RUNNING"
     assert persisted["parameters"]["stage"] == "preview_ready"
     assert persisted["parameters"]["preview"]["title"] == "测试标题"
 
@@ -67,26 +67,13 @@ def test_publish_workflow_persists_explicit_platform(tmp_path) -> None:
     assert task["platform"] == "rednote"
 
 
-def test_publish_requires_confirmation_and_matching_account(tmp_path) -> None:
+def test_publish_proceeds_with_bound_account_without_preview_approval(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
-
-    with pytest.raises(ServiceError) as missing:
-        service.prepare_publish(
-            task["task_id"],
-            account="alpha",
-            confirmed=False,
-            preview_revision=_revision(task),
-        )
+    running = service.prepare_publish(task["task_id"], account="alpha")
+    assert running["state"] == "RUNNING"
     with pytest.raises(ServiceError) as mismatch:
-        service.prepare_publish(
-            task["task_id"],
-            account="beta",
-            confirmed=True,
-            preview_revision=_revision(task),
-        )
-
-    assert missing.value.code == "CONFIRMATION_REQUIRED"
+        service.prepare_publish(task["task_id"], account="beta")
     assert mismatch.value.code == "CONFIRMATION_MISMATCH"
 
 
@@ -199,10 +186,10 @@ def test_changed_preview_revision_is_rejected(tmp_path) -> None:
         )
 
     assert exc_info.value.code == "PUBLISH_PREVIEW_CHANGED"
-    assert service.get(task["task_id"], account="alpha")["state"] == "WAITING_APPROVAL"
+    assert service.get(task["task_id"], account="alpha")["state"] == "RUNNING"
 
 
-def test_consumed_confirmation_cannot_publish_twice(tmp_path) -> None:
+def test_submitted_task_cannot_publish_twice(tmp_path) -> None:
     service = _service(tmp_path)
     task = _waiting_task(service)
     service.prepare_publish(

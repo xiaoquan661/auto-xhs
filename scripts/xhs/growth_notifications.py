@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from metric_temporality import GROWTH_ACTION
+from collection_coverage import collection_window
+from metric_temporality import GROWTH_ACTION, display_date, event_day
 
 from .urls import NOTIFICATION_URL
 
@@ -23,7 +24,9 @@ _READ_GROWTH_JS = r"""
       if (!kind || text.length > 1500) continue;
       const actors = new Set([...card.querySelectorAll('a[href*="/user/profile/"]')]
         .map(a => new URL(a.href).pathname));
-      const actions = text.match(/开始关注了?你|关注了你|赞了你的|点赞了你的|收藏了你的|followed you|liked your/gi) || [];
+      const actionPattern = new RegExp(
+        '开始关注了?你|关注了你|赞了你的|点赞了你的|收藏了你的|followed you|liked your', 'gi');
+      const actions = text.match(actionPattern) || [];
       if (actors.size !== 1 || actions.length !== 1 || text.includes('沪ICP备')) break;
       if (kind === 'received_like' && /收藏了你的/.test(text)) break;
       if (seen.has(card)) break;
@@ -73,7 +76,9 @@ def normalize_growth_notifications(rows: list[dict], captured_at: str) -> list[d
             display = str(row.get("display_time") or "")
             at = _display_date(display, captured_at)
             if at:
-                scope = "platform_display_date"
+                scope = (
+                    "platform_interval_date" if display.endswith("前") else "platform_display_date"
+                )
             elif re.fullmatch(r"\d+\s*(分钟|小时|天)前", display):
                 scope = "relative_approximate"
         # Relative labels and URL tracking parameters change between collections.
@@ -103,32 +108,22 @@ def normalize_growth_notifications(rows: list[dict], captured_at: str) -> list[d
 
 
 def _display_date(text: str, captured_at: str) -> str:
-    """Preserve the day visible in a notification without inventing an exact time."""
-    captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00")).astimezone(
-        timezone(timedelta(hours=8))
-    )
-    value = text.strip()
-    day = None
-    if value.startswith("今天") or value == "刚刚":
-        day = captured.date()
-    elif value.startswith("昨天"):
-        day = captured.date() - timedelta(days=1)
-    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}(?: .*)?", value):
-        day = datetime.strptime(value[:10], "%Y-%m-%d").date()
-    if day is None:
-        return ""
-    return f"{day.isoformat()}T00:00:00+08:00"
+    return display_date(text, captured_at)
 
 
 def collect_growth_notifications(page: Any, *, max_items: int = 100) -> dict:
     page.navigate(NOTIFICATION_URL)
     page.wait_for_load()
     page.wait_dom_stable()
+    page.evaluate(_CAPTURE_GROWTH_JS)
     rows: list[dict] = []
     tabs = []
-    for labels in (
-        ("赞和收藏", "赞与收藏", "Likes and saves"),
-        ("新增关注", "关注", "New followers"),
+    batches = []
+    captured = datetime.now(UTC).isoformat()
+    start, end = collection_window(captured)
+    for metric, labels in (
+        ("received_likes", ("赞和收藏", "赞与收藏", "Likes and saves")),
+        ("new_followers", ("新增关注", "关注", "New followers")),
     ):
         import json
 
@@ -142,17 +137,166 @@ def collect_growth_notifications(page: Any, *, max_items: int = 100) -> dict:
         })()""".replace("LABELS", json.dumps(labels, ensure_ascii=False))
         )
         tabs.append(bool(selected))
+        channel_rows = []
+        exhausted = False
+        stop = "通知标签未就绪"
         if selected:
-            page.wait_dom_stable()
-        observed = page.evaluate(_READ_GROWTH_JS)
-        if isinstance(observed, list):
-            rows.extend(observed)
-    captured = datetime.now(UTC).isoformat()
-    events = normalize_growth_notifications(rows, captured)[:max_items]
+            from .notification_history import read_notification_history
+
+            channel_rows, exhausted, stop = read_notification_history(
+                page, lambda: page.evaluate(_READ_GROWTH_JS), max_items=max_items
+            )
+        observed_api = page.evaluate("window.__AUTO_XHS_GROWTH__ || {}")
+        api_rows, api_complete = parse_growth_api(observed_api, metric, captured)
+        kind = "received_like" if metric == "received_likes" else "new_follower"
+        if api_rows is not None:
+            normalized = api_rows
+            exhausted = api_complete
+            undated = sum(not event_day(row) for row in normalized)
+            invalid = 0
+            unidentified = 0
+            stop = "通知接口分页尚未完整返回"
+        else:
+            normalized = normalize_growth_notifications(channel_rows, captured)
+            normalized = [row for row in normalized if row["event_type"] == kind]
+            undated = sum(not event_day(row) for row in normalized)
+            invalid = len([r for r in channel_rows if r.get("event_type") == kind]) - len(
+                normalized
+            )
+            unidentified = sum(r.get("identity_basis") != "platform_id" for r in normalized)
+        if len(normalized) >= max_items:
+            normalized = normalized[:max_items]
+            exhausted = False
+            stop = "达到本轮采集数量上限"
+        complete = exhausted and not undated and not unidentified and invalid == 0
+        rows.extend(normalized)
+        batches.append(
+            {
+                "metric": metric,
+                "source": "notification_history",
+                "period_start": start,
+                "period_end": end,
+                "unit": "event",
+                "coverage": "complete" if complete else "partial",
+                "undated_count": undated,
+                "invalid_count": invalid,
+                "unidentified_count": unidentified,
+                "observed_count": len(normalized),
+                "source_exhausted": exhausted,
+                "event_index": [
+                    {"id": r["platform_event_id"], "date": event_day(r)} for r in normalized
+                ],
+                "reason": ""
+                if complete
+                else (
+                    "部分通知缺少可归属日期"
+                    if undated
+                    else "部分通知结构无法识别"
+                    if invalid
+                    else "通知缺少平台事件标识"
+                    if unidentified
+                    else stop
+                ),
+                "cursor": normalized[-1]["platform_event_id"] if normalized else "",
+            }
+        )
     return {
-        "events": events,
+        "events": rows,
         "captured_at": captured,
-        "partial": True,
-        "coverage": "visible_notifications",
+        "partial": any(b["coverage"] != "complete" for b in batches),
+        "coverage": "complete" if all(b["coverage"] == "complete" for b in batches) else "partial",
         "tabs_observed": tabs,
+        "collection_batches": batches,
     }
+
+
+_CAPTURE_GROWTH_JS = r"""(() => {
+  if (window.__AUTO_XHS_GROWTH__) return;
+  const captured = window.__AUTO_XHS_GROWTH__ = {};
+  const record = (url, body) => {
+    const path = new URL(url, location.href).pathname;
+    if (!/\/you\/(likes|connections)$/.test(path)) return;
+    try {
+      const page = {url, payload: typeof body === 'string' ? JSON.parse(body) : body};
+      const pages = (captured[path]?.pages || []).filter(p => p.url !== url);
+      captured[path] = {...page, pages: [...pages,page]};
+    }
+    catch (_) {}
+  };
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const response = await originalFetch.apply(this,args);
+    if (response.status === 200 && /\/you\/(likes|connections)/.test(response.url))
+      response.clone().text().then(body => record(response.url,body));
+    return response;
+  };
+  const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(method,url,...args) {
+    this.__growthUrl = url; return open.call(this,method,url,...args);
+  };
+  XMLHttpRequest.prototype.send = function(...args) {
+    if (/\/you\/(likes|connections)/.test(this.__growthUrl || ''))
+      this.addEventListener('load',function() {
+        if (this.status === 200) record(this.__growthUrl,
+          this.responseType === 'json' ? this.response : this.responseText);
+      },{once:true});
+    return send.apply(this,args);
+  };
+})()"""
+
+
+def parse_growth_api(captured: dict, metric: str, captured_at: str) -> tuple[list | None, bool]:
+    """Normalize the platform's observed notification responses."""
+    path = "/api/sns/web/v1/you/" + ("likes" if metric == "received_likes" else "connections")
+    response = captured.get(path) if isinstance(captured, dict) else None
+    if not response:
+        return None, False
+    pages = response.get("pages") or [response]
+    rows = {}
+    valid = True
+    for page in pages:
+        data = (page.get("payload") or {}).get("data") or {}
+        items = data.get("message_list")
+        if not isinstance(items, list):
+            valid = False
+            continue
+        for item in items:
+            kind = str(item.get("type") or "")
+            if metric == "received_likes" and kind.startswith("faved/"):
+                continue
+            accepted = (
+                kind.startswith("liked/") if metric == "received_likes" else kind == "follow/you"
+            )
+            if not accepted or not item.get("id") or not item.get("time"):
+                valid = False
+                continue
+            user = item.get("user_info") or item.get("user") or {}
+            note = item.get("item_info") or {}
+            identifier = str(item["id"])
+            occurred = datetime.fromtimestamp(int(item["time"]), UTC).isoformat()
+            rows[identifier] = {
+                "event_type": "received_like" if metric == "received_likes" else "new_follower",
+                "platform_event_id": identifier,
+                "notification_id": identifier,
+                "actor_user_id": str(user.get("userid") or ""),
+                "user_id": str(user.get("userid") or ""),
+                "nickname": user.get("nickname", ""),
+                "target_url": note.get("link", ""),
+                "content": item.get("title", ""),
+                "occurred_at": occurred,
+                "event_occurred_at": occurred,
+                "captured_at": captured_at,
+                "time_scope": "platform",
+                "source": "notification_api",
+                "identity_basis": "platform_id",
+                "metric_semantics": "event",
+            }
+    first_cursor = parse_qs(urlsplit(pages[0]["url"]).query).get("cursor", [""])[0]
+    last = (pages[-1].get("payload") or {}).get("data") or {}
+    for previous, current in zip(pages, pages[1:]):
+        previous_data = (previous.get("payload") or {}).get("data") or {}
+        expected = str(previous_data.get("strCursor") or previous_data.get("cursor") or "")
+        cursor = parse_qs(urlsplit(current["url"]).query).get("cursor", [""])[0]
+        valid = valid and previous_data.get("has_more") is True and cursor == expected
+    complete = valid and not first_cursor and last.get("has_more") is False
+    return list(rows.values()), complete

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from product_store import product_root
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 15
 
 _MIGRATIONS = {
     1: """
@@ -422,6 +422,34 @@ _MIGRATIONS = {
         ALTER TABLE comment_batch_events ADD COLUMN observation_json TEXT NOT NULL DEFAULT '{}';
     """,
     12: "SELECT 1;",
+    13: """
+        ALTER TABLE reply_rules DROP COLUMN hourly_limit;
+        ALTER TABLE reply_rules DROP COLUMN daily_limit;
+        ALTER TABLE reply_rule_versions DROP COLUMN hourly_limit;
+        ALTER TABLE reply_rule_versions DROP COLUMN daily_limit;
+    """,
+    14: """
+        ALTER TABLE reply_rules DROP COLUMN auto_categories_json;
+        ALTER TABLE reply_rules DROP COLUMN manual_categories_json;
+        ALTER TABLE reply_rule_versions DROP COLUMN auto_categories_json;
+        ALTER TABLE reply_rule_versions DROP COLUMN manual_categories_json;
+        UPDATE inbound_events SET handling_state = 'NEW'
+        WHERE handling_state = 'HANDLED' AND created_task_id IS NULL
+          AND (event_id IN (SELECT inbound_event_id FROM reply_decisions
+                           WHERE decision = 'pending' AND COALESCE(reply_task_id, '') = '')
+               OR json_extract(payload_json, '$.conversation_owner') = 'HUMAN');
+        UPDATE private_message_conversations SET owner_state = 'CODEX'
+        WHERE owner_state = 'HUMAN';
+    """,
+    15: """
+        ALTER TABLE reply_rules DROP COLUMN active_time_range;
+        ALTER TABLE reply_rule_versions DROP COLUMN active_time_range;
+        UPDATE inbound_events SET handling_state = 'NEW'
+        WHERE handling_state = 'HANDLED' AND created_task_id IS NULL
+          AND event_id IN (SELECT inbound_event_id FROM reply_decisions
+                           WHERE reason = 'outside_active_time'
+                             AND COALESCE(reply_task_id, '') = '');
+    """,
 }
 
 

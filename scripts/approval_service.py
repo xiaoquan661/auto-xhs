@@ -180,4 +180,14 @@ class ApprovalService:
             raise ServiceError("CAPABILITY_NOT_FOUND", str(exc), 404) from exc
         if not policy.enabled_in_v1 or policy.risk_level is not RiskLevel.EXTERNAL_OUTPUT:
             raise ServiceError("CAPABILITY_DISABLED", "该外发能力不属于 V1", 409)
+        if action_type in {
+            "publish",
+            "publish-video",
+            "fill-publish",
+            "fill-publish-video",
+            "click-publish",
+            "long-article",
+            "next-step",
+        }:
+            raise ServiceError("APPROVAL_NOT_REQUIRED", "该能力按任务直接执行", 409)
         return policy

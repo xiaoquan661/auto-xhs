@@ -160,7 +160,7 @@ def material(plan: dict, row: dict, account: dict, persona: dict | None) -> dict
             {
                 "metric": "publish",
                 "count": limits["publish"],
-                "reason": "准备独立素材，检查主页总量与发帖间隔，预览并确认发布",
+                "reason": "准备独立素材，检查主页总量与发帖间隔，生成内容后正式发布并回读结果",
             }
         )
     if limits["reply"]:
@@ -202,7 +202,7 @@ def material(plan: dict, row: dict, account: dict, persona: dict | None) -> dict
             "target_selection": "employee_owned",
             "warm_follow_only": True,
             "unknown_result": "isolate_target",
-            "publish_confirmation_required": True,
+            "publish_confirmation_required": False,
             "exception_notes": config.get("exception_policy", ""),
         },
         "publish_rules": rules,

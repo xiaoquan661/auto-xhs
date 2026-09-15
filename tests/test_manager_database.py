@@ -105,3 +105,34 @@ def test_account_scope_and_revision():
     comment = next(r for r in report["actions"] if r["action"] == "comment")
     assert comment["actual"] == 1 and not report["passed"]
     assert all(r["actual"] == 0 for r in acceptance_report(state, accounts=["PC052:a"])["actions"])
+
+
+def test_private_message_reply_and_historical_rule_are_account_scoped(tmp_path):
+    import json
+    import sqlite3
+
+    db = ManagerDatabase(tmp_path)
+    db.sync({})
+    with sqlite3.connect(db.path) as connection:
+        rows = [
+            ("inbound_events", "event", {"event_id": "event", "event_type": "private_message",
+                                         "payload_json": '{"content":"收到原文"}'}),
+            ("reply_records", "reply", {"inbound_event_id": "event", "reply_text": "实际回复",
+                                         "rule_id": "rule", "rule_version": 2}),
+            ("reply_rule_versions", "rule2", {"rule_id": "rule", "rule_version": 2,
+                                                "reply_style": "historical"}),
+            ("reply_rules", "rule", {"rule_id": "rule", "rule_version": 3,
+                                       "reply_style": "current"}),
+        ]
+        for collection, key, payload in rows:
+            connection.execute("INSERT INTO worker_records VALUES (?, ?, ?, ?, ?)",
+                               ("PC1", collection, key, "a", json.dumps(payload)))
+        connection.execute("INSERT INTO worker_records VALUES (?, ?, ?, ?, ?)",
+                           ("PC2", "reply_records", "other", "a", json.dumps(
+                               {"inbound_event_id": "event", "reply_text": "另一机器"})))
+    event = db.employee_observations()[0]["data"]
+    assert event["payload"]["content"] == "收到原文"
+    assert len(event["reply_history"]) == 1
+    assert event["reply_history"][0]["reply_text"] == "实际回复"
+    assert event["processing_rule"]["reply_style"] == "historical"
+    assert event["processing_rule_basis"] == "applied"
