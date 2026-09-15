@@ -238,7 +238,7 @@ def test_download_builds_scp_command() -> None:
 
 
 @pytest.mark.parametrize("operation", ["download", "sftp_download"])
-def test_download_transports_run_without_console(operation: str, tmp_path: Path) -> None:
+def test_download_transports_run_in_background(operation: str, tmp_path: Path) -> None:
     runner = RecordingRunner(stdout="")
     getattr(transport(runner), operation)(machine(), "C:/outbox/evidence", tmp_path / "evidence")
     assert runner.calls[0][1]["creationflags"] == (

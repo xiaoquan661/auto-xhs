@@ -6,6 +6,16 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../extensio
 const navigation = source.slice(source.indexOf('async function cmdNavigate('), source.indexOf('// ───────────────────────── 截图'));
 const note = 'https://www.xiaohongshu.com/explore/note1';
 
+test('recommendation extraction supports arrays and Vue ref wrappers', () => {
+  const python = fs.readFileSync(require('node:path').join(__dirname, '../scripts/xhs/feeds.py'), 'utf8');
+  const script = python.match(/_EXTRACT_FEEDS_JS = """([\s\S]*?)"""/)[1];
+  const feeds = [{ id: 'note1', xsecToken: 'token', noteCard: { displayTitle: 'title' } }];
+  for (const wrap of [x => x, x => ({ value: x }), x => ({ _value: x })]) {
+    const context = vm.createContext({ window: { __INITIAL_STATE__: { feed: { feeds: wrap(feeds) } } } });
+    assert.deepEqual(JSON.parse(vm.runInContext(script, context)), feeds);
+  }
+});
+
 test('profile extraction supports plain state and Vue ref wrappers', () => {
   const python = fs.readFileSync(require('node:path').join(__dirname, '../scripts/xhs/user_profile.py'), 'utf8');
   const userScript = python.match(/_EXTRACT_USER_DATA_JS = """([\s\S]*?)"""/)[1];
@@ -83,6 +93,30 @@ test('wrong target times out and leaves no background polls', async () => {
   const h = harness([ready(note.replace('note1', 'other'))]);
   await assert.rejects(h.context.waitForTabComplete(1, note, 600), /页面加载超时/);
   assert.equal(h.reads(), 3);
+});
+
+test('home navigation accepts the committed recommendation redirect', async () => {
+  const home = 'https://www.xiaohongshu.com';
+  const state = (url, id) => ({ ...ready(url, id), reason: 'dom' });
+  const h = harness([state(note, 1), state(home + '/explore', 2)]);
+  const result = await h.context.cmdNavigate({ url: home });
+  assert.equal(result.readiness, 'dom');
+  assert.equal(h.navigations(), 1);
+  assert.ok(h.time() < 1000);
+});
+
+test('search navigation accepts query reordering and retains keyword identity', () => {
+  const h = harness([ready()]);
+  const url = 'https://www.xiaohongshu.com/search_result';
+  assert.equal(h.context.sameNavigationTarget(url + '?source=web&keyword=a',
+    url + '?keyword=a&source=web'), true);
+  assert.equal(h.context.sameNavigationTarget(url + '?keyword=a', url + '?keyword=b'), false);
+  assert.equal(h.context.sameNavigationTarget(url + '/?keyword=life&source=web_explore_feed&type=51',
+    url + '?keyword=life&source=web_explore_feed'), true);
+  assert.equal(h.context.sameNavigationTarget(url + '?keyword=life&type=51',
+    url + '?keyword=life&type=54'), false);
+  assert.equal(h.context.sameNavigationTarget('https://www.rednote.com/explore',
+    'https://www.xiaohongshu.com/'), false);
 });
 
 test('blocked redirect returns promptly for the existing block handler', async () => {

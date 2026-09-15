@@ -17,8 +17,8 @@ _EXTRACT_FEEDS_JS = """
         window.__INITIAL_STATE__.feed &&
         window.__INITIAL_STATE__.feed.feeds) {
         const feeds = window.__INITIAL_STATE__.feed.feeds;
-        const feedsData = feeds.value !== undefined ? feeds.value : feeds._value;
-        if (feedsData) {
+        const feedsData = feeds.value ?? feeds._value ?? feeds;
+        if (Array.isArray(feedsData)) {
             return JSON.stringify(feedsData);
         }
     }

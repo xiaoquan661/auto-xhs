@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import mimetypes
 import sys
@@ -180,8 +181,17 @@ def make_handler(
 
         def _send_json(self, status: int, payload: dict) -> None:
             content = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            encodings = self.headers.get("Accept-Encoding", "").lower().split(",")
+            compressed = len(content) >= 4096 and any(
+                item.strip() == "gzip" for item in encodings
+            )
+            if compressed:
+                content = gzip.compress(content, compresslevel=1)
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Vary", "Accept-Encoding")
+            if compressed:
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -744,6 +754,10 @@ def serve(host: str = "0.0.0.0", port: int = 8765) -> None:
         make_handler(service, manager_service=manager_service),
     )
     manager_sync = ManagerSyncService(manager_service)
+    if manager_service.store.list("machines"):
+        from manager_sync_log import start_log_window
+
+        start_log_window(manager_sync.log_path, sys.executable)
     manager_agent = ManagerAgentService(manager_service)
     manager_sync.start()
     manager_agent.start()

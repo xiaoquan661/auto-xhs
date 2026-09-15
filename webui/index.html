@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/styles.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/control-room.css?v=20260909-polling-1" />
-    <link rel="stylesheet" href="/employee-panel.css?v=20260910-metric-groups-1" />
+    <link rel="stylesheet" href="/employee-panel.css?v=20260915-today-plan-style-1" />
     <link rel="stylesheet" href="/manager-results.css?v=20260908-results-1" />
     <link rel="stylesheet" href="/manager-acceptance.css?v=20260910" />
     <link rel="stylesheet" href="/manager-debug.css?v=20260910" />
@@ -17,9 +17,9 @@
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <div class="app-shell manager-app-shell control-room">
       <header class="room-masthead">
-        <a class="brand" href="#overview" data-manager-view-link="overview">
+        <a class="brand" href="#employee-units" data-manager-view-link="employee-units">
           <span class="brand-mark" aria-hidden="true">小</span>
-          <span class="room-brand-copy"><small>MANAGER · 员工机管理面板</small><strong>auto-xhs 运营总览</strong></span>
+          <span class="room-brand-copy"><small>MANAGER · 员工机管理面板</small><strong>auto-xhs 账号管理台</strong></span>
         </a>
         <div class="room-live"><span class="room-dot" id="room-live-dot"></span><div><strong id="room-live-state">等待读取</strong><small>上次更新 <span id="manager-last-read">—</span> · <span id="room-refresh-interval">每 30 秒刷新</span></small></div><button class="secondary-button" id="manager-refresh" type="button">刷新</button></div>
       </header>
@@ -45,12 +45,6 @@
               </button>
               <p class="room-sidebar-caption">按账号查看</p><div class="manager-machine-nav" id="manager-machine-nav" aria-label="账号单元导航"></div>
 <p class="room-sidebar-caption">工作区</p>        <nav class="nav-list">
-          <a class="nav-item active" href="#overview" data-manager-view-link="overview">
-            <span class="nav-icon">⌂</span><span>运营总览</span>
-          </a>
-          <a class="nav-item" href="#planning" data-manager-view-link="planning">
-            <span class="nav-icon">▣</span><span>明日任务规划</span>
-          </a>
           <a class="nav-item" href="#workers" data-manager-view-link="workers">
             <span class="nav-icon">▦</span><span>员工机</span>
             <b class="nav-badge" id="node-total">—</b>
@@ -73,90 +67,9 @@
 <p class="room-sidebar-note">选择账号查看计划、执行进度与回收结果，机器标明所属设备。</p></aside>
 
       <main class="main" id="main-content">
-        <section class="workspace-view" id="employee-units" data-manager-view="employee-units" hidden>
+        <section class="workspace-view active" id="employee-units" data-manager-view="employee-units">
           <div id="employee-unit-content"></div>
         </section>
-        <section class="workspace-view active" id="overview" data-manager-view="overview">
-          <header class="room-workspace-heading"><div><h1>运营总览</h1><p>集中查看运营目标、执行记录和实际成果。</p></div><span class="manager-state-badge" data-tone="info">经理 Agent 统筹</span></header>
-          <section class="manager-cluster">
-            <div class="room-overview-summary">
-              <div><span>已完成目标</span><strong id="manager-completed-goal-total">—</strong><small>经理 Agent 下发的目标</small></div>
-              <div><span>今日实际动作</span><strong id="room-today-total">—</strong><small>已回传的有效执行量</small></div>
-              <div><span>在线员工机</span><strong id="manager-online-total">—</strong><small>连接状态正常</small></div>
-              <div><span>健康账号</span><strong id="manager-healthy-total">—</strong><small id="manager-account-caption">等待读取</small></div>
-            </div>
-          <section class="subpage-panel manager-progress-panel" id="manager-progress">
-            <div class="room-section-head"><h2>运营进展</h2><span>已回收 <b id="manager-overview-result-total">—</b> 条结果</span></div>
-            <div class="manager-progress-tabs" role="tablist" aria-label="运营进展视图">
-              <button id="manager-goals-tab" type="button" role="tab" aria-selected="true" aria-controls="manager-goals-panel" data-manager-progress-tab="goals">目标进展 <span id="manager-goal-total">0</span></button>
-              <button id="manager-executions-tab" type="button" role="tab" aria-selected="false" aria-controls="manager-executions-panel" tabindex="-1" data-manager-progress-tab="executions">执行记录 <span id="manager-operation-total">0</span></button>
-            </div>
-            <details class="room-progress-filter-toggle"><summary>筛选目标与记录</summary>
-            <div class="manager-result-toolbar manager-progress-filters" aria-label="运营进展筛选">
-              <label><span>状态</span><select id="manager-operation-filter-state"><option value="">全部状态</option></select></label>
-              <label><span>员工机</span><select id="manager-operation-filter-machine"><option value="">全部员工机</option></select></label>
-              <label><span>账号</span><select id="manager-operation-filter-account"><option value="">全部账号</option></select></label>
-              <label><span id="manager-progress-date-label">目标周期内日期</span><input id="manager-operation-filter-date" type="date" /></label>
-              <label><span>关键词</span><input id="manager-operation-filter-keyword" type="search" placeholder="搜索名称、账号或 Agent" /></label>
-              <button class="secondary-button" type="button" id="manager-progress-reset">重置</button>
-            </div>
-            </details>
-            <div id="manager-goals-panel" role="tabpanel" aria-labelledby="manager-goals-tab">
-              <div class="manager-progress-summary"><span>运行中 <b id="manager-goal-active">0</b></span><span>已完成 <b id="manager-goal-completed">0</b></span><span>已暂停 <b id="manager-goal-paused">0</b></span><small>各项指标按实际回收量 / 目标量展示</small></div>
-              <div id="manager-goal-list"></div>
-            </div>
-            <div class="manager-operation-layout agent-task-ledger-only" id="manager-executions-panel" role="tabpanel" aria-labelledby="manager-executions-tab" hidden>
-              <div class="manager-progress-summary"><span>等待 Agent <b id="manager-operation-waiting">0</b></span><span>执行中 <b id="manager-operation-running">0</b></span><span>等待对账 <b id="manager-operation-reconcile">0</b></span></div>
-              <div id="manager-operation-list"></div>
-            </div>
-          </section>
-            <section class="subpage-panel" id="manager-publish-review-panel" hidden>
-              <div class="lane-heading">
-                <div><small>PUBLISH APPROVALS</small><h2>待确认发布</h2></div>
-                <span>任务由 Agent 下发，确认后才执行发布</span>
-              </div>
-              <div class="record-list" id="manager-publish-review-list"></div>
-            </section>
-            <details class="room-overview-details">
-              <summary>账号单元</summary>
-            <section class="room-node-panel">
-              <div class="room-section-head"><div><strong>账号单元</strong><span>每个账号独立展示 · 机器标明所属设备</span></div><span id="room-node-count">—</span></div>
-              <a class="room-machine-entry" href="#settings" data-manager-view-link="settings">查看员工机连接配置 →</a>
-              <div class="room-node-grid" id="manager-machine-list"></div>
-            </section>
-            </details>
-            <details class="room-overview-details">
-              <summary>日报、成果与提醒</summary>
-            <section class="room-panel room-daily-report">
-              <div class="room-section-head"><div><p class="room-eyebrow">昨日日报</p><h2 id="room-report-date">—</h2><span>按执行日期汇总已回收的实际动作</span></div><a href="#results" data-manager-view-link="results">查看回执 →</a></div>
-              <div class="room-daily-summary" id="room-yesterday-metrics"></div><p class="room-footnote" id="room-yesterday-note"></p>
-            </section>
-            <div class="room-lower-grid">
-              <section class="room-panel"><div class="room-section-head"><div><p class="room-eyebrow">今日进度</p><h2>实际动作汇总</h2></div><a href="#results" data-manager-view-link="results">全部结果 →</a></div><div class="room-result-grid" id="room-today-metrics"></div><div class="manager-overview-list" id="manager-overview-results"></div></section>
-              <section class="room-panel"><div class="room-section-head"><div><p class="room-eyebrow">需要查看</p><h2>告警与提醒</h2></div><a href="#exceptions" data-manager-view-link="exceptions">查看异常 →</a></div><div class="manager-overview-list" id="manager-overview-alerts"></div></section>
-            </div>
-            </details>
-          </section>
-        </section>
-
-        <section class="workspace-view" id="planning" data-manager-view="planning" hidden>
-          <form id="daily-plan-form">
-            <header class="daily-plan-heading">
-              <div><p class="eyebrow">运营策略</p><h1>明日任务规划</h1><p>为每个员工机账号规划操作数量，保存后由经理 Agent 读取并安排执行。</p></div>
-              <div class="daily-plan-tools">
-                <label><span>计划日期</span><input id="daily-plan-date" type="date" required /></label>
-                <button id="daily-plan-fill" class="secondary-button" type="button">按最近目标填充</button>
-                <button id="daily-plan-save" class="primary-button" type="submit">保存计划</button>
-              </div>
-            </header>
-            <p id="daily-plan-message" class="action-message" role="status"></p>
-            <div id="daily-plan-summary" class="daily-plan-summary"></div>
-            <div class="daily-plan-guidance"><span>按账号制定数量</span><span>执行时使用账号专属人设</span><span>经理 Agent 统一下发</span><strong id="daily-plan-state"></strong></div>
-            <p id="daily-plan-empty" class="room-panel">登记员工机账号后，即可在这里制定计划。</p>
-            <div id="daily-plan-cards" class="daily-plan-grid"></div>
-          </form>
-        </section>
-
         <section class="workspace-view" id="workers" data-manager-view="workers" hidden>
           <header class="page-topbar"><div><p class="eyebrow">WORKER MACHINES</p><h1>员工机</h1>
             <p>选择员工机，查看今日目标、实际完成情况和往日记录。</p></div></header>
@@ -169,7 +82,7 @@
               <section class="manager-machine-detail" id="manager-machine-detail" hidden>
                 <div class="manager-stage-heading"><div><small id="manager-machine-detail-kicker">EXECUTOR</small><h2 id="manager-machine-detail-title">员工机详情</h2><small id="manager-machine-detail-description"></small></div></div>
                 <section class="room-panel worker-next-panel">
-                  <div class="room-section-head"><h2>下一个运营日</h2><a id="worker-next-plan-link" href="#planning" data-manager-view-link="planning">查看任务规划 →</a></div>
+                  <div class="room-section-head"><h2>下一个运营日</h2><span>经理 Agent 下发的计划</span></div>
                   <div id="worker-next-day"></div>
                 </section>
                 <section class="room-panel worker-progress-panel">
@@ -378,7 +291,7 @@
 
     <dialog class="switch-dialog publish-confirm-dialog" id="publish-confirm-dialog" aria-labelledby="publish-dialog-title">
       <div class="switch-dialog-head">
-        <div><p class="section-kicker">PUBLISH REVIEW</p><h2 id="publish-dialog-title">核对并确认发布</h2><p id="publish-dialog-subtitle">—</p></div>
+        <div><p class="section-kicker">PUBLISH TASK</p><h2 id="publish-dialog-title">继续正式发布</h2><p id="publish-dialog-subtitle">—</p></div>
         <button class="dialog-close" id="publish-dialog-close" type="button" aria-label="关闭发布确认面板">×</button>
       </div>
       <div class="switch-account-strip publish-account-strip">
@@ -398,10 +311,7 @@
           <div><span>发布素材</span><small id="publish-asset-count">0 个</small></div>
           <ol id="publish-assets"></ol>
         </section>
-        <label class="publish-preview-check">
-          <input id="publish-preview-confirmed" type="checkbox" />
-          <span><strong>我已在绑定的 Chrome Profile 中核对真实预览</strong><small>账号、标题、正文、素材顺序、可见范围和发布时间均正确。</small></span>
-        </label>
+
         <p class="switch-message" id="publish-confirm-message" role="status" aria-live="polite"></p>
       </div>
       <div class="switch-dialog-actions publish-confirm-actions">
@@ -474,12 +384,11 @@
     </dialog>
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
     <script src="/manager-debug.js?v=20260910" defer></script>
-    <script src="/manager-planning.js?v=20260909-account-units-2" defer></script>
     <script src="/manager-account-tools.js?v=20260908-account-identity-1" defer></script>
-    <script src="/employee-panel.js?v=20260910-empty-replies-1" defer></script>
+    <script src="/employee-panel.js?v=20260915-active-overview-1" defer></script>
     <script src="/manager-results.js?v=20260909-follow-blogger-1" defer></script>
     <script src="/manager-memory.js?v=20260909" defer></script>
     <script src="/manager-polling.js?v=20260909-polling-1" defer></script>
-    <script src="/manager-console.js?v=20260910-default-persona-1" defer></script>
+    <script src="/manager-console.js?v=20260915-account-workspace-1" defer></script>
   </body>
 </html>

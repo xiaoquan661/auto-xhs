@@ -7,6 +7,8 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from manager_sync_log import write_sync_log
+
 try:
     from .manager_service import ManagerService
 except ImportError:  # Direct execution from the scripts directory.
@@ -40,6 +42,8 @@ class ManagerSyncService:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
+        store = getattr(manager, "store", None)
+        self.log_path = store.root / "logs" / "manager-sync.log" if store else None
 
     @property
     def health_interval_seconds(self) -> float:
@@ -121,12 +125,15 @@ class ManagerSyncService:
         operation: Callable[[str], dict],
     ) -> dict:
         started_at = utc_now()
+        title = "机器状态检查" if kind == "health_accounts" else "运营回执回收"
+        write_sync_log(self.log_path, f"{title}：本轮开始")
         outcomes: list[dict] = []
         machines = self.manager.list_machines().get("machines") or []
         for machine in machines:
             machine_id = str(machine.get("machine_id") or "")
             if not machine_id:
                 continue
+            write_sync_log(self.log_path, f"{machine_id} · {title}：开始")
             try:
                 outcome = operation(machine_id)
             except Exception as exc:
@@ -137,6 +144,14 @@ class ManagerSyncService:
                     "message": str(exc),
                 }
             outcomes.append({"machine_id": machine_id, **outcome})
+            status = outcome.get("status") or "UNKNOWN"
+            description = {"SUCCESS": "完成", "IDLE": "本轮无新增", "FAILED": "失败",
+                           "OFFLINE": "离线", "PARTIAL_SUCCESS": "部分完成"}.get(status, status)
+            counts = ""
+            if kind == "results" and "collected" in outcome:
+                counts = (f"，回执 {outcome['collected']} 条，"
+                          f"待下载证据 {outcome.get('pending_evidence', 0)} 条")
+            write_sync_log(self.log_path, f"{machine_id} · {title}：{description}{counts}")
 
         succeeded = sum(
             item.get("success") is True and item.get("status") != "PARTIAL_SUCCESS"
@@ -161,6 +176,8 @@ class ManagerSyncService:
             "outcomes": outcomes,
         }
         self.manager.record_sync_status(kind, summary)
+        write_sync_log(self.log_path, f"{title}：本轮结束，成功 {succeeded}/{len(outcomes)} 台，"
+                       f"下轮约 {interval_seconds:g}秒后")
         return summary
 
     def _sync_machine_health_accounts(self, machine_id: str) -> dict:

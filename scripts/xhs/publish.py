@@ -110,12 +110,26 @@ def fill_publish_form(page: Page, content: PublishImageContent) -> None:
     )
 
 
+def _select_publish_preview(page: Page, expected_title: str) -> None:
+    """Locate the prepared editor before observing or clicking its controls."""
+    from .errors import PublishPreviewUnavailableError
+
+    select = getattr(page, "select_publish_tab", None)
+    if callable(select):
+        result = select(expected_title)
+        if result.get("status") != "ready":
+            raise PublishPreviewUnavailableError(
+                "未找到唯一匹配的发布预览，请打开对应编辑页并重新核对预览"
+            )
+
+
 def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
     """点击 closed-shadow 发布按钮，并用平台正向证据确认结果。
 
     成功只接受三类证据：发布接口成功响应、点击后出现的成功提示，或跳转到
     创作中心笔记管理页后回读到本次标题。按钮消失或页面跳转本身不算成功。
     """
+    _select_publish_preview(page, expected_title)
     initial_url = str(page.evaluate("location.href") or "")
 
     # 1) 注入多层响应捕获。结果同时写入 sessionStorage，确保同源跳转后仍可回读。

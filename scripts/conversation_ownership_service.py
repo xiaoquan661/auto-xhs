@@ -10,11 +10,8 @@ from platforms import normalize_platform
 from service_errors import ServiceError
 
 OWNER_CODEX = "CODEX"
-OWNER_HUMAN = "HUMAN"
-OWNER_STATES = {OWNER_CODEX, OWNER_HUMAN}
+OWNER_STATES = {OWNER_CODEX}
 RESUME_CODEX_OUTBOUND = "CODEX_OUTBOUND"
-RESUME_EXPLICIT = "EXPLICIT"
-RESUME_HUMAN_REPLY = "HUMAN_REPLY"
 
 
 def utc_now() -> str:
@@ -51,34 +48,13 @@ class ConversationOwnershipService:
                 continue
             seen.add(key)
             current = self.get(*key)
-            technical = str(row.get("reason") or "") in {"result_unknown", "send_failed"}
             if current is not None:
-                if technical and current["owner_state"] == OWNER_HUMAN and (
-                    current["handoff_event_id"] == row["event_id"]
-                ):
-                    with self.database.transaction() as connection:
-                        connection.execute(
-                            "UPDATE private_message_conversations SET owner_state = 'CODEX' "
-                            "WHERE account_slot = ? AND platform = ? AND user_id = ?", key
-                        )
-                        connection.execute(
-                            "UPDATE inbound_events SET handling_state = 'NEW' "
-                            "WHERE account_slot = ? AND platform = ? AND object_id = ? "
-                            "AND handling_state = 'HANDLED' AND created_task_id IS NULL "
-                            "AND json_extract(payload_json, '$.conversation_owner') = 'HUMAN' "
-                            "AND event_id NOT IN (SELECT inbound_event_id FROM reply_decisions)",
-                            key,
-                        )
                 continue
             payload = json.loads(str(row.get("payload_json") or "{}"))
             message_count = int(payload.get("message_count") or 0)
-            if (
-                str(row.get("decision") or "") == "pending"
-                and str(row.get("reason") or "") != "conversation_changed"
-            ):
-                self.handoff(
+            if str(row.get("reason") or "") in {"result_unknown", "send_failed"}:
+                self.track_pending_outbound(
                     *key,
-                    owner_state=OWNER_CODEX if technical else OWNER_HUMAN,
                     event_id=str(row.get("event_id") or ""),
                     message_count=message_count,
                     updated_at=str(row.get("updated_at") or utc_now()),
@@ -138,7 +114,7 @@ class ConversationOwnershipService:
         message_count: int,
         context: list[dict],
     ) -> dict:
-        """Record the latest snapshot and restore Codex after a human reply boundary."""
+        """Record the latest snapshot and reconcile delayed Agent replies."""
 
         account_slot = account_slot.strip()
         platform = normalize_platform(platform)
@@ -150,16 +126,14 @@ class ConversationOwnershipService:
         handoff_event_id = str((current or {}).get("handoff_event_id") or "")
         resume_after = int((current or {}).get("resume_after_message_count") or 0)
         resume_source = str((current or {}).get("resume_source") or "")
-        matched_reply_task_id = str(
-            (current or {}).get("matched_reply_task_id") or ""
-        )
+        matched_reply_task_id = str((current or {}).get("matched_reply_task_id") or "")
         last_observed = max(
             message_count,
             int((current or {}).get("last_observed_message_count") or 0),
         )
         resumed = False
         reconciliation = None
-        if owner_state == OWNER_HUMAN or handoff_event_id:
+        if handoff_event_id:
             latest_self = self._latest_self_message(message_count, context)
             if latest_self and latest_self["message_count"] > handled_through:
                 handoff_event = handoff_event_id
@@ -167,17 +141,13 @@ class ConversationOwnershipService:
                     handoff_event_id,
                     str(latest_self["content"]),
                 )
-                if owner_state == OWNER_HUMAN or attribution:
+                if attribution:
                     owner_state = OWNER_CODEX
                     handled_through = int(latest_self["message_count"])
                     handoff_event_id = ""
                     resume_after = handled_through
-                    resume_source = (
-                        RESUME_CODEX_OUTBOUND if attribution else RESUME_HUMAN_REPLY
-                    )
-                    matched_reply_task_id = str(
-                        (attribution or {}).get("reply_task_id") or ""
-                    )
+                    resume_source = RESUME_CODEX_OUTBOUND
+                    matched_reply_task_id = str((attribution or {}).get("reply_task_id") or "")
                     if attribution:
                         reconciliation = {
                             "inbound_event_id": handoff_event,
@@ -202,7 +172,7 @@ class ConversationOwnershipService:
         result["reconciliation"] = reconciliation
         return result
 
-    def handoff(
+    def track_pending_outbound(
         self,
         account_slot: str,
         platform: str,
@@ -211,7 +181,6 @@ class ConversationOwnershipService:
         event_id: str,
         message_count: int,
         updated_at: str | None = None,
-        owner_state: str = OWNER_HUMAN,
     ) -> dict:
         current = self.get(account_slot, platform, user_id) or {}
         boundary = max(
@@ -222,12 +191,10 @@ class ConversationOwnershipService:
             account_slot=account_slot,
             platform=platform,
             user_id=user_id,
-            owner_state=owner_state,
+            owner_state=OWNER_CODEX,
             handled_through_message_count=boundary,
             handoff_event_id=event_id,
-            resume_after_message_count=int(
-                current.get("resume_after_message_count") or 0
-            ),
+            resume_after_message_count=int(current.get("resume_after_message_count") or 0),
             last_observed_message_count=max(
                 boundary,
                 int(current.get("last_observed_message_count") or 0),
@@ -257,42 +224,13 @@ class ConversationOwnershipService:
             owner_state=OWNER_CODEX,
             handled_through_message_count=boundary,
             handoff_event_id="",
-            resume_after_message_count=int(
-                current.get("resume_after_message_count") or 0
-            ),
+            resume_after_message_count=int(current.get("resume_after_message_count") or 0),
             last_observed_message_count=max(
                 boundary,
                 int(current.get("last_observed_message_count") or 0),
             ),
             resume_source=str(current.get("resume_source") or ""),
             matched_reply_task_id=str(current.get("matched_reply_task_id") or ""),
-        )
-
-    def resume(
-        self,
-        *,
-        account_slot: str,
-        platform: str,
-        user_id: str,
-    ) -> dict:
-        current = self.get(account_slot, platform, user_id)
-        if current is None:
-            raise ServiceError("NOT_FOUND", "私信会话所有权记录不存在", 404)
-        boundary = max(
-            int(current.get("handled_through_message_count") or 0),
-            int(current.get("last_observed_message_count") or 0),
-        )
-        return self._upsert(
-            account_slot=account_slot,
-            platform=platform,
-            user_id=user_id,
-            owner_state=OWNER_CODEX,
-            handled_through_message_count=boundary,
-            handoff_event_id="",
-            resume_after_message_count=boundary,
-            last_observed_message_count=boundary,
-            resume_source=RESUME_EXPLICIT,
-            matched_reply_task_id="",
         )
 
     def _upsert(
@@ -405,9 +343,7 @@ class ConversationOwnershipService:
         decoded["handled_through_message_count"] = int(
             decoded.get("handled_through_message_count") or 0
         )
-        decoded["resume_after_message_count"] = int(
-            decoded.get("resume_after_message_count") or 0
-        )
+        decoded["resume_after_message_count"] = int(decoded.get("resume_after_message_count") or 0)
         decoded["last_observed_message_count"] = int(
             decoded.get("last_observed_message_count") or 0
         )

@@ -84,7 +84,9 @@ class PublishWorkflowService:
         return self.tasks.transition(task["task_id"], "RUNNING")
 
     def resume_preparation(self, task_id: str, *, account: str) -> dict:
-        self._waiting_task(task_id, account=account)
+        task = self._waiting_task(task_id, account=account)
+        if task["state"] == "RUNNING":
+            return task
         queued = self.tasks.transition(task_id, "QUEUED")
         return self.tasks.transition(queued["task_id"], "RUNNING")
 
@@ -112,6 +114,8 @@ class PublishWorkflowService:
                 stage=stage,
                 preview_revision=preview_revision,
             )
+        if stage == "preview_ready":
+            return self.tasks.get(task_id)
         return self.tasks.transition(task_id, "WAITING_APPROVAL", result_summary=summary)
 
     def prepare_publish(
@@ -119,20 +123,18 @@ class PublishWorkflowService:
         task_id: str,
         *,
         account: str,
-        confirmed: bool,
-        preview_revision: str,
+        confirmed: bool = False,
+        preview_revision: str = "",
         action: str = "click-publish",
     ) -> dict:
-        if not confirmed:
-            raise ServiceError(
-                "CONFIRMATION_REQUIRED", "发布必须在用户确认预览后提供 --confirm", 409
-            )
         task = self._waiting_task(task_id, account=account)
         stage = (task.get("parameters") or {}).get("stage")
+        if stage == "publishing":
+            raise ServiceError("INVALID_TASK_STATE", "发布已提交，请先核对执行结果", 409)
         if stage != "preview_ready":
-            raise ServiceError("PREVIEW_NOT_READY", "发布任务尚未进入最终预览确认阶段", 409)
+            raise ServiceError("PREVIEW_NOT_READY", "发布表单尚未准备完成", 409)
         current_revision = str((task.get("parameters") or {}).get("preview_revision") or "")
-        if not preview_revision or preview_revision != current_revision:
+        if preview_revision and preview_revision != current_revision:
             raise ServiceError(
                 "PUBLISH_PREVIEW_CHANGED",
                 "发布预览内容已变化，请刷新后重新核对",
@@ -157,7 +159,8 @@ class PublishWorkflowService:
             if row["account_slot"] == account
         ]
         check_operations_policy(config, action, history)
-        return self.resume_preparation(task_id, account=account)
+        running = self.resume_preparation(task_id, account=account)
+        return self.tasks.update_parameters(running["task_id"], stage="publishing")
 
     def complete_publish(self, task_id: str, result: dict) -> dict:
         evidence = str(result.get("evidence") or "")
@@ -191,7 +194,11 @@ class PublishWorkflowService:
             task_id,
             state,
             result_summary=str(exc),
-            error_code="PUBLISH_EXECUTION_ERROR",
+            error_code=(
+                "PUBLISH_PREVIEW_UNAVAILABLE"
+                if getattr(exc, "code", None) == "PUBLISH_PREVIEW_UNAVAILABLE"
+                else "PUBLISH_EXECUTION_ERROR"
+            ),
             recommended_action=(
                 "请先在小红书创作中心检查结果，不要直接重复发布"
                 if result_unknown
@@ -253,6 +260,14 @@ class PublishWorkflowService:
         result: dict,
         published: bool,
     ) -> None:
+        result = {
+            **result,
+            "published": (
+                None
+                if task["state"] == "RESULT_UNKNOWN"
+                else published and task["state"] == "SUCCESS"
+            ),
+        }
         event_task = {**task, "operation": task.get("operation") or "publish"}
         self.tasks.record_event(event_task, task["task_id"], result=result)
         operation_event = self.operation_events.record(
@@ -277,6 +292,6 @@ class PublishWorkflowService:
 
     def _waiting_task(self, task_id: str, *, account: str) -> dict:
         task = self.get(task_id, account=account)
-        if task["state"] != "WAITING_APPROVAL":
-            raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以继续", 409)
+        if task["state"] not in {"WAITING_APPROVAL", "RUNNING"}:
+            raise ServiceError("INVALID_TASK_STATE", "只有准备中的发布任务可以继续", 409)
         return task

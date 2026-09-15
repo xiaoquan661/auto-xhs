@@ -42,6 +42,7 @@ class BridgePage:
         self._account_id = account_id
         self._bridge_token = bridge_token
         self._platform = normalize_platform(platform)
+        self._tab_id: int | None = None
 
     # ─── 内部通信 ───────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ class BridgePage:
         started = time.monotonic()
         status = "error"
         result = None
+        self._request_timing = {}
         try:
             result = self._request(method, params)
             status = "ok"
@@ -60,6 +62,7 @@ class BridgePage:
                     "finished_at": datetime.now(UTC).isoformat(), "method": method,
                     "elapsed_seconds": round(time.monotonic() - started, 3), "status": status,
                 }
+                record["timing"] = self._request_timing
                 if method in {"navigate", "wait_for_load"} and isinstance(result, dict):
                     record["navigation"] = result
                 try:
@@ -78,21 +81,41 @@ class BridgePage:
             "platform": self._platform,
             "method": method,
         }
-        if params:
-            msg["params"] = params
+        command_params = dict(params or {})
+        if self._tab_id is not None:
+            command_params["_tab_id"] = self._tab_id
+        if command_params:
+            msg["params"] = command_params
+        connect_started = time.monotonic()
         try:
             with ws_client.connect(self._bridge_url, max_size=50 * 1024 * 1024) as ws:
+                self._request_timing = {
+                    "connect_ms": round((time.monotonic() - connect_started) * 1000),
+                }
+                request_started = time.monotonic()
                 ws.send(json.dumps(msg, ensure_ascii=False))
                 raw = ws.recv(timeout=90)
+                self._request_timing["roundtrip_ms"] = round(
+                    (time.monotonic() - request_started) * 1000
+                )
         except OSError as e:
             raise CDPError(f"无法连接到 bridge server（{self._bridge_url}）: {e}") from e
 
         resp = json.loads(raw)
+        if isinstance(resp.get("timing"), dict):
+            self._request_timing.update(resp["timing"])
         if resp.get("error"):
             raise CDPError(f"Bridge 错误: {resp['error']}")
         return resp.get("result")
 
     # ─── 导航 ───────────────────────────────────────────────────
+
+    def select_publish_tab(self, expected_title: str) -> dict:
+        """Bind this confirmation call to the existing matching publish editor."""
+        result = self._call("select_publish_tab", {"expected_title": expected_title})
+        if result.get("status") == "ready":
+            self._tab_id = int(result["tab_id"])
+        return result
 
     def navigate(self, url: str) -> None:
         self._call("navigate", {"url": rewrite_platform_url(url, self._platform)})
@@ -286,6 +309,14 @@ class BridgePage:
         self._call("set_file_input", {"selector": selector, "files": abs_paths})
 
     # ─── 截图 ────────────────────────────────────────────────────
+
+    def visual_snapshot(self, tab_id: int | None = None) -> dict:
+        return self._call("visual_snapshot", {"_tab_id": tab_id})
+
+    def visual_action(self, snapshot: dict, action: dict) -> dict:
+        return self._call("visual_action", {
+            **action, "_tab_id": snapshot["tab_id"], "frame": snapshot["frame"],
+        })
 
     def screenshot_element(self, selector: str, padding: int = 0) -> bytes:
         result = self._call("screenshot_element", {"selector": selector, "padding": padding})

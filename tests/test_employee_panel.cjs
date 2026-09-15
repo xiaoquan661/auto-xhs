@@ -23,7 +23,9 @@ saved.set("auto-xhs:employee-plan-templates", JSON.stringify({[tomorrow]: {
 const state = {machines: [{machine_id: "QA-A", status: "READY", ssh_state: "ONLINE"},
   {machine_id: "QA-B", status: "OFFLINE"}],
   accounts: [{machine_id: "QA-A", account_slot: "same-slot", nickname: "<script>name</script>",
-    current_uid: "uid-a", health_state: "READY"},
+    current_uid: "uid-a", health_state: "READY", friend_events: [
+      {event_type: "new_follower", actor_name: "新关注读者", handling_state: "NEW"},
+      {event_type: "follow_user", actor_name: "主动关注对象"}]},
   {machine_id: "QA-B", account_slot: "same-slot", nickname: "Second account", health_state: "READY"}],
   dailyPlans: [{plan_date: yesterday, accounts: [{machine_id: "QA-A", account_slot: "same-slot", participating: true}]}],
   tasks: [], goals: [], results: [{machine_id: "QA-A", account_slot: "same-slot", date: today,
@@ -45,17 +47,24 @@ const services = {state, managerApi: "/api/v1/manager",
   operationalExceptions: () => []};
 const panel = context.window.AutoXhsEmployeePanel(services);
 panel.render("");
-for (const section of ["账号运营总览", "所属机器", "账号单元",
-  "运营日报", "明日任务规划", "保存计划", "实际动作汇总", "告警与提醒"]) {
+assert.ok(!root.innerHTML.includes("明日任务规划"));
+assert.ok(!root.innerHTML.includes("data-plan-host"));
+for (const section of ["全部账号", "所属机器", "账号单元",
+  "运营日报", "实际动作汇总", "告警与提醒"]) {
   assert.ok(root.innerHTML.includes(section), section);
 }
 assert.equal((root.innerHTML.match(/class="overview-node-card /g) || []).length, 2);
 assert.ok(!root.innerHTML.includes('data-panel="employee-profile"'));
 panel.render("QA-A:same-slot");
-for (const section of ["下一个运营日", "EMPLOYEE / PROFILE", "今日目标 / 实际", "往日目标 / 实际",
-  "执行记录", "收到的评论与回复", "关注博主明细", "私聊明细"]) {
+for (const section of ["EMPLOYEE / PROFILE", "今日目标 / 实际", "往日目标 / 实际",
+  "执行记录", "收到的评论与回复", "新增关注明细", "收到的私信与回复"]) {
   assert.ok(root.innerHTML.includes(section), section);
 }
+const followerDetails = root.innerHTML.split('data-panel="friend-details"')[1].split("</details>")[0];
+assert.ok(followerDetails.includes("新关注读者"));
+assert.ok(followerDetails.includes("已采集"));
+assert.ok(!followerDetails.includes("主动关注对象"));
+assert.ok(!followerDetails.includes("待处理"));
 assert.ok(root.innerHTML.includes("&lt;script&gt;name&lt;/script&gt;"));
 assert.ok(root.innerHTML.includes("&lt;b&gt;text&lt;/b&gt;"));
 assert.ok(!root.innerHTML.includes("Second account"));
@@ -74,7 +83,7 @@ assert.equal(metrics.find((item) => item.kind === "comment").actual, null);
 assert.equal(metrics.find((item) => item.kind === "new_followers").status, "等待采集");
 assert.equal(panel.actions(state.accounts[1], today).length, 0);
 panel.render("QA-B:same-slot");
-assert.ok(root.innerHTML.includes("当前快照没有私聊明细。"));
+assert.ok(root.innerHTML.includes("当前快照没有收到的私信与回复。"));
 assert.ok(!root.innerHTML.includes("https://example.com/note"));
 console.log("PASS: employee templates, all/detail views, account isolation and missing metrics");
 
@@ -101,46 +110,10 @@ assert.equal(panel.dailyMetrics(state.accounts[1], today).find((m) => m.kind ===
 state.employeeSummary = {};
 console.log("PASS: server daily report and account-scoped growth metrics");
 
-async function checkPlanTemplate() {
+async function checkAttribution() {
   const handlers = {};
-  const controls = {};
   root.addEventListener = (event, handler) => {handlers[event] = handler;};
-  root.querySelector = (selector) => controls[selector] ||= {textContent: "", innerHTML: ""};
   panel.init();
-  panel.render("");
-  const rowNode = {dataset: {planRow: "QA-A:same-slot"}, classList: {toggle() {}},
-    querySelector: (selector) => controls[selector] ||= {}};
-  handlers.input({target: {value: "7", dataset: {planMetric: "comment"}, closest: () => rowNode}});
-  assert.equal(controls['[data-plan-preview="comment"]'].textContent, "7");
-  handlers.input({target: {value: "12", dataset: {planMetric: "new_followers"}, closest: () => rowNode}});
-  assert.match(controls["[data-plan-summary]"].innerHTML, /计划动作上限<\/span><strong>14<\/strong>/);
-  const click = (action) => handlers.click({target: {closest: () => ({dataset: {unitAction: action}})}});
-  await click("save-plan");
-  const stored = {rows: state.dailyPlans.find((p) => p.plan_date === tomorrow).accounts};
-  assert.equal(apiCalls[0].url, "/api/v1/manager/daily-plans");
-  assert.equal(apiCalls[0].method, "POST");
-  assert.equal(stored.rows[0].metrics.comment, 7);
-  assert.equal(stored.rows[0].metrics.new_followers, 12);
-  assert.equal(stored.rows[0].metrics.group_apply, undefined);
-  assert.equal(stored.rows[0].metrics.group_intro, undefined);
-  assert.equal(stored.rows[1].metrics.comment, null);
-  assert.equal(state.dailyPlans.length, 2);
-  assert.match(controls["[data-plan-message]"].textContent, /计划已保存/);
-  const reloaded = context.window.AutoXhsEmployeePanel(services);
-  reloaded.render("");
-  assert.ok(root.innerHTML.includes('data-plan-preview="comment">7</b>'));
-  assert.ok(root.innerHTML.includes("复制模板"));
-  for (const label of ["关注博主", "新增粉丝", "收获点赞", "收到新评论", "收到私信"]) {
-    assert.ok(root.innerHTML.includes(label), label);
-  }
-  assert.ok(root.innerHTML.includes("新增粉丝：12"));
-  assert.ok(root.innerHTML.includes("关注博主：未设置"));
-  assert.ok(root.innerHTML.includes("关注博主按机会预算执行"));
-  reloaded.render("QA-A:same-slot");
-  const nextDay = root.innerHTML.match(/data-panel="next-day"[\s\S]*?<\/section>/)[0];
-  assert.ok(nextDay.includes('<span>新增粉丝</span><strong>12</strong>'));
-  for (const label of ["关注博主", "收获点赞", "收到新评论", "收到私信"]) assert.ok(nextDay.includes(label));
-  assert.ok(!/入群|群介绍|申请进群|进群成功/.test(root.innerHTML));
   const attributionMessage = {textContent: ""};
   const attributionSelect = {value: "human", dataset: {actionRecord: "result:QA-A:1", actionItem: "0", actionSource: "machine"},
     matches: (selector) => selector === "[data-action-record]",
@@ -149,16 +122,6 @@ async function checkPlanTemplate() {
   assert.equal(apiCalls.at(-1).url, "/api/v1/manager/results/result%3AQA-A%3A1/attribution");
   assert.equal(apiCalls.at(-1).body.execution_source, "human");
   assert.equal(attributionSelect.dataset.actionSource, "human");
-  handlers.input({target: {value: "9", dataset: {planMetric: "comment"}, closest: () => rowNode}});
-  services.mutateJson = async () => {throw new Error("保存失败，请重试");};
-  attributionSelect.value = "machine";
-  await handlers.change({target: attributionSelect});
-  assert.equal(attributionSelect.value, "human");
-  await click("save-plan");
-  assert.equal(state.dailyPlans.find((p) => p.plan_date === tomorrow).accounts[0].metrics.comment, 7);
-  assert.equal(controls['[data-plan-preview="comment"]'].textContent, "9");
-  assert.equal(controls["[data-plan-message]"].textContent, "保存失败，请重试");
-  console.log("PASS: numeric draft preview and shared plan persistence");
 }
 function checkAccountUnits() {
   const later = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
@@ -191,71 +154,95 @@ function checkAccountUnits() {
   }
   assert.match(root.innerHTML, /账号单元<\/span><strong>3<\/strong>/);
   assert.match(root.innerHTML, /所属机器<\/span><strong>2<\/strong>/);
+  assert.ok(root.innerHTML.includes("今日运营规划"));
+  assert.ok(!root.innerHTML.includes("First account plan"));
+  assert.ok(!root.innerHTML.includes("Second account plan"));
+  isolated.dailyPlans.push({plan_date: today, accounts: [
+    {machine_id: "QA-A", account_slot: "first", participating: true, metrics: {publish: 0}, notes: "Today first"},
+    {machine_id: "QA-A", account_slot: "second", participating: true, metrics: {publish: 6}, notes: "Today second"},
+  ]});
+  units.render("");
+  const cards = [...root.innerHTML.matchAll(/data-today-plan-account="([^"]+)"[\s\S]*?<\/article>/g)];
+  assert.equal(cards.length, 3);
+  assert.ok(cards[0][0].includes('<strong>0 / '));
+  assert.ok(cards[1][0].includes('<strong>6 / '));
+  assert.ok(!cards[2][0].includes("Today first"));
+  assert.ok(!cards[0][0].includes("Today second"));
+  assert.ok(!root.innerHTML.includes("Second account plan"));
   for (const [slot, expected, excluded, date, publish] of [
     ["first", "First", "Second", tomorrow, 3], ["second", "Second", "First", later, 8],
   ]) {
     units.render(`QA-A:${slot}`);
     assert.equal((root.innerHTML.match(/data-panel="employee-profile"/g) || []).length, 1);
-    for (const item of ["comment", "inbox", "action", "account plan"]) {
+    for (const item of ["comment", "inbox", "action"]) {
       assert.ok(root.innerHTML.includes(`${expected} ${item}`), `${slot}: ${item}`);
       assert.ok(!root.innerHTML.includes(`${excluded} ${item}`), `${slot}: isolated ${item}`);
     }
     assert.ok(!root.innerHTML.includes("Other machine history"));
-    const nextDay = root.innerHTML.match(/data-panel="next-day"[\s\S]*?<\/section>/)[0];
-    assert.ok(nextDay.includes(date));
-    assert.ok(nextDay.includes(`<span>发帖</span><strong>${publish}</strong>`));
-    units.render(`QA-A:${slot}`);
-    assert.ok(root.innerHTML.includes(`${expected} account plan`));
+    assert.ok(!root.innerHTML.includes('data-panel="next-day"'));
+    assert.ok(!root.innerHTML.includes('data-panel="today-planning"'));
   }
   assert.ok(root.innerHTML.includes("https://www.rednote.com/user/profile/uid-second"));
   units.render("QA-B:first");
-  assert.ok(root.innerHTML.includes("等待运营规划"));
+  assert.ok(!root.innerHTML.includes("下一个运营日"));
   assert.ok(!root.innerHTML.includes("First account plan"));
   isolated.machines = [];
   units.render("QA-A:second");
   assert.ok(root.innerHTML.includes("Second same-machine account"));
   assert.ok(root.innerHTML.includes("Second inbox"));
   units.render("QA-A:deleted");
-  assert.ok(root.innerHTML.includes("账号运营总览"));
+  assert.ok(root.innerHTML.includes("全部账号"));
   console.log("PASS: same-machine account cards, future plans, messages and cached details stay isolated");
 }
-async function checkDailySubmission() {
-  const handlers = {}, controls = {}, calls = [];
-  root.addEventListener = (name, handler) => {handlers[name] = handler;};
-  root.querySelector = (selector) => controls[selector] ||= {textContent: "", innerHTML: "", value: ""};
-  const row = {machine_id: "QA-A", account_slot: "same-slot", participating: true,
-    metrics: {browse: 10, like: 1, comment: 1, reply: 0, publish: 0}};
-  const isolated = {...state, accounts: [state.accounts[0]],
-    dailyPlans: [{plan_date: tomorrow, version: 1, updated_at: today, accounts: [row]}]};
-  const ui = context.window.AutoXhsEmployeePanel({...services, state: isolated,
-    mutateJson: async (url, method, body) => {
-      calls.push({url, method, body});
-      if (url.endsWith("/generate")) return {plan: {accounts: [{...row,
-        metrics: {...row.metrics, browse: 15, comment: 3, reply: 1}}]}};
-      if (url.endsWith("/preview")) return {materials: [{plan_version: body.version}]};
-      if (url.endsWith("/submit")) {
-        isolated.dailyPlans[0].submissions = [{version: body.version}];
-        return {status: "SUBMITTED"};
-      }
-      return {plan: {...body, version: 2, updated_at: today}};
-    }});
-  ui.init(); ui.render("");
-  const click = (action) => handlers.click({target: {closest: () => ({dataset: {unitAction: action}})}});
-  await click("generate-plan");
-  assert.equal(isolated.dailyPlans[0].accounts[0].metrics.comment, 1);
-  const beforeSubmit = calls.length;
-  await click("submit-plan");
-  assert.equal(calls.length, beforeSubmit);
-  await click("save-plan");
-  assert.equal(isolated.dailyPlans[0].accounts[0].metrics.browse, 15);
-  assert.equal(isolated.dailyPlans[0].accounts[0].metrics.reply, 1);
-  await click("preview-plan");
-  assert.match(controls["[data-dispatch-template] textarea"].value, /"plan_version": 2/);
-  await click("submit-plan");
-  assert.equal(calls.at(-1).body.version, 2);
-  ui.render("");
-  assert.ok(root.innerHTML.includes("已提交 v2"));
-  console.log("PASS: generated drafts, saved versions, material preview and explicit submission");
+checkAttribution().then(checkAccountUnits).catch((error) => {console.error(error); process.exitCode = 1;});
+
+state.accounts[0].private_message_events = [{event_type: "private_message", handling_state: "REPLIED",
+  occurred_at: "2026-09-15T01:00:00Z", message_preview: "入站原文<测试>",
+  processing_rule_basis: "applied", processing_rule: {rule_version: 2, enabled: 1, private_message_enabled: 1, reply_style: "natural"},
+  reply_history: [{reply_text: "回复原文<测试>", sent_at: "2026-09-15T01:01:00Z", result_state: "SUCCESS"}]}];
+panel.render("QA-A:same-slot");
+for (const text of ["收到的私信原文", "入站原文&lt;测试&gt;", "回复原文&lt;测试&gt;", "收到时间", "回复时间", "处理时规则", "版本 2"]) assert.ok(root.innerHTML.includes(text), text);
+
+function checkPlanHandling() {
+  const account = {machine_id: "QA-A", account_slot: "review", nickname: "Review account"};
+  const fixture = {accounts: [account], machines: [], tasks: [], results: [], goals: [], dailyPlans: []};
+  let metric = {kind: "comment", target: 2, actual: 2, incomplete: false};
+  const view = context.window.AutoXhsEmployeePanel({...services, state: fixture,
+    workerDayMetrics: () => [metric]});
+  view.render("");
+  assert.ok(root.innerHTML.includes("顺利完成"));
+  assert.ok(root.innerHTML.includes('2 / <span title="">2</span>'));
+  metric = {...metric, actual: 1};
+  fixture.tasks = [{machine_id: "QA-A", request: {account_slot: "review"}, date: today,
+    state: "BLOCKED", message: "需要身份验证", recommended_action: "在员工机完成身份验证"}];
+  view.render("");
+  assert.ok(root.innerHTML.includes("未完成 · 差 1"));
+  assert.ok(root.innerHTML.includes("需要身份验证"));
+  assert.ok(root.innerHTML.includes("在员工机完成身份验证"));
+  fixture.tasks[0].request.account_slot = "another";
+  metric = {...metric, actual: null};
+  view.render("");
+  assert.ok(!root.innerHTML.includes("需要身份验证"));
+  assert.ok(root.innerHTML.includes("具体阻塞原因未回传"));
+  assert.ok(root.innerHTML.includes("等待回执"));
+  metric = {...metric, actual: 2, incomplete: true};
+  view.render("");
+  assert.ok(!root.innerHTML.includes("已确认的实际数量达到全部"));
+  console.log("PASS: planned/actual quantities, completion, account-scoped blockers and missing receipts");
 }
-checkPlanTemplate().then(checkDailySubmission).then(checkAccountUnits)
-  .catch((error) => {console.error(error); process.exitCode = 1;});
+checkPlanHandling();
+
+function checkOverviewMetricScope() {
+  const passive = ["评论回复", "私信回复", "新增粉丝", "收获点赞", "收到新评论", "收到私信"];
+  const scoped = context.window.AutoXhsEmployeePanel(services);
+  scoped.render("");
+  const planning = root.innerHTML.match(/data-panel="today-planning"[\s\S]*?<\/section>/)[0];
+  for (const label of passive) assert.ok(!planning.includes(`<span>${label}</span>`), label);
+  for (const label of ["浏览", "发帖", "点赞", "评论", "私信发送", "关注博主"]) {
+    assert.ok(planning.includes(`<span>${label}</span>`), label);
+  }
+  scoped.render("QA-A:same-slot");
+  for (const label of passive) assert.ok(root.innerHTML.includes(label), label);
+  console.log("PASS: overview shows active metrics while account details retain passive metrics");
+}
+checkOverviewMetricScope();

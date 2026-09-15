@@ -67,6 +67,11 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
             os.environ.pop("XHS_EXECUTION_TRACE_FILE", None)
         else:
             os.environ["XHS_EXECUTION_TRACE_FILE"] = old_trace
+    from employee_recovery import record_progress
+
+    recovery = record_progress(
+        root, request_file, args if isinstance(args, list) else [], output, code
+    )
     write_object(
         request_file.with_suffix(".execution.json"),
         {
@@ -79,6 +84,7 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
             "stderr_file": str(error),
             "elapsed_seconds": round(time.monotonic() - clock, 3),
             "bridge_trace_file": str(trace_path),
+            "recovery": recovery,
         },
     )
     return code
@@ -145,6 +151,9 @@ def main() -> None:
         code = invoke(root, args.input_file)
         output = args.input_file.with_suffix(".output.json")
         content = output.read_text(encoding="utf-8")
+        recovery_path = args.input_file.with_suffix(".recovery.json")
+        if recovery_path.exists():
+            print(json.dumps({"recovery": read_object(recovery_path)}, ensure_ascii=False))
         print(content if len(content) <= 12000 else json.dumps(
             {"output_file": str(output), "exit_code": code}, ensure_ascii=False
         ))

@@ -45,10 +45,10 @@
 | ID-002 | 安全换号状态机暂停业务并保留历史 | AUTOMATED_TESTED | 换号成功、取消和中断测试 |
 | PERM-001 | 所有能力登记固定 L0-L3 权限元数据 | AUTOMATED_TESTED | 公开 CLI 命令元数据覆盖，复合命令操作级策略已测试 |
 | PERM-002 | L3 必须显式确认，不能由 UI 或 Agent 降级 | AUTOMATED_TESTED | 账号、配对、身份和设置服务/API 均校验确认 |
-| OUT-001 | 图文、视频、长文发布在 V1.0 禁用 | AUTOMATED_TESTED | V1.0 一步发布入口仍拒绝；V1.5 仅开放分步预览与受控确认 |
+| OUT-001 | 图文与视频支持生成后直接正式发布 | AUTOMATED_TESTED | publish 与 publish-video 复用工作流和平台回读 |
 | OUT-002 | 指定评论和回复使用最终草稿确认；随机评论使用当前点击的一次性批量授权 | AUTOMATED_TESTED | 草稿确认、随机目标、直接发送授权、1–3 条限制和逐项结果已测试 |
 | OUT-003 | 私信和公开资料修改在 V1.0 禁用 | AUTOMATED_TESTED | 未注册能力从服务、任务和草稿入口被拒绝 |
-| TASK-001 | 任务具有统一终态和最小执行记录 | AUTOMATED_TESTED | 任务状态、业务执行记录和服务中断恢复已测试 |
+| TASK-001 | 任务具有统一终态和行为执行记录 | AUTOMATED_TESTED | 任务状态、行为及轮次展示、采集与回复结果分离、回读确认和服务中断恢复已测试；经理页面已核对真实回执展示 |
 | TASK-002 | 同账号串行、跨账号最多 3 个业务任务并行 | AUTOMATED_TESTED | 同账号串行与跨账号并行测试通过 |
 | APPROVAL-001 | 草稿修改后旧确认失效，确认短时且只能消费一次 | AUTOMATED_TESTED | 草稿版本、过期、上下文匹配和重复消费已测试 |
 | CONTROL-001 | 全局暂停阻止新业务任务开始 | AUTOMATED_TESTED | 创建与执行入口均检查全局暂停 |
@@ -72,9 +72,9 @@
 | MANAGER-05 / REQ-20260824-002 | 按账号维护版本化人设卡并在 WebUI 设定运营目标 | AUTOMATED_TESTED | 单账号启用人设、历史版本、目标草稿/启用/暂停/完成、目标指标汇总和 API/CLI/WebUI 路由已测试；目标保存与启用均不创建计划或任务 |
 | MANAGER-06 / REQ-20260824-002 | WebUI 创建运营任务，经理 Agent 领取、规划并下发 | AUTOMATED_TESTED | 常驻经理 Agent 自动处理 `WAITING_AGENT` 收件箱，生成浏览/点赞/评论计划并通过 SSH 派发；API/CLI 保留为恢复入口，WebUI 展示经理与员工 Agent 交接记录 |
 | MANAGER-07 / REQ-20260824-002 | 运营任务贯穿 SSH 员工机执行与数据回收 | AUTOMATED_TESTED | `operation_task_id` 随任务进入员工机本地服务；常驻经理 Agent 自动回收并按目标指标核销，结果与增量记录保留任务、目标和人设关联；多机持续周期待实机验收 |
-| V15-PUB-001 | 开放图文、视频和长文发布，必须填写、浏览器预览、用户确认后发布 | AUTOMATED_TESTED | CLI 状态机、素材校验、预览版本、一次性确认和结果回读测试通过，真实账号待验收 |
-| V15-PUB-002 | 开放保存草稿和定时发布，定时任务确认内容、账号和时间 | AUTOMATED_TESTED | 草稿正向证据、预览中的定时时间和结果未知终态已测试，真实定时发布待验收 |
-| V15-PUB-003 | 发布预览由 Agent/Python CLI 创建，WebUI 可对 `preview_ready` 单任务受控确认或保存草稿 | AUTOMATED_TESTED | WebUI 持续轮询；确认弹窗核对账号、UID、内容、素材和时间，后端拒绝账号、UID、阶段或预览版本不匹配 |
+| V15-PUB-001 | 图文、视频及长文完成填写后正式发布 | AUTOMATED_TESTED | 同一任务提交一次，平台回读确认后计入成功，未知结果先对账 |
+| V15-PUB-002 | 保存草稿与按指定账号、内容和时间定时发布 | AUTOMATED_TESTED | 草稿正向证据、定时时间和未知结果终态已测试 |
+| V15-PUB-003 | Agent 生成与执行发布，WebUI 展示结果并可继续既有准备任务 | AUTOMATED_TESTED | 使用已绑定账号，支持表单版本校验与保存草稿 |
 | MESSAGE-01 / REQ-20260824-002 | 用户指定账号、联系人和联系目的；Codex 区分首次/续发并结合上下文生成个性化文本，直接发送、回读和汇总 | AUTOMATED_TESTED | 1–10 人逐条执行、真实会话类型校验、独立失败、三态结果和恢复跳过规则已测试；首次联系实机待验收 |
 | MESSAGE-02 / REQ-20260824-002 | 只读扫描一对一私信会话和自己笔记评论线程，将收到的新私信与评论保存为去重入站事件 | REAL_DEVICE_VERIFIED | 评论和私信按渠道及平台标识分别去重；部分页面失败保留成功采集结果，读取失败不创建事件，采集链不发送回复；真实账号两类收件箱已完成只读采集，私信完成重复扫描去重验证 |
 | V15-MSG-002 | 主动私信批次只由 Codex/Python CLI 下发，WebUI 只读展示整批与逐人结果 | AUTOMATED_TESTED | 通用 WebUI/API 不创建主动私信批次；CLI 可恢复批次并只重试 `FAILED` 或 `BLOCKED` 项 |
@@ -84,7 +84,7 @@
 | V15-AUTH-001 | 产品登录只保留状态检查、自动退出、用户手动登录和新 UID 核验 | AUTOMATED_TESTED | Skill、WebUI 和 CLI 主流程不再引导二维码或手机验证码登录；真实换号继续验收 |
 | V15-CHROME-001 | 启动账号时先启动 Bridge，扩展未连接再自动打开绑定 Profile | AUTOMATED_TESTED | 正确 Profile 复用、错误 Profile 拒绝和超时已测试；真实 Windows 待验收 |
 | V15-COMMENT-001 | 指定评论和随机评论均由当前任务点击授权后直接发送 | SPEC_APPROVED | 授权范围、配额、逐项结果和防重复测试通过 |
-| V15-REPLY-001 | 按账号启用自动回复规则，符合规则的回复不逐条确认 | AUTOMATED_TESTED | 评论/私信开关、时段、配额、暂停、决策、回读与记录已测试；真实账号周期待验收 |
+| V15-REPLY-001 | 按账号启用自动回复规则，符合规则的回复不逐条确认 | AUTOMATED_TESTED | 评论/私信开关、暂停、决策、回读与记录已测试；真实账号周期待验收 |
 | V15-OS-001 | 正式支持 Windows 10/11，不声明 macOS/Linux 正式支持 | SPEC_APPROVED | 子 Skill 元数据和启动说明统一，完成两台 Windows 验收 |
 | V15-DOC-001 | 文档优先级固定为 PRD → 主 Skill → 子 Skill → README/用户指南 | IMPLEMENTED | 文档索引、状态口径和本地链接检查已更新 |
 
@@ -103,10 +103,10 @@
 | V20-LLM-001 | 使用 OpenAI-compatible 模型生成结构化回复候选 | REAL_MODEL_TESTED | 配置、请求、解析和错误分支已测试；DeepSeek 已为真实入站私信事件生成草稿 |
 | V20-DM-001 | 读取一对一私信收件箱，以最新连续对方消息作为回复单位并去重 | REAL_READ_ONLY_TESTED | 真实 `/chat` 页面采集基线已记录；连续消息合并、平台提示和己方最后发言过滤已测试 |
 | V20-DM-002 | 私信上下文生成规则候选，发送前校验会话版本并在发送后回读 | AUTOMATED_TESTED | 会话变化停止发送、消息气泡回读及 `RESULT_UNKNOWN` 不重发已测试；自动回复实机待验收 |
-| V20-DM-003 | 按私信会话维护 Codex/人工所有权和恢复边界 | AUTOMATED_TESTED | `pending` 和发送未闭环转人工、全会话快照、`HUMAN_REPLY/CODEX_OUTBOUND` 归因、延迟回读补正及显式恢复已测试；真实账号待验收 |
+| V20-DM-003 | 私信会话统一由 Agent 持续回复 | AUTOMATED_TESTED | 新消息去重、Agent 回复决策、发送轮次校验与延迟回读补正测试通过；真实账号待验收 |
 | V20-DRAFT-001 | AI 结果只创建待人工确认草稿，不自动发送 | AUTOMATED_TESTED | 同事件唯一任务/草稿、质量提示和既有确认链测试通过 |
 | V20-WEB-001 | WebUI 可选择 READY 账号采集评论或入站私信，并为明确事件生成草稿 | AUTOMATED_TESTED_PARTIAL | 账号状态、事件列表、模型设置和生成接口测试通过；私信只读采集已有真实页面记录，确认发送待验收 |
-| V20-AUTO-001 | 按账号规则运行有界自动回复周期 | AUTOMATED_TESTED | CLI/API/WebUI、渠道开关、范围、时段、配额、`reply/pending/skip`、任务与回复记录已测试；计划调度与真实账号待验收 |
+| V20-AUTO-001 | 按账号规则运行有界自动回复周期 | AUTOMATED_TESTED | CLI/API/WebUI、渠道开关、范围、`reply/pending/skip`、任务与回复记录已测试；计划调度与真实账号待验收 |
 | V20-CODEX-001 | Codex 读取入站上下文并提交结构化回复决策 | AUTOMATED_TESTED | `reply-inbox` 采集、列表、上下文、决策文件、规则复核、发送回读和专用 Skill 已测试；计划调度与真实账号待验收 |
 
 ## V1.0 阶段顺序
@@ -149,3 +149,15 @@
 | DEBUG-04 | 安装回执核对、服务验证与验收关闭 | AUTOMATED_TESTED | 响应中断、延迟回执、服务失败与验收门槛测试 |
 
 操作流程见[员工故障与修复](DEBUG-WORKFLOW.md)。员工实际部署和平台恢复按实机回执登记。
+
+## 员工 Agent 视觉辅助（2026-09-11 用户确认）
+
+| 需求 | 状态 | 实现及证据 |
+| --- | --- | --- |
+| 扩展截图交给 Agent 图片工具识别 | AUTOMATED_TESTED | `visual_browser.py`、员工提示词、较大 PNG 传输测试 |
+| 根据截图辅助操作并观察结果 | AUTOMATED_TESTED | `visual_browser.js`、截图视口/标签页及坐标转换测试 |
+| 扩展图标与页面显示调用状态 | AUTOMATED_TESTED | 调用提示成功、失败及角标恢复测试 |
+| 异常从当前步骤恢复 | AUTOMATED_TESTED | `employee_recovery.py`、步骤记录与异常分类测试 |
+
+调用方式见[员工 Agent 视觉浏览器](AGENT-VISUAL-BROWSER.md)。PC057 安装包已送达，
+运营任务运行期间安装顺延；扩展重载、员工图片工具调用及真实页面操作另行验收。

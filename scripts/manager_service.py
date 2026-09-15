@@ -80,6 +80,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
     ) -> None:
         self.store = store or ManagerStore()
         self.transport = transport or OpenSSHTransport()
+        if isinstance(self.transport, OpenSSHTransport):
+            self.transport.activity_log = self.store.root / "logs" / "manager-sync.log"
         self._machine_stale_seconds = machine_stale_seconds
         self._account_stale_seconds = account_stale_seconds
         self._init_polling()
@@ -309,6 +311,21 @@ class ManagerService(ManagerMemory, ManagerPolling):
     def dashboard_snapshot(self) -> dict:
         """Return one manager-local snapshot for the WebUI without contacting workers."""
 
+        view = copy.copy(self)
+        view.store = self.store.read_view()
+        view._progress_collections = {}
+        return view._dashboard_snapshot()
+
+    def _progress_records(self, collection: str) -> list[dict]:
+        """Reuse read-only progress inputs within one dashboard response."""
+        cache = getattr(self, "_progress_collections", None)
+        if cache is None:
+            return self.store.list(collection)
+        if collection not in cache:
+            cache[collection] = self.store.list(collection)
+        return cache[collection]
+
+    def _dashboard_snapshot(self) -> dict:
         machines_payload = self.list_machines()
         accounts_payload = self.list_accounts()
         alerts_payload = self.list_account_alerts()
@@ -323,7 +340,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
         operation_tasks_payload = self.list_operation_tasks()
         messages_payload = self.list_agent_messages()
         employee_summary = EmployeeOperations(
-            self._employee_view_state(), results_payload["current_results"], self._result_metric_counts
+            self._employee_view_state(),
+            results_payload["current_results"],
+            self._result_metric_counts,
         ).summary(accounts_payload["accounts"])
 
         machines = machines_payload["machines"]
@@ -709,7 +728,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     e.get("user_id") not in warm or e.get("user_id") == spec["identity"]["uid"]
                     for e in entries
                 ):
-                    raise ServiceError("WARM_TARGET_REQUIRED", "关注博主的目标需要该账号的暖互动证据")
+                    raise ServiceError(
+                        "WARM_TARGET_REQUIRED", "关注博主的目标需要该账号的暖互动证据"
+                    )
         return copy.deepcopy(inputs)
 
     def supply_daily_inputs(self, operation_task_id: str, request: dict) -> dict:
@@ -4391,7 +4412,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
     def _with_goal_progress(self, goal: dict) -> dict:
         results = []
-        for item in self.store.list("results"):
+        for item in self._progress_records("results"):
             request = item.get("task_request") if isinstance(item.get("task_request"), dict) else {}
             if str(item.get("goal_id") or request.get("goal_id") or "") == goal.get("goal_id"):
                 results.append(item)
@@ -4510,7 +4531,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
     def _with_operation_task_progress(self, task: dict) -> dict:
         latest_by_execution: dict[str, dict] = {}
-        for item in self.store.list("results"):
+        for item in self._progress_records("results"):
             request = item.get("task_request") if isinstance(item.get("task_request"), dict) else {}
             if str(
                 item.get("operation_task_id") or request.get("operation_task_id") or ""
@@ -4538,7 +4559,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         target_metrics = dict(goal_snapshot.get("target_metrics") or {})
         linked_tasks = [
             item
-            for item in self.store.list("tasks")
+            for item in self._progress_records("tasks")
             if str((item.get("request") or {}).get("operation_task_id") or "")
             == task.get("operation_task_id")
         ]
@@ -4939,6 +4960,11 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
     @classmethod
     def _result_metric_counts(cls, result: dict) -> Counter[str]:
+        from compound_receipt import confirmed_action_counts
+
+        compound_counts = confirmed_action_counts(result)
+        if compound_counts is not None:
+            return compound_counts
         request = result.get("task_request") if isinstance(result.get("task_request"), dict) else {}
         capability = str(result.get("capability") or request.get("capability") or "").lower()
         if capability == "send-private-messages":
@@ -5050,7 +5076,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
             for item in terminal
         )
         action_summary: dict[str, dict[str, int | None]] = {}
-        for kind in ("browse", "like", "comment", "reply", "publish", "private_message", "private_reply"):
+        for kind in (
+            "browse", "like", "comment", "reply", "publish", "private_message", "private_reply"
+        ):
             selected = [item for item in results if self._result_action_kind(item) == kind]
             targets = [
                 count for item in selected if (count := self._result_target_count(item)) is not None

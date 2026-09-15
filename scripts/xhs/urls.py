@@ -18,7 +18,7 @@ def make_feed_detail_url(feed_id: str, xsec_token: str) -> str:
 
 def make_search_url(keyword: str) -> str:
     """构建搜索结果页 URL。"""
-    params = urlencode({"keyword": keyword, "source": "web_explore_feed"})
+    params = urlencode({"keyword": keyword, "source": "web_explore_feed", "type": "51"})
     return f"https://www.xiaohongshu.com/search_result?{params}"
 
 

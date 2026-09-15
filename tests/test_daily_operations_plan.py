@@ -145,6 +145,7 @@ def test_preview_blocks_health_persona_and_publish_limits(tmp_path: Path, monkey
     result = material({"plan_date": "2026-09-09", "version": 1}, row, account(), None)
     assert result["blockers"] == ["发帖计划超过账号每日上限"]
     assert result["persona_snapshot"]["display_name"] == "友好评论者"
+    assert result["strategy"]["publish_confirmation_required"] is False
 
 
 def test_runner_waits_dispatches_and_resumes_from_receipts(tmp_path: Path, monkeypatch) -> None:

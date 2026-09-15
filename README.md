@@ -27,7 +27,7 @@ Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线�
 |---|---|---|
 | 登录 | 检查、退出、用户手动登录和新 UID 核验 | 半自动换号链已测试；历史二维码和手机登录命令仅兼容保留 |
 | Chrome | 绑定固定 Profile，不自动关闭或切换账号 | 联合启动已测试：扩展离线时可打开绑定 Profile；真实 Windows 待验收 |
-| 发布 | 禁止一步直发，必须填写、真实预览、单任务确认和结果回读 | Agent/CLI 填写及 WebUI/Agent 受控确认已测试；真实发布待验收 |
+| 发布 | 生成内容、填写、正式发布和结果回读 | Agent/CLI 连续发布链路已测试；真实发布待验收 |
 | 评论 | 指定评论/回复保留最终文本确认；随机评论一次授权 1–3 条 | 当前确认链可用；“所有指定评论点击即直发”仍是 V1.5 规格 |
 | Codex 回复 | Codex 读取入站上下文并提交回复决策；业务判断类内容进入待处理 | `reply-inbox`、规则复核、发送回读和专用 Skill 已通过自动化测试；真实账号周期待验收 |
 | 主加 | 单向关注，Agent/CLI 内部预览后执行并回读 | 已完成自动化测试和测试账号实机回读 |
@@ -311,11 +311,10 @@ python scripts/web_server.py
 
 **发布内容（V1.5 Agent 流程）：**
 
-> "为 brand-a 填写这篇图文，打开浏览器预览，等我确认后再发布"
+> "为 brand-a 生成并正式发布这篇图文"
 
-图文、视频、长文、草稿和定时发布必须通过 Agent/Python CLI 分步填写并形成真实预览。进入
-`preview_ready` 后，用户可在 Agent 对话或 WebUI 中逐任务核对并确认发布或保存草稿；WebUI 不创建
-或填写发布内容。主动私信仍由 Agent/CLI 下发并由 WebUI 展示结果；收到的新私信和自己笔记下
+图文与视频通过 Agent/Python CLI 生成、填写并正式发布，长文完成排版后正式发布；
+平台回读确认后计入发帖数，WebUI 展示结果并可继续既有准备任务。主动私信仍由 Agent/CLI 下发并由 WebUI 展示结果；收到的新私信和自己笔记下
 的新评论由 Codex 通过 `reply-inbox` 读取上下文、生成决策、发送并回读，需要业务判断的内容进入待处理。详见
 [`docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md`](docs/AUTO-XHS-V2-INTELLIGENT-REPLY.md)。
 
@@ -329,9 +328,9 @@ Codex 先识别首次私信或已有会话，结合用户给出的联系目的�
 
 **入站回复（Codex 流程）：**
 
-在 WebUI“账号回复规则”中配置评论/私信开关、生效时段、数量上限、人设和知识，并显式启用。
+在 WebUI“账号回复规则”中配置评论/私信开关、人设和知识，并显式启用。
 每次手动或计划运行 `reply-inbox` 都只处理一批新事件。Codex 读取笔记、评论线程或近期私信会话，
-结合账号人设、知识和规则生成 `reply`、`pending` 或 `skip`；Python/Bridge 负责发送前核验和页面回读。
+结合账号人设、知识和规则生成 `reply` 或 `skip`；Python/Bridge 负责发送前核验和页面回读。
 
 **主动关注博主（Agent 流程）：**
 
@@ -454,13 +453,13 @@ python scripts/cli.py --account brand-a collect-private-messages `
 | `like-feed`                 | 点赞 / 取消点赞                                       |
 | `favorite-feed`             | 收藏 / 取消收藏                                       |
 | `publish` / `publish-video` | 旧版一步发布命令；已明确禁用                           |
-| `fill-publish`              | Agent 填写图文并创建待确认发布任务                     |
-| `fill-publish-video`        | Agent 填写视频并创建待确认发布任务                     |
-| `click-publish`             | 携带任务 ID；用户确认真实预览后执行发布                |
+| `fill-publish`              | Agent 填写图文并正式发布                     |
+| `fill-publish-video`        | Agent 填写视频并正式发布                     |
+| `click-publish`             | 携带任务 ID 继续已有准备任务并正式发布                |
 | `save-draft`                | 携带任务 ID；用户取消发布时保存草稿                    |
 | `long-article`              | Agent 填写长文、创建任务并返回排版模板                 |
 | `select-template`           | 携带任务 ID 选择长文模板                               |
-| `next-step`                 | 携带任务 ID进入长文最终发布预览                        |
+| `next-step`                 | 携带任务 ID 填写长文描述并正式发布                        |
 | `diagnose-404`              | 读取扩展拦截器捕获的 404 诊断信息                     |
 | `check-risk`                | 汇总当前页面与接口的风险状态                          |
 | `get-netlog` / `risk-report` | 读取已启用的 NetLog 并生成诊断报告                   |

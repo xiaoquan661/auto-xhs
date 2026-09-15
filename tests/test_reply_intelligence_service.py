@@ -53,9 +53,7 @@ def test_intelligent_reply_uses_note_thread_profile_and_knowledge(tmp_path) -> N
     profile_root = tmp_path / "profiles"
     profile_root.mkdir()
     (profile_root / "alpha.md").write_text("语气自然，称呼简短。", encoding="utf-8")
-    (profile_root / "alpha.knowledge.md").write_text(
-        "周六下午场正常接受报名。", encoding="utf-8"
-    )
+    (profile_root / "alpha.knowledge.md").write_text("周六下午场正常接受报名。", encoding="utf-8")
     service = ReplyIntelligenceService(client, profile_root=profile_root)
 
     result = service.generate_for_event(_event(), recent_replies=["欢迎来参加～"])
@@ -63,7 +61,7 @@ def test_intelligent_reply_uses_note_thread_profile_and_knowledge(tmp_path) -> N
     assert result["reply"].startswith("可以呀")
     assert result["intent"] == "question"
     assert result["confidence"] == 0.91
-    assert result["manual_review_required"] is True
+    assert result["mode"] == "automatic"
     assert result["context_summary"]["profile_loaded"] is True
     prompt = client.calls[0]["user_prompt"]
     assert "周末手作活动" in prompt
@@ -73,18 +71,16 @@ def test_intelligent_reply_uses_note_thread_profile_and_knowledge(tmp_path) -> N
     assert "周六下午场正常接受报名" in system_prompt
 
 
-def test_intelligent_reply_marks_ai_style_and_recent_duplicate() -> None:
+def test_intelligent_reply_supplies_recent_replies_to_agent() -> None:
     client = FakeReplyClient(
-        '{"reply":"希望对你有所帮助", "intent":"other", '
-        '"confidence":0.6, "reason":"通用回复"}'
+        '{"reply":"希望对你有所帮助", "intent":"other", "confidence":0.6, "reason":"通用回复"}'
     )
     service = ReplyIntelligenceService(client)
 
-    result = service.generate_for_event(
-        _event(), recent_replies=["希望 对你 有所帮助"]
-    )
+    result = service.generate_for_event(_event(), recent_replies=["希望 对你 有所帮助"])
 
-    assert result["quality_flags"] == ["ai_style_phrase", "duplicate_recent_reply"]
+    assert "希望 对你 有所帮助" in client.calls[0]["user_prompt"]
+    assert result["reply"] == "希望对你有所帮助"
 
 
 def test_intelligent_private_message_reply_uses_conversation_context() -> None:
@@ -126,9 +122,7 @@ def test_intelligent_reply_rejects_invalid_model_output() -> None:
 
 
 def test_unconfigured_reply_client_does_not_generate_template() -> None:
-    client = OpenAICompatibleReplyClient(
-        ReplyModelConfig(api_key="", base_url="", model="")
-    )
+    client = OpenAICompatibleReplyClient(ReplyModelConfig(api_key="", base_url="", model=""))
 
     assert client.status()["configured"] is False
     with pytest.raises(ServiceError) as exc_info:
@@ -187,7 +181,7 @@ def test_reply_client_calls_configured_chat_completion_endpoint() -> None:
     assert calls[0][1]["json"]["messages"][1]["content"] == "user"
 
 
-def test_application_service_creates_one_review_only_ai_draft(tmp_path) -> None:
+def test_application_service_creates_one_agent_draft(tmp_path) -> None:
     client = FakeReplyClient(
         '{"reply":"可以的，周六下午见～", "intent":"question", '
         '"confidence":0.88, "reason":"笔记已说明活动时间"}'
@@ -223,7 +217,7 @@ def test_application_service_creates_one_review_only_ai_draft(tmp_path) -> None:
     assert first["created"] is True
     assert first["task"]["state"] == "WAITING_APPROVAL"
     assert first["draft"]["status"] == "DRAFT"
-    assert first["draft"]["metadata"]["intelligent_reply"]["mode"] == "review_only"
+    assert first["draft"]["metadata"]["intelligent_reply"]["mode"] == "automatic"
     assert repeated["created"] is False
     assert repeated["draft"]["draft_id"] == first["draft"]["draft_id"]
     assert len(client.calls) == 1

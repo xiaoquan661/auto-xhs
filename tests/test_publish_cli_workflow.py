@@ -4,19 +4,18 @@ import argparse
 import json
 
 import pytest
-
 from product_store import ProductStore
+from service_errors import ServiceError
+
 from scripts.application_service import ApplicationService
 from scripts.cli import (
     cmd_click_publish,
-    cmd_fill_publish,
     cmd_fill_publish_video,
     cmd_long_article,
     cmd_next_step,
     cmd_publish,
     cmd_select_template,
 )
-from service_errors import ServiceError
 
 
 class Browser:
@@ -24,13 +23,21 @@ class Browser:
         pass
 
 
-def test_legacy_one_step_publish_is_disabled(capsys) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        cmd_publish(argparse.Namespace())
+@pytest.fixture(autouse=True)
+def publish_calls(monkeypatch):
+    calls = []
 
-    report = json.loads(capsys.readouterr().out)
-    assert exc_info.value.code == 2
-    assert report["error_code"] == "ONE_STEP_PUBLISH_DISABLED"
+    def submit(page, **kwargs):
+        calls.append(kwargs)
+        return {
+            "verified": True,
+            "status": "success",
+            "evidence": "platform_response",
+            "note_id": "note-1",
+        }
+
+    monkeypatch.setattr("xhs.publish.click_publish_button", submit)
+    return calls
 
 
 def test_web_service_cannot_create_publish_execution_task(tmp_path) -> None:
@@ -48,8 +55,8 @@ def test_web_service_cannot_create_publish_execution_task(tmp_path) -> None:
     assert exc_info.value.code == "AGENT_CLI_ONLY"
 
 
-def test_fill_then_confirmed_click_persists_agent_task(
-    tmp_path, monkeypatch, capsys
+def test_publish_fills_and_submits_once_with_platform_receipt(
+    tmp_path, monkeypatch, capsys, publish_calls
 ) -> None:
     product_root = tmp_path / "product"
     title_file = tmp_path / "title.txt"
@@ -75,43 +82,29 @@ def test_fill_then_confirmed_click_persists_agent_task(
         visibility="公开可见",
     )
     with pytest.raises(SystemExit) as fill_exit:
-        cmd_fill_publish(fill_args)
+        cmd_publish(fill_args)
     fill_report = json.loads(capsys.readouterr().out)
 
     assert fill_exit.value.code == 0
     assert fill_report["task"]["source"] == "agent"
     assert fill_report["task"]["platform"] == "rednote"
-    assert fill_report["task"]["state"] == "WAITING_APPROVAL"
-    assert fill_report["preview"]["title"] == "测试标题"
-
-    monkeypatch.setattr("scripts.cli._connect_existing", lambda _args: (Browser(), object()))
-    monkeypatch.setattr(
-        "xhs.publish.click_publish_button",
-        lambda _page, **_kwargs: {
-            "verified": True,
-            "status": "success",
-            "evidence": "platform_response",
-            "note_id": "note-1",
-        },
-    )
-    click_args = argparse.Namespace(
-        account="alpha",
-        task_id=fill_report["task_id"],
-        preview_revision=fill_report["task"]["parameters"]["preview_revision"],
-        confirm=True,
-    )
-    with pytest.raises(SystemExit) as click_exit:
-        cmd_click_publish(click_args)
-    click_report = json.loads(capsys.readouterr().out)
-
-    assert click_exit.value.code == 0
-    assert click_report["task"]["state"] == "SUCCESS"
+    assert fill_report["task"]["state"] == "SUCCESS"
+    assert fill_report["task"]["parameters"]["preview"]["title"] == "测试标题"
+    assert publish_calls == [{"expected_title": "测试标题"}]
     stored = ProductStore(product_root).get("tasks", fill_report["task_id"])
     assert stored["state"] == "SUCCESS"
     assert ProductStore(product_root).list("events")[0]["result"]["note_id"] == "note-1"
+    with pytest.raises(ServiceError) as duplicate:
+        cmd_click_publish(
+            argparse.Namespace(
+                account="alpha", task_id=fill_report["task_id"], confirm=False, preview_revision=""
+            )
+        )
+    assert duplicate.value.code == "INVALID_TASK_STATE"
+    assert len(publish_calls) == 1
 
 
-def test_video_fill_enters_final_preview(tmp_path, monkeypatch, capsys) -> None:
+def test_video_fill_publishes_with_platform_receipt(tmp_path, monkeypatch, capsys) -> None:
     product_root = tmp_path / "product"
     title_file = tmp_path / "title.txt"
     content_file = tmp_path / "content.txt"
@@ -139,12 +132,14 @@ def test_video_fill_enters_final_preview(tmp_path, monkeypatch, capsys) -> None:
     report = json.loads(capsys.readouterr().out)
 
     assert exit_info.value.code == 0
-    assert report["task"]["state"] == "WAITING_APPROVAL"
-    assert report["task"]["parameters"]["stage"] == "preview_ready"
-    assert report["preview"]["kind"] == "video"
+    assert report["task"]["state"] == "SUCCESS"
+    assert report["task"]["parameters"]["stage"] == "publishing"
+    assert report["task"]["parameters"]["preview"]["kind"] == "video"
 
 
-def test_long_article_reaches_final_preview_after_template(tmp_path, monkeypatch, capsys) -> None:
+def test_long_article_publishes_after_template_and_description(
+    tmp_path, monkeypatch, capsys
+) -> None:
     product_root = tmp_path / "product"
     title_file = tmp_path / "title.txt"
     content_file = tmp_path / "content.txt"
@@ -195,6 +190,6 @@ def test_long_article_reaches_final_preview_after_template(tmp_path, monkeypatch
         )
     preview = json.loads(capsys.readouterr().out)
 
-    assert preview["task"]["parameters"]["stage"] == "preview_ready"
-    assert preview["preview"]["kind"] == "long_article"
-    assert preview["preview"]["description"] == "长文摘要"
+    assert preview["task"]["state"] == "SUCCESS"
+    assert preview["task"]["parameters"]["preview"]["kind"] == "long_article"
+    assert preview["task"]["parameters"]["preview"]["description"] == "长文摘要"

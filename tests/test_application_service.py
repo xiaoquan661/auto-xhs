@@ -69,14 +69,11 @@ def test_service_lists_shared_capability_and_account_contracts() -> None:
     assert "bridge_token" not in accounts["accounts"][0]
 
 
-def test_service_rejects_v1_disabled_capability() -> None:
+def test_service_enables_formal_publishing() -> None:
     service = ApplicationService()
-
-    with pytest.raises(ServiceError) as exc_info:
-        service.require_enabled_capability("publish")
-
-    assert exc_info.value.code == "CAPABILITY_DISABLED"
-    assert exc_info.value.http_status == 409
+    policy = service.require_enabled_capability("publish")
+    assert policy.enabled_in_v1 is True
+    assert policy.requires_confirmation is False
 
 
 def test_service_resolves_identity_check_without_l3_confirmation() -> None:

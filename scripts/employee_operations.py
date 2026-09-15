@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
+from collection_coverage import batch_summary, covered_dates
 from metric_temporality import event_day, event_time
 from operations_context import event_location, observed_post_date, platform_origin, warm_candidates
 from publish_workflow import PUBLISH_WORKFLOW_CAPABILITIES, VERIFIED_PUBLISH_EVIDENCE
@@ -33,6 +34,7 @@ EVENT_METRICS = {
     "note_comment": "received_comments",
     "comment_reply": "received_comments",
     "private_message": "received_private_messages",
+    "private_message_item": "received_private_messages",
     "new_follower": "new_followers",
     "received_like": "received_likes",
 }
@@ -70,6 +72,7 @@ def flatten_observations(value: Any) -> list[dict]:
         "snapshots",
         "incremental_data",
         "reconciled_outbound",
+        "collection_observations",
     )
     if any(name in value for name in containers):
         return [
@@ -199,6 +202,12 @@ class EmployeeOperations:
                 previous = unique.get(key, {})
                 unique[key] = {**previous, **row, "payload": {
                     **(previous.get("payload") or {}), **(row.get("payload") or {})}}
+                if event_day(previous) and not event_day(row):
+                    unique[key]["occurred_at"] = event_time(previous)["occurred_at"]
+                    unique[key]["payload"].update(
+                        event_occurred_at=event_time(previous)["occurred_at"],
+                        time_scope="platform",
+                    )
         for (machine, slot, _, _), row in unique.items():
             self.observations[machine, slot].append(row)
 
@@ -243,6 +252,11 @@ class EmployeeOperations:
         )
 
     def action_counts(self, result: dict) -> dict:
+        from compound_receipt import confirmed_action_counts
+
+        compound_counts = confirmed_action_counts(result)
+        if compound_counts is not None:
+            return compound_counts
         capability = result.get("capability") or (result.get("task_request") or {}).get(
             "capability", ""
         )
@@ -404,13 +418,16 @@ class EmployeeOperations:
                 "incomplete": passive,
                 "status": "当日总量待确认"
                 if passive
+                else "未安排"
+                if actual is None and target == 0
                 else "等待回执"
                 if actual is None
                 else "已回传"
                 if target is None
                 else "完成"
                 if actual >= target
-                else f"进行中 · 差 {target - actual}",
+                else f"已回传 · 差 {target - actual}" if receipts
+                else f"待执行 · 差 {target - actual}",
                 "tone": "success"
                 if actual is not None and target is not None and actual >= target and not partial
                 else "info",
@@ -426,16 +443,32 @@ class EmployeeOperations:
             if not partial and not (
                 actual is not None and target is not None and actual >= target
             ):
+                from compound_receipt import action_items
                 from manager_service import ManagerService
 
-                states = {
-                    result.get("state") for result in receipts
-                    if ManagerService._result_action_kind(result) == kind
-                }
+                states = set()
+                for result in receipts:
+                    items = action_items(result)
+                    if items:
+                        states.update(str(item.get("status") or item.get("state") or "").upper()
+                                      for item in items if item["action"] == kind)
+                    elif ManagerService._result_action_kind(result) == kind:
+                        states.add(result.get("state"))
+                if not states and actual is None and target != 0 and any(
+                    result.get("capability") == "home-engagement"
+                    and result.get("state") in {
+                        "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "BLOCKED",
+                        "CANCELLED", "RESULT_UNKNOWN",
+                    }
+                    for result in receipts
+                ):
+                    metrics[kind].update(status="任务已结束 · 未提供逐项结果", tone="warning")
                 for execution_state, label in (
                     ("RESULT_UNKNOWN", "执行结果待核对"),
+                    ("RECONCILIATION_REQUIRED", "执行结果待核对"),
                     ("BLOCKED", "已阻塞"),
                     ("FAILED", "执行失败"),
+                    ("SKIPPED", "已跳过"),
                 ):
                     if execution_state in states:
                         metrics[kind].update(status=label, tone="warning")
@@ -447,6 +480,7 @@ class EmployeeOperations:
                     else "采集未完成"
                 )
             if passive:
+                coverage = batch_summary(rows, kind, day)
                 samples = [r for r in snapshots
                            if business_date(r.get("captured_at")) <= day]
                 latest = samples[-1] if samples else {}
@@ -475,15 +509,37 @@ class EmployeeOperations:
                     observation={"source": "platform_event_time", "count_basis":
                                  "按平台发生日期去重计数；采样范围内已确认数量，全天总量待确认"},
                 )
-                collection = collections.get(kind) or {}
-                if (collection.get("collection_state") == "SUCCESS"
-                        and collection.get("coverage") == "complete"
-                        and collection.get("period_start") == metrics[kind]["period_start"]
-                        and collection.get("period_end") == metrics[kind]["period_end"]
-                        and collection.get("unit") == "event"
-                        and collection.get("undated_count") == 0):
+                metrics[kind]["collection_progress"] = coverage
+                if coverage["complete"]:
+                    if coverage.get("confirmed_count") is not None:
+                        observed = coverage["confirmed_count"]
+                        metrics[kind]["observed_new"] = observed
                     metrics[kind].update(actual=observed, actual_display=str(observed),
                                          incomplete=False, coverage="complete", status="已采集")
+                else:
+                    reason = (coverage["reasons"] or [
+                        "历史回执缺少采集区间" if events else "该日期尚无有效采集记录"
+                    ])[0]
+                    metrics[kind].update(
+                        status=reason, actual_display=f"至少 {observed}" if observed else "采集缺口",
+                        collection_reason=reason,
+                        backfill_required=day < datetime.now(BUSINESS_TIMEZONE).date().isoformat(),
+                    )
+                metrics[kind].update(
+                    daily_new=observed, as_of=coverage["as_of"],
+                    day_finalized=coverage["day_finalized"],
+                )
+                if coverage["is_today"]:
+                    # Zero before the first sample is a new daily counter, not a
+                    # successful empty collection. Keep actual nullable in that case.
+                    metrics[kind]["actual_display"] = str(observed)
+                    if coverage["complete"]:
+                        metrics[kind].update(status="今日新增 · 已采集", collection_reason="")
+                    elif not coverage["batches"]:
+                        metrics[kind].update(status="待首次采集", coverage="unknown",
+                                             collection_reason="当日尚未采集，计数从零开始")
+                    else:
+                        metrics[kind].update(status="采集不完整", incomplete=True)
             if kind in {"reply", "private_reply"} and not (
                 target is not None and actual is not None and actual >= target
             ) and any(
@@ -748,6 +804,11 @@ class EmployeeOperations:
                 business_date(r.get("occurred_at") or r.get("captured_at"))
                 for r in self.observations[machine, slot]
             )
+            for observation in self.observations[machine, slot]:
+                dates.update(covered_dates(observation))
+                occurred_day = event_day(observation)
+                if occurred_day:
+                    dates.add(occurred_day)
             daily_metrics.extend(
                 {
                     "machine_id": machine,

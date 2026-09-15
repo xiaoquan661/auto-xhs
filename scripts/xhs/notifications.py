@@ -7,6 +7,9 @@ import re
 import time
 from datetime import UTC, datetime
 
+from collection_coverage import collection_window
+from metric_temporality import display_date, event_day
+
 from .human import sleep_random
 from .urls import NOTIFICATION_URL
 
@@ -36,12 +39,26 @@ def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
     page.wait_dom_stable()
     sleep_random(500, 900)
 
+    captured_at = datetime.now(UTC).isoformat()
     captured = _wait_for_captured_mentions(page)
     comments = _parse_mentions_response(captured, max_items=max_items)
-    source = "notification_api_observation"
-    if not comments:
-        comments = _extract_notifications_from_dom(page, max_items=max_items)
-        source = "notification_dom"
+    source = "notification_api_observation" if comments else "notification_dom"
+    from .notification_history import read_notification_history
+
+    def read_page():
+        raw = page.evaluate("JSON.stringify(window.__AUTO_XHS_MENTIONS__ || null)")
+        observed = json.loads(raw) if isinstance(raw, str) and raw else None
+        parsed = _parse_mentions_response(observed, max_items=max_items)
+        return parsed or _extract_notifications_from_dom(page, max_items=max_items)
+
+    history, exhausted, reason = read_notification_history(page, read_page, max_items=max_items)
+    unique = {r["notification_id"]: r for r in [*comments, *history]}
+    comments = list(unique.values())
+    start, end = collection_window(captured_at)
+    undated = sum(not event_day({**r, "event_type": "note_comment"}) for r in comments)
+    unidentified = sum(str(r["notification_id"]).startswith("dom:")
+                       and not r.get("comment_id") for r in comments)
+    complete = exhausted and not undated and not unidentified
 
     newest = max(
         ((int(item.get("create_time") or 0), item["notification_id"]) for item in comments),
@@ -55,8 +72,18 @@ def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
         "failures": [],
         "cursor": f"{newest[0]}:{newest[1]}" if newest[1] else "",
         "last_seen_time": _epoch_to_iso(newest[0]) if newest[0] else None,
-        "partial": False,
+        "partial": not complete,
         "source": source,
+        "collection_batches": [{"metric": "received_comments", "unit": "event",
+            "period_start": start, "period_end": end,
+            "coverage": "complete" if complete else "partial",
+            "undated_count": undated, "unidentified_count": unidentified,
+            "source": source, "source_exhausted": exhausted, "observed_count": len(comments),
+            "event_index": [{"id": r.get("comment_id") or r["notification_id"],
+                             "date": event_day({**r, "event_type": "note_comment"})}
+                            for r in comments],
+            "reason": "" if complete else ("部分评论缺少发生日期" if undated else
+                "评论缺少平台事件标识" if unidentified else reason)}],
     }
 
 
@@ -269,6 +296,7 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
           note_title: '', note_content: '', note_tags: [],
           create_time: Number.isFinite(rawTime) ? rawTime : 0,
           occurred_at: '',
+          display_time: text(timeNode),
           classification: 'notification_dom',
           is_own_note: relation.includes('评论了你的笔记'),
           source: 'notification'
@@ -289,8 +317,10 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         row = dict(item)
         if not row.get("occurred_at"):
             platform_time = _epoch_to_iso(int(row.get("create_time") or 0))
+            displayed = display_date(str(row.get("display_time") or ""), now)
+            platform_time = platform_time or displayed
             row["occurred_at"] = platform_time or now
-            row["time_scope"] = "platform" if platform_time else "first_observed"
+            row["time_scope"] = "platform_interval_date" if platform_time else "first_observed"
             row["event_occurred_at"] = platform_time or None
             row["captured_at"] = now
         normalized.append(row)

@@ -27,6 +27,7 @@ from websockets.server import ServerConnection
 from platforms import DEFAULT_PLATFORM, normalize_platform
 
 logger = logging.getLogger("xhs-bridge")
+MAX_MESSAGE_SIZE = 50 * 1024 * 1024
 
 
 class BridgeServer:
@@ -332,7 +333,7 @@ async def main(
         profile_directory=profile_directory,
         platform=platform,
     )
-    async with websockets.serve(server.handle, "localhost", port):
+    async with websockets.serve(server.handle, "localhost", port, max_size=MAX_MESSAGE_SIZE):
         logger.info(
             "Bridge server 已启动: account=%s ws://localhost:%d",
             account,

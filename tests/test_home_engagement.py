@@ -393,3 +393,44 @@ def test_deadline_during_like_wait_returns_partial_without_extra_like(monkeypatc
     assert result["stop_reason"] == "time_limit"
     assert result["partial"] is True
     assert attempts == ["feed-0"]
+
+
+def test_reading_error_returns_completed_items_and_checkpoint(tmp_path):
+    import json
+    page = FakePage()
+    feeds = [_feed(i) for i in range(3)]
+    calls = [0]
+
+    def reader(*args):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise XHSError("reading interrupted")
+        return 20.0
+
+    checkpoint = tmp_path / "progress.json"
+    with patch("xhs.home_engagement._browse_candidates",
+               side_effect=lambda page, seen: [f for f in feeds if f.id not in seen]):
+        result = home_engagement(page, browse_count=3, like_count=0, reader=reader,
+                                 chooser=lambda choices: choices[0], checkpoint_path=checkpoint)
+    assert result["partial"] is True
+    assert result["counts"]["browsed"] == 1
+    assert result["stop_reason"] == "reading_interrupted"
+    assert json.loads(checkpoint.read_text(encoding="utf-8"))["items"] == result["items"]
+
+
+def test_frame_replacement_retries_only_reading_on_same_note(tmp_path):
+    page = FakePage()
+    calls = [0]
+
+    def reader(*args):
+        calls[0] += 1
+        if calls[0] == 1:
+            raise XHSError("Frame with ID 0 was removed.")
+        return 20.0
+
+    with patch("xhs.home_engagement._browse_candidates", return_value=[_feed(1)]):
+        result = home_engagement(page, browse_count=1, like_count=0, reader=reader,
+                                 checkpoint_path=tmp_path / "progress.json")
+    assert result["success"] is True
+    assert calls[0] == 2
+    assert result["counts"]["liked"] == 0

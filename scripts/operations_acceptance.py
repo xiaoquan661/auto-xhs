@@ -39,6 +39,11 @@ def _verified(value: dict) -> bool:
 
 def confirmed_counts(result: dict, request: dict) -> Counter[str]:
     """Do not infer a platform write from task SUCCESS, a summary, or a file path."""
+    from compound_receipt import confirmed_action_counts
+
+    compound_counts = confirmed_action_counts({"task_request": request, **result})
+    if compound_counts is not None:
+        return compound_counts
     counts: Counter[str] = Counter()
     if result.get("state") not in {"SUCCESS", "PARTIAL_SUCCESS"}:
         return counts

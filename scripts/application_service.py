@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from account_doctor import diagnose_accounts
@@ -37,8 +38,8 @@ from account_pairing import (
 )
 from account_runtime import evaluate_profile_connection
 from action_workflow_service import ActionWorkflowService
-from approval_service import ApprovalService
 from application_memory import ApplicationMemory
+from approval_service import ApprovalService
 from bridge_lifecycle import (
     get_bridge_lifecycle,
     start_bridge,
@@ -52,7 +53,7 @@ from capability_registry import (
 )
 from collector_service import CollectorService
 from comment_collector import CommentCollector
-from conversation_ownership_service import OWNER_HUMAN, ConversationOwnershipService
+from conversation_ownership_service import ConversationOwnershipService
 from data_recovery_service import DataRecoveryService
 from diagnostic_export import export_diagnostic_report
 from inbound_event_service import InboundEventService
@@ -942,20 +943,14 @@ class ApplicationService(ApplicationMemory):
         preview_confirmed: bool,
         preview_revision: str,
     ) -> dict:
-        """Execute one prepared publish task after an explicit WebUI preview check."""
+        """Execute one prepared publish task using the bound account."""
 
         if self._store.get_setting("global_paused", False):
             raise ServiceError("GLOBAL_PAUSED", "自动化已全局暂停", 409)
-        if not confirmed or not preview_confirmed:
-            raise ServiceError(
-                "CONFIRMATION_REQUIRED",
-                "请先确认已在绑定的 Chrome Profile 中核对真实发布预览",
-                409,
-            )
         self.require_enabled_capability("click-publish")
         waiting = self.publish_workflows.get(task_id, account=account_slot)
-        if waiting["state"] != "WAITING_APPROVAL":
-            raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以继续", 409)
+        if waiting["state"] not in {"WAITING_APPROVAL", "RUNNING"}:
+            raise ServiceError("INVALID_TASK_STATE", "只有准备中的发布任务可以继续", 409)
         if (waiting.get("parameters") or {}).get("stage") != "preview_ready":
             raise ServiceError("PREVIEW_NOT_READY", "发布任务尚未进入最终预览确认阶段", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
@@ -1008,8 +1003,8 @@ class ApplicationService(ApplicationMemory):
             raise ServiceError("CONFIRMATION_REQUIRED", "保存为草稿需要明确确认", 409)
         self.require_enabled_capability("save-draft")
         waiting = self.publish_workflows.get(task_id, account=account_slot)
-        if waiting["state"] != "WAITING_APPROVAL":
-            raise ServiceError("INVALID_TASK_STATE", "只有待确认的发布任务可以保存为草稿", 409)
+        if waiting["state"] not in {"WAITING_APPROVAL", "RUNNING"}:
+            raise ServiceError("INVALID_TASK_STATE", "只有准备中的发布任务可以保存为草稿", 409)
         self._validate_publish_confirmation_identity(account_slot, verified_uid)
         self._check_account_operations(account_slot, "save-draft", waiting.get("parameters") or {})
         task = self.publish_workflows.prepare_publish(
@@ -1216,17 +1211,28 @@ class ApplicationService(ApplicationMemory):
         if terminated is not None:
             return {"success": True, "task": terminated}
         if task["capability"] in {"fill-publish", "fill-publish-video"}:
-            waiting = self.publish_workflows.wait_for_confirmation(
-                task_id,
-                summary="发布内容已填写，请核对真实预览后确认发布",
+            prepared = self.publish_workflows.wait_for_confirmation(
+                task_id, summary="发布内容已填写，正在正式发布",
             )
+            publish_attempted = False
+            try:
+                self.publish_workflows.prepare_publish(task_id, account=task["account_slot"])
+                preview = (prepared.get("parameters") or {}).get("preview") or {}
+                publish_attempted = True
+                result = self.runner.execute(
+                    task["account_slot"], "click-publish",
+                    {"expected_title": str(preview.get("title") or "")},
+                )
+            except Exception as exc:
+                completed = self.publish_workflows.fail(
+                    task_id, exc,
+                    result_unknown=publish_attempted and getattr(exc, "result_unknown", True),
+                )
+                return {"success": False, "task": completed, "status": completed["state"]}
+            completed = self.publish_workflows.complete_publish(task_id, result)
             return {
-                "success": True,
-                "task": waiting,
-                "result": {**result, "published": False},
-                "status": "WAITING_APPROVAL",
-                "error_code": "PUBLISH_CONFIRMATION_REQUIRED",
-                "recommended_action": "核对员工机真实发布预览并确认后，经理端继续回收结果",
+                "success": completed["state"] == "SUCCESS", "task": completed,
+                "result": result, "status": completed["state"],
             }
         if task["capability"] == "collect-note-comments":
             collected = self.comment_collector.ingest(
@@ -1263,6 +1269,29 @@ class ApplicationService(ApplicationMemory):
                 platform=task["platform"],
             )
             result = {**result, "snapshots": snapshots}
+        if task["capability"] in {
+            "collect-note-comments", "collect-private-messages", "collect-operations-metrics"
+        }:
+            from collection_coverage import observations_for_result
+
+            captured_at = datetime.now(UTC).isoformat()
+            observations = observations_for_result(task, result, captured_at)
+            observations += list(result.get("message_events") or [])
+            saved_observations = []
+            for observation in observations:
+                saved = self.inbound_events.record(
+                    account_slot=task["account_slot"], platform=task["platform"],
+                    event_type=observation["event_type"],
+                    platform_event_id=observation["platform_event_id"],
+                    occurred_at=observation.get("occurred_at") or captured_at,
+                    payload=observation.get("payload") or observation,
+                    classification="collection_statistics",
+                )["event"]
+                saved_observations.append(self.inbound_events.ignore(saved["event_id"]))
+            partial = bool(result.get("partial") or
+                           (result.get("growth_notifications") or {}).get("partial"))
+            result = {**result, "collection_observations": saved_observations,
+                      "partial": partial}
         missing_reply_readback = task.get("operation") == "automatic_reply" and not result.get(
             "readback"
         )
@@ -1501,11 +1530,6 @@ class ApplicationService(ApplicationMemory):
                 "comment_enabled": rule["comment_enabled"],
                 "private_message_enabled": rule["private_message_enabled"],
                 "content_scope": rule["content_scope"],
-                "active_time_range": rule["active_time_range"],
-                "hourly_limit": rule["hourly_limit"],
-                "daily_limit": rule["daily_limit"],
-                "auto_categories": rule["auto_categories"],
-                "manual_categories": rule["manual_categories"],
                 "reply_style": rule["reply_style"],
                 "account_profile": rule["account_profile"],
                 "knowledge": rule["knowledge"],
@@ -1527,31 +1551,18 @@ class ApplicationService(ApplicationMemory):
         *,
         source: str = "codex",
     ) -> dict:
-        """Apply one Codex-authored reply, pending decision, or skip decision."""
+        """Apply one Agent-authored reply or skip decision."""
 
         self.require_enabled_capability("reply-inbox", operation="apply")
         event_id = str(decision_data.get("event_id") or "").strip()
         action = str(decision_data.get("action") or "").strip().lower()
-        if not event_id or action not in {"reply", "pending", "skip"}:
+        if not event_id or action not in {"reply", "skip"}:
             raise ServiceError(
                 "INVALID_REQUEST",
-                "Codex 回复决策必须包含 event_id 和 reply、pending 或 skip 动作",
+                "Codex 回复决策必须包含 event_id 和 reply 或 skip 动作",
             )
         event = self._reply_event_for_account(account_slot, event_id)
         platform = self._resolve_account_platform(account_slot)
-        if event.get("event_type") == "private_message":
-            payload = dict(event.get("payload") or {})
-            conversation = self.private_message_conversations.get(
-                account_slot,
-                platform,
-                str(event.get("object_id") or payload.get("user_id") or ""),
-            )
-            if conversation and conversation.get("owner_state") == OWNER_HUMAN:
-                raise ServiceError(
-                    "CONVERSATION_OWNED_BY_HUMAN",
-                    "该私信会话已由人工接管，请先确认恢复给 Codex",
-                    409,
-                )
         linked_task_id = str(event.get("created_task_id") or "")
         if event.get("handling_state") == "TASK_CREATED" and linked_task_id:
             linked_task = self.tasks.get(linked_task_id)
@@ -1582,11 +1593,6 @@ class ApplicationService(ApplicationMemory):
         reply = str(decision_data.get("reply") or "").strip()
         if action == "reply" and not reply:
             raise ServiceError("INVALID_REQUEST", "reply 动作必须提供回复文本")
-        recent_replies = [
-            str(record.get("reply_text") or "")
-            for record in self.reply_records.list(account_slot=account_slot, limit=20)
-            if record.get("result_state") in {"SUCCESS", "RESULT_UNKNOWN"}
-        ]
         try:
             confidence = float(decision_data.get("confidence") or 0)
         except (TypeError, ValueError) as exc:
@@ -1600,8 +1606,6 @@ class ApplicationService(ApplicationMemory):
             "missing_information": self._reply_string_list(
                 decision_data.get("missing_information")
             ),
-            "quality_flags": ReplyIntelligenceService.quality_flags(reply, recent_replies),
-            "manual_review_required": False,
             "mode": "codex",
             "model": "codex",
         }
@@ -1931,7 +1935,7 @@ class ApplicationService(ApplicationMemory):
             action = "skip"
             generation["reason"] = "outside_own_notes"
 
-        if action in {"pending", "skip"}:
+        if action == "skip":
             reason = str(generation.get("reason") or f"codex_{action}")
             decision = self.reply_cycles.record_decision(
                 cycle_id=cycle_id,
@@ -1941,22 +1945,14 @@ class ApplicationService(ApplicationMemory):
                 generation=generation,
                 rule=rule,
             )
-            if action == "skip":
-                self.inbound_events.ignore(event["event_id"])
-                self._mark_private_message_codex_handled(event)
-            else:
-                self.inbound_events.mark_handled(event["event_id"])
-                self._handoff_private_message(event)
+            self.inbound_events.ignore(event["event_id"])
+            self._mark_private_message_codex_handled(event)
             return {"decision": decision}
 
         channel = self._reply_event_channel(event)
         rule_decision = self.reply_rules.decision(
             rule["rule_id"],
-            classification=str(generation.get("intent") or "other"),
             channel=channel,
-            quality_flags=list(generation.get("quality_flags") or []),
-            facts_used=list(generation.get("facts_used") or []),
-            missing_information=list(generation.get("missing_information") or []),
         )
         if not rule_decision["authorized"]:
             decision = self.reply_cycles.record_decision(
@@ -1970,9 +1966,6 @@ class ApplicationService(ApplicationMemory):
             if decision["decision"] == "skip":
                 self.inbound_events.ignore(event["event_id"])
                 self._mark_private_message_codex_handled(event)
-            else:
-                self.inbound_events.mark_handled(event["event_id"])
-                self._handoff_private_message(event)
             return {"decision": decision}
 
         execution = self._execute_automatic_reply(
@@ -2011,7 +2004,7 @@ class ApplicationService(ApplicationMemory):
         if result_state == "SUCCESS":
             self._mark_private_message_codex_handled(event)
         elif error_code != "PRIVATE_MESSAGE_CONTEXT_CHANGED":
-            self._handoff_private_message(event, owner_state="CODEX")
+            self._track_private_message_outbound(event)
         return {
             "decision": decision,
             "task": task,
@@ -2034,34 +2027,14 @@ class ApplicationService(ApplicationMemory):
             ),
         }
 
-    def resume_private_message_conversation(
-        self,
-        account_slot: str,
-        user_id: str,
-        *,
-        confirmed: bool,
-    ) -> dict:
-        if not confirmed:
-            raise ServiceError("CONFIRMATION_REQUIRED", "恢复 Codex 私信处理需要明确确认", 409)
-        platform = self._resolve_account_platform(account_slot)
-        conversation = self.private_message_conversations.resume(
-            account_slot=account_slot,
-            platform=platform,
-            user_id=user_id,
-        )
-        return {"success": True, "conversation": conversation}
-
-    def _handoff_private_message(
-        self, event: dict, *, owner_state: str = OWNER_HUMAN
-    ) -> dict | None:
+    def _track_private_message_outbound(self, event: dict) -> dict | None:
         if event.get("event_type") != "private_message":
             return None
         payload = dict(event.get("payload") or {})
-        return self.private_message_conversations.handoff(
+        return self.private_message_conversations.track_pending_outbound(
             str(event.get("account_slot") or ""),
             str(event.get("platform") or "xiaohongshu"),
             str(event.get("object_id") or payload.get("user_id") or ""),
-            owner_state=owner_state,
             event_id=str(event.get("event_id") or ""),
             message_count=int(payload.get("message_count") or 0),
         )
@@ -2339,17 +2312,11 @@ class ApplicationService(ApplicationMemory):
                 reason=(exc.code if isinstance(exc, ServiceError) else "generation_failed"),
                 rule=rule,
             )
-            self.inbound_events.mark_handled(event["event_id"])
-            self._handoff_private_message(event)
             return decision
         channel = "private_message" if event.get("event_type") == "private_message" else "comment"
         rule_decision = self.reply_rules.decision(
             rule["rule_id"],
-            classification=str(generation.get("intent") or "other"),
             channel=channel,
-            quality_flags=list(generation.get("quality_flags") or []),
-            facts_used=list(generation.get("facts_used") or []),
-            missing_information=list(generation.get("missing_information") or []),
         )
         if not rule_decision["authorized"]:
             decision = self.reply_cycles.record_decision(
@@ -2363,9 +2330,6 @@ class ApplicationService(ApplicationMemory):
             if decision["decision"] == "skip":
                 self.inbound_events.ignore(event["event_id"])
                 self._mark_private_message_codex_handled(event)
-            else:
-                self.inbound_events.mark_handled(event["event_id"])
-                self._handoff_private_message(event)
             return decision
 
         execution = self._execute_automatic_reply(
@@ -2404,7 +2368,7 @@ class ApplicationService(ApplicationMemory):
         if result_state == "SUCCESS":
             self._mark_private_message_codex_handled(event)
         elif error_code != "PRIVATE_MESSAGE_CONTEXT_CHANGED":
-            self._handoff_private_message(event, owner_state="CODEX")
+            self._track_private_message_outbound(event)
         return decision
 
     def _execute_automatic_reply(
@@ -2936,6 +2900,8 @@ class ApplicationService(ApplicationMemory):
     @staticmethod
     def _validate_task_parameters(capability: str, parameters: dict) -> None:
         if capability in {
+            "publish",
+            "publish-video",
             "fill-publish",
             "fill-publish-video",
             "long-article",

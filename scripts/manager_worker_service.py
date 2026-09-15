@@ -26,13 +26,13 @@ from urllib.request import Request, urlopen
 try:
     from .employee_process import start_employee_process
     from .executor_lifecycle import restart_executor_service, start_executor_service
-    from .run_lock import RunLock
+    from .run_lock import RunLock, process_is_running
     from .worker_callback import OpenSSHManagerCallback, WorkerCallbackError
     from .worker_memory import WorkerMemory
 except ImportError:
     from employee_process import start_employee_process
     from executor_lifecycle import restart_executor_service, start_executor_service
-    from run_lock import RunLock
+    from run_lock import RunLock, process_is_running
     from worker_callback import OpenSSHManagerCallback, WorkerCallbackError
     from worker_memory import WorkerMemory
 
@@ -362,8 +362,9 @@ class ManagerWorkerService(WorkerMemory):
         return {"success": True, "config": config}
 
     def health(self) -> dict[str, Any]:
-        """只读返回执行机与账号槽位摘要。"""
+        """收尾已退出的员工进程，并返回执行机与账号槽位摘要。"""
 
+        self.reconcile_agent_exits()
         state = self._store.snapshot()
         config = state["config"]
         health = "PAUSED" if state["machine"]["paused"] else "READY"
@@ -2439,10 +2440,54 @@ class ManagerWorkerService(WorkerMemory):
             "has_more": len(candidates) > len(results),
         }
 
+    def reconcile_agent_exits(self) -> None:
+        """Let periodic manager health checks collect interrupted Agent receipts."""
+        for execution in self._store.snapshot()["executions"].values():
+            if execution.get("state") in {"RUNNING", "PAUSE_REQUESTED", "RECONCILIATION_REQUIRED"}:
+                outcome = self._agent_exit_outcome(execution)
+                if outcome is not None:
+                    self._reconcile_execution_status(
+                        {**execution, "observed_executor_outcome": outcome}
+                    )
+
+    def _agent_exit_outcome(self, execution: dict[str, Any]) -> dict[str, Any] | None:
+        """A missing final receipt remains unknown after runner and Agent have exited."""
+        runner_pid = execution.get("runner_pid")
+        if not runner_pid or execution.get("state") not in {
+            "RUNNING", "PAUSE_REQUESTED", "RECONCILIATION_REQUIRED"
+        }:
+            return None
+        started = execution.get("runner_started_at") or execution.get("started_at")
+        if not started or (
+            datetime.now(UTC) - datetime.fromisoformat(started)
+        ).total_seconds() < 30:
+            return None
+        run_root = self.root / "agent-runs" / execution["remote_execution_id"]
+        pids = [int(runner_pid)]
+        for name in ("runner-context.json", "process.json"):
+            path = run_root / name
+            if path.exists():
+                try:
+                    pids.append(int(json.loads(path.read_text(encoding="utf-8-sig"))["pid"]))
+                except (OSError, ValueError, KeyError):
+                    return None
+        if any(process_is_running(pid) for pid in pids):
+            return None
+        return {
+            "state": "RESULT_UNKNOWN",
+            "error_code": "AGENT_PROCESS_EXITED",
+            "manual_action_required": True,
+            "message": "员工 Agent 和 runner 均已退出，缺少最终回执，原任务结果待核对",
+            "recommended_action": "核对任务执行证据和平台结果后结算原任务",
+            "evidence_index": {"agent_run": str(run_root)},
+        }
+
     def _reconcile_execution_status(self, execution: dict[str, Any]) -> dict[str, Any]:
         """用已观察结果或本地任务终态收敛 SSH 中断留下的在途状态。"""
 
-        raw_outcome = execution.get("observed_executor_outcome")
+        raw_outcome = (
+            execution.get("observed_executor_outcome") or self._agent_exit_outcome(execution)
+        )
         observed_outcome = isinstance(raw_outcome, dict)
         if not observed_outcome:
             local_task_id = str(execution.get("local_task_id") or "")

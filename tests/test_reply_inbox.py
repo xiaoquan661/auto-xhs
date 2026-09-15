@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import pytest
-
 from scripts.application_service import ApplicationService
-from scripts.conversation_ownership_service import OWNER_CODEX, OWNER_HUMAN
+from scripts.conversation_ownership_service import OWNER_CODEX
 from scripts.operations_db import OperationsDatabase
 from scripts.product_store import ProductStore
 from scripts.reply_intelligence_service import ReplyIntelligenceService
-from service_errors import ServiceError
 from scripts.xhs.direct_message import (
     PrivateMessageContextChangedError,
     PrivateMessageResultUnknownError,
@@ -131,9 +128,7 @@ class MutablePrivateMessageRunner:
             "messages": self.messages,
             "count": len(self.messages),
             "cursor": str(self.messages[-1]["message_id"] if self.messages else ""),
-            "last_seen_time": (
-                str(self.messages[-1]["occurred_at"] if self.messages else "")
-            ),
+            "last_seen_time": (str(self.messages[-1]["occurred_at"] if self.messages else "")),
         }
 
 
@@ -244,7 +239,7 @@ def test_codex_reply_decision_sends_without_calling_external_model(tmp_path) -> 
     assert record["readback"] == {"acknowledgement": "editor-closed"}
 
 
-def test_codex_reply_decision_is_routed_to_pending_when_facts_are_missing(tmp_path) -> None:
+def test_agent_can_reply_with_a_clarifying_question(tmp_path) -> None:
     runner = CommentRunner()
     service = _service(tmp_path, runner)
     event_id = service.collect_reply_inbox(
@@ -257,7 +252,7 @@ def test_codex_reply_decision_is_routed_to_pending_when_facts_are_missing(tmp_pa
         {
             "event_id": event_id,
             "action": "reply",
-            "reply": "可以参加。",
+            "reply": "你想参加哪一场？",
             "intent": "question",
             "confidence": 0.8,
             "reason": "Codex 判断为普通问题",
@@ -266,9 +261,9 @@ def test_codex_reply_decision_is_routed_to_pending_when_facts_are_missing(tmp_pa
         },
     )
 
-    assert result["decision"]["decision"] == "pending"
-    assert result["decision"]["reason"] == "facts_missing"
-    assert [call[0] for call in runner.calls].count("reply-comment") == 0
+    assert result["decision"]["decision"] == "reply"
+    assert result["decision"]["reason"] == "sent_with_readback"
+    assert [call[0] for call in runner.calls].count("reply-comment") == 1
     assert service.inbound_events.get(event_id)["handling_state"] == "HANDLED"
 
 
@@ -380,16 +375,14 @@ def test_codex_private_message_result_unknown_stays_pending_with_original_task(t
     assert result["task"]["state"] == "RESULT_UNKNOWN"
     assert event["handling_state"] == "TASK_CREATED"
     assert event["created_task_id"] == result["task"]["task_id"]
-    conversation = service.list_private_message_conversations(
-        "alpha", owner_state=OWNER_CODEX
-    )["conversations"][0]
+    conversation = service.list_private_message_conversations("alpha", owner_state=OWNER_CODEX)[
+        "conversations"
+    ][0]
     assert conversation["user_id"] == "user-1"
     assert conversation["handoff_event_id"] == event_id
 
     service.runner = DelayedReadbackPrivateMessageRunner()
-    recollected = service.collect_reply_inbox(
-        "alpha", channels=["private_message"]
-    )
+    recollected = service.collect_reply_inbox("alpha", channels=["private_message"])
 
     assert recollected["count"] == 0
     inbound = recollected["collection_results"][0]["result"]["inbound_events"]
@@ -405,14 +398,12 @@ def test_codex_private_message_result_unknown_stays_pending_with_original_task(t
     reconciled_decision = service.reply_cycles.list_decisions(account_slot="alpha")[0]
     assert reconciled_decision["decision"] == "reply"
     assert reconciled_decision["reason"] == "sent_with_delayed_readback"
-    conversation = service.private_message_conversations.get(
-        "alpha", "xiaohongshu", "user-1"
-    )
+    conversation = service.private_message_conversations.get("alpha", "xiaohongshu", "user-1")
     assert conversation["owner_state"] == OWNER_CODEX
     assert conversation["resume_source"] == "CODEX_OUTBOUND"
 
 
-def test_pending_handoff_ignores_peer_messages_until_human_reply_boundary(tmp_path) -> None:
+def test_agent_replies_to_contact_question_and_receives_followups(tmp_path) -> None:
     runner = MutablePrivateMessageRunner(
         [
             {
@@ -431,22 +422,22 @@ def test_pending_handoff_ignores_peer_messages_until_human_reply_boundary(tmp_pa
         ]
     )
     service = _private_service(tmp_path, runner)
-    event_id = service.collect_reply_inbox(
-        "alpha", channels=["private_message"]
-    )["events"][0]["event_id"]
+    event_id = service.collect_reply_inbox("alpha", channels=["private_message"])["events"][0][
+        "event_id"
+    ]
 
     service.apply_codex_reply_decision(
         "alpha",
         {
             "event_id": event_id,
-            "action": "pending",
-            "reason": "需要人工处理联系方式",
+            "action": "reply",
+            "reply": "你可以在这里告诉我具体想聊什么。",
+            "intent": "contact_details",
+            "reason": "回应联系方式问题",
         },
     )
-    conversation = service.private_message_conversations.get(
-        "alpha", "xiaohongshu", "user-1"
-    )
-    assert conversation["owner_state"] == OWNER_HUMAN
+    conversation = service.private_message_conversations.get("alpha", "xiaohongshu", "user-1")
+    assert conversation["owner_state"] == OWNER_CODEX
 
     runner.messages = [
         {
@@ -464,12 +455,9 @@ def test_pending_handoff_ignores_peer_messages_until_human_reply_boundary(tmp_pa
             "occurred_at": "2026-08-27T10:01:00+00:00",
         }
     ]
-    while_human = service.collect_reply_inbox(
-        "alpha", channels=["private_message"]
-    )
-    assert while_human["count"] == 0
+    while_human = service.collect_reply_inbox("alpha", channels=["private_message"])
+    assert while_human["count"] == 1
     inbound = while_human["collection_results"][0]["result"]["inbound_events"]
-    assert inbound["human_owned_count"] == 1
 
     runner.messages = [
         {
@@ -481,7 +469,7 @@ def test_pending_handoff_ignores_peer_messages_until_human_reply_boundary(tmp_pa
             "context": [
                 {"role": "peer", "content": "可以加个联系方式吗"},
                 {"role": "peer", "content": "在吗"},
-                {"role": "self", "content": "我来人工处理这条"},
+                {"role": "self", "content": "你可以直接在这里聊"},
                 {"role": "peer", "content": "你的桌面很好看"},
             ],
             "message_count": 5,
@@ -490,33 +478,9 @@ def test_pending_handoff_ignores_peer_messages_until_human_reply_boundary(tmp_pa
     ]
     resumed = service.collect_reply_inbox("alpha", channels=["private_message"])
 
-    assert resumed["count"] == 1
+    assert resumed["count"] == 2
     inbound = resumed["collection_results"][0]["result"]["inbound_events"]
-    assert inbound["resumed_count"] == 1
-    context = service.get_reply_inbox_context(
-        "alpha", resumed["events"][0]["event_id"]
-    )
+    assert inbound["resumed_count"] == 0
+    context = service.get_reply_inbox_context("alpha", resumed["events"][0]["event_id"])
     assert context["conversation_ownership"]["owner_state"] == OWNER_CODEX
-    assert context["conversation_ownership"]["resume_after_message_count"] == 4
-
-
-def test_private_message_conversation_requires_confirmation_to_resume(tmp_path) -> None:
-    service = _private_service(tmp_path, MutablePrivateMessageRunner([]))
-    service.private_message_conversations.handoff(
-        "alpha",
-        "xiaohongshu",
-        "user-1",
-        event_id="event-1",
-        message_count=3,
-    )
-
-    with pytest.raises(ServiceError) as exc_info:
-        service.resume_private_message_conversation(
-            "alpha", "user-1", confirmed=False
-        )
-
-    assert exc_info.value.code == "CONFIRMATION_REQUIRED"
-    resumed = service.resume_private_message_conversation(
-        "alpha", "user-1", confirmed=True
-    )
-    assert resumed["conversation"]["owner_state"] == OWNER_CODEX
+    assert context["conversation_ownership"]["owner_state"] == OWNER_CODEX

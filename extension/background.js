@@ -9,7 +9,7 @@
  * - get_cookies: chrome.cookies.getAll
  */
 
-importScripts("bridge_config.js", "netlogger.js");
+importScripts("bridge_config.js", "netlogger.js", "visual_browser.js");
 netlogInit().catch(e => console.warn("[XHS NetLogger] init failed", e));
 
 const BOOTSTRAP_CONFIG = globalThis.XHS_BRIDGE_CONFIG || {
@@ -104,6 +104,7 @@ function publicStatus() {
     accountId: binding?.accountId || null,
     instanceId: extensionInstanceId,
     extensionVersion: chrome.runtime.getManifest().version,
+    activity: bridgeActivity,
   };
 }
 // 保持 service worker 存活：有开放的 WebSocket 连接时 Chrome 不会终止 SW
@@ -252,11 +253,14 @@ async function connect() {
       socket.close();
       return;
     }
+    const commandStarted = performance.now();
     try {
-      const result = await handleCommand(msg);
-      socket.send(JSON.stringify({ id: msg.id, result: result ?? null }));
+      const result = await withBridgeActivity(msg, () => handleCommand(msg));
+      socket.send(JSON.stringify({ id: msg.id, result: result ?? null,
+        timing: { extension_ms: Math.round(performance.now() - commandStarted) } }));
     } catch (err) {
-      socket.send(JSON.stringify({ id: msg.id, error: String(err.message || err) }));
+      socket.send(JSON.stringify({ id: msg.id, error: String(err.message || err),
+        timing: { extension_ms: Math.round(performance.now() - commandStarted) } }));
     }
   };
 
@@ -388,6 +392,12 @@ async function handleCommand(msg) {
   }
 
   switch (method) {
+    case "visual_snapshot":
+      return await cmdVisualSnapshot(params);
+    case "visual_action":
+      return await cmdVisualAction(params);
+    case "select_publish_tab":
+      return await cmdSelectPublishTab(params);
     case "unpair_extension":
       setTimeout(() => clearLocalBinding().catch(() => {}), 250);
       return { binding_cleared: true };
@@ -476,6 +486,7 @@ async function handleCommand(msg) {
  */
 async function detectNavigationBlock(tabId, navigatedUrl, finalUrl) {
   const results = await chrome.scripting.executeScript({
+    injectImmediately: true,
     target: { tabId },
     world: "MAIN",
     func: (targetUrl, landedUrl) => {
@@ -881,6 +892,7 @@ async function cmdNavigate({ url, _retried = false }) {
   // 注入 visibilityState 伪装：XHS 监听页面可见性，后台标签页会暂停 Vue 渲染。
   // 覆盖后页面始终认为自己在前台，允许在后台标签页正常提取数据。
   await chrome.scripting.executeScript({
+    injectImmediately: true,
     target: { tabId: tab.id },
     world: "MAIN",
     func: () => {
@@ -909,15 +921,29 @@ async function cmdWaitForLoad({ timeout = 60000 }) {
 function sameNavigationTarget(current, target) {
   try {
     const a = new URL(current), b = new URL(target);
-    if (a.origin !== b.origin || a.pathname !== b.pathname) return false;
+    if (a.origin !== b.origin) return false;
+    for (const url of [a, b]) {
+      if (/^\/search_result\/?$/.test(url.pathname)) {
+        url.pathname = "/search_result";
+        if (!url.searchParams.has("type")) url.searchParams.set("type", "51");
+      }
+    }
+    // The site redirects its home URL to the recommendation route.
+    const homePath = path => path === "/" || path === "/explore" || path === "/explore/";
+    if (a.pathname !== b.pathname && !(homePath(a.pathname) && homePath(b.pathname))) {
+      return false;
+    }
     // Note identity is its route; refreshed access tokens do not require a reload.
     if (/^\/(explore|discovery\/item)\/[\w-]+\/?$/.test(a.pathname)) return true;
+    a.searchParams.sort();
+    b.searchParams.sort();
     return a.search === b.search && a.hash === b.hash;
   } catch (_) { return current === target; }
 }
 
 async function readNavigationState(tabId) {
   const results = await chrome.scripting.executeScript({
+    injectImmediately: true,
     target: { tabId }, world: "MAIN",
     func: () => {
       const unwrap = value => value?.value ?? value?._value ?? value;
@@ -967,7 +993,10 @@ async function waitForTabComplete(tabId, expectedUrl, timeout, previousDocument 
     }
     await sleep(200);
   }
-  throw new Error(`页面加载超时（目标页面就绪等待，readyState=${last?.readyState || "unknown"}）`);
+  const currentPath = last?.url ? new URL(last.url).pathname : "unknown";
+  const expectedPath = expectedUrl ? new URL(expectedUrl).pathname : "any";
+  throw new Error(`页面加载超时（readyState=${last?.readyState || "unknown"}，`
+    + `目标路径=${expectedPath}，当前路径=${currentPath}，就绪=${last?.reason || "unknown"}）`);
 }
 
 // ───────────────────────── 截图 ─────────────────────────
@@ -1017,8 +1046,9 @@ async function cmdDeleteAuthCookies() {
 // ───────────────────────── MAIN world JS 执行 ─────────────────────────
 
 async function cmdEvaluateInMainWorld(method, params) {
-  const tab = await getOrOpenPlatformTab();
+  const tab = await getOrOpenPlatformTab(params._tab_id);
   const results = await chrome.scripting.executeScript({
+    injectImmediately: true,
     target: { tabId: tab.id },
     world: "MAIN",
     func: mainWorldExecutor,
@@ -1438,8 +1468,9 @@ async function cmdSetFileInputViaDebugger({ selector, files }) {
 // ───────────────────────── DOM 操作（MAIN world） ────────────────────
 
 async function cmdDomInMainWorld(method, params) {
-  const tab = await getOrOpenPlatformTab();
+  const tab = await getOrOpenPlatformTab(params._tab_id);
   const results = await chrome.scripting.executeScript({
+    injectImmediately: true,
     target: { tabId: tab.id },
     world: "MAIN",
     func: domExecutor,
@@ -2021,7 +2052,38 @@ async function riskControlAnalyzer(extraProbeUrls) {
 
 // ───────────────────────── Tab 管理 ─────────────────────────
 
-async function getOrOpenPlatformTab() {
+async function cmdSelectPublishTab({ expected_title = "" }) {
+  const tabs = await chrome.tabs.query({ url: platformSpec().tabUrls });
+  const matches = [];
+  for (const tab of tabs) {
+    const url = new URL(tab.url);
+    if (!url.hostname.startsWith("creator.") || !url.pathname.startsWith("/publish/")) continue;
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tab.id }, world: "MAIN",
+      func: title => {
+        const input = document.querySelector('div.d-input input');
+        const host = document.querySelector('xhs-publish-btn[is-publish="true"]');
+        return !!input && !!host && host.getClientRects().length > 0
+          && (!title || input.value.trim() === title.trim());
+      },
+      args: [expected_title],
+    }).catch(() => []);
+    if (result?.[0]?.result === true) matches.push(tab.id);
+  }
+  if (matches.length !== 1) {
+    return { status: matches.length ? "ambiguous" : "preview_unavailable" };
+  }
+  return { status: "ready", tab_id: matches[0] };
+}
+
+async function getOrOpenPlatformTab(tabId = null) {
+  if (tabId != null) {
+    const tab = await chrome.tabs.get(tabId);
+    if (platformForUrl(tab.url) !== normalizePlatform(binding?.platform)) {
+      throw new Error("任务标签页的平台与账号槽位不匹配");
+    }
+    return tab;
+  }
   const spec = platformSpec();
   const activeTabs = await chrome.tabs.query({
     active: true,

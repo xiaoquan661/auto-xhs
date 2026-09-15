@@ -85,6 +85,8 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     assert {
         policy.command for policy in output_policies if policy.enabled_in_v1
     } == {
+        "publish",
+        "publish-video",
         "post-comment",
         "random-comment",
         "reply-comment",
@@ -106,8 +108,8 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     assert get_capability_policy("home-engagement").requires_confirmation is False
     assert get_capability_policy("home-engagement").requires_identity_check is True
     assert get_capability_policy("home-engagement").risk_level == RiskLevel.STATE_CHANGE
-    assert get_capability_policy("publish").enabled_in_v1 is False
-    assert get_capability_policy("publish-video").enabled_in_v1 is False
+    assert get_capability_policy("publish").enabled_in_v1 is True
+    assert get_capability_policy("publish-video").enabled_in_v1 is True
     assert get_capability_policy("fill-publish").supports_scheduling is True
     assert get_capability_policy("fill-publish-video").supports_scheduling is True
 

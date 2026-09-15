@@ -36,9 +36,9 @@ metadata:
 | `reply-comment` | 单次回复 |
 | `like-feed` | 点赞笔记 |
 | `favorite-feed` | 收藏笔记 |
-| `fill-publish` / `fill-publish-video` | V1.5 填写发布预览 |
-| `long-article` / `select-template` / `next-step` | V1.5 长文预览流程 |
-| `click-publish` | V1.5 用户确认真实预览后发布 |
+| `publish` / `publish-video` / `fill-publish` / `fill-publish-video` | 生成内容后填写并正式发布 |
+| `long-article` / `select-template` / `next-step` | 长文排版、填写并正式发布 |
+| `click-publish` | 继续已有准备任务并正式发布 |
 | `save-draft` | V1.5 用户取消发布时保存草稿 |
 | `collect-note-comments` | 自动发现自己最近笔记并回收新评论事件 |
 | `collect-private-messages` | 只读回收最近一对一会话中对方最新连续发送的一轮文字 |
@@ -47,7 +47,7 @@ metadata:
 | `reply-inbox` | Codex 入站回复收件箱；具体流程路由到 `xhs-reply` |
 | `collect-operations-metrics` | 保存账号和自己笔记的运营指标时间快照 |
 
-一步发布命令不属于 V1.5 产品流程。`generate-reply-draft` 只生成草稿；Codex 规则化入站回复使用
+发布任务按经理目标直接执行。`generate-reply-draft` 只生成草稿；Codex 规则化入站回复使用
 `reply-inbox` 并遵循 `xhs-reply`，主动评论和主动私信继续使用各自任务入口。`reply-cycle` 保留为
 API 模型兼容入口。
 
@@ -57,7 +57,7 @@ API 模型兼容入口。
 - 每一步都服从对应子技能：读取参考 `xhs-explore`，发布参考 `xhs-publish`，互动参考
   `xhs-interact`，身份参考 `xhs-auth`。
 - 不同账号可以并发，同一账号串行。
-- 发布必须浏览器预览确认；评论在 V1.5 代码完成后由当前任务点击直接授权；自动回复必须先按
+- 发布生成后直接正式提交并回读；评论在 V1.5 代码完成后由当前任务点击直接授权；自动回复必须先按
   账号启用规则。
 - 所有步骤记录真实结果，不把草稿、表单填写或排队描述为发布成功。
 
@@ -102,13 +102,11 @@ python scripts/cli.py --account <账号别名> search-feeds `
 研究话题
 → 生成标题、正文、素材和标签草稿
 → 填写发布表单
-→ 用户在浏览器检查真实预览
-→ 展示账号、内容、素材、可见范围和定时时间
-→ 用户确认
-→ 点击发布或保存草稿
+→ 正式发布
+→ 平台回读与 Outbox 回执
 ```
 
-禁止从研究步骤直接调用一步发布命令。发布必须进入分步填写、真实浏览器预览和逐任务确认链。
+按经理下发的正式发帖目标执行，成功回读后计数。
 
 ## 互动管理
 
@@ -149,7 +147,7 @@ python scripts/cli.py --account <账号别名> home-engagement `
 → 可选点赞或收藏
 ```
 
-随机评论仍限定当前账号和本次 1–3 条。自动回复必须先启用账号规则，并受渠道开关、时间、配额、
+随机评论仍限定当前账号和本次 1–3 条。自动回复必须先启用账号规则，并受渠道开关、
 暂停和执行记录约束。
 
 ## 数据回收
@@ -158,7 +156,7 @@ python scripts/cli.py --account <账号别名> home-engagement `
 被动事件。`collect-private-messages` 只读取最近一对一会话，保留对方最新连续发送的一轮文字，并跳过
 自己最后发言和非文字内容。两类事件都按平台标识去重。
 
-需要人工接管草稿时，对一个明确事件运行 `generate-reply-draft`。评论使用笔记和评论线程上下文，私信
+需要单条回复候选内容时，对一个明确事件运行 `generate-reply-draft`。评论使用笔记和评论线程上下文，私信
 使用独立提示词和近期会话上下文；两者都可加载账号人格和知识文件。模型未配置或返回无效结构时
 不创建草稿，也不会退回固定模板发送。
 

@@ -2140,3 +2140,25 @@ def test_result_summary_does_not_assign_states_to_discovery_rows() -> None:
     assert summary["item_results_status"] == "observed"
     assert summary["item_state_counts"] == {}
     assert summary["data_gaps"] == []
+
+
+def test_dashboard_reads_state_once_and_refreshes_next_request(tmp_path, monkeypatch) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    reads = []
+    original = manager.store._read_state
+
+    def read():
+        reads.append(True)
+        return original()
+
+    monkeypatch.setattr(manager.store, "_read_state", read)
+    first = manager.dashboard_snapshot()
+    assert len(reads) == 1
+    first["machines"][0]["status"] = "CHANGED_IN_RESPONSE"
+    manager.store.update("machines", "PC001", lambda row: {**row, "status": "READY"})
+    reads.clear()
+    second = manager.dashboard_snapshot()
+    assert len(reads) == 1
+    assert second["machines"][0]["status"] == "READY"
+    assert transport.calls == []
