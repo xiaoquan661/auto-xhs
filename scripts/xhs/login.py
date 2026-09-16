@@ -104,31 +104,19 @@ def _find_profile_nav_href(page: Page) -> str:
 
 
 def _identity_from_profile(page: Page, profile_href: str) -> dict:
-    """Navigate to a verified self-profile link and read its stable identity fields."""
-    navigation_url = (
-        profile_href
-        if profile_href.startswith("http")
-        else f"https://www.xiaohongshu.com{profile_href}"
-    )
-    user_id = _profile_user_id(navigation_url)
-    if not user_id:
-        return dict(_EMPTY_IDENTITY)
-
-    profile_url = f"https://www.xiaohongshu.com/user/profile/{user_id}"
+    """Read identity from an already open self-profile or its sidebar link."""
+    user_id = _profile_user_id(profile_href)
     current_url = str(page.evaluate("location.href") or "")
-    if current_url != navigation_url:
-        page.navigate(navigation_url)
-        page.wait_for_load()
-        page.wait_dom_stable()
-
-    nickname = page.evaluate(
-        f"document.querySelector({json.dumps(USER_NICKNAME)})?.innerText?.trim() || ''"
-    )
+    nickname = ""
+    if _profile_user_id(current_url) == user_id:
+        nickname = page.evaluate(
+            f"document.querySelector({json.dumps(USER_NICKNAME)})?.innerText?.trim() || ''"
+        ) or ""
     return {
         "logged_in": True,
         "user_id": user_id,
-        "nickname": nickname or "",
-        "profile_url": profile_url,
+        "nickname": nickname,
+        "profile_url": f"https://www.xiaohongshu.com/user/profile/{user_id}",
     }
 
 
@@ -148,49 +136,24 @@ def _wait_for_countdown(page: Page, timeout: float = 5.0) -> None:
 
 
 def get_current_user_identity(page: Page) -> dict:
-    """Read the currently logged-in XHS UID and nickname."""
+    """Read the current document's identity without navigating or refreshing."""
     try:
         current_url = str(page.evaluate("location.href") or "")
-    except Exception as exc:
-        logger.debug("当前标签页不可读取，将直接进入探索页: %s", exc)
-        current_url = ""
-    try:
-        if _profile_user_id(current_url):
-            try:
-                page.wait_for_load()
-                page.wait_dom_stable()
-                current_url = str(page.evaluate("location.href") or current_url)
-                if _is_current_user_profile(page, current_url):
-                    return _identity_from_profile(page, current_url)
-            except Exception as exc:
-                logger.debug("当前主页身份探测失败，将回退到探索页: %s", exc)
-
-        page.navigate(EXPLORE_URL)
-        page.wait_for_load()
-        if not check_login_status(page):
-            return {
-                "logged_in": False,
-                "user_id": "",
-                "nickname": "",
-                "profile_url": "",
-            }
-
-        # 从导航栏"我"的链接取个人主页 URL（含 /user/profile/<user_id>）。
-        # 精确选择器失效时，只接受文本/无障碍标签明确为"我"的链接。
         profile_href = _find_profile_nav_href(page)
-        if not profile_href:
-            return dict(_EMPTY_IDENTITY)
-
-        return _identity_from_profile(page, profile_href)
-    except Exception as exc:
-        logger.warning("获取当前登录身份失败: %s", exc)
+        if profile_href:
+            return _identity_from_profile(page, profile_href)
+        if _is_current_user_profile(page, current_url):
+            return _identity_from_profile(page, current_url)
+        if page.has_element(LOGIN_CONTAINER):
+            return {**_EMPTY_IDENTITY, "logged_in": False}
         return {
-            "logged_in": False,
-            "user_id": "",
-            "nickname": "",
-            "profile_url": "",
-            "error": str(exc),
+            **_EMPTY_IDENTITY,
+            "logged_in": None,
+            "error": "当前页面未提供登录身份，请在已打开的页面完成登录后再读取",
         }
+    except Exception as exc:
+        logger.warning("读取当前页面身份失败: %s", exc)
+        return {**_EMPTY_IDENTITY, "logged_in": None, "error": str(exc)}
 
 
 def check_login_status(page: Page) -> bool:
@@ -199,12 +162,6 @@ def check_login_status(page: Page) -> bool:
     Returns:
         True 已登录，False 未登录。
     """
-    # 如果当前页面已在 explore，跳过重复导航
-    current_url = page.evaluate("location.href") or ""
-    if "explore" not in current_url:
-        page.navigate(EXPLORE_URL)
-        page.wait_for_load()
-
     # 直接等待登录状态或登录容器出现，替代 _wait_for_auth_ui
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:

@@ -15,7 +15,7 @@ def test_workspace_extension_supports_verified_session_logout() -> None:
     manifest = json.loads((extension_dir / "manifest.json").read_text(encoding="utf-8"))
     background = (extension_dir / "background.js").read_text(encoding="utf-8")
 
-    assert manifest["version"] == "1.4.0"
+    assert tuple(int(part) for part in manifest["version"].split(".")) >= (1, 4, 0)
     assert "cookies" in manifest["permissions"]
     assert 'case "delete_auth_cookies"' in background
     assert 'new Set(["web_session", "id_token"])' in background

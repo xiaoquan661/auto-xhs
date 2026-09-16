@@ -310,6 +310,10 @@ class BridgePage:
 
     # ─── 截图 ────────────────────────────────────────────────────
 
+    def click_publish_control(self) -> dict:
+        """Click the actual publish button through the browser's native input path."""
+        return self._call("click_publish_control")
+
     def visual_snapshot(self, tab_id: int | None = None) -> dict:
         return self._call("visual_snapshot", {"_tab_id": tab_id})
 
@@ -420,6 +424,10 @@ class BridgePage:
             return bool(json.loads(raw).get("result", {}).get("shutting_down"))
         except Exception:
             return False
+
+    @property
+    def account(self) -> str:
+        return self._account
 
     @property
     def target_id(self) -> str:

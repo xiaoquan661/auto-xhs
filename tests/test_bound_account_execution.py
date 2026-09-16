@@ -82,3 +82,24 @@ def test_explicit_identity_command_reads_page_and_updates_runtime(bound_runtime,
     reader.assert_called_once_with(bound_runtime[0])
     runtime = ProductStore().get_setting("runtime_identity_checks")["alpha"]
     assert runtime["user_id"] == "owner-alpha"
+
+
+@pytest.mark.parametrize("observed,exit_code", [
+    ({"logged_in": True, "user_id": "owner-alpha"}, 0),
+    ({"logged_in": False, "user_id": ""}, 1),
+    ({"logged_in": None, "error": "当前页身份不可用"}, 2),
+])
+def test_check_login_reads_current_page_without_fetching_qr(
+    bound_runtime, monkeypatch, observed, exit_code
+):
+    reader = Mock(return_value=observed)
+    fetch = Mock(side_effect=AssertionError("检查登录不得获取二维码"))
+    output = Mock()
+    monkeypatch.setattr("xhs.login.get_current_user_identity", reader)
+    monkeypatch.setattr("xhs.login.fetch_qrcode", fetch)
+    monkeypatch.setattr(cli, "_output", output)
+    cli.cmd_check_login(SimpleNamespace(account="alpha", command="check-login"))
+    fetch.assert_not_called()
+    bound_runtime[0].navigate.assert_not_called()
+    assert output.call_args.kwargs["exit_code"] == exit_code
+    assert output.call_args.args[0]["logged_in"] is observed["logged_in"]

@@ -1,7 +1,7 @@
 // Browser observations and actions share the same tab and viewport.
 async function visualFrame(tabId) {
   const [result] = await chrome.scripting.executeScript({
-    target: { tabId }, world: "ISOLATED",
+    target: { tabId }, world: "ISOLATED", injectImmediately: true,
     func: () => {
       window.__xhsVisualDocument ||= crypto.randomUUID();
       return { document_id: window.__xhsVisualDocument, url: location.href,
@@ -12,26 +12,76 @@ async function visualFrame(tabId) {
   return result.result;
 }
 
+async function visualStep(label, operation, timeout = 10000) {
+  let timer;
+  try {
+    return await Promise.race([operation, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`截图步骤超时：${label}`)), timeout);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
 async function cmdVisualSnapshot(params = {}) {
   const tab = await getOrOpenPlatformTab(params._tab_id);
   const target = { tabId: tab.id };
-  await chrome.debugger.attach(target, "1.3");
+  const windowBefore = await chrome.windows.get(tab.windowId);
+  const restoreWindow = windowBefore.state === "minimized";
+  let attached = false;
+  let previousActiveTab;
+  let snapshot;
+  let captureWindowState = windowBefore.state;
   try {
-    const frame = await visualFrame(tab.id);
-    const { data } = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
-      format: "png", captureBeyondViewport: false,
-    });
-    const after = await visualFrame(tab.id);
-    if (!sameVisualFrame(frame, after)) throw new Error("页面已变化，请重新截图");
-    return { data, tab_id: tab.id, frame, captured_at: new Date().toISOString() };
+    if (restoreWindow) {
+      [previousActiveTab] = await chrome.tabs.query({ windowId: tab.windowId, active: true });
+      const restored = await chrome.windows.update(tab.windowId, { state: "normal", focused: true });
+      captureWindowState = restored.state;
+      await chrome.tabs.update(tab.id, { active: true });
+    }
+    await chrome.debugger.attach(target, "1.3");
+    attached = true;
+    const adjustments = [];
+    // Window restoration and the debugger banner can resize the viewport.
+    // Keep the same attachment while taking a fresh image of the settled layout.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const frame = await visualStep("读取截图前视口", visualFrame(tab.id));
+      const { data } = await visualStep("获取页面图像",
+        chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
+          format: "png", fromSurface: true, captureBeyondViewport: false,
+        }));
+      const after = await visualStep("读取截图后视口", visualFrame(tab.id));
+      if (sameVisualFrame(frame, after)) {
+        snapshot = { data, tab_id: tab.id, frame, captured_at: new Date().toISOString(),
+          capture_attempts: attempt, frame_adjustments: adjustments };
+        break;
+      }
+      adjustments.push(visualFrameChanges(frame, after));
+      if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (!snapshot) throw new Error(`页面布局持续变化，请重新截图：${JSON.stringify(adjustments)}`);
   } finally {
-    await chrome.debugger.detach(target).catch(() => {});
+    try {
+      if (attached) await chrome.debugger.detach(target).catch(() => {});
+      if (previousActiveTab && previousActiveTab.id !== tab.id) {
+        await chrome.tabs.update(previousActiveTab.id, { active: true });
+      }
+    } finally {
+      if (restoreWindow) await chrome.windows.update(tab.windowId, { state: "minimized" });
+    }
   }
+  const windowAfter = await chrome.windows.get(tab.windowId);
+  return { ...snapshot, window_restored_for_capture: restoreWindow,
+    window_state_before: windowBefore.state, window_state_during_capture: captureWindowState,
+    window_state_after: windowAfter.state };
 }
 
 function sameVisualFrame(before, after) {
-  return ["document_id", "url", "width", "height", "scroll_x", "scroll_y",
-    "device_pixel_ratio"].every(key => before[key] === after[key]);
+  return Object.keys(visualFrameChanges(before, after)).length === 0;
+}
+
+function visualFrameChanges(before, after) {
+  return Object.fromEntries(["document_id", "url", "width", "height", "scroll_x", "scroll_y",
+    "device_pixel_ratio"].filter(key => before[key] !== after[key])
+    .map(key => [key, { before: before[key], after: after[key] }]));
 }
 
 async function cmdVisualAction(params) {
@@ -80,7 +130,7 @@ async function showBridgeActivity(tabId, text, busy, failed = false) {
   await chrome.action.setTitle({ title: `XHS Bridge · ${text}` });
   if (!tabId) return;
   await chrome.scripting.executeScript({
-    target: { tabId }, world: "ISOLATED", args: [text, busy, failed],
+    target: { tabId }, world: "ISOLATED", injectImmediately: true, args: [text, busy, failed],
     func: (text, busy, failed) => {
       let host = document.getElementById("xhs-agent-activity");
       if (!host) {
@@ -112,13 +162,15 @@ async function withBridgeActivity(msg, run) {
     : method.startsWith("wait") ? "等待页面"
     : /click|type|press|send|navigate|visual_action/.test(method) ? "正在操作"
     : "正在读取";
-  await showBridgeActivity(tabId, text, true).catch(() => {});
+  await visualStep("显示调用提示", showBridgeActivity(tabId, text, true), 1000).catch(() => {});
   let failed = false;
   try { return await run(); }
   catch (error) { failed = true; throw error; }
   finally {
     if (sequence === activitySequence) {
-      await showBridgeActivity(tabId, failed ? "操作异常" : "调用完成", false, failed).catch(() => {});
+      await visualStep("更新调用提示",
+        showBridgeActivity(tabId, failed ? "操作异常" : "调用完成", false, failed), 1000)
+        .catch(() => {});
     }
   }
 }

@@ -137,6 +137,14 @@ _POLICIES = [
     _policy("delete-cookies", RiskLevel.SECURITY_CONFIG, requires_result_verification=True),
     # Read-only discovery and diagnostics.
     _policy("browser-snapshot", RiskLevel.READ_ONLY),
+    _policy("publish-page-status", RiskLevel.READ_ONLY),
+    _policy(
+        "publish-prepared-retry",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        enabled_in_v1=True,
+    ),
     _policy("browser-action", RiskLevel.STATE_CHANGE,
             requires_identity_check=True, requires_result_verification=True),
     _policy("list-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),

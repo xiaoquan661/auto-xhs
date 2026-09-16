@@ -271,3 +271,5 @@ python scripts/cli.py account-doctor --name brand-a --require-ready
 - **账号正在换号**：只执行身份或换号命令，登录新账号后运行 `account-switch-complete`。
 - **UID 不一致**：停止发布和互动，先完成身份核验。
 - **目标能力未实现**：明确报告 V1.5 规格已批准但执行链待实现，不调用外部工具替代。
+
+账号身份读取仅使用当前页面已有信息，保持当前页面位置。日常任务沿用槽位绑定 UID；登录完成和换号完成读取当前页可用身份，信息不足时报告待确认。check-login 只读当前页状态。

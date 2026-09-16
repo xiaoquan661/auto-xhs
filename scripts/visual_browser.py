@@ -99,7 +99,60 @@ def cmd_action(args: Any) -> None:
     )
 
 
+def cmd_publish_page_status(args: Any) -> None:
+    from cli import _connect_runtime, _output
+    from xhs.publish import _select_publish_preview
+
+    _, page = _connect_runtime(args)
+    title = Path(args.title_file).read_text(encoding="utf-8").strip()
+    _select_publish_preview(page, title)
+    _output(page.evaluate("""(() => {
+        const host = document.querySelector('xhs-publish-btn[is-publish="true"]');
+        const rect = host?.getBoundingClientRect();
+        return {url: location.href, width: innerWidth, height: innerHeight,
+            dpr: devicePixelRatio, scrollX, scrollY,
+            viewport: visualViewport ? {scale: visualViewport.scale,
+                offsetLeft: visualViewport.offsetLeft, offsetTop: visualViewport.offsetTop} : null,
+            host: rect ? {x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+                attributes: Array.from(host.attributes).map(a => [a.name,a.value])} : null,
+            body: document.body.innerText.slice(-1800)};
+    })()"""))
+
+
+def cmd_publish_prepared_retry(args: Any) -> None:
+    from cli import _connect_existing, _publish_prepared_form
+    from publish_workflow import PublishWorkflowService
+    from xhs.publish import _select_publish_preview
+
+    if not args.confirm:
+        raise XHSError("再次提交已准备表单需要用户明确授权")
+    workflow = PublishWorkflowService()
+    original = workflow.get(args.task_id, account=args.account)
+    if original["state"] != "RESULT_UNKNOWN":
+        raise XHSError("原任务不是待核对的发布任务")
+    browser, page = _connect_existing(args)
+    try:
+        preview = original["parameters"]["preview"]
+        _select_publish_preview(page, preview["title"])
+        task = workflow.begin(account=args.account, platform=original.get("platform"),
+                              capability=original["capability"],
+                              request_summary="继续发布：" + preview["title"], preview=preview)
+        workflow.tasks.update_parameters(task["task_id"], retry_of=args.task_id,
+                                         user_confirmed_retry=True)
+        task = workflow.wait_for_confirmation(task["task_id"], summary="原表单已核对，用户授权再次提交")
+        _publish_prepared_form(workflow, task, page, args.account)
+    finally:
+        browser.close()
+
+
 def register_commands(subparsers: Any) -> None:
+    retry = subparsers.add_parser("publish-prepared-retry", help="经用户授权再次提交匹配的原发布表单")
+    retry.add_argument("--task-id", required=True)
+    retry.add_argument("--confirm", action="store_true")
+    retry.set_defaults(func=cmd_publish_prepared_retry)
+    status = subparsers.add_parser("publish-page-status", help="只读查看匹配发布页的布局与提示")
+    status.add_argument("--title-file", required=True)
+    status.set_defaults(func=cmd_publish_page_status)
     snapshot = subparsers.add_parser("browser-snapshot", help="截图并交给 Agent 图片工具读取")
     snapshot.add_argument("--output-file", required=True)
     snapshot.add_argument("--tab-id", type=int)

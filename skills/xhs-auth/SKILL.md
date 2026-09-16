@@ -125,3 +125,5 @@ python scripts/cli.py --account <账号别名> account-switch-cancel --confirm
 - **Profile 不一致**：停止换号，展示期望与实际 Profile。
 - **换号未完成**：运行 `account-identity`，再完成或经确认取消换号。
 - **新 UID 与预期不一致**：保持业务暂停，不覆盖原身份记录。
+
+账号身份读取仅使用当前页面已有信息，保持当前页面位置。日常任务沿用槽位绑定 UID；登录完成和换号完成读取当前页可用身份，信息不足时报告待确认。check-login 只读当前页状态。

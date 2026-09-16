@@ -137,8 +137,9 @@ window.AutoXhsEmployeePanel = function (services) {
             || (typeof result.summary === "string" ? result.summary : ""))),
         at: item.completed_at || item.sent_at || result.completed_at || body.finished_at
           || result.recorded_at || result.created_at || result.collected_at,
-        url: resultLinks(item)[0]?.url || event.target_url || event.thread_url
-          || resultLinks(result)[0]?.url || "",
+        url: kind === "publish" ? publishedNoteUrl(item, items.length > 1 ? {} : result)
+          : resultLinks(item)[0]?.url || event.target_url || event.thread_url
+            || resultLinks(result)[0]?.url || "",
         content: item.comment_text || item.content || item.reply_text || "",
         contentLabel: ["comment", "reply", "private_reply", "private_message"].includes(kind)
           ? "本次文本" : "内容摘要",
@@ -236,6 +237,25 @@ window.AutoXhsEmployeePanel = function (services) {
       }
       return rows;
     }).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  }
+
+  function publishedNoteUrl(item, result) {
+    const platform = result.platform || result.task_request?.platform || "xiaohongshu";
+    const sources = [item, item.platform_result, item.result, result.business_result,
+      result.business_result?.platform_result, result.business_result?.result, result];
+    for (const source of sources) {
+      const url = source?.note_url || source?.feed_url;
+      if (/^https?:\/\//i.test(url || "")) return url;
+    }
+    for (const source of sources) {
+      const id = source?.note_id || source?.noteId || source?.feed_id;
+      if (/^[a-f0-9]{24}$/i.test(id || "")) {
+        const host = platform === "rednote" ? "www.rednote.com" : "www.xiaohongshu.com";
+        const route = platform === "rednote" ? "discovery/item" : "explore";
+        return `https://${host}/${route}/${id}`;
+      }
+    }
+    return "";
   }
 
   const behaviorLabels = {browse: "浏览笔记", like: "点赞笔记", favorite: "收藏笔记",
@@ -375,7 +395,7 @@ window.AutoXhsEmployeePanel = function (services) {
       <section class="overview-node-panel" data-panel="accounts"><div class="overview-section-head"><div><strong>账号单元</strong>
         <span>状态颜色：绿色正常，黄色受限，红色需要人工处理</span></div><span>${state.accounts.length} 个账号</span></div>
         <div class="overview-node-grid">${state.accounts.map(accountCard).join("") || '<p class="empty-state">等待员工机账号同步</p>'}</div></section>
-      ${todayPlanning()}${dailyReport()}
+      ${operationsOverview()}${todayPlanning()}${dailyReport()}
       <div class="overview-lower-grid"><section class="panel plain-panel" data-panel="actual-summary">
         <div class="section-heading compact"><div><p class="eyebrow">今日进度</p><h2>实际动作汇总</h2></div><span>${state.accounts.length} 个账号</span></div>
         <div class="result-grid">${facts([["物理员工机", state.machines.length, `${online} 台连接正常`],
@@ -419,6 +439,60 @@ window.AutoXhsEmployeePanel = function (services) {
       method: recommendation || (unknown ? "先核对原执行结果，由经理 Agent 安排后续处理。"
         : reasons.length ? "由经理 Agent 根据阻塞原因安排处理，员工机回传处理结果。"
         : active ? "员工机继续执行并回传进度。" : targets.length ? "等待员工机回传进度与未完成原因。" : "等待经理 Agent 下发今日计划。")};
+  }
+
+  function operationsDays() {
+    const today = localDateValue(new Date());
+    const dates = new Set([today, ...(state.dailyPlans || []).map((p) => p.plan_date),
+      ...(state.employeeSummary?.daily_metrics || []).map((r) => r.date),
+      ...state.results.map(resultDate), ...state.tasks.map(workerTaskDate),
+      ...state.goals.filter((g) => g.period_start === g.period_end).map((g) => g.period_start)]);
+    return [...dates].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date || ""))
+      .sort().reverse().map((date) => {
+        const plan = (state.dailyPlans || []).find((p) => p.plan_date === date);
+        const accounts = new Map(state.accounts.map((a) => [key(a), a]));
+        for (const a of [...(plan?.accounts || []),
+          ...(state.employeeSummary?.daily_metrics || []).filter((r) => r.date === date),
+          ...state.results.filter((r) => resultDate(r) === date)
+            .map((r) => ({machine_id: r.machine_id, account_slot: resultAccount(r)}))]) {
+          if (a.machine_id && a.account_slot && !accounts.has(key(a))) accounts.set(key(a), a);
+        }
+        const compared = [...accounts.values()].map((account) => {
+          const row = plan?.accounts.find((a) => key(a) === key(account));
+          return dailyMetrics(account, date).filter((m) => overviewKinds.includes(m.kind))
+            .map((m) => ({...m, target: row
+              ? (row.participating === false ? null : row.metrics?.[m.kind] ?? null) : m.target}));
+        });
+        const metrics = overviewFields.map(([kind, label]) => {
+          const rows = compared.flat().filter((m) => m.kind === kind);
+          const targets = rows.filter((m) => m.target != null);
+          const actuals = rows.filter((m) => m.actual != null);
+          return {kind, label,
+            target: targets.length ? targets.reduce((n, m) => n + Number(m.target), 0) : null,
+            actual: actuals.length ? actuals.reduce((n, m) => n + Number(m.actual), 0) : null,
+            incomplete: rows.some((m) => m.incomplete || (m.target != null && m.actual == null)),
+          };
+        });
+        const targets = compared.flat().filter((m) => m.target != null);
+        const complete = targets.length && targets.every((m) => !m.incomplete
+          && m.actual != null && m.actual >= m.target);
+        const missing = targets.some((m) => m.actual == null || m.incomplete);
+        return {date, metrics, status: complete ? "顺利完成" : missing ? "等待回执"
+          : targets.length ? "未完成" : "未设计划", tone: complete ? "good" : "muted"};
+      });
+  }
+
+  function operationsOverview() {
+    const days = operationsDays();
+    return `<section class="panel" data-panel="operations-overview">
+      <div class="section-heading compact"><div><h2>运营总览</h2>
+        <p class="plain-help">每日运营计划总览 · 汇总全部账号，数量按计划 / 实际展示</p></div>
+        <span>${days.length} 天</span></div>
+      <div class="daily-report-table-wrap operations-days-scroll"><table class="daily-report-table">
+        <thead><tr><th>运营日期</th>${overviewFields.map(([, label]) => `<th>${label}<small>计划 / 实际</small></th>`).join("")}
+          <th>完成情况</th></tr></thead><tbody>${days.map((day) => `<tr data-operation-date="${esc(day.date)}">
+          <th>${esc(day.date)}</th>${day.metrics.map((m) => `<td>${number(m.target)} / ${number(m.actual)}${m.incomplete ? '<small>部分数据待回传</small>' : ''}</td>`).join("")}
+          <td>${badge(day.status, day.tone)}</td></tr>`).join("")}</tbody></table></div></section>`;
   }
 
   function todayPlanning() {
@@ -504,7 +578,8 @@ window.AutoXhsEmployeePanel = function (services) {
         ${channel.reason ? `<small>${esc(channel.reason)}</small>` : ""}
         ${channel.at ? `<small>采集截至 ${stamp(channel.at)}</small>` : ""}</div>`).join("")}</div>
         <small class="behavior-note">本次采集记录可能包含历史数据；每日新增见上方“今日目标 / 实际”。</small>` : ""}
-      ${action.url ? link(action.url, "查看对应笔记或会话") : ""}
+      ${action.url ? link(action.url, action.kind === "publish" ? "打开笔记 · 人工核对" : "查看对应笔记或会话")
+        : action.kind === "publish" ? '<p class="behavior-note">笔记链接待回传</p>' : ""}
       <details class="behavior-technical"><summary>技术信息与执行归属</summary>
         <p>任务：${esc(action.taskId || "未记录")} · 命令：${esc(action.capability || "未记录")}</p>
         ${action.roundId ? `<p>轮次：${esc(action.roundId)}</p>` : ""}
@@ -655,5 +730,5 @@ window.AutoXhsEmployeePanel = function (services) {
       }
     });
   }
-  return {init, render, dailyMetrics, historyDates, actions};
+  return {init, render, dailyMetrics, historyDates, actions, operationsDays};
 };

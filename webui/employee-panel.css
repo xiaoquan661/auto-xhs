@@ -690,3 +690,9 @@ footer{margin-top:22px;padding-top:10px}
 
 
 }
+
+.operations-days-scroll { max-height: 480px; overflow: auto; }
+.operations-days-scroll thead th { position: sticky; top: 0; background: #f5f7fb; z-index: 1; }
+
+.operations-days-scroll small { display: block; margin-top: 4px; color: #73829c; font-weight: 400; }
+.operations-days-scroll td, .operations-days-scroll th { min-width: 110px; }

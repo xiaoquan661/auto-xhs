@@ -113,3 +113,14 @@ assert.ok(root.innerHTML.includes("2 条记录 · 2 轮"));
 assert.ok(!root.innerHTML.includes("本轮新增评论 2"));
 assert.equal(ui.actions({...account, machine_id: "other"}, date).length, 0);
 console.log("PASS: grouped rendering, distinct rounds, collection semantics and account isolation");
+const published = {capability: 'publish', state: 'SUCCESS', business_result: {
+  note_url: 'https://www.xiaohongshu.com/explore/123456789012345678901234?xsec_token=sample'
+}, item_results: [{title: '作品', status: 'SUCCESS', verified: true}]};
+assert.equal(actions([published])[0].url, published.business_result.note_url);
+panel([published]).render('m:a');
+assert.ok(root.innerHTML.includes('打开笔记 · 人工核对'));
+assert.equal(actions([{...published, business_result: {note_id: '123456789012345678901234'}}])[0].url,
+  'https://www.xiaohongshu.com/explore/123456789012345678901234');
+panel([{...published, business_result: {}}]).render('m:a');
+assert.ok(root.innerHTML.includes('笔记链接待回传'));
+console.log('PASS: published note links and missing-link display');
