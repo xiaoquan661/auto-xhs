@@ -259,32 +259,11 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
         """
     )
 
-    # 2) closed shadow DOM 无法从页面脚本查询内部 button。
-    #    根据 host 的公开布局计算红色发布按钮中心，再发送浏览器原生鼠标点击。
-    click_target = page.evaluate(
-        """
-        (() => {
-            const host = document.querySelector('xhs-publish-btn[is-publish="true"]');
-            if (!host) return {status: 'not_found'};
-            if (host.getAttribute('submit-disabled') === 'true') return {status: 'disabled'};
-            const rect = host.getBoundingClientRect();
-            if (rect.width <= 0 || rect.height <= 0) return {status: 'not_visible'};
-            return {
-                status: 'ready',
-                x: rect.left + rect.width / 2 + 72,
-                y: rect.top + rect.height / 2,
-            };
-        })()
-        """
-    )
-    click_status = (click_target or {}).get("status")
-    if click_status == "not_found":
-        raise PublishError("未找到 <xhs-publish-btn> 发布按钮容器")
-    if click_status == "disabled":
-        raise PublishError("发布按钮 submit-disabled=true，不可发布")
-    if click_status != "ready":
-        raise PublishError("发布按钮当前不可见")
-    page.mouse_click(float(click_target["x"]), float(click_target["y"]))
+    # Read the closed shadow button's layout and click it in one debugger session.
+    click_result = page.click_publish_control()
+    if not click_result.get("dispatched"):
+        raise PublishError("正式发布按钮尚未点击")
+    logger.info("已原生点击正式发布按钮: %s", click_result)
 
     # 3) 轮询等待平台成功响应、成功提示或笔记管理页回读（15s 超时）。
     deadline = time.monotonic() + 15
@@ -302,7 +281,16 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
                 verified["evidence"],
                 verified["source"],
             )
+            verified["click_result"] = click_result
             time.sleep(2)
+            verified["profile_readback"] = _readback_published_note(page, expected_title)
+            note_ids = verified["profile_readback"].get("note_ids") or []
+            if not verified.get("note_id") and len(note_ids) == 1:
+                verified["note_id"] = note_ids[0]
+            if verified.get("note_id"):
+                verified["note_url"] = (
+                    f"https://www.xiaohongshu.com/explore/{verified['note_id']}"
+                )
             return verified
         time.sleep(0.3)
 
@@ -312,8 +300,38 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
         "status": "result_unknown",
         "evidence": "none",
         "message": "未取得发布接口成功响应、成功提示或笔记管理页回读",
+        "click_result": click_result,
         "final_url": str((observation or {}).get("url") or initial_url),
     }
+
+
+def _readback_published_note(page: Page, expected_title: str) -> dict:
+    """Read the bound account's homepage after platform success has been recorded."""
+    from account_identity import load_identity_record
+    from product_store import ProductStore
+
+    from .user_profile import get_user_profile
+
+    if not ProductStore().get_setting("publish_profile_readback_enabled", True):
+        return {"verified": False, "status": "disabled_by_policy",
+                "message": "按设备规则使用创作中心发布成功证据"}
+    account = getattr(page, "account", "")
+    if not account:
+        return {"verified": False, "reason": "当前连接未提供账号槽位"}
+    record = load_identity_record(account) or {}
+    uid = str((record.get("current") or {}).get("user_id") or "")
+    if not uid:
+        return {"verified": False, "reason": "槽位未记录 UID"}
+    try:
+        profile = get_user_profile(page, uid, "")
+        matches = [feed for feed in profile.feeds if feed.note_card.display_title == expected_title]
+        return {
+            "verified": bool(matches), "user_id": uid,
+            "note_ids": [feed.id for feed in matches],
+            "message": "主页已找到本次笔记" if matches else "发布已成功，主页暂未显示本次笔记",
+        }
+    except Exception as exc:
+        return {"verified": False, "user_id": uid, "reason": str(exc)}
 
 
 def _read_publish_observation(
@@ -780,7 +798,7 @@ def _fill_publish_form(
         except Exception as e:
             logger.warning("设置原创声明失败: %s", e)
 
-    logger.info("表单填写完成，等待确认发布")
+    logger.info("表单填写完成，进入正式发布")
 
 
 def _find_content_element(page: Page) -> str:

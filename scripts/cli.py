@@ -227,41 +227,23 @@ def _qrcode_fallback(browser, page, args: argparse.Namespace) -> None:
 
 
 def cmd_check_login(args: argparse.Namespace) -> None:
-    """检查登录状态，未登录时自动获取二维码。"""
-    from xhs.login import fetch_qrcode, make_qrcode_url, save_qrcode_to_file
+    """只读取当前页面的登录身份。"""
+    from account_identity import identity_status
+    from xhs.login import get_current_user_identity
 
     browser, page = _connect(args)
     try:
-        png_bytes, _b64_orig, already = fetch_qrcode(page)
-        if already:
-            from account_identity import identity_status
-            from xhs.login import get_current_user_identity
-
-            identity = get_current_user_identity(page)
-            _output(
-                {
-                    "logged_in": True,
-                    "identity": identity,
-                    "identity_status": identity_status(args.account, identity),
-                },
-                exit_code=0,
-            )
+        identity = get_current_user_identity(page)
+        if identity.get("error"):
+            _output({"success": False, "logged_in": None, "identity": identity,
+                     "error": identity["error"]}, exit_code=2)
             return
-
-        qrcode_path = save_qrcode_to_file(png_bytes)
-        image_url, login_url = make_qrcode_url(png_bytes)
-        _open_file_if_display(qrcode_path)
-
-        result: dict = {
-            "logged_in": False,
-            "login_method": "qrcode",
-            "qrcode_path": qrcode_path,
-            "qrcode_image_url": image_url,
-            "hint": "未登录，二维码已自动生成。扫码后运行 wait-login 等待登录结果",
+        result = {
+            "logged_in": identity.get("logged_in"),
+            "identity": identity,
+            "identity_status": identity_status(args.account, identity),
         }
-        if login_url:
-            result["qr_login_url"] = login_url
-        _output(result, exit_code=1)
+        _output(result, exit_code=0 if identity.get("logged_in") else 1)
     finally:
         browser.close()
 
@@ -1860,6 +1842,10 @@ def cmd_account_identity(args: argparse.Namespace) -> None:
 
     browser, _page, observed = _observe_login_identity(args)
     try:
+        if observed.get("error"):
+            _output({"success": False, "account": args.account, "comparison": "unknown",
+                     "observed": observed, "error": observed["error"]}, exit_code=2)
+            return
         if args.record:
             if load_switch_state(args.account):
                 raise RuntimeError(

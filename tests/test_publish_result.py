@@ -21,6 +21,10 @@ class PublishPage:
             return self.observations[0] if self.observations else {}
         return None
 
+    def click_publish_control(self) -> dict:
+        self.click_point = (712.0, 855.0)
+        return {"dispatched": True, "method": "native_mouse"}
+
     def mouse_click(self, x: float, y: float) -> None:
         self.click_point = (x, y)
 
@@ -260,3 +264,35 @@ def test_save_draft_surfaces_explicit_failure(monkeypatch) -> None:
 
     with pytest.raises(PublishError):
         save_as_draft(page, expected_title="测试标题")
+
+
+def test_success_is_followed_by_bound_homepage_readback(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from xhs.publish import _readback_published_note
+
+    monkeypatch.setattr("product_store.ProductStore.get_setting", lambda *args: True)
+    monkeypatch.setattr("account_identity.load_identity_record",
+                        lambda account: {"current": {"user_id": "owner-123"}})
+    seen = []
+    def read(page, uid, token):
+        seen.append(uid)
+        return SimpleNamespace(feeds=[SimpleNamespace(
+            id="note-123", note_card=SimpleNamespace(display_title="测试标题"))])
+    monkeypatch.setattr("xhs.user_profile.get_user_profile", read)
+    result = _readback_published_note(SimpleNamespace(account="alpha"), "测试标题")
+    assert seen == ["owner-123"]
+    assert result["verified"] is True
+    assert result["note_ids"] == ["note-123"]
+
+
+def test_publish_machine_policy_skips_homepage(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from xhs.publish import _readback_published_note
+
+    monkeypatch.setattr("product_store.ProductStore.get_setting", lambda *args: False)
+    monkeypatch.setattr("account_identity.load_identity_record",
+                        lambda *args: pytest.fail("禁用主页回读时只保留发布证据"))
+    monkeypatch.setattr("xhs.user_profile.get_user_profile",
+                        lambda *args: pytest.fail("禁用主页回读时不得导航"))
+    result = _readback_published_note(SimpleNamespace(account="alpha"), "标题")
+    assert result["status"] == "disabled_by_policy"

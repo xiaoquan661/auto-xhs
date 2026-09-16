@@ -5,30 +5,123 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../extension/visual_browser.js'), 'utf8');
 function harness() {
   const calls = [];
+  let windowState='minimized';
   const frame = {document_id:'a',url:'https://www.xiaohongshu.com/explore',width:1000,
     height:600,scroll_x:0,scroll_y:0,device_pixel_ratio:2};
-  const context = vm.createContext({ console, setTimeout, Date, Number,
-    getOrOpenPlatformTab: async id => ({id:id || 5}),
+  const context = vm.createContext({ console, setTimeout, clearTimeout, Date, Number,
+    getOrOpenPlatformTab: async id => ({id:id || 5,windowId:2}),
     platformSpec: () => ({tabUrls:['https://www.xiaohongshu.com/*']}),
     _dispatchRealClickAt: async (target,x,y) => calls.push({target,x,y}),
     chrome: {
-      tabs: {query:async()=>[{id:5,active:true}]},
+      windows: {get:async()=>({state:windowState}),
+        update:async(id,options)=>{
+          calls.push({window:id,...options});windowState=options.state;
+          return {state:windowState};
+        }},
+      tabs: {query:async()=>[{id:5,active:true}],
+        update:async(id,options)=>calls.push({tab:id,...options})},
       action: {setBadgeText:async v=>calls.push(v),setBadgeBackgroundColor:async()=>{},
         setTitle:async()=>{}},
       scripting: {executeScript:async ({target})=>[{result:frame}]},
       debugger: {attach:async target=>calls.push({attach:target.tabId}),
         detach:async target=>calls.push({detach:target.tabId}),
-        sendCommand:async (target,method)=>{calls.push({target,method});return {data:'PNG'};}}
+        sendCommand:async (target,method,params)=>{
+          calls.push({target,method,params});return {data:'PNG'};}}
     }
   });
   vm.runInContext(source,context);
+  const background = fs.readFileSync(require('node:path').join(__dirname,
+    '../extension/background.js'), 'utf8');
+  vm.runInContext(background.match(/async function cmdScreenshot\([^]*?\n}/)[0], context);
   return {context,calls,frame};
 }
 test('snapshot captures the requested tab rather than the active tab',async()=>{
   const h=harness();const result=await h.context.cmdVisualSnapshot({_tab_id:9});
   assert.equal(result.tab_id,9);
   assert.ok(h.calls.some(x=>x.target?.tabId===9 && x.method==='Page.captureScreenshot'));
-  assert.equal(h.calls.at(-1).detach,9);
+  assert.equal(h.calls[0].state,'normal');
+  assert.equal(h.calls[0].focused,true);
+  assert.equal(h.calls[1].tab,9);
+  assert.equal(h.calls.at(-3).detach,9);
+  assert.equal(h.calls.at(-2).tab,5);
+  assert.equal(h.calls.at(-1).state,'minimized');
+  assert.equal(result.window_restored_for_capture,true);
+  assert.equal(result.window_state_before,'minimized');
+  assert.equal(result.window_state_during_capture,'normal');
+  assert.equal(result.window_state_after,'minimized');
+});
+test('legacy screenshot returns base64 from the requested tab with debugger permissions',async()=>{
+  const h=harness();
+  const result=await h.context.cmdScreenshot({_tab_id:9});
+  assert.equal(result.data,'PNG');
+  assert.ok(h.calls.some(x=>x.target?.tabId===9 && x.method==='Page.captureScreenshot'));
+  assert.equal(h.calls.at(-1).state,'minimized');
+});
+test('snapshot reads the frame immediately while page resources are loading',async()=>{
+  const h=harness();
+  h.context.chrome.scripting.executeScript=async options=>{
+    assert.equal(options.injectImmediately,true);
+    return [{result:h.frame}];
+  };
+  assert.equal((await h.context.cmdVisualSnapshot()).data,'PNG');
+});
+test('normal-window screenshot keeps the existing window state',async()=>{
+  const h=harness();
+  h.context.chrome.windows.get=async()=>({state:'normal'});
+  h.frame.scroll_x=10; h.frame.scroll_y=500;
+  await h.context.cmdVisualSnapshot();
+  const params=h.calls.find(x=>x.method==='Page.captureScreenshot').params;
+  assert.equal(params.captureBeyondViewport,false);
+  assert.equal(params.clip,undefined);
+  assert.equal(h.calls.some(x=>'window' in x),false);
+});
+test('debugger attachment failure still returns the window to minimized',async()=>{
+  const h=harness();
+  h.context.chrome.debugger.attach=async()=>{throw Error('debugger busy');};
+  await assert.rejects(h.context.cmdVisualSnapshot(),/debugger busy/);
+  assert.equal(h.calls.at(-1).state,'minimized');
+});
+test('legacy screenshot releases debugger when capture fails',async()=>{
+  const h=harness();
+  h.context.chrome.debugger.sendCommand=async(target,method,params)=>{
+    h.calls.push({target,method,params});
+    if (method==='Page.captureScreenshot') throw Error('capture failed');
+    return {};
+  };
+  await assert.rejects(h.context.cmdScreenshot(),/capture failed/);
+  assert.equal(h.calls.at(-2).detach,5);
+  assert.equal(h.calls.at(-1).state,'minimized');
+});
+test('minimized snapshot recaptures a resized viewport within one attachment',async()=>{
+  const h=harness();
+  let reads=0, captures=0;
+  h.context.chrome.scripting.executeScript=async()=>[{result:{...h.frame,
+    height:++reads===1?600:574}}];
+  h.context.chrome.debugger.sendCommand=async(target,method,params)=>{
+    if (method!=='Page.captureScreenshot') return {};
+    assert.equal(params.fromSurface,true);
+    assert.equal(params.captureBeyondViewport,false);
+    return {data:`PNG-${++captures}`};
+  };
+  const result=await h.context.cmdVisualSnapshot({_tab_id:9});
+  assert.equal(result.data,'PNG-2');
+  assert.equal(result.frame.height,574);
+  assert.equal(result.capture_attempts,2);
+  assert.equal(result.frame_adjustments[0].height.before,600);
+  assert.equal(result.frame_adjustments[0].height.after,574);
+  assert.equal(result.window_state_before,'minimized');
+  assert.equal(result.window_state_after,'minimized');
+  assert.equal(h.calls.filter(x=>x.attach).length,1);
+  assert.equal(h.calls.at(-1).state,'minimized');
+});
+test('continuously changing page returns frame differences and releases debugger',async()=>{
+  const h=harness();
+  let reads=0;
+  h.context.chrome.scripting.executeScript=async()=>[{result:{...h.frame,scroll_y:++reads}}];
+  await assert.rejects(h.context.cmdVisualSnapshot(),/页面布局持续变化.*scroll_y/);
+  assert.equal(h.calls.filter(x=>x.method==='Page.captureScreenshot').length,3);
+  assert.equal(h.calls.at(-2).detach,5);
+  assert.equal(h.calls.at(-1).state,'minimized');
 });
 test('changed frame rejects clicks before dispatch',async()=>{
   const h=harness();
@@ -43,10 +136,20 @@ test('visual click uses CSS pixels and detaches',async()=>{
 });
 test('activity clears the busy badge on success and reports failure',async()=>{
   const h=harness();
+  h.context.chrome.scripting.executeScript=async options=>{
+    assert.equal(options.injectImmediately,true);
+    return [{result:null}];
+  };
   await h.context.withBridgeActivity({method:'visual_snapshot'},async()=>42);
   assert.deepEqual(h.calls.filter(x=>'text' in x).map(x=>x.text),['调用','']);
   await assert.rejects(h.context.withBridgeActivity({method:'visual_action'},async()=>{
     throw Error('failed');
   }),/failed/);
   assert.equal(h.calls.at(-1).text,'!');
+});
+test('a suspended page activity label does not block the command result',async()=>{
+  const h=harness();
+  h.context.setTimeout=(fn)=>setTimeout(fn,1);
+  h.context.chrome.scripting.executeScript=()=>new Promise(()=>{});
+  assert.equal(await h.context.withBridgeActivity({method:'visual_snapshot'},async()=>42),42);
 });

@@ -93,6 +93,7 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "fill-publish",
         "fill-publish-video",
         "click-publish",
+        "publish-prepared-retry",
         "save-draft",
         "long-article",
         "select-template",
@@ -102,6 +103,8 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "reply-inbox",
     }
     assert get_capability_policy("post-comment").requires_confirmation is True
+    assert get_capability_policy("publish-prepared-retry").requires_confirmation is True
+    assert get_capability_policy("publish-page-status").risk_level is RiskLevel.READ_ONLY
     assert get_capability_policy("reply-comment").requires_confirmation is True
     assert get_capability_policy("random-comment").requires_confirmation is False
     assert get_capability_policy("random-comment").supports_scheduling is False

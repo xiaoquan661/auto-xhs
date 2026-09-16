@@ -138,188 +138,90 @@ def test_corrupt_history_lines_are_ignored(tmp_path, monkeypatch):
     }
 
 
-def test_current_user_identity_extracts_uid_and_nickname():
-    class FakePage:
-        def __init__(self) -> None:
-            self.url = ""
+class IdentityPage:
+    def __init__(self, url="https://www.xiaohongshu.com/explore", uid="self-123",
+                 owner=False, logged_out=False):
+        self.url = url
+        self.uid = uid
+        self.owner = owner
+        self.logged_out = logged_out
 
-        def navigate(self, url: str) -> None:
-            self.url = url
+    def navigate(self, url):
+        raise AssertionError("身份读取不得导航")
 
-        def wait_for_load(self) -> None:
-            pass
+    def wait_for_load(self):
+        raise AssertionError("身份读取不得等待新页面")
 
-        def wait_dom_stable(self) -> None:
-            pass
-
-        def has_element(self, selector: str) -> bool:
-            return "login-btn" in selector or "channel" in selector
-
-        def evaluate(self, expression: str):
-            if expression == "location.href":
-                return self.url
-            if "getAttribute('href')" in expression:
-                return "/user/profile/uid-123?xsec_token=token"
-            if "innerText" in expression:
-                return "新账号昵称"
+    def evaluate(self, expression):
+        if expression == "location.href":
+            return self.url
+        if "getAttribute('href')" in expression:
+            return f"/user/profile/{self.uid}" if self.uid else ""
+        if "profileLink" in expression:
             return ""
+        if "编辑资料" in expression:
+            return self.owner
+        if "innerText" in expression:
+            return "主页昵称"
+        return ""
 
-    identity = get_current_user_identity(FakePage())
+    def has_element(self, selector):
+        return self.logged_out
 
+
+def test_identity_reads_sidebar_without_navigation():
+    identity = get_current_user_identity(IdentityPage())
+    assert identity["user_id"] == "self-123"
     assert identity["logged_in"] is True
-    assert identity["user_id"] == "uid-123"
-    assert identity["nickname"] == "新账号昵称"
+    assert identity["nickname"] == ""
 
 
-def test_current_user_identity_recovers_from_inaccessible_initial_tab():
-    class FakePage:
-        def __init__(self) -> None:
-            self.url = "chrome://newtab/"
-            self.initial_read = True
-            self.navigations: list[str] = []
-
-        def navigate(self, url: str) -> None:
-            self.navigations.append(url)
-            self.url = url
-
-        def wait_for_load(self) -> None:
-            pass
-
-        def wait_dom_stable(self) -> None:
-            pass
-
-        def has_element(self, selector: str) -> bool:
-            return "login-btn" in selector or "channel" in selector
-
-        def evaluate(self, expression: str):
-            if expression == "location.href":
-                if self.initial_read:
-                    self.initial_read = False
-                    raise RuntimeError("当前页不允许扩展读取")
-                return self.url
-            if "getAttribute('href')" in expression:
-                return "/user/profile/uid-456"
-            if "innerText" in expression:
-                return "恢复后的账号"
-            return ""
-
-    page = FakePage()
+def test_identity_reads_open_self_profile():
+    page = IdentityPage("https://www.xiaohongshu.com/user/profile/self-123",
+                        uid="", owner=True)
     identity = get_current_user_identity(page)
-
-    assert identity["user_id"] == "uid-456"
-    assert identity["nickname"] == "恢复后的账号"
-    assert page.navigations[0] == "https://www.xiaohongshu.com/explore"
+    assert identity["user_id"] == "self-123"
+    assert identity["nickname"] == "主页昵称"
 
 
-def test_current_user_identity_preserves_open_self_profile():
-    class FakePage:
-        def __init__(self) -> None:
-            self.url = "https://www.xiaohongshu.com/user/profile/self-123?xsec_token=token"
-            self.navigations: list[str] = []
-
-        def navigate(self, url: str) -> None:
-            self.navigations.append(url)
-            self.url = url
-
-        def wait_for_load(self) -> None:
-            pass
-
-        def wait_dom_stable(self) -> None:
-            pass
-
-        def evaluate(self, expression: str):
-            if expression == "location.href":
-                return self.url
-            if "编辑资料" in expression:
-                return True
-            if "innerText" in expression:
-                return "主页昵称"
-            return ""
-
-    page = FakePage()
+def test_identity_keeps_author_separate_from_sidebar_user():
+    page = IdentityPage("https://www.xiaohongshu.com/user/profile/author-999")
     identity = get_current_user_identity(page)
-
-    assert identity == {
-        "logged_in": True,
-        "user_id": "self-123",
-        "nickname": "主页昵称",
-        "profile_url": "https://www.xiaohongshu.com/user/profile/self-123",
-    }
-    assert page.navigations == []
+    assert identity["user_id"] == "self-123"
+    assert identity["nickname"] == ""
 
 
-def test_current_user_identity_uses_guarded_sidebar_fallback():
-    class FakePage:
-        def __init__(self) -> None:
-            self.url = "https://www.xiaohongshu.com/explore"
+def test_identity_unavailable_preserves_unknown_login_state():
+    identity = get_current_user_identity(IdentityPage(uid=""))
+    assert identity["logged_in"] is None
+    assert identity["error"]
 
-        def navigate(self, url: str) -> None:
-            self.url = url
 
-        def wait_for_load(self) -> None:
-            pass
+def test_identity_reports_visible_login_container():
+    identity = get_current_user_identity(IdentityPage(uid="", logged_out=True))
+    assert identity["logged_in"] is False
+    assert not identity.get("error")
 
-        def wait_dom_stable(self) -> None:
-            pass
 
-        def has_element(self, selector: str) -> bool:
-            return "login-btn" in selector or "channel" in selector
+def test_identity_inaccessible_page_does_not_navigate():
+    class InaccessiblePage(IdentityPage):
+        def evaluate(self, expression):
+            raise RuntimeError("当前页不允许扩展读取")
 
-        def evaluate(self, expression: str):
-            if expression == "location.href":
-                return self.url
-            if "document.querySelector(" in expression and "getAttribute('href')" in expression:
-                return ""
+    identity = get_current_user_identity(InaccessiblePage())
+    assert identity["logged_in"] is None
+    assert "当前页不允许扩展读取" in identity["error"]
+
+
+def test_identity_uses_guarded_sidebar_fallback():
+    class FallbackPage(IdentityPage):
+        def evaluate(self, expression):
             if "profileLink" in expression:
-                return "/user/profile/fallback-456?xsec_token=token"
-            if "innerText" in expression:
-                return "回退昵称"
-            return ""
+                return "/user/profile/fallback-456"
+            return super().evaluate(expression)
 
-    identity = get_current_user_identity(FakePage())
-
+    identity = get_current_user_identity(FallbackPage(uid=""))
     assert identity["user_id"] == "fallback-456"
-    assert identity["nickname"] == "回退昵称"
-
-
-def test_current_user_identity_does_not_trust_open_author_profile():
-    class FakePage:
-        def __init__(self) -> None:
-            self.url = "https://www.xiaohongshu.com/user/profile/author-999"
-            self.navigations: list[str] = []
-
-        def navigate(self, url: str) -> None:
-            self.navigations.append(url)
-            self.url = url
-
-        def wait_for_load(self) -> None:
-            pass
-
-        def wait_dom_stable(self) -> None:
-            pass
-
-        def has_element(self, selector: str) -> bool:
-            return "login-btn" in selector or "channel" in selector
-
-        def evaluate(self, expression: str):
-            if expression == "location.href":
-                return self.url
-            if "编辑资料" in expression:
-                return False
-            if "document.querySelector(" in expression and "getAttribute('href')" in expression:
-                return ""
-            if "profileLink" in expression:
-                return "/user/profile/signed-in-123"
-            if "innerText" in expression:
-                return "本人昵称"
-            return ""
-
-    page = FakePage()
-    identity = get_current_user_identity(page)
-
-    assert identity["user_id"] == "signed-in-123"
-    assert identity["user_id"] != "author-999"
-    assert page.navigations[0] == "https://www.xiaohongshu.com/explore"
 
 
 def test_pending_switch_blocks_business_commands_but_allows_auth(tmp_path, monkeypatch):

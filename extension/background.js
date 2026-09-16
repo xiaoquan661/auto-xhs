@@ -5,7 +5,7 @@
  * - navigate / wait_for_load: chrome.tabs.update + onUpdated
  * - evaluate / has_element 等: chrome.scripting.executeScript (MAIN world)
  * - click / input 等 DOM 操作: chrome.debugger 或 MAIN world executeScript
- * - screenshot: chrome.tabs.captureVisibleTab
+ * - screenshot: chrome.debugger Page.captureScreenshot
  * - get_cookies: chrome.cookies.getAll
  */
 
@@ -396,6 +396,8 @@ async function handleCommand(msg) {
       return await cmdVisualSnapshot(params);
     case "visual_action":
       return await cmdVisualAction(params);
+    case "click_publish_control":
+      return await cmdClickPublishControl(params);
     case "select_publish_tab":
       return await cmdSelectPublishTab(params);
     case "unpair_extension":
@@ -1001,10 +1003,9 @@ async function waitForTabComplete(tabId, expectedUrl, timeout, previousDocument 
 
 // ───────────────────────── 截图 ─────────────────────────
 
-async function cmdScreenshot() {
-  const tab = await getOrOpenPlatformTab();
-  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
-  return { data: dataUrl.split(",")[1] };
+async function cmdScreenshot(params = {}) {
+  const { data } = await cmdVisualSnapshot(params);
+  return { data };
 }
 
 // ───────────────────────── Cookies ─────────────────────────
@@ -1211,6 +1212,86 @@ async function _dispatchRealClickAt(target, x, y) {
   await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { ...base, type: "mousePressed" });
   await sleep(30);
   await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { ...base, type: "mouseReleased", buttons: 0 });
+}
+
+function publishDomNodes(node) {
+  return [node, ...(node.children || []).flatMap(publishDomNodes),
+    ...(node.shadowRoots || []).flatMap(publishDomNodes)];
+}
+
+async function cmdClickPublishControl() {
+  const tab = await getOrOpenPlatformTab();
+  const target = { tabId: tab.id };
+  await chrome.debugger.attach(target, "1.3");
+  try {
+    const { root } = await chrome.debugger.sendCommand(target, "DOM.getDocument", {
+      depth: -1, pierce: true,
+    });
+    const attrs = node => Object.fromEntries((node.attributes || []).reduce((out, v, i, all) => {
+      if (i % 2 === 0) out.push([v, all[i + 1]]);
+      return out;
+    }, []));
+    const host = publishDomNodes(root).find(node =>
+      node.nodeName === "XHS-PUBLISH-BTN" && attrs(node)["is-publish"] === "true");
+    if (!host) throw new Error("未找到发布按钮容器");
+    if (attrs(host)["submit-disabled"] === "true") throw new Error("发布按钮尚不可用");
+    const buttons = publishDomNodes(host).filter(node => node.nodeName === "BUTTON" &&
+      publishDomNodes(node).filter(n => n.nodeType === 3)
+        .map(n => n.nodeValue || "").join("").trim() === "发布");
+    if (buttons.length !== 1) throw new Error("未找到唯一的正式发布按钮");
+    const button = buttons[0];
+    if ("disabled" in attrs(button)) throw new Error("发布按钮尚不可用");
+    await chrome.debugger.sendCommand(target, "DOM.scrollIntoViewIfNeeded", {
+      nodeId: button.nodeId,
+    });
+    const { object } = await chrome.debugger.sendCommand(target, "DOM.resolveNode", {
+      nodeId: button.nodeId,
+    });
+    const objectId = object.objectId;
+    const measure = async () => {
+      const response = await chrome.debugger.sendCommand(target, "Runtime.callFunctionOn", {
+        objectId, returnByValue: true,
+        functionDeclaration: `function() {
+          const r = this.getBoundingClientRect();
+          return {x: r.left + r.width / 2, y: r.top + r.height / 2,
+            width: r.width, height: r.height, viewportHeight: innerHeight};
+        }`,
+      });
+      return response.result.value;
+    };
+    // The debugger banner can resize a fixed footer after attachment.
+    let pos = await measure();
+    let stable = 0;
+    for (let i = 0; i < 20 && stable < 3; i++) {
+      await sleep(100);
+      const next = await measure();
+      stable = next.x === pos.x && next.y === pos.y &&
+        next.viewportHeight === pos.viewportHeight ? stable + 1 : 0;
+      pos = next;
+    }
+    if (stable < 3 || pos.width <= 0 || pos.height <= 0) {
+      return {dispatched: false, reason: "发布按钮布局尚未稳定"};
+    }
+    await chrome.debugger.sendCommand(target, "Runtime.callFunctionOn", {
+      objectId, functionDeclaration: `function() {
+        window.__xhsPublishNativeClick = null;
+        this.addEventListener('click', event => {
+          window.__xhsPublishNativeClick = {received: true, trusted: event.isTrusted,
+            x: event.clientX, y: event.clientY, time: Date.now()};
+        }, {once: true, capture: true});
+      }`,
+    });
+    await _dispatchRealClickAt(target, pos.x, pos.y);
+    const receipt = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: "window.__xhsPublishNativeClick || null", returnByValue: true,
+    }).catch(() => null);
+    return { dispatched: true, method: "native_mouse", button_text: "发布",
+      x: pos.x, y: pos.y, viewport_height: pos.viewportHeight,
+      button_click: receipt?.result?.value || null, tab_id: tab.id };
+
+  } finally {
+    await chrome.debugger.detach(target).catch(() => {});
+  }
 }
 
 async function cmdClickViaDebugger(method, { selector, index, text }) {
