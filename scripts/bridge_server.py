@@ -22,9 +22,8 @@ import uuid
 from typing import Any
 
 import websockets
-from websockets.server import ServerConnection
-
 from platforms import DEFAULT_PLATFORM, normalize_platform
+from websockets.server import ServerConnection
 
 logger = logging.getLogger("xhs-bridge")
 MAX_MESSAGE_SIZE = 50 * 1024 * 1024

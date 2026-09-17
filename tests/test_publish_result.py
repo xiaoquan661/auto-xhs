@@ -268,6 +268,7 @@ def test_save_draft_surfaces_explicit_failure(monkeypatch) -> None:
 
 def test_success_is_followed_by_bound_homepage_readback(monkeypatch) -> None:
     from types import SimpleNamespace
+
     from xhs.publish import _readback_published_note
 
     monkeypatch.setattr("product_store.ProductStore.get_setting", lambda *args: True)
@@ -287,6 +288,7 @@ def test_success_is_followed_by_bound_homepage_readback(monkeypatch) -> None:
 
 def test_publish_machine_policy_skips_homepage(monkeypatch) -> None:
     from types import SimpleNamespace
+
     from xhs.publish import _readback_published_note
 
     monkeypatch.setattr("product_store.ProductStore.get_setting", lambda *args: False)

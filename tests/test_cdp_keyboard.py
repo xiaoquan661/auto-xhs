@@ -41,7 +41,9 @@ def test_contenteditable_send_inserts_and_submits_atomically(monkeypatch) -> Non
 
     assert [method for method, _ in calls].count("Input.insertText") == 1
     assert calls[4] == ("Input.insertText", {"text": "准备回复"})
-    assert [params["type"] for method, params in calls[5:] if method == "Input.dispatchKeyEvent"] == [
+    assert [
+        params["type"] for method, params in calls[5:] if method == "Input.dispatchKeyEvent"
+    ] == [
         "rawKeyDown",
         "char",
         "keyUp",

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from private_message_batch import normalize_private_message_recipients
 from service_errors import ServiceError
 

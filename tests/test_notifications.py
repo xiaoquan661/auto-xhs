@@ -40,7 +40,10 @@ class NotificationPage:
             return json.dumps(self.captured, ensure_ascii=False) if self.captured else None
         if "data-auto-xhs-comment-notification-send" in expression and "actual !==" in expression:
             return {"found": True}
-        if "data-auto-xhs-comment-notification-editor" in expression and "editors.find" in expression:
+        if (
+            "data-auto-xhs-comment-notification-editor" in expression
+            and "editors.find" in expression
+        ):
             return {"found": True, "tag": "DIV", "placeholder": "回复 学远"}
         if "data-auto-xhs-comment-notification" in expression and "const matches" in expression:
             return {"found": True}
@@ -124,9 +127,7 @@ def test_replies_inside_the_uniquely_matched_notification_card(monkeypatch) -> N
     assert any(".notification-page .tabs-content-container" in value for value in page.expressions)
     assert any('"visibleContent": "效率提升很多感谢分享"' in value for value in page.expressions)
     assert len(page.clicked) == 2
-    assert page.typed == [
-        ("[data-auto-xhs-comment-notification-editor]", "有帮到你就好～")
-    ]
+    assert page.typed == [("[data-auto-xhs-comment-notification-editor]", "有帮到你就好～")]
 
 
 def test_notification_reply_rejects_missing_observed_target_before_send() -> None:

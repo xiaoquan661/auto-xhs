@@ -93,9 +93,7 @@ def keyword_engagement(
         interact = feed.note_card.interact_info
         requested_actions = _requested_actions(action)
         for action_name in requested_actions:
-            already_active = (
-                interact.liked if action_name == "like" else interact.collected
-            )
+            already_active = interact.liked if action_name == "like" else interact.collected
             recently_executed = feed.id in excluded.get(action_name, set())
             if already_active or recently_executed:
                 item["actions"][action_name] = {
@@ -116,8 +114,7 @@ def keyword_engagement(
                     "message": str(exc),
                 }
         item["success"] = all(
-            result["status"] in {"success", "skipped"}
-            for result in item["actions"].values()
+            result["status"] in {"success", "skipped"} for result in item["actions"].values()
         )
         items.append(item)
 
@@ -128,7 +125,10 @@ def keyword_engagement(
     if not selected:
         message = "没有找到符合条件且尚未完成该互动的笔记"
     elif partial:
-        message = f"随机互动部分完成：成功 {succeeded} 篇，失败 {failed} 篇，候选不足 {count - len(selected)} 篇"
+        message = (
+            f"随机互动部分完成：成功 {succeeded} 篇，失败 {failed} 篇，"
+            f"候选不足 {count - len(selected)} 篇"
+        )
     else:
         message = f"随机互动完成，共处理 {succeeded} 篇笔记"
     return {

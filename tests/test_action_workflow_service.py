@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from service_errors import ServiceError
 
 from scripts.action_workflow_service import ActionWorkflowService
 from scripts.operations_db import OperationsDatabase
-from service_errors import ServiceError
 
 
 def _service(tmp_path) -> ActionWorkflowService:

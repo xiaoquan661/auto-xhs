@@ -30,15 +30,15 @@ def _database_action(args: argparse.Namespace, service: ManagerService) -> dict:
     if args.action == "schema":
         return database.schema()
     payload = load_json_object(args.input_file)
-    return database.query(payload.get("sql", ""), payload.get("parameters"),
-                          int(payload.get("limit", 200)))
+    return database.query(
+        payload.get("sql", ""), payload.get("parameters"), int(payload.get("limit", 200))
+    )
 
 
 def _acceptance_report(args: argparse.Namespace, service: ManagerService) -> dict:
     from operations_acceptance import acceptance_report
 
-    return acceptance_report(service.store.snapshot(), day=args.date or "",
-                             accounts=args.account)
+    return acceptance_report(service.store.snapshot(), day=args.date or "", accounts=args.account)
 
 
 def _debug_action(args: argparse.Namespace, service: ManagerService) -> dict:
@@ -113,8 +113,20 @@ def build_parser() -> argparse.ArgumentParser:
     debug = resources.add_parser("debug", help="员工报障、经理修复和安装验收")
     debug_actions = debug.add_subparsers(dest="action", required=True)
     for action in (
-        "list", "report", "show", "claim", "diagnose", "build", "dispatch", "apply",
-        "reconcile", "verify", "accept", "resolve", "reopen", "rollback",
+        "list",
+        "report",
+        "show",
+        "claim",
+        "diagnose",
+        "build",
+        "dispatch",
+        "apply",
+        "reconcile",
+        "verify",
+        "accept",
+        "resolve",
+        "reopen",
+        "rollback",
     ):
         command = debug_actions.add_parser(action)
         if action != "list":
@@ -163,7 +175,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     memory = resources.add_parser("memory", help="账号记忆、经验审核和来源追溯")
     memory_actions = memory.add_subparsers(dest="action", required=True)
-    for action in ("save", "search", "review", "history", "recall", "update", "usage", "review-pending"):
+    for action in (
+        "save",
+        "search",
+        "review",
+        "history",
+        "recall",
+        "update",
+        "usage",
+        "review-pending",
+    ):
         command = memory_actions.add_parser(action)
         _add_input_file(command, "记忆操作 JSON 文件的绝对路径")
         command.set_defaults(handler=_memory_action)

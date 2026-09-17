@@ -137,6 +137,8 @@ def test_browse_feed_cycle_uses_per_item_read_range_instead_of_dividing_total_ti
         patch("xhs.browse_like._simulate_reading", return_value=11.0) as reading,
         patch("xhs.browse_like.time.sleep"),
     ):
-        browse_feed_cycle(page, duration_seconds=480, count=3, min_read_seconds=8, max_read_seconds=15)
+        browse_feed_cycle(
+            page, duration_seconds=480, count=3, min_read_seconds=8, max_read_seconds=15
+        )
 
     assert [call.args[1] for call in reading.call_args_list] == [11.0, 11.0, 11.0]

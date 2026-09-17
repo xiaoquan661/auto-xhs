@@ -13,6 +13,7 @@ from pathlib import Path
 from account_manager import AccountConfig
 from platforms import get_platform_spec
 
+
 def launch_on_windows_desktop(
     command: list[str],
     *,

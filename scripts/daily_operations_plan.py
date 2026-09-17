@@ -7,8 +7,8 @@ import re
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from employee_operations import BUSINESS_TIMEZONE, PLAN_METRICS
 from default_persona import friendly_commenter
+from employee_operations import BUSINESS_TIMEZONE, PLAN_METRICS
 from service_errors import ServiceError
 
 HARD_METRICS = ("browse", "like", "comment", "reply", "publish")

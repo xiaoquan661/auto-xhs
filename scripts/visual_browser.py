@@ -106,7 +106,8 @@ def cmd_publish_page_status(args: Any) -> None:
     _, page = _connect_runtime(args)
     title = Path(args.title_file).read_text(encoding="utf-8").strip()
     _select_publish_preview(page, title)
-    _output(page.evaluate("""(() => {
+    _output(
+        page.evaluate("""(() => {
         const host = document.querySelector('xhs-publish-btn[is-publish="true"]');
         const rect = host?.getBoundingClientRect();
         return {url: location.href, width: innerWidth, height: innerHeight,
@@ -116,7 +117,8 @@ def cmd_publish_page_status(args: Any) -> None:
             host: rect ? {x: rect.x, y: rect.y, width: rect.width, height: rect.height,
                 attributes: Array.from(host.attributes).map(a => [a.name,a.value])} : null,
             body: document.body.innerText.slice(-1800)};
-    })()"""))
+    })()""")
+    )
 
 
 def cmd_publish_prepared_retry(args: Any) -> None:
@@ -137,12 +139,19 @@ def cmd_publish_prepared_retry(args: Any) -> None:
     try:
         preview = original["parameters"]["preview"]
         _select_publish_preview(page, preview["title"])
-        task = workflow.begin(account=args.account, platform=original.get("platform"),
-                              capability=original["capability"],
-                              request_summary="继续发布：" + preview["title"], preview=preview)
-        workflow.tasks.update_parameters(task["task_id"], retry_of=args.task_id,
-                                         user_confirmed_retry=True)
-        task = workflow.wait_for_confirmation(task["task_id"], summary="原表单已核对，用户授权再次提交")
+        task = workflow.begin(
+            account=args.account,
+            platform=original.get("platform"),
+            capability=original["capability"],
+            request_summary="继续发布：" + preview["title"],
+            preview=preview,
+        )
+        workflow.tasks.update_parameters(
+            task["task_id"], retry_of=args.task_id, user_confirmed_retry=True
+        )
+        task = workflow.wait_for_confirmation(
+            task["task_id"], summary="原表单已核对，用户授权再次提交"
+        )
         _publish_prepared_form(workflow, task, page, args.account)
     finally:
         browser.close()
@@ -160,8 +169,10 @@ def cmd_publish_link_reconcile(args: Any) -> None:
         )
         if args.worker_task_id and result["result"].get("link_status") == "resolved":
             result["receipt"] = ManagerWorkerService().revise_publish_link(
-                args.worker_task_id, account=args.account,
-                title=result["title"], link=result["result"],
+                args.worker_task_id,
+                account=args.account,
+                title=result["title"],
+                link=result["result"],
             )
         _output(result)
     finally:
@@ -184,8 +195,13 @@ def cmd_platform_select(args: Any) -> None:
         migrate_bound_platform(args.account, args.platform)
         _output({"success": True, "platform": args.platform, "binding_updated": True})
         return
-    page = BridgePage(config.bridge_url, account=config.name, account_id=config.account_id,
-                      bridge_token=config.bridge_token, platform=config.platform)
+    page = BridgePage(
+        config.bridge_url,
+        account=config.name,
+        account_id=config.account_id,
+        bridge_token=config.bridge_token,
+        platform=config.platform,
+    )
     result = page._call("set_bound_platform", {"platform": args.platform})
     if not result.get("updated"):
         raise XHSError("扩展平台尚未更新")

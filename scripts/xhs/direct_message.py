@@ -65,12 +65,15 @@ _READ_CHAT_JS = r"""
         const content = String(textNode ? textNode.innerText || textNode.textContent || '' : '')
             .trim();
         const classText = String(item.className || '') + ' ' +
-            Array.from(item.querySelectorAll('*')).map((node) => String(node.className || '')).join(' ');
+            Array.from(item.querySelectorAll('*')).map((node) =>
+                String(node.className || '')).join(' ');
         const role = /--right\b/.test(classText) ? 'self' : 'peer';
         const time = item.querySelector('time, [data-time], [class*="time"]');
         return { role, content,
-            platform_message_id: item.getAttribute('data-message-id') || item.getAttribute('data-msg-id') || '',
-            occurred_at: item.getAttribute('data-timestamp') || time?.getAttribute('datetime') || time?.getAttribute('data-time') || '',
+            platform_message_id: item.getAttribute('data-message-id') ||
+                item.getAttribute('data-msg-id') || '',
+            occurred_at: item.getAttribute('data-timestamp') ||
+                time?.getAttribute('datetime') || time?.getAttribute('data-time') || '',
             display_time: String(time?.innerText || '').trim() };
     }).filter((item) => item.content);
     return JSON.stringify({
@@ -81,8 +84,10 @@ _READ_CHAT_JS = r"""
             chatWindow ? chatWindow.innerText || chatWindow.textContent || '' : ''
         ).includes('只能发送1条消息'),
         messages,
-        history_complete: Boolean(chatWindow && [...chatWindow.querySelectorAll('.no-more, .end-text')]
-            .some(el => el.getClientRects().length && /没有更多|no more/i.test(el.innerText || ''))),
+        history_complete: Boolean(chatWindow &&
+            [...chatWindow.querySelectorAll('.no-more, .end-text')]
+            .some(el => el.getClientRects().length &&
+                /没有更多|no more/i.test(el.innerText || ''))),
         composer: {
             active: document.activeElement === editor,
             editor_class: String(editor ? editor.className || '' : ''),
@@ -90,7 +95,8 @@ _READ_CHAT_JS = r"""
             editor_attributes: editor ? Object.fromEntries(
                 Array.from(editor.attributes).map((attribute) => [attribute.name, attribute.value])
             ) : {},
-            input_bar_text: String(inputBar ? inputBar.innerText || inputBar.textContent || '' : ''),
+            input_bar_text: String(inputBar ? inputBar.innerText ||
+                inputBar.textContent || '' : ''),
             editor_handlers: reactHandlers(editor),
             input_bar_handlers: reactHandlers(inputBar),
             ancestors: ancestorChain,
@@ -173,7 +179,8 @@ _MARK_CHAT_SEND_ENTRY_JS = r"""
             node.getAttribute('aria-label') || node.getAttribute('title') ||
             node.innerText || node.textContent || ''
         ).trim();
-        return /^(发送|send)$/i.test(label) || /(^|[-_])send([-_]|$)/i.test(String(node.className || ''));
+        return /^(发送|send)$/i.test(label) ||
+            /(^|[-_])send([-_]|$)/i.test(String(node.className || ''));
     });
     if (!entry) return false;
     entry.setAttribute('data-auto-xhs-private-message-send', '1');
@@ -205,6 +212,8 @@ _SYNC_CHAT_EDITOR_STATE_JS = r"""
     return document.activeElement === editor && editor.isContentEditable;
 })()
 """
+
+
 class PrivateMessageUnavailableError(ServiceError):
     """The conversation could not be opened and no send action was attempted."""
 
@@ -263,7 +272,6 @@ def inspect_private_message_context(
         "messages": state["messages"][-limit:],
         "message_count": len(state["messages"]),
         "composer": state["composer"],
-
     }
 
 
@@ -285,9 +293,7 @@ def send_private_message(
     opened = _open_conversation(page, user_id, xsec_token)
     before = _read_chat(page)
     conversation_type = (
-        "first_message"
-        if not opened["existing"] or before["first_message_notice"]
-        else "existing"
+        "first_message" if not opened["existing"] or before["first_message_notice"] else "existing"
     )
     if expected_conversation_type and conversation_type != expected_conversation_type:
         raise PrivateMessageContextChangedError()
@@ -323,9 +329,7 @@ def send_private_message(
         page.input_content_editable(CHAT_EDITOR, content)
         entered = str(
             page.evaluate(
-                "String(document.querySelector("
-                + json.dumps(CHAT_EDITOR)
-                + ")?.innerText || '')"
+                "String(document.querySelector(" + json.dumps(CHAT_EDITOR) + ")?.innerText || '')"
             )
             or ""
         ).strip()
@@ -360,7 +364,8 @@ def send_private_message(
     logger.warning(
         "私信发送回读未确认：method=%s before_self=%s after_self=%s "
         "same_conversation=%s editor_retains_text=%s",
-        "button" if visible_send else "enter", before_self,
+        "button" if visible_send else "enter",
+        before_self,
         _matching_count(current["messages"], content, role="self"),
         current["target_nickname"] == before["target_nickname"],
         (current.get("composer") or {}).get("editor_text", "").strip() == content,
@@ -421,8 +426,7 @@ def _open_conversation(page: Page, user_id: str, xsec_token: str) -> dict:
 
     final_state = _read_chat(page)
     raise PrivateMessageUnavailableError(
-        "点击私信入口后没有打开会话输入框；当前页面："
-        f"{final_state['url'] or '未知'}"
+        f"点击私信入口后没有打开会话输入框；当前页面：{final_state['url'] or '未知'}"
     )
 
 
@@ -441,8 +445,11 @@ def _read_chat(page: Page) -> dict:
             {
                 "role": "self" if item.get("role") == "self" else "peer",
                 "content": str(item.get("content") or "").strip(),
-                **{key: item[key] for key in ("platform_message_id", "occurred_at", "display_time")
-                   if item.get(key)},
+                **{
+                    key: item[key]
+                    for key in ("platform_message_id", "occurred_at", "display_time")
+                    if item.get(key)
+                },
             }
             for item in list(data.get("messages") or [])
             if str(item.get("content") or "").strip()

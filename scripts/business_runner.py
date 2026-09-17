@@ -108,7 +108,9 @@ class BusinessRunner:
             from xhs.random_comment import random_comment
 
             context = parameters.get("memory_context") or {}
-            generator = MemoryCommentGenerator(context) if context.get("identity", {}).get("uid") else None
+            generator = (
+                MemoryCommentGenerator(context) if context.get("identity", {}).get("uid") else None
+            )
             result = random_comment(
                 page,
                 count=int(parameters.get("count") or 1),
@@ -121,9 +123,11 @@ class BusinessRunner:
             )
             if generator:
                 result["memory_usages"] = generator.usages
-                result["adopted_memory_refs"] = list(dict.fromkeys(
-                    ref for usage in generator.usages for ref in usage["adopted_refs"]
-                ))
+                result["adopted_memory_refs"] = list(
+                    dict.fromkeys(
+                        ref for usage in generator.usages for ref in usage["adopted_refs"]
+                    )
+                )
             return result
         if capability == "home-engagement":
             from xhs.home_engagement import home_engagement
@@ -232,7 +236,8 @@ class BusinessRunner:
                 from xhs.creator_metrics import collect_creator_metrics
 
                 return collect_creator_metrics(
-                    page, note_ids=parameters.get("note_ids") or [],
+                    page,
+                    note_ids=parameters.get("note_ids") or [],
                     max_notes=int(parameters.get("max_notes") or 50),
                 )
             from xhs.growth_notifications import collect_growth_notifications

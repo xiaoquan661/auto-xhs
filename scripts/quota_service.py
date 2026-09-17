@@ -89,9 +89,10 @@ class QuotaService:
         for event in self.store.list("events"):
             if event.get("account_slot") != account or self._time(event) < since:
                 continue
-            if event.get("capability") == capability and event.get("state") == "SUCCESS":
-                if event.get("target_key"):
-                    targets.add(str(event["target_key"]))
+            if (event.get("capability") == capability and event.get("state") == "SUCCESS") and (
+                event.get("target_key")
+            ):
+                targets.add(str(event["target_key"]))
             if event.get("capability") != "keyword-engagement":
                 continue
             for item in (event.get("result") or {}).get("items", []):
