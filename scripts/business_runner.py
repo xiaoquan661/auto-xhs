@@ -182,12 +182,15 @@ class BusinessRunner:
                 limit=int(parameters.get("limit") or 10),
             )
         if capability == "collect-private-messages":
+            from account_identity import load_identity_record
             from xhs.private_inbox import collect_private_messages
 
+            identity = (load_identity_record(account) or {}).get("current") or {}
             return collect_private_messages(
                 page,
                 max_conversations=int(parameters.get("max_conversations") or 20),
                 context_limit=int(parameters.get("context_limit") or 10),
+                expected_owner_uid=str(identity.get("user_id") or ""),
             )
         if capability == "send-private-messages":
             from xhs.direct_message import send_private_message
@@ -288,8 +291,7 @@ class BusinessRunner:
             token = str(parameters.get("xsec_token") or "")
             content = str(parameters.get("content") or "")
             if capability == "post-comment":
-                post_comment(page, feed_id, token, content)
-                return {"success": True, "message": "评论发送成功"}
+                return post_comment(page, feed_id, token, content)
             original_content = str(parameters.get("original_content") or "")
             nickname = str(parameters.get("nickname") or "")
             notification_id = str(parameters.get("notification_id") or "")

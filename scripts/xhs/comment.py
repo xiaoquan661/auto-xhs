@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from .cdp import Page
+from .comment_receipt import submit_comment_with_receipt
 from .feed_detail import _check_end_container, _check_page_accessible, _get_comment_count
 from .human import sleep_random
 from .selectors import (
@@ -19,7 +20,7 @@ from .urls import make_feed_detail_url
 logger = logging.getLogger(__name__)
 
 
-def post_comment(page: Page, feed_id: str, xsec_token: str, content: str) -> None:
+def post_comment(page: Page, feed_id: str, xsec_token: str, content: str) -> dict:
     """发表评论到 Feed。
 
     Args:
@@ -39,10 +40,10 @@ def post_comment(page: Page, feed_id: str, xsec_token: str, content: str) -> Non
     page.wait_dom_stable()
     sleep_random(800, 1500)
 
-    post_comment_current(page, content, feed_id=feed_id)
+    return post_comment_current(page, content, feed_id=feed_id)
 
 
-def post_comment_current(page: Page, content: str, *, feed_id: str = "") -> None:
+def post_comment_current(page: Page, content: str, *, feed_id: str = "") -> dict:
     """Post a comment on the detail page that is already open."""
     _check_page_accessible(page)
 
@@ -58,11 +59,7 @@ def post_comment_current(page: Page, content: str, *, feed_id: str = "") -> None
     page.input_content_editable(COMMENT_INPUT_FIELD, content)
     sleep_random(600, 1200)
 
-    # 点击提交
-    page.click_element(COMMENT_SUBMIT_BUTTON)
-    sleep_random(800, 1500)
-
-    logger.info("评论发送成功: feed=%s", feed_id)
+    return submit_comment_with_receipt(page, feed_id=feed_id, content=content)
 
 
 def reply_comment(

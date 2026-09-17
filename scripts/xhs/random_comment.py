@@ -205,7 +205,9 @@ def random_comment(
                 content=item["content"],
             )
             attempted = True
-            send_comment(page, feed.id, feed.xsec_token, item["content"])
+            receipt = send_comment(page, feed.id, feed.xsec_token, item["content"])
+            if isinstance(receipt, dict):
+                item["platform_receipt"] = receipt
             item.update(status="success", message="评论发送成功", success=True)
             emit_progress(
                 "platform_submitted",

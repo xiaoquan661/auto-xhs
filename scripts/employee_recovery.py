@@ -3,7 +3,32 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
+
+READ_COMMANDS = {"browser-snapshot", "list-feeds", "get-feed-detail", "search-feeds",
+                 "private-message-context", "collect-operations-metrics",
+                 "collect-note-comments", "collect-private-messages"}
+
+
+def start_step(root: Path, request: Path, args: list[str]) -> None:
+    path = root / "step-progress.json"
+    progress = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    progress[request.name] = {
+        "command": args[0] if args else "", "args": args, "state": "RUNNING",
+        "started_at": datetime.now(UTC).isoformat(),
+    }
+    path.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def can_resume(root: Path) -> bool:
+    path = root / "step-progress.json"
+    progress = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return all(
+        row.get("command") in READ_COMMANDS
+        or (row.get("state") == "COMPLETED" and not row.get("recovery"))
+        for row in progress.values()
+    )
 
 
 def recovery_for(payload: dict, exit_code: int) -> dict:
@@ -69,6 +94,9 @@ def record_progress(
         "exit_code": exit_code,
         "output_file": str(output),
         "recovery": recovery,
+        "args": args,
+        "state": "COMPLETED" if not recovery else "NEEDS_RECOVERY",
+        "finished_at": datetime.now(UTC).isoformat(),
     }
     progress_file.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
     if recovery:

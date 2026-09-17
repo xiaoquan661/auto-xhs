@@ -14,6 +14,39 @@ FOLLOW_BUTTON = ".xhs-user-follow-area button.follow-button"
 FOLLOWABLE_STATES = {"关注", "回关"}
 FOLLOWING_STATES = {"已关注", "互相关注"}
 
+
+def _detail_state(page: Page, user_id: str) -> dict | None:
+    raw = page.evaluate(r"""
+(() => {
+ const platform = location.hostname.endsWith('rednote.com') ? 'rednote' : 'xiaohongshu';
+ const match = location.pathname.match(/\/(?:explore|discovery\/item)\/([^/]+)/);
+ if (!match) return JSON.stringify({});
+ const map = window.__INITIAL_STATE__?.note?.noteDetailMap || {};
+ const entry = map[match[1]];
+ const note = entry?.note || entry?.value?.note || entry?._value?.note;
+ const user = note?.user || {};
+ const selectors = {
+  xiaohongshu: '.note-detail-follow-btn button.follow-button',
+  rednote: '.author-container .follow-btn, .author-container button.follow-button'
+ };
+ const button = Array.from(document.querySelectorAll(selectors[platform]))
+  .find(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0);
+ if (!button || !user.userId) return JSON.stringify({});
+ button.setAttribute('data-xhs-detail-follow', user.userId);
+ return JSON.stringify({detail_user_id:user.userId,nickname:user.nickname || '',
+  button_text:button.innerText.trim(),platform,source:'note_detail'});
+})()
+""")
+    data = json.loads(raw or "{}")
+    if not data.get("detail_user_id"):
+        return None
+    if data["detail_user_id"] != user_id:
+        raise FollowUnavailableError("当前笔记作者与关注目标不一致，请打开目标笔记详情")
+    text = str(data.get("button_text") or "").strip()
+    return {**data, "user_id": user_id, "following": text in FOLLOWING_STATES,
+            "can_follow": text in FOLLOWABLE_STATES,
+            "button_selector": f'[data-xhs-detail-follow="{user_id}"]'}
+
 _READ_PROFILE_JS = f"""
 (() => {{
     const state = window.__INITIAL_STATE__ || {{}};
@@ -58,6 +91,11 @@ def inspect_follow_target(page: Page, user_id: str, xsec_token: str) -> dict:
 
     user_id = str(user_id or "").strip()
     xsec_token = str(xsec_token or "").strip()
+    detail = _detail_state(page, user_id)
+    if detail is not None:
+        return detail
+    if getattr(page, "platform", None) == "rednote":
+        raise FollowUnavailableError("请在 RedNote 笔记详情页通过截图定位关注控件")
     if not user_id or not xsec_token:
         raise FollowUnavailableError("关注预览必须包含用户 ID 和 XSEC Token")
     page.navigate(make_user_profile_url(user_id, xsec_token))
@@ -83,10 +121,16 @@ def follow_user(page: Page, user_id: str, xsec_token: str) -> dict:
             f"目标主页当前不能关注，按钮状态为 {before['button_text'] or '未找到'}"
         )
 
-    page.click_element(FOLLOW_BUTTON)
+    page.click_element(before.get("button_selector", FOLLOW_BUTTON))
     deadline = time.monotonic() + 6.0
     while time.monotonic() < deadline:
-        current = _read_current_state(page, user_id)
+        current = (
+            _detail_state(page, user_id)
+            if before.get("source") == "note_detail"
+            else _read_current_state(page, user_id)
+        )
+        if current is None:
+            raise FollowResultUnknownError()
         if current["following"]:
             return {
                 "success": True,

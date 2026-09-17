@@ -7,6 +7,34 @@ from xhs.types import ActionResult, Feed, InteractInfo, NoteCard, User
 from xhs.urls import HOME_URL
 
 
+def test_rednote_discovery_cards_are_browse_candidates() -> None:
+    from xhs.browse_like import _browse_candidates, _card_selector, _open_from_feed
+
+    class RedNotePage(FakePage):
+        def has_element(self, selector: str) -> bool:
+            if "/discovery/item/feed-1" in selector:
+                return True
+            return super().has_element(selector) if not selector.startswith("a[") else False
+
+        def click_element(self, selector: str) -> None:
+            assert "/discovery/item/feed-1" in selector
+            self.clicked.append(selector)
+            self.current_feed = "feed-1"
+            self.url = "https://www.rednote.com/discovery/item/feed-1"
+
+    page = RedNotePage()
+    feed = _feed(1)
+    with (
+        patch("xhs.browse_like.extract_current_feeds", return_value=[feed]),
+        patch("xhs.browse_like.time.sleep"),
+    ):
+        assert _browse_candidates(page, set()) == [feed]
+        assert _browse_candidates(page, {"feed-1"}) == []
+        _open_from_feed(page, feed)
+    assert page.clicked == [_card_selector(feed.id)]
+    assert page.navigate_calls == []
+
+
 def _feed(index: int) -> Feed:
     return Feed(
         id=f"feed-{index}",

@@ -825,12 +825,18 @@ async function cmdNavigate({ url, _retried = false, _tab_id = null }) {
   if (reuse) {
     // Reuse the ready recommendation page or note across business steps.
   } else if (isOnSamePlatform) {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      world: "MAIN",
-      func: (targetUrl) => { window.location.href = targetUrl; },
-      args: [url],
-    });
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: (targetUrl) => { window.location.href = targetUrl; },
+        args: [url],
+      });
+    } catch (error) {
+      if (!/showing error page/i.test(String(error?.message || error))) throw error;
+      // Chrome 错误页不能注入脚本，通过标签导航恢复目标页面。
+      await chrome.tabs.update(tab.id, { url });
+    }
   } else {
     await chrome.tabs.update(tab.id, { url });
   }

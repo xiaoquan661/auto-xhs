@@ -14,6 +14,10 @@ metadata:
 
 # 小红书社交互动
 
+主动评论由 post-comment 提前监听短时平台提示。返回 confirmation_source=platform_success_notice
+即确认成功，将 platform_receipt 保存至执行结果。发送后不滚动查找自己的评论；监听8秒无明确
+提示则保留 RESULT_UNKNOWN，不重复发送。
+
 只通过本项目的 `python scripts/cli.py` 执行互动。
 
 ## 版本状态

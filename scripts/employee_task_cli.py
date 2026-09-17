@@ -29,6 +29,18 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
     task = read_object(root / "task.json")
     request = read_object(request_file)
     args = request.get("args")
+    from employee_recovery import READ_COMMANDS, start_step
+
+    progress_path = root / "step-progress.json"
+    progress = read_object(progress_path) if progress_path.exists() else {}
+    previous = progress.get(request_file.name) or {}
+    if (isinstance(args, list) and args and args[0] not in READ_COMMANDS
+            and previous.get("args") == args):
+        if previous.get("state") == "COMPLETED":
+            return int(previous.get("exit_code") or 0)
+        if previous.get("state") in {"RUNNING", "NEEDS_RECOVERY"}:
+            # Retain the original submission evidence rather than resending it.
+            return 2
     output = request_file.with_suffix(".output.json")
     error = request_file.with_suffix(".stderr.txt")
     old_argv = sys.argv
@@ -61,7 +73,27 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
                 ):
                     raise ValueError("普通任务复用绑定身份；身份检查请由用户单独发起")
                 sys.argv = ["cli", "--account", task["account_slot"], *args]
-                cli_main()
+                start_step(root, request_file, args)
+                try:
+                    cli_main()
+                except SystemExit as exc:
+                    code = int(exc.code or 0)
+                out.flush()
+                first = output.read_text(encoding="utf-8")
+                try:
+                    error_text = str(json.loads(first).get("error") or "")
+                except ValueError:
+                    error_text = first
+                if (code and args[0] in {"browser-snapshot", "list-feeds", "get-feed-detail"}
+                        and any(t in error_text for t in (
+                            "页面已变化", "截图步骤超时", "导航超时"))):
+                    request_file.with_suffix(".attempt1.output.json").write_text(
+                        first, encoding="utf-8"
+                    )
+                    out.seek(0)
+                    out.truncate()
+                    code = 0
+                    cli_main()
             except SystemExit as exc:
                 code = int(exc.code or 0)
             except Exception as exc:

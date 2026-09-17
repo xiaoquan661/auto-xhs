@@ -82,6 +82,26 @@ def test_follow_user_is_idempotent_when_already_following() -> None:
     assert result["changed"] is False
 
 
+def test_follow_from_detail_stays_on_note() -> None:
+    page = FakePage([
+        {**_state("关注"), "detail_user_id": "user-1", "source": "note_detail"},
+        {**_state("已关注"), "detail_user_id": "user-1", "source": "note_detail"},
+    ])
+    result = follow_user(page, "user-1", "")
+    assert page.navigated == ""
+    assert page.clicked == ['[data-xhs-detail-follow="user-1"]']
+    assert result["changed"] is True
+
+
+def test_rednote_without_detail_does_not_navigate_to_profile() -> None:
+    page = FakePage([{}])
+    page.platform = "rednote"
+    with pytest.raises(FollowUnavailableError, match="RedNote"):
+        follow_user(page, "user-1", "token")
+    assert page.navigated == ""
+    assert page.clicked == []
+
+
 def test_follow_user_rejects_unrecognized_state_before_click() -> None:
     page = FakePage([_state("发消息")])
 

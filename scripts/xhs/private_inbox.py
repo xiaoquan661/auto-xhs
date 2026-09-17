@@ -10,6 +10,14 @@ from collection_coverage import collection_window
 from metric_temporality import display_date, event_day
 
 from .direct_message import CHAT_URL, _read_chat
+from .errors import XHSError
+
+
+class PrivateHistoryOwnerMismatchError(XHSError):
+    """私信客户端数据与槽位绑定账号不一致。"""
+
+    code = "PRIVATE_HISTORY_OWNER_MISMATCH"
+    result_unknown = False
 
 _READ_CONVERSATIONS_JS = r"""
 (() => Array.from(document.querySelectorAll('.xhs-im-conv-item'))
@@ -42,6 +50,7 @@ def collect_private_messages(
     *,
     max_conversations: int = 20,
     context_limit: int = 10,
+    expected_owner_uid: str = "",
 ) -> dict:
     """Read latest peer-authored text from visible one-to-one conversations."""
 
@@ -143,6 +152,12 @@ def collect_private_messages(
         native_history = {"available": False, "reason": str(exc)}
     if not isinstance(native_history, dict):
         native_history = {"available": False, "reason": "私信客户端未返回有效结果"}
+    owner_uid = str(native_history.get("owner_uid") or "")
+    if expected_owner_uid and owner_uid and owner_uid != expected_owner_uid:
+        raise PrivateHistoryOwnerMismatchError(
+            f"私信数据所属账号 {owner_uid} 与槽位绑定账号 {expected_owner_uid} 不一致；"
+            "本批数据未入库，请核对当前消息页的账号环境"
+        )
     native_events = []
     native_missing = 0
     if isinstance(native_history, dict) and native_history.get("available"):

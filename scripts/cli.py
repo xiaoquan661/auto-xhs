@@ -878,8 +878,7 @@ def cmd_post_comment(args: argparse.Namespace) -> None:
 
     browser, page = _connect(args)
     try:
-        post_comment(page, args.feed_id, args.xsec_token, args.content)
-        _output({"success": True, "message": "评论发送成功"})
+        _output(post_comment(page, args.feed_id, args.xsec_token, args.content))
     finally:
         browser.close()
 
