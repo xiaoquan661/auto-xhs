@@ -78,8 +78,13 @@ def home_engagement(
         if checkpoint_path is None:
             return
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"items": items, "current_item": current, "skipped_items": skipped,
-                   "liked": liked_count, "stop_reason": stopped_by}
+        payload = {
+            "items": items,
+            "current_item": current,
+            "skipped_items": skipped,
+            "liked": liked_count,
+            "stop_reason": stopped_by,
+        }
         temporary = checkpoint_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(checkpoint_path)
@@ -119,7 +124,9 @@ def home_engagement(
             checkpoint({**item, "browse": {"status": "running", "message": "正在阅读"}})
             try:
                 item["read_seconds"] = reader(
-                    page, random.uniform(min_read_seconds, max_read_seconds), deadline,
+                    page,
+                    random.uniform(min_read_seconds, max_read_seconds),
+                    deadline,
                 )
             except XHSError as exc:
                 try:
@@ -130,11 +137,14 @@ def home_engagement(
                     if feed.id not in str(page.evaluate("window.location.href")):
                         raise XHSError("页面已离开当前笔记，保留进度等待恢复")
                     item["read_seconds"] = reader(
-                        page, random.uniform(min_read_seconds, max_read_seconds), deadline,
+                        page,
+                        random.uniform(min_read_seconds, max_read_seconds),
+                        deadline,
                     )
                 except XHSError as recovery_error:
-                    skipped.append({"feed_id": feed.id, "status": "failed",
-                                    "message": str(recovery_error)})
+                    skipped.append(
+                        {"feed_id": feed.id, "status": "failed", "message": str(recovery_error)}
+                    )
                     stopped_by = "reading_interrupted"
                     checkpoint()
                     break
@@ -152,8 +162,9 @@ def home_engagement(
                     time.sleep(wait_seconds)
             item["pacing_wait_seconds"] = round(wait_seconds, 2)
             if like_due and pacing.remaining_seconds == 0 and time.monotonic() < deadline:
-                checkpoint({**item, "like": {"status": "result_unknown",
-                                             "message": "点赞调用待回读"}})
+                checkpoint(
+                    {**item, "like": {"status": "result_unknown", "message": "点赞调用待回读"}}
+                )
                 attempted_like = True
                 item["next_like_interval_seconds"] = pacing.record_attempt()
                 try:
@@ -180,7 +191,9 @@ def home_engagement(
                         "success": False,
                         "platform_readback": False,
                     }
-                    stopped_by = "like_result_unknown" if result_unknown else "like_state_unavailable"
+                    stopped_by = (
+                        "like_result_unknown" if result_unknown else "like_state_unavailable"
+                    )
 
             checkpoint(item)
             try:

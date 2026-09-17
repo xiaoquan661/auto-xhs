@@ -7,7 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import requests
-
 from service_errors import ServiceError
 
 
@@ -19,11 +18,11 @@ class ReplyModelConfig:
     timeout_seconds: float = 60.0
 
     @classmethod
-    def from_environment(cls) -> "ReplyModelConfig":
+    def from_environment(cls) -> ReplyModelConfig:
         return cls.from_sources()
 
     @classmethod
-    def from_sources(cls, stored: dict | None = None) -> "ReplyModelConfig":
+    def from_sources(cls, stored: dict | None = None) -> ReplyModelConfig:
         """Load WebUI settings first and environment values as fallback."""
         saved = stored or {}
         timeout_text = str(

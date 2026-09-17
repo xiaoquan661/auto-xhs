@@ -1094,24 +1094,31 @@ class ApplicationService(ApplicationMemory):
         memory_identity = (parameters.get("memory_context") or {}).get("identity") or {}
         live_uid = _execution_uid(status.get("identity") or {})
         if memory_identity.get("uid") and (
-            memory_identity["uid"] != live_uid
-            or memory_identity.get("platform") != task_platform
+            memory_identity["uid"] != live_uid or memory_identity.get("platform") != task_platform
         ):
             task = self.tasks.transition(
-                task_id, "BLOCKED", error_code="MEMORY_IDENTITY_MISMATCH",
+                task_id,
+                "BLOCKED",
+                error_code="MEMORY_IDENTITY_MISMATCH",
                 recommended_action="当前账号身份与任务记忆不一致，请核对账号后重新下发任务",
             )
             self._record_task_event(task, target_key)
             return {"success": True, "task": task}
         if task["capability"] == "random-comment" and live_uid and not memory_identity:
             _, context = self.reply_memory_context(
-                {"event_id": task_id, "account_slot": task["account_slot"],
-                 "platform": task_platform, "payload": {"content": parameters.get("keyword", "")}},
+                {
+                    "event_id": task_id,
+                    "account_slot": task["account_slot"],
+                    "platform": task_platform,
+                    "payload": {"content": parameters.get("keyword", "")},
+                },
                 live_uid,
             )
             from memory_context import ordered_context
 
-            parameters["memory_context"] = ordered_context(context, {**task, "parameters": parameters})
+            parameters["memory_context"] = ordered_context(
+                context, {**task, "parameters": parameters}
+            )
         persona_snapshot = task.get("persona_snapshot")
         if isinstance(persona_snapshot, dict) and persona_snapshot:
             parameters["persona_context"] = dict(persona_snapshot)
@@ -1162,7 +1169,8 @@ class ApplicationService(ApplicationMemory):
             from operations_policy import check_daily_context
 
             check_daily_context(
-                parameters, account=task["account_slot"],
+                parameters,
+                account=task["account_slot"],
                 current_uid=_execution_uid(status.get("identity") or {}),
             )
             self._check_account_operations(
@@ -1212,7 +1220,8 @@ class ApplicationService(ApplicationMemory):
             return {"success": True, "task": terminated}
         if task["capability"] in {"fill-publish", "fill-publish-video"}:
             prepared = self.publish_workflows.wait_for_confirmation(
-                task_id, summary="发布内容已填写，正在正式发布",
+                task_id,
+                summary="发布内容已填写，正在正式发布",
             )
             publish_attempted = False
             try:
@@ -1220,19 +1229,23 @@ class ApplicationService(ApplicationMemory):
                 preview = (prepared.get("parameters") or {}).get("preview") or {}
                 publish_attempted = True
                 result = self.runner.execute(
-                    task["account_slot"], "click-publish",
+                    task["account_slot"],
+                    "click-publish",
                     {"expected_title": str(preview.get("title") or "")},
                 )
             except Exception as exc:
                 completed = self.publish_workflows.fail(
-                    task_id, exc,
+                    task_id,
+                    exc,
                     result_unknown=publish_attempted and getattr(exc, "result_unknown", True),
                 )
                 return {"success": False, "task": completed, "status": completed["state"]}
             completed = self.publish_workflows.complete_publish(task_id, result)
             return {
-                "success": completed["state"] == "SUCCESS", "task": completed,
-                "result": result, "status": completed["state"],
+                "success": completed["state"] == "SUCCESS",
+                "task": completed,
+                "result": result,
+                "status": completed["state"],
             }
         if task["capability"] == "collect-note-comments":
             collected = self.comment_collector.ingest(
@@ -1270,7 +1283,9 @@ class ApplicationService(ApplicationMemory):
             )
             result = {**result, "snapshots": snapshots}
         if task["capability"] in {
-            "collect-note-comments", "collect-private-messages", "collect-operations-metrics"
+            "collect-note-comments",
+            "collect-private-messages",
+            "collect-operations-metrics",
         }:
             from collection_coverage import observations_for_result
 
@@ -1280,7 +1295,8 @@ class ApplicationService(ApplicationMemory):
             saved_observations = []
             for observation in observations:
                 saved = self.inbound_events.record(
-                    account_slot=task["account_slot"], platform=task["platform"],
+                    account_slot=task["account_slot"],
+                    platform=task["platform"],
                     event_type=observation["event_type"],
                     platform_event_id=observation["platform_event_id"],
                     occurred_at=observation.get("occurred_at") or captured_at,
@@ -1288,10 +1304,10 @@ class ApplicationService(ApplicationMemory):
                     classification="collection_statistics",
                 )["event"]
                 saved_observations.append(self.inbound_events.ignore(saved["event_id"]))
-            partial = bool(result.get("partial") or
-                           (result.get("growth_notifications") or {}).get("partial"))
-            result = {**result, "collection_observations": saved_observations,
-                      "partial": partial}
+            partial = bool(
+                result.get("partial") or (result.get("growth_notifications") or {}).get("partial")
+            )
+            result = {**result, "collection_observations": saved_observations, "partial": partial}
         missing_reply_readback = task.get("operation") == "automatic_reply" and not result.get(
             "readback"
         )
@@ -1759,7 +1775,8 @@ class ApplicationService(ApplicationMemory):
             and draft.get("action_type") == reply_action
         ][:20]
         generation = self.generate_reply_with_memory(
-            event, verified_uid,
+            event,
+            verified_uid,
             account_profile=account_profile,
             knowledge=knowledge,
             reply_style=reply_style,
@@ -2194,7 +2211,8 @@ class ApplicationService(ApplicationMemory):
                 "private_message": "private_message",
             }
             event_types = {
-                allowed_event_types[channel] for channel in selected_channels
+                allowed_event_types[channel]
+                for channel in selected_channels
                 if rule["enabled"] and rule[f"{channel}_enabled"]
             }
             events = [
@@ -2242,15 +2260,14 @@ class ApplicationService(ApplicationMemory):
 
             reply_task_ids = {item.get("reply_task_id") for item in decisions}
             reply_records = [
-                item for item in self.reply_records.list(account_slot=account_slot)
+                item
+                for item in self.reply_records.list(account_slot=account_slot)
                 if item.get("reply_task_id") in reply_task_ids
             ]
             return {
                 "success": True,
                 "state": finished["result_state"],
-                "incremental_data": cycle_observations(
-                    finished, collection_results, reply_records
-                ),
+                "incremental_data": cycle_observations(finished, collection_results, reply_records),
                 "cycle": finished,
                 "collection_results": collection_results,
                 "decisions": decisions,
@@ -2297,7 +2314,8 @@ class ApplicationService(ApplicationMemory):
         ]
         try:
             generation = self.generate_reply_with_memory(
-                event, verified_uid,
+                event,
+                verified_uid,
                 account_profile=str(rule.get("account_profile") or ""),
                 knowledge=str(rule.get("knowledge") or ""),
                 reply_style=str(rule.get("reply_style") or "natural"),
@@ -3061,16 +3079,20 @@ class ApplicationService(ApplicationMemory):
         captured_at = str(result.get("captured_at") or "")
         source = str(result.get("source") or "user_profile")
         account = result.get("account") or {}
-        account_snapshot = self.metrics.record_snapshot(
-            account_slot=account_slot,
-            platform=platform,
-            entity_type="account",
-            entity_id=str(account.get("entity_id") or account_slot),
-            captured_at=captured_at,
-            source=source,
-            metrics=account.get("metrics") or {},
-            extra=account.get("extra") or {},
-        ) if account else None
+        account_snapshot = (
+            self.metrics.record_snapshot(
+                account_slot=account_slot,
+                platform=platform,
+                entity_type="account",
+                entity_id=str(account.get("entity_id") or account_slot),
+                captured_at=captured_at,
+                source=source,
+                metrics=account.get("metrics") or {},
+                extra=account.get("extra") or {},
+            )
+            if account
+            else None
+        )
         note_snapshots = [
             self.metrics.record_snapshot(
                 account_slot=account_slot,
@@ -3399,7 +3421,7 @@ class ApplicationService(ApplicationMemory):
             page_args.pop("platform")
             page = self._page_factory(bridge_url or config.bridge_url, **page_args)
         if not hasattr(page, "platform"):
-            setattr(page, "platform", platform)
+            page.platform = platform
         return page
 
     def _validate_publish_confirmation_identity(

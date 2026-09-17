@@ -53,8 +53,8 @@ class PublishedPostService:
         )
         if not published_at and state == "SUCCESS":
             published_at = str(task.get("finished_at") or "")
-        readback_state = "VERIFIED" if state == "SUCCESS" else (
-            "OBSERVED" if readback else "MISSING"
+        readback_state = (
+            "VERIFIED" if state == "SUCCESS" else ("OBSERVED" if readback else "MISSING")
         )
         now = utc_now()
         published_post_id = uuid.uuid4().hex
@@ -110,7 +110,11 @@ class PublishedPostService:
                     ),
                     str(preview.get("draft_id") or parameters.get("draft_id") or ""),
                     str(preview.get("draft_revision") or parameters.get("draft_revision") or ""),
-                    str(preview.get("source_content_id") or parameters.get("source_content_id") or ""),
+                    str(
+                        preview.get("source_content_id")
+                        or parameters.get("source_content_id")
+                        or ""
+                    ),
                     platform_post_id,
                     stable_url,
                     str(preview.get("title") or ""),
@@ -181,8 +185,6 @@ class PublishedPostService:
     @staticmethod
     def _decode(row: dict) -> dict:
         decoded = dict(row)
-        decoded["platform_result"] = json.loads(
-            decoded.pop("platform_result_json") or "{}"
-        )
+        decoded["platform_result"] = json.loads(decoded.pop("platform_result_json") or "{}")
         decoded["readback"] = json.loads(decoded.pop("readback_json") or "{}")
         return decoded

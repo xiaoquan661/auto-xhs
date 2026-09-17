@@ -217,8 +217,7 @@ def _qrcode_fallback(browser, page, args: argparse.Namespace) -> None:
         "qrcode_path": qrcode_path,
         "qrcode_image_url": image_url,
         "message": (
-            "验证码发送受限，已切换为二维码登录，请扫码。"
-            "扫码后运行 wait-login 等待登录结果。"
+            "验证码发送受限，已切换为二维码登录，请扫码。扫码后运行 wait-login 等待登录结果。"
         ),
     }
     if login_url:
@@ -235,8 +234,15 @@ def cmd_check_login(args: argparse.Namespace) -> None:
     try:
         identity = get_current_user_identity(page)
         if identity.get("error"):
-            _output({"success": False, "logged_in": None, "identity": identity,
-                     "error": identity["error"]}, exit_code=2)
+            _output(
+                {
+                    "success": False,
+                    "logged_in": None,
+                    "identity": identity,
+                    "error": identity["error"],
+                },
+                exit_code=2,
+            )
             return
         result = {
             "logged_in": identity.get("logged_in"),
@@ -318,9 +324,7 @@ def cmd_wait_login(args: argparse.Namespace) -> None:
             {
                 "logged_in": success,
                 "message": (
-                    "登录成功"
-                    if success
-                    else "等待超时，请重新运行 get-qrcode 获取新二维码"
+                    "登录成功" if success else "等待超时，请重新运行 get-qrcode 获取新二维码"
                 ),
             },
             exit_code=0 if success else 2,
@@ -367,13 +371,15 @@ def cmd_send_code(args: argparse.Namespace) -> None:
         if not sent:
             _output({"logged_in": True, "message": "已登录，无需重新登录"})
             return
-        _output({
-            "status": "code_sent",
-            "message": (
-                f"验证码已发送至 {args.phone[:3]}****{args.phone[-4:]}，"
-                "请运行 verify-code --code <验证码>"
-            ),
-        })
+        _output(
+            {
+                "status": "code_sent",
+                "message": (
+                    f"验证码已发送至 {args.phone[:3]}****{args.phone[-4:]}，"
+                    "请运行 verify-code --code <验证码>"
+                ),
+            }
+        )
     except RateLimitError:
         _qrcode_fallback(browser, page, args)
     finally:
@@ -533,7 +539,9 @@ def cmd_home_engagement(args: argparse.Namespace) -> None:
             checkpoint_path=(
                 Path(os.environ["XHS_EXECUTION_TRACE_FILE"]).with_suffix(".progress.json")
                 if os.environ.get("XHS_EXECUTION_TRACE_FILE")
-                else account_dir(args.account) / "home-engagement-progress" / f"{uuid.uuid4().hex}.json"
+                else account_dir(args.account)
+                / "home-engagement-progress"
+                / f"{uuid.uuid4().hex}.json"
             ),
         )
         _output(result, exit_code=0 if result.get("success") else 2)
@@ -1064,7 +1072,10 @@ def cmd_fill_publish_video(args: argparse.Namespace) -> None:
 
 
 def _publish_prepared_form(
-    workflow: PublishWorkflowService, task: dict, page: BridgePage, account: str,
+    workflow: PublishWorkflowService,
+    task: dict,
+    page: BridgePage,
+    account: str,
 ) -> None:
     """在已绑定的发布页面提交一次并记录平台回读。"""
     from xhs.publish import click_publish_button
@@ -1079,8 +1090,13 @@ def _publish_prepared_form(
         raise
     task = workflow.complete_publish(task["task_id"], result)
     _output(
-        {"success": task["state"] == "SUCCESS", "task_id": task["task_id"],
-         "task": task, "result": result, "status": task["state"]},
+        {
+            "success": task["state"] == "SUCCESS",
+            "task_id": task["task_id"],
+            "task": task,
+            "result": result,
+            "status": task["state"],
+        },
         exit_code=0 if task["state"] == "SUCCESS" else 2,
     )
 
@@ -1088,8 +1104,8 @@ def _publish_prepared_form(
 def cmd_click_publish(args: argparse.Namespace) -> None:
     """继续已准备完成的发布任务并回读结果。"""
     from publish_workflow import PublishWorkflowService
-    from xhs.publish import click_publish_button
     from xhs.errors import PublishError
+    from xhs.publish import click_publish_button
 
     workflow = PublishWorkflowService()
     task = workflow.prepare_publish(
@@ -1332,7 +1348,10 @@ def cmd_diagnose_404(args: argparse.Namespace) -> None:
             diag = ev.get("diagnosis", {})
             logger.info(
                 "[%d] %s %s → HTTP %s",
-                i, ev.get("method", "?"), ev.get("url", "?")[:80], ev.get("status", "?"),
+                i,
+                ev.get("method", "?"),
+                ev.get("url", "?")[:80],
+                ev.get("status", "?"),
             )
             logger.info("    根因: %s", diag.get("root_cause", "未知"))
             logger.info("    详情: %s", diag.get("detail", "")[:120])
@@ -1350,8 +1369,10 @@ def cmd_diagnose_404(args: argparse.Namespace) -> None:
             req = ev.get("request", {})
             logger.info(
                 "    凭证: web_session=%s a1=%s xs=%s xsec_token=%s",
-                cookies.get("has_web_session"), cookies.get("has_a1"),
-                req.get("has_xs"), bool(req.get("xsec_token")),
+                cookies.get("has_web_session"),
+                cookies.get("has_a1"),
+                req.get("has_xs"),
+                bool(req.get("xsec_token")),
             )
             logger.info("─" * 60)
 
@@ -1389,19 +1410,31 @@ def cmd_get_netlog(args: argparse.Namespace) -> None:
     browser, page = _connect(args)
     try:
         if not page.get_netlog_enabled():
-            print(json.dumps({
-                "error": "netlogger 未启用",
-                "hint": "请打开扩展 popup，标题 XHS Bridge 连点 5 次激活 NetLog 后重试",
-            }, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "error": "netlogger 未启用",
+                        "hint": "请打开扩展 popup，标题 XHS Bridge 连点 5 次激活 NetLog 后重试",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             sys.exit(2)
 
         entries = page.get_netlog()
         if args.limit:
-            entries = entries[-args.limit:]
-        print(json.dumps({
-            "total": len(entries),
-            "entries": entries,
-        }, ensure_ascii=False, indent=2))
+            entries = entries[-args.limit :]
+        print(
+            json.dumps(
+                {
+                    "total": len(entries),
+                    "entries": entries,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     finally:
         browser.close()
 
@@ -1413,10 +1446,16 @@ def cmd_risk_report(args: argparse.Namespace) -> None:
     browser, page = _connect(args)
     try:
         if not page.get_netlog_enabled():
-            print(json.dumps({
-                "error": "netlogger 未启用",
-                "hint": "请打开扩展 popup，标题 XHS Bridge 连点 5 次激活 NetLog 后重试",
-            }, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "error": "netlogger 未启用",
+                        "hint": "请打开扩展 popup，标题 XHS Bridge 连点 5 次激活 NetLog 后重试",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             sys.exit(2)
 
         entries = page.get_netlog()
@@ -1476,16 +1515,14 @@ def cmd_account_onboard(args: argparse.Namespace) -> None:
         extension_source = Path(__file__).parent.parent / "extension"
         config = add_account(
             args.name,
-                platform=getattr(args, "platform", "xiaohongshu"),
+            platform=getattr(args, "platform", "xiaohongshu"),
             bridge_port=args.port,
             extension_source=extension_source,
         )
         created = True
 
     if config.extension_instance_id:
-        raise RuntimeError(
-            f"账号 {config.name!r} 已完成扩展配对；请保持对应 Chrome Profile 开启"
-        )
+        raise RuntimeError(f"账号 {config.name!r} 已完成扩展配对；请保持对应 Chrome Profile 开启")
 
     _ensure_bridge_ready(config.bridge_url, config)
     pairing = create_pairing_session(config, ttl_seconds=args.ttl)
@@ -1500,14 +1537,11 @@ def cmd_account_onboard(args: argparse.Namespace) -> None:
         "pairing_bundle_copied": copied,
         "extension_dir": config.extension_dir,
         "instruction": (
-            "请手动打开目标 Chrome Profile，并在 XHS Bridge 弹窗中"
-            "粘贴剪贴板内容并确认配对"
+            "请手动打开目标 Chrome Profile，并在 XHS Bridge 弹窗中粘贴剪贴板内容并确认配对"
             if copied
             else "剪贴板不可用；复制输出中的 pairing_bundle 到目标扩展弹窗"
         ),
-        "next_step": (
-            f"python scripts/cli.py --account {config.name} account-pair-status"
-        ),
+        "next_step": (f"python scripts/cli.py --account {config.name} account-pair-status"),
     }
     if args.show_bundle or not copied:
         result["pairing_bundle"] = pairing_bundle
@@ -1624,8 +1658,7 @@ def cmd_account_start(args: argparse.Namespace) -> None:
                 "请先禁用或移除；加载通用扩展后在弹窗中完成账号配对"
             ),
             "pair_command": (
-                f"python scripts/cli.py --account {config.name} "
-                "account-pair-begin --confirm"
+                f"python scripts/cli.py --account {config.name} account-pair-begin --confirm"
             ),
         }
     _output(result, exit_code=0 if ready else 2)
@@ -1743,9 +1776,7 @@ def cmd_account_unpair(args: argparse.Namespace) -> None:
             "account": public_config(updated),
             "local_binding_cleared": local_binding_cleared,
             "bridge_stopped": bridge_stopped,
-            "message": (
-                "配对已撤销；如扩展当时离线，请在扩展弹窗点击“清除本地配对”"
-            ),
+            "message": ("配对已撤销；如扩展当时离线，请在扩展弹窗点击“清除本地配对”"),
         }
     )
 
@@ -1846,14 +1877,21 @@ def cmd_account_identity(args: argparse.Namespace) -> None:
     browser, _page, observed = _observe_login_identity(args)
     try:
         if observed.get("error"):
-            _output({"success": False, "account": args.account, "comparison": "unknown",
-                     "observed": observed, "error": observed["error"]}, exit_code=2)
+            _output(
+                {
+                    "success": False,
+                    "account": args.account,
+                    "comparison": "unknown",
+                    "observed": observed,
+                    "error": observed["error"],
+                },
+                exit_code=2,
+            )
             return
         if args.record:
             if load_switch_state(args.account):
                 raise RuntimeError(
-                    "账号正在换号，不能用 --record 绕过核验；"
-                    "请运行 account-switch-complete"
+                    "账号正在换号，不能用 --record 绕过核验；请运行 account-switch-complete"
                 )
             record_current_identity(
                 args.account,
@@ -1898,9 +1936,7 @@ def cmd_account_switch_begin(args: argparse.Namespace) -> None:
                 "switch": pending,
                 "logged_out": logged_out,
                 "business_tasks_blocked": True,
-                "next_step": (
-                    f"python scripts/cli.py --account {args.account} check-login"
-                ),
+                "next_step": (f"python scripts/cli.py --account {args.account} check-login"),
             }
         )
     finally:
@@ -2074,21 +2110,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.set_defaults(func=cmd_account_sync, requires_account_lock=False)
 
-    sub = subparsers.add_parser(
-        "account-pair-begin", help="生成通用扩展的一次性配对包"
-    )
+    sub = subparsers.add_parser("account-pair-begin", help="生成通用扩展的一次性配对包")
     sub.add_argument("--confirm", action="store_true", help="确认创建一次性配对会话")
     sub.add_argument("--ttl", type=int, default=300, help="配对包有效秒数（30-900）")
     sub.set_defaults(func=cmd_account_pair_begin, requires_account_lock=False)
 
-    sub = subparsers.add_parser(
-        "account-pair-status", help="查看通用扩展配对状态"
-    )
+    sub = subparsers.add_parser("account-pair-status", help="查看通用扩展配对状态")
     sub.set_defaults(func=cmd_account_pair_status, requires_account_lock=False)
 
-    sub = subparsers.add_parser(
-        "account-unpair", help="撤销通用扩展配对并轮换连接令牌"
-    )
+    sub = subparsers.add_parser("account-unpair", help="撤销通用扩展配对并轮换连接令牌")
     sub.add_argument("--confirm", action="store_true", help="确认撤销当前配对")
     sub.set_defaults(func=cmd_account_unpair, requires_account_lock=False)
 
@@ -2345,8 +2375,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--max-events", type=int, default=20)
     sub.add_argument("--max-notes", type=int, default=20)
     sub.add_argument("--max-conversations", type=int, default=20)
-    sub.add_argument("--inspection", action="store_true",
-                     help="同时采集粉丝和点赞；关闭回复时仍采集入站数据")
+    sub.add_argument(
+        "--inspection", action="store_true", help="同时采集粉丝和点赞；关闭回复时仍采集入站数据"
+    )
     sub.set_defaults(func=cmd_reply_cycle, requires_account_lock=False)
 
     sub = subparsers.add_parser(
@@ -2394,8 +2425,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="回收当前账号及自己笔记的运营指标快照",
     )
     sub.add_argument(
-        "--source", choices=["user_profile", "creator_manager", "notification_history"],
-        default="creator_manager", help="运营数据来源，默认创作中心笔记管理",
+        "--source",
+        choices=["user_profile", "creator_manager", "notification_history"],
+        default="creator_manager",
+        help="运营数据来源，默认创作中心笔记管理",
     )
     sub.add_argument("--note-id", action="append", default=[], help="指定已发布笔记，可重复")
     sub.add_argument("--owner-user-id", help="当前账号 UID；省略时从已核验身份读取")
@@ -2561,8 +2594,11 @@ def main() -> None:
             args.func(args)
     except Exception as e:
         logger.error("执行失败: %s", e, exc_info=True)
-        details = {key: getattr(e, key) for key in ("task_id", "click_result", "result_unknown")
-                   if hasattr(e, key)}
+        details = {
+            key: getattr(e, key)
+            for key in ("task_id", "click_result", "result_unknown")
+            if hasattr(e, key)
+        }
         _output({"success": False, "error": str(e), **details}, exit_code=2)
 
 

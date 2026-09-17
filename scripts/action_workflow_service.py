@@ -96,9 +96,7 @@ class ActionWorkflowService:
                 (account_slot,),
             )
         else:
-            rows = self.database.fetch_all(
-                "SELECT * FROM action_drafts ORDER BY updated_at DESC"
-            )
+            rows = self.database.fetch_all("SELECT * FROM action_drafts ORDER BY updated_at DESC")
         return [self._decode_draft(row) for row in rows]
 
     def update_draft(self, draft_id: str, *, target_id: str | None = None, payload=None) -> dict:
@@ -197,10 +195,14 @@ class ActionWorkflowService:
                 (now, approval_id),
             )
             connection.execute(
-                "UPDATE action_drafts SET state = 'APPROVED_FOR_EXECUTION', updated_at = ? WHERE draft_id = ?",
+                "UPDATE action_drafts SET state = 'APPROVED_FOR_EXECUTION', "
+                "updated_at = ? WHERE draft_id = ?",
                 (now, draft["draft_id"]),
             )
-        return {"approval": self.get_approval(approval_id), "draft": self.get_draft(draft["draft_id"])}
+        return {
+            "approval": self.get_approval(approval_id),
+            "draft": self.get_draft(draft["draft_id"]),
+        }
 
     def mark_execution_result(self, draft_id: str, task_state: str) -> dict:
         state = {
@@ -224,9 +226,10 @@ class ActionWorkflowService:
     def _validate(action_type: str, target_id: str, payload: dict) -> None:
         if action_type not in ACTION_TYPES:
             raise ServiceError("INVALID_ACTION_TYPE", "不支持的动作草稿类型")
-        if action_type in {"send-private-message", "follow-user", "invite-group-members"}:
-            if not target_id.strip():
-                raise ServiceError("INVALID_REQUEST", "动作必须包含明确目标")
+        if (action_type in {"send-private-message", "follow-user", "invite-group-members"}) and (
+            not target_id.strip()
+        ):
+            raise ServiceError("INVALID_REQUEST", "动作必须包含明确目标")
         if action_type == "send-private-message" and not str(payload.get("content") or "").strip():
             raise ServiceError("INVALID_REQUEST", "私信正文不能为空")
         if action_type == "update-profile" and not (payload.get("changes") or {}):

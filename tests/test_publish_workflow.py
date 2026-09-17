@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from product_store import ProductStore
 from publish_workflow import PublishWorkflowService
 from service_errors import ServiceError

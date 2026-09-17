@@ -4,13 +4,13 @@ import threading
 from types import SimpleNamespace
 
 import pytest
+from xhs.errors import CDPError
 
 from scripts.application_service import ApplicationService, ServiceError
 from scripts.business_runner import BusinessRunner
 from scripts.capability_registry import CAPABILITY_POLICIES
 from scripts.product_store import ProductStore
 from scripts.task_service import TaskService
-from xhs.errors import CDPError
 
 
 def _config(name: str = "alpha") -> SimpleNamespace:
@@ -411,9 +411,7 @@ def test_follow_user_is_agent_cli_only_and_executes_one_confirmed_target(tmp_pat
         )
     assert generic_draft.value.code == "AGENT_CLI_ONLY"
 
-    prepared = service.prepare_follow_user(
-        "alpha", user_id="user-1", xsec_token="token-1"
-    )
+    prepared = service.prepare_follow_user("alpha", user_id="user-1", xsec_token="token-1")
     assert prepared["draft"]["state"] == "DRAFT"
     assert prepared["preview"]["target_nickname"] == "目标博主"
 
@@ -485,9 +483,7 @@ def test_follow_user_direct_previews_and_executes_without_user_approval(tmp_path
         "identity": {"live_user_id": "owner-1"},
     }
 
-    result = service.follow_user_direct(
-        "alpha", user_id="user-1", xsec_token="token-1"
-    )
+    result = service.follow_user_direct("alpha", user_id="user-1", xsec_token="token-1")
 
     assert result["task"]["state"] == "SUCCESS"
     assert result["draft"]["state"] == "EXECUTED"
@@ -544,9 +540,7 @@ def test_explicit_personalized_private_messages_send_without_approval(tmp_path) 
     assert result["task"]["state"] == "SUCCESS"
     assert result["success_count"] == 2
     assert calls == ["user-1", "user-2"]
-    children = [
-        task for task in service.list_tasks()["tasks"] if task.get("parent_task_id")
-    ]
+    children = [task for task in service.list_tasks()["tasks"] if task.get("parent_task_id")]
     assert len(children) == 2
     assert all(task["state"] == "SUCCESS" for task in children)
 
@@ -625,17 +619,13 @@ def test_private_message_post_send_unknown_is_not_retried(tmp_path) -> None:
         raise PrivateMessageResultUnknownError()
 
     service = _ready_private_message_service(tmp_path, executor)
-    result = service.send_private_messages(
-        "alpha", recipients=[_private_recipient(1)]
-    )
+    result = service.send_private_messages("alpha", recipients=[_private_recipient(1)])
 
     assert result["task"]["state"] == "RESULT_UNKNOWN"
     assert result["items"][0]["state"] == "RESULT_UNKNOWN"
     assert calls == ["user-1"]
     with pytest.raises(ServiceError) as no_retry:
-        service.send_private_messages(
-            "alpha", resume_task_id=result["task"]["task_id"]
-        )
+        service.send_private_messages("alpha", resume_task_id=result["task"]["task_id"])
     assert no_retry.value.code == "NO_RETRYABLE_RECIPIENTS"
     assert calls == ["user-1"]
 
@@ -688,9 +678,7 @@ def test_private_message_resume_skips_success_and_result_unknown(tmp_path) -> No
         "RESULT_UNKNOWN",
     ]
 
-    resumed = service.send_private_messages(
-        "alpha", resume_task_id=first["task"]["task_id"]
-    )
+    resumed = service.send_private_messages("alpha", resume_task_id=first["task"]["task_id"])
 
     assert calls == ["user-1", "user-2", "user-3", "user-2"]
     assert [item["state"] for item in resumed["items"]] == [
@@ -698,9 +686,7 @@ def test_private_message_resume_skips_success_and_result_unknown(tmp_path) -> No
         "SUCCESS",
         "RESULT_UNKNOWN",
     ]
-    assert resumed["task"]["parameters"]["resume_from_task_id"] == first["task"][
-        "task_id"
-    ]
+    assert resumed["task"]["parameters"]["resume_from_task_id"] == first["task"]["task_id"]
 
 
 def test_private_message_resume_runs_batch_blocked_before_first_recipient(tmp_path) -> None:
@@ -731,17 +717,13 @@ def test_private_message_resume_runs_batch_blocked_before_first_recipient(tmp_pa
     )
     service.tasks.claim_for_execution(blocker["task_id"])
 
-    blocked = service.send_private_messages(
-        "alpha", recipients=[_private_recipient(1)]
-    )
+    blocked = service.send_private_messages("alpha", recipients=[_private_recipient(1)])
 
     assert blocked["task"]["state"] == "BLOCKED"
     assert calls == []
     service.tasks.transition(blocker["task_id"], "SUCCESS")
 
-    resumed = service.send_private_messages(
-        "alpha", resume_task_id=blocked["task"]["task_id"]
-    )
+    resumed = service.send_private_messages("alpha", resume_task_id=blocked["task"]["task_id"])
 
     assert resumed["task"]["state"] == "SUCCESS"
     assert calls == ["user-1"]
@@ -819,11 +801,16 @@ def test_guided_setup_starts_bridge_without_reopening_unpaired_existing_profile(
         account_loader=lambda *_args, **_kwargs: config,
         product_store=ProductStore(tmp_path / "product"),
         pairing_status_reader=lambda _account: {"paired": False, "pairing_pending": False},
-        pairing_bridge_starter=lambda item: calls.append(("bridge", item.name)) or {"bridge_running": True},
-        pairing_creator=lambda item, **_kwargs: calls.append(("pairing", item.name)) or {
-            "account": item.name,
-            "pairing_bundle": "xhs-pair-v1:test",
-        },
+        pairing_bridge_starter=lambda item: (
+            calls.append(("bridge", item.name)) or {"bridge_running": True}
+        ),
+        pairing_creator=lambda item, **_kwargs: (
+            calls.append(("pairing", item.name))
+            or {
+                "account": item.name,
+                "pairing_bundle": "xhs-pair-v1:test",
+            }
+        ),
         bridge_starter=lambda _item: (_ for _ in ()).throw(
             AssertionError("unpaired existing Profile must not enter joint Chrome launch")
         ),
@@ -969,9 +956,7 @@ def test_bound_account_stays_ready_after_explicit_uid_check(tmp_path) -> None:
     service = ApplicationService(
         account_loader=lambda *_args, **_kwargs: config,
         page_factory=StatusPage,
-        identity_loader=lambda _account: {
-            "current": {"user_id": "user-1", "nickname": "测试账号"}
-        },
+        identity_loader=lambda _account: {"current": {"user_id": "user-1", "nickname": "测试账号"}},
         identity_observer=lambda _page: {
             "logged_in": True,
             "user_id": "user-1",
@@ -1053,9 +1038,7 @@ def test_logged_out_identity_check_clears_stale_runtime_uid(tmp_path) -> None:
     service = ApplicationService(
         account_loader=lambda *_args, **_kwargs: config,
         page_factory=StatusPage,
-        identity_loader=lambda _account: {
-            "current": {"user_id": "user-1", "nickname": "旧账号"}
-        },
+        identity_loader=lambda _account: {"current": {"user_id": "user-1", "nickname": "旧账号"}},
         identity_observer=lambda _page: {"logged_in": False, "user_id": ""},
         product_store=store,
     )
@@ -1283,10 +1266,13 @@ def test_service_archives_slot_after_stopping_local_dependencies(tmp_path) -> No
         },
         bridge_stopper=lambda _config: calls.append("bridge") or {},
         pairing_revoker=lambda account: calls.append(f"pairing:{account}") or _config(),
-        account_archiver=lambda account: calls.append(f"archive:{account}") or {
-            "archive_id": "alpha-archive",
-            "archive_path": str(tmp_path / "archive"),
-        },
+        account_archiver=lambda account: (
+            calls.append(f"archive:{account}")
+            or {
+                "archive_id": "alpha-archive",
+                "archive_path": str(tmp_path / "archive"),
+            }
+        ),
         product_store=ProductStore(tmp_path / "product"),
     )
     queued = service.create_task(
@@ -1297,9 +1283,7 @@ def test_service_archives_slot_after_stopping_local_dependencies(tmp_path) -> No
         parameters={"keyword": "测试"},
     )["task"]
 
-    result = service.remove_account_slot(
-        "alpha", confirmed=True, confirmation_name="alpha"
-    )
+    result = service.remove_account_slot("alpha", confirmed=True, confirmation_name="alpha")
 
     assert result["archived"] is True
     assert result["cancelled_task_ids"] == [queued["task_id"]]
@@ -1319,9 +1303,7 @@ def test_service_refuses_slot_removal_for_wrong_name_or_running_task(tmp_path) -
     )
 
     with pytest.raises(ServiceError) as mismatch:
-        service.remove_account_slot(
-            "alpha", confirmed=True, confirmation_name="Alpha"
-        )
+        service.remove_account_slot("alpha", confirmed=True, confirmation_name="Alpha")
     assert mismatch.value.code == "CONFIRMATION_MISMATCH"
 
     task = service.create_task(
@@ -1333,9 +1315,7 @@ def test_service_refuses_slot_removal_for_wrong_name_or_running_task(tmp_path) -
     )["task"]
     service.tasks.transition(task["task_id"], "RUNNING")
     with pytest.raises(ServiceError) as busy:
-        service.remove_account_slot(
-            "alpha", confirmed=True, confirmation_name="alpha"
-        )
+        service.remove_account_slot("alpha", confirmed=True, confirmation_name="alpha")
     assert busy.value.code == "ACCOUNT_BUSY"
 
 
@@ -1412,9 +1392,7 @@ def test_service_rolls_back_switch_and_reports_bridge_click_error(tmp_path) -> N
         switch_loader=lambda _account: switch_state["pending"],
         switch_beginner=begin_switch,
         switch_canceller=cancel_switch,
-        account_logout=lambda _page: (_ for _ in ()).throw(
-            CDPError("Bridge 点击失败")
-        ),
+        account_logout=lambda _page: (_ for _ in ()).throw(CDPError("Bridge 点击失败")),
         product_store=ProductStore(tmp_path / "product"),
     )
 
@@ -1468,11 +1446,15 @@ def test_service_persists_progress_before_executor_returns(tmp_path, monkeypatch
         return {"count": 2}
 
     service = ApplicationService(
-        product_store=ProductStore(tmp_path / "product"), business_runner=BusinessRunner(execute),
+        product_store=ProductStore(tmp_path / "product"),
+        business_runner=BusinessRunner(execute),
     )
     monkeypatch.setattr(service, "get_account_status", lambda account: {"ready": True})
     task = service.create_task(
-        source="webui", account_slot="alpha", capability="search-feeds", request_summary="进度验收",
+        source="webui",
+        account_slot="alpha",
+        capability="search-feeds",
+        request_summary="进度验收",
         parameters={"keyword": "露营"},
     )["task"]
     result = service.execute_task(task["task_id"])
@@ -1551,16 +1533,15 @@ def test_service_supplies_manager_persona_snapshot_to_business_execution(
     assert received["persona_context"] == persona
 
 
-def test_service_does_not_report_two_running_tasks_for_one_account(
-    tmp_path, monkeypatch
-) -> None:
+def test_service_does_not_report_two_running_tasks_for_one_account(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     executed_accounts = []
     service = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
         business_runner=BusinessRunner(
-            lambda account, _capability, _parameters: executed_accounts.append(account)
-            or {"count": 1}
+            lambda account, _capability, _parameters: (
+                executed_accounts.append(account) or {"count": 1}
+            )
         ),
     )
     monkeypatch.setattr(
@@ -1752,7 +1733,9 @@ def test_random_comment_requires_click_authorization_and_valid_limits(tmp_path) 
     assert excessive_count.value.code == "INVALID_REQUEST"
 
 
-def test_random_comment_executes_immediately_and_preserves_item_results(tmp_path, monkeypatch) -> None:
+def test_random_comment_executes_immediately_and_preserves_item_results(
+    tmp_path, monkeypatch
+) -> None:
     received: dict = {}
 
     def execute(account, capability, parameters):
@@ -1929,9 +1912,7 @@ def test_service_retries_blocked_task_after_account_recovers(tmp_path, monkeypat
     )
     service = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
-        business_runner=BusinessRunner(
-            lambda _account, _capability, _parameters: {"count": 3}
-        ),
+        business_runner=BusinessRunner(lambda _account, _capability, _parameters: {"count": 3}),
     )
     monkeypatch.setattr(service, "get_account_status", lambda _account: next(readiness))
     task = service.create_task(
@@ -2297,11 +2278,11 @@ def test_comment_adapter_failure_becomes_result_unknown(tmp_path) -> None:
 
 
 def test_comment_failure_before_submit_is_recorded_as_failed_and_not_sent(tmp_path) -> None:
-    class BeforeSubmitFailure(RuntimeError):
+    class BeforeSubmitError(RuntimeError):
         result_unknown = False
 
     def fail(*_args):
-        raise BeforeSubmitFailure("未在通知页找到目标评论")
+        raise BeforeSubmitError("未在通知页找到目标评论")
 
     service = _ready_output_service(tmp_path, fail)
     draft = service.create_draft(
@@ -2439,9 +2420,7 @@ def test_cli_read_only_account_commands_use_application_service(monkeypatch, cap
     assert json.loads(capsys.readouterr().out)["accounts"] == []
 
     with pytest.raises(SystemExit) as status_exit:
-        cmd_account_status(
-            argparse.Namespace(account="alpha", bridge_url="ws://localhost:19901")
-        )
+        cmd_account_status(argparse.Namespace(account="alpha", bridge_url="ws://localhost:19901"))
     assert status_exit.value.code == 0
     assert json.loads(capsys.readouterr().out)["account"]["name"] == "alpha"
 

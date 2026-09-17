@@ -30,7 +30,14 @@ PLAN_METRICS = (
     "received_comments",
     "received_private_messages",
 )
-ACTION_METRICS = ("publish", "like", "comment", "friend_request", "private_message", "private_reply")
+ACTION_METRICS = (
+    "publish",
+    "like",
+    "comment",
+    "friend_request",
+    "private_message",
+    "private_reply",
+)
 EVENT_METRICS = {
     "note_comment": "received_comments",
     "comment_reply": "received_comments",
@@ -154,8 +161,9 @@ class EmployeeOperations:
         for plan in state["daily_plans"].values():
             submissions = plan.get("submissions") or []
             version = submissions[0]["version"] if submissions else plan.get("version")
-            effective = next((p for p in [plan, *plan.get("history", [])]
-                              if p.get("version") == version), plan)
+            effective = next(
+                (p for p in [plan, *plan.get("history", [])] if p.get("version") == version), plan
+            )
             self.plans.append(effective)
         self.observations: dict[tuple[str, str], list[dict]] = defaultdict(list)
         unique: dict[tuple, dict] = {}
@@ -165,7 +173,9 @@ class EmployeeOperations:
             event = source["data"]
             for identifier in (event.get("event_id"), event.get("platform_event_id")):
                 if identifier:
-                    complete_events[source["machine_id"], source["account_slot"], identifier] = event
+                    complete_events[source["machine_id"], source["account_slot"], identifier] = (
+                        event
+                    )
         # Historical batches are flattened too, so existing manager data remains usable.
         sources = list(state["incremental_records"].values())
         sources += [
@@ -181,28 +191,40 @@ class EmployeeOperations:
         # Reuse explicit collector intervals; receipt success alone proves no interval.
         for result in results:
             body = result.get("business_result") or {}
-            task = {**(result.get("task_request") or {}),
-                    "task_id": result.get("task_id") or result.get("record_id"),
-                    "account_slot": self.slot(result),
-                    "capability": result.get("capability")
-                    or (result.get("task_request") or {}).get("capability")}
+            task = {
+                **(result.get("task_request") or {}),
+                "task_id": result.get("task_id") or result.get("record_id"),
+                "account_slot": self.slot(result),
+                "capability": result.get("capability")
+                or (result.get("task_request") or {}).get("capability"),
+            }
             batches = observations_for_result(
                 task, body, result.get("recorded_at") or result.get("created_at") or ""
             )
             if batches:
-                sources.append({"machine_id": result.get("machine_id"),
-                                "account_slot": self.slot(result), "data": batches})
+                sources.append(
+                    {
+                        "machine_id": result.get("machine_id"),
+                        "account_slot": self.slot(result),
+                        "data": batches,
+                    }
+                )
         for source in [*sorted(sources, key=lambda row: row.get("collected_at") or ""), *imported]:
             for row in flatten_observations(source.get("data")):
                 slot = source.get("account_slot") or row.get("account_slot") or ""
-                full = complete_events.get((source.get("machine_id"), slot,
-                                            row.get("event_id"))) or complete_events.get(
-                    (source.get("machine_id"), slot, row.get("platform_event_id")))
+                full = complete_events.get(
+                    (source.get("machine_id"), slot, row.get("event_id"))
+                ) or complete_events.get(
+                    (source.get("machine_id"), slot, row.get("platform_event_id"))
+                )
                 if full and not row.get("payload"):
                     row = {**row, **full}
                 identity = (
-                    (row.get("comment_id") or (row.get("payload") or {}).get("comment_id")
-                     if row.get("event_type") in {"note_comment", "comment_reply"} else None)
+                    (
+                        row.get("comment_id") or (row.get("payload") or {}).get("comment_id")
+                        if row.get("event_type") in {"note_comment", "comment_reply"}
+                        else None
+                    )
                     or row.get("platform_event_id")
                     or row.get("snapshot_id")
                     or row.get("event_id")
@@ -216,8 +238,11 @@ class EmployeeOperations:
                     identity,
                 )
                 previous = unique.get(key, {})
-                unique[key] = {**previous, **row, "payload": {
-                    **(previous.get("payload") or {}), **(row.get("payload") or {})}}
+                unique[key] = {
+                    **previous,
+                    **row,
+                    "payload": {**(previous.get("payload") or {}), **(row.get("payload") or {})},
+                }
                 if event_day(previous) and not event_day(row):
                     unique[key]["occurred_at"] = event_time(previous)["occurred_at"]
                     unique[key]["payload"].update(
@@ -317,8 +342,12 @@ class EmployeeOperations:
         receipts = self.account_results(machine, slot, day)
         rows = self.observations[machine, slot]
         actuals: dict[str, int] = {}
-        outbound = [r for r in rows if r.get("event_type") == "outbound_reply"
-                    and business_date(r.get("occurred_at")) == day]
+        outbound = [
+            r
+            for r in rows
+            if r.get("event_type") == "outbound_reply"
+            and business_date(r.get("occurred_at")) == day
+        ]
         covered_tasks = {(r.get("payload") or {}).get("reply_task_id") for r in outbound}
         for result in receipts:
             if result.get("task_id") in covered_tasks or any(
@@ -337,19 +366,19 @@ class EmployeeOperations:
                 actuals.setdefault(kind, 0)
         collections = {}
         for row in sorted(rows, key=lambda r: r.get("occurred_at") or ""):
-            if (row.get("event_type") == "collection_observation"
-                    and business_date(row.get("occurred_at")) == day):
+            if (
+                row.get("event_type") == "collection_observation"
+                and business_date(row.get("occurred_at")) == day
+            ):
                 payload = row.get("payload") or {}
                 collections[payload.get("metric")] = {
-                    **payload, "last_collected_at": row.get("occurred_at")
+                    **payload,
+                    "last_collected_at": row.get("occurred_at"),
                 }
         observed_events: dict[str, int] = defaultdict(int)
         for row in rows:
             kind = EVENT_METRICS.get(row.get("event_type"))
-            if (
-                kind
-                and event_day(row) == day
-            ):
+            if kind and event_day(row) == day:
                 observed_events[kind] += 1
         # Observed events are a lower bound until collection covers the entire day.
         for kind in EVENT_METRICS.values():
@@ -376,14 +405,18 @@ class EmployeeOperations:
                         "to": end["captured_at"],
                         "source": "snapshot_delta",
                     }
-        inspections = [r for r in receipts if (r.get("capability") or
-                       (r.get("task_request") or {}).get("capability")) == "reply-inbox"]
-        latest_inspection = max(inspections, key=lambda r: r.get("recorded_at") or "",
-                                default={})
+        inspections = [
+            r
+            for r in receipts
+            if (r.get("capability") or (r.get("task_request") or {}).get("capability"))
+            == "reply-inbox"
+        ]
+        latest_inspection = max(inspections, key=lambda r: r.get("recorded_at") or "", default={})
         inspection = latest_inspection.get("business_result") or {}
         inspected_items = latest_inspection.get("item_results") or []
         inspected_channels = {
-            item.get("action") for item in inspected_items
+            item.get("action")
+            for item in inspected_items
             if item.get("action") in {"reply", "private_reply"}
         }
         complete_item_set = (
@@ -411,10 +444,12 @@ class EmployeeOperations:
                 targets = {}
                 for task_key, task in self.state.get("tasks", {}).items():
                     request = task.get("request") or {}
-                    if (task.get("machine_id") == machine
-                            and request.get("account_slot") == slot
-                            and business_date(task.get("created_at")) == day
-                            and ManagerService._result_action_kind({"task_request": request}) == kind):
+                    if (
+                        task.get("machine_id") == machine
+                        and request.get("account_slot") == slot
+                        and business_date(task.get("created_at")) == day
+                        and ManagerService._result_action_kind({"task_request": request}) == kind
+                    ):
                         count = ManagerService._result_target_count({"task_request": request})
                         if count is not None:
                             parameters = request.get("parameters") or {}
@@ -442,7 +477,8 @@ class EmployeeOperations:
                 if target is None
                 else "完成"
                 if actual >= target
-                else f"已回传 · 差 {target - actual}" if receipts
+                else f"已回传 · 差 {target - actual}"
+                if receipts
                 else f"待执行 · 差 {target - actual}",
                 "tone": "success"
                 if actual is not None and target is not None and actual >= target and not partial
@@ -452,13 +488,11 @@ class EmployeeOperations:
                 ),
                 "collection": collections.get(kind),
                 "target_source": "manager_plan" if target is not None else None,
-                "execution_source": "worker_polling" if kind in {
-                    "reply", "private_reply", *EVENT_METRICS.values()
-                } else "manager_dispatch",
+                "execution_source": "worker_polling"
+                if kind in {"reply", "private_reply", *EVENT_METRICS.values()}
+                else "manager_dispatch",
             }
-            if not partial and not (
-                actual is not None and target is not None and actual >= target
-            ):
+            if not partial and not (actual is not None and target is not None and actual >= target):
                 from compound_receipt import action_items
                 from manager_service import ManagerService
 
@@ -466,17 +500,30 @@ class EmployeeOperations:
                 for result in receipts:
                     items = action_items(result)
                     if items:
-                        states.update(str(item.get("status") or item.get("state") or "").upper()
-                                      for item in items if item["action"] == kind)
+                        states.update(
+                            str(item.get("status") or item.get("state") or "").upper()
+                            for item in items
+                            if item["action"] == kind
+                        )
                     elif ManagerService._result_action_kind(result) == kind:
                         states.add(result.get("state"))
-                if not states and actual is None and target != 0 and any(
-                    result.get("capability") == "home-engagement"
-                    and result.get("state") in {
-                        "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "BLOCKED",
-                        "CANCELLED", "RESULT_UNKNOWN",
-                    }
-                    for result in receipts
+                if (
+                    not states
+                    and actual is None
+                    and target != 0
+                    and any(
+                        result.get("capability") == "home-engagement"
+                        and result.get("state")
+                        in {
+                            "SUCCESS",
+                            "PARTIAL_SUCCESS",
+                            "FAILED",
+                            "BLOCKED",
+                            "CANCELLED",
+                            "RESULT_UNKNOWN",
+                        }
+                        for result in receipts
+                    )
                 ):
                     metrics[kind].update(status="任务已结束 · 未提供逐项结果", tone="warning")
                 for execution_state, label in (
@@ -492,57 +539,72 @@ class EmployeeOperations:
             if kind in collections and actual is None:
                 collection_state = collections[kind].get("collection_state")
                 metrics[kind]["status"] = (
-                    "已巡检 · 今日增量待确认" if collection_state == "SUCCESS"
-                    else "采集未完成"
+                    "已巡检 · 今日增量待确认" if collection_state == "SUCCESS" else "采集未完成"
                 )
             if passive:
                 coverage = batch_summary(rows, kind, day)
-                samples = [r for r in snapshots
-                           if business_date(r.get("captured_at")) <= day]
+                samples = [r for r in snapshots if business_date(r.get("captured_at")) <= day]
                 latest = samples[-1] if samples else {}
                 field = {"new_followers": "followers", "received_likes": "likes"}.get(kind)
                 events = [r for r in rows if EVENT_METRICS.get(r.get("event_type")) == kind]
                 observed = observed_events.get(kind, 0)
                 next_day = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
                 metrics[kind].update(
-                    metric_semantics="daily_event_count", timezone="Asia/Shanghai",
+                    metric_semantics="daily_event_count",
+                    timezone="Asia/Shanghai",
                     period_start=f"{day}T00:00:00+08:00",
                     period_end=f"{next_day}T00:00:00+08:00",
-                    observed_new=observed, coverage="partial" if events else "unknown",
+                    observed_new=observed,
+                    coverage="partial" if events else "unknown",
                     current_total=latest.get(field) if field else None,
                     current_total_at=latest.get("captured_at") if field else None,
                     sampled_net_change=intervals.get(kind),
-                    newly_discovered=sum(business_date(r.get("discovered_at")) == day
-                                         and event_time(r)["time_basis"] != "invalid_observation"
-                                         for r in events),
-                    undated_observations=sum(not event_day(r)
-                                             and event_time(r)["time_basis"]
-                                             != "invalid_observation"
-                                             for r in events),
-                    excluded_observations=sum(event_time(r)["time_basis"] == "invalid_observation"
-                                              for r in events),
+                    newly_discovered=sum(
+                        business_date(r.get("discovered_at")) == day
+                        and event_time(r)["time_basis"] != "invalid_observation"
+                        for r in events
+                    ),
+                    undated_observations=sum(
+                        not event_day(r) and event_time(r)["time_basis"] != "invalid_observation"
+                        for r in events
+                    ),
+                    excluded_observations=sum(
+                        event_time(r)["time_basis"] == "invalid_observation" for r in events
+                    ),
                     actual_display=f"至少 {observed}" if observed else "待确认",
-                    observation={"source": "platform_event_time", "count_basis":
-                                 "按平台发生日期去重计数；采样范围内已确认数量，全天总量待确认"},
+                    observation={
+                        "source": "platform_event_time",
+                        "count_basis": (
+                            "按平台发生日期去重计数；采样范围内已确认数量，全天总量待确认"
+                        ),
+                    },
                 )
                 metrics[kind]["collection_progress"] = coverage
                 if coverage["complete"]:
                     if coverage.get("confirmed_count") is not None:
                         observed = coverage["confirmed_count"]
                         metrics[kind]["observed_new"] = observed
-                    metrics[kind].update(actual=observed, actual_display=str(observed),
-                                         incomplete=False, coverage="complete", status="已采集")
-                else:
-                    reason = (coverage["reasons"] or [
-                        "历史回执缺少采集区间" if events else "该日期尚无有效采集记录"
-                    ])[0]
                     metrics[kind].update(
-                        status=reason, actual_display=f"至少 {observed}" if observed else "采集缺口",
+                        actual=observed,
+                        actual_display=str(observed),
+                        incomplete=False,
+                        coverage="complete",
+                        status="已采集",
+                    )
+                else:
+                    reason = (
+                        coverage["reasons"]
+                        or ["历史回执缺少采集区间" if events else "该日期尚无有效采集记录"]
+                    )[0]
+                    metrics[kind].update(
+                        status=reason,
+                        actual_display=f"至少 {observed}" if observed else "采集缺口",
                         collection_reason=reason,
                         backfill_required=day < datetime.now(BUSINESS_TIMEZONE).date().isoformat(),
                     )
                 metrics[kind].update(
-                    daily_new=observed, as_of=coverage["as_of"],
+                    daily_new=observed,
+                    as_of=coverage["as_of"],
                     day_finalized=coverage["day_finalized"],
                 )
                 if coverage["is_today"]:
@@ -552,8 +614,11 @@ class EmployeeOperations:
                     if coverage["complete"]:
                         metrics[kind].update(status="今日新增 · 已采集", collection_reason="")
                     elif not coverage["batches"]:
-                        metrics[kind].update(status="待首次采集", coverage="unknown",
-                                             collection_reason="当日尚未采集，计数从零开始")
+                        metrics[kind].update(
+                            status="待首次采集",
+                            coverage="unknown",
+                            collection_reason="当日尚未采集，计数从零开始",
+                        )
                     else:
                         metrics[kind].update(status="采集不完整", incomplete=True)
                 presentation = passive_view(metrics[kind], events, receipts, day)
@@ -562,20 +627,32 @@ class EmployeeOperations:
                     actual_display=presentation["count_display"],
                     collection_reason=presentation["reason"],
                 )
-            if kind in {"reply", "private_reply"} and not (
-                target is not None and actual is not None and actual >= target
-            ) and any(
-                (row.get("payload") or {}).get("send_state") == "AWAITING_RECONCILIATION"
-                and ("private_reply" if (row.get("payload") or {}).get("channel")
-                     == "PRIVATE_MESSAGE_REPLY" else "reply") == kind
-                for row in outbound
+            if (
+                kind in {"reply", "private_reply"}
+                and not (target is not None and actual is not None and actual >= target)
+                and any(
+                    (row.get("payload") or {}).get("send_state") == "AWAITING_RECONCILIATION"
+                    and (
+                        "private_reply"
+                        if (row.get("payload") or {}).get("channel") == "PRIVATE_MESSAGE_REPLY"
+                        else "reply"
+                    )
+                    == kind
+                    for row in outbound
+                )
             ):
                 metrics[kind].update(status="执行结果待核对", tone="warning")
             channel_empty = empty_inbox or (complete_item_set and kind not in inspected_channels)
-            if kind in {"reply", "private_reply"} and channel_empty and actual in (None, 0):
-                if metrics[kind]["status"] != "执行结果待核对":
-                    metrics[kind].update(actual=0, actual_display="无", status="无", tone="info",
-                                         empty_reason="本轮巡检没有待回复内容")
+            if (kind in {"reply", "private_reply"} and channel_empty and actual in (None, 0)) and (
+                metrics[kind]["status"] != "执行结果待核对"
+            ):
+                metrics[kind].update(
+                    actual=0,
+                    actual_display="无",
+                    status="无",
+                    tone="info",
+                    empty_reason="本轮巡检没有待回复内容",
+                )
         return metrics
 
     @staticmethod
@@ -812,15 +889,23 @@ class EmployeeOperations:
         for (machine, slot), rows in self.observations.items():
             for row in rows:
                 timing = event_time(row)
-                records.append({
-                    **self.event_view(row), "machine_id": machine, "account_slot": slot,
-                    "recorded_at": timing["occurred_at"] or row.get("captured_at")
-                    or timing["observed_at"] or row.get("created_at"),
-                    "time_basis": timing["time_basis"], "statistics_date": event_day(row),
-                })
+                records.append(
+                    {
+                        **self.event_view(row),
+                        "machine_id": machine,
+                        "account_slot": slot,
+                        "recorded_at": timing["occurred_at"]
+                        or row.get("captured_at")
+                        or timing["observed_at"]
+                        or row.get("created_at"),
+                        "time_basis": timing["time_basis"],
+                        "statistics_date": event_day(row),
+                    }
+                )
         snapshots = {
             (r["machine_id"], r["account_slot"], r.get("entity_id"), r.get("captured_at"))
-            for r in records if r.get("entity_type") == "note"
+            for r in records
+            if r.get("entity_type") == "note"
         }
         for result in self.results:
             business = result.get("business_result") or {}
@@ -833,10 +918,17 @@ class EmployeeOperations:
                 if key in snapshots:
                     continue
                 snapshots.add(key)
-                records.append({
-                    **note, "machine_id": machine, "account_slot": slot, "entity_type": "note",
-                    "captured_at": captured, "recorded_at": captured, "time_basis": "collected",
-                })
+                records.append(
+                    {
+                        **note,
+                        "machine_id": machine,
+                        "account_slot": slot,
+                        "entity_type": "note",
+                        "captured_at": captured,
+                        "recorded_at": captured,
+                        "time_basis": "collected",
+                    }
+                )
         return records
 
     def summary(self, accounts: list[dict], day: str | None = None) -> dict:

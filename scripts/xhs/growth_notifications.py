@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 import time
 from datetime import UTC, datetime
@@ -305,7 +306,7 @@ def parse_growth_api(captured: dict, metric: str, captured_at: str) -> tuple[lis
             }
     first_cursor = parse_qs(urlsplit(pages[0]["url"]).query).get("cursor", [""])[0]
     last = (pages[-1].get("payload") or {}).get("data") or {}
-    for previous, current in zip(pages, pages[1:]):
+    for previous, current in itertools.pairwise(pages):
         previous_data = (previous.get("payload") or {}).get("data") or {}
         expected = str(previous_data.get("strCursor") or previous_data.get("cursor") or "")
         cursor = parse_qs(urlsplit(current["url"]).query).get("cursor", [""])[0]

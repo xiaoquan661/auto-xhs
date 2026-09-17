@@ -68,9 +68,12 @@ class EmployeeCodexRunner:
 
     def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
         if not (task.get("persona_snapshot") or (task.get("parameters") or {}).get("persona")):
-            task = {**task, "persona_snapshot": friendly_commenter(
-                str(task.get("machine_id") or ""), str(task.get("account_slot") or "")
-            )}
+            task = {
+                **task,
+                "persona_snapshot": friendly_commenter(
+                    str(task.get("machine_id") or ""), str(task.get("account_slot") or "")
+                ),
+            }
         capability = str(task.get("capability") or "")
         if capability != PROBE_CAPABILITY:
             try:
@@ -134,12 +137,18 @@ class EmployeeCodexRunner:
         claimed = False
         process = None
         event_reader = None
-        write_json(run_root / "runner-context.json", {
-            "started_at": datetime.now(UTC).isoformat(), "pid": os.getpid(),
-            "user": getpass.getuser(), "state_root": str(self.root),
-            "run_root": str(run_root), "sandbox": "workspace-write",
-            "bug_delivery": "runner",
-        })
+        write_json(
+            run_root / "runner-context.json",
+            {
+                "started_at": datetime.now(UTC).isoformat(),
+                "pid": os.getpid(),
+                "user": getpass.getuser(),
+                "state_root": str(self.root),
+                "run_root": str(run_root),
+                "sandbox": "workspace-write",
+                "bug_delivery": "runner",
+            },
+        )
         try:
             with (run_root / "events.jsonl").open("w", encoding="utf-8") as events:
                 process = subprocess.Popen(
@@ -154,7 +163,9 @@ class EmployeeCodexRunner:
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
                 event_reader = threading.Thread(
-                    target=self._capture_events, args=(process, events, run_root), daemon=True,
+                    target=self._capture_events,
+                    args=(process, events, run_root),
+                    daemon=True,
                 )
                 event_reader.start()
                 write_json(
@@ -188,8 +199,11 @@ class EmployeeCodexRunner:
                 event_reader.join(timeout=5)
             if not result_path.exists() and not (run_root / "execution-result.json").exists():
                 return self._incomplete(task, "员工 Agent 未返回完整的领取回执和结果", run_root)
-            result = (json.loads(result_path.read_text(encoding="utf-8-sig"))
-                      if result_path.exists() else {"result_file": "execution-result.json"})
+            result = (
+                json.loads(result_path.read_text(encoding="utf-8-sig"))
+                if result_path.exists()
+                else {"result_file": "execution-result.json"}
+            )
             if "result_file" in result:
                 if result["result_file"] != "execution-result.json":
                     raise ValueError("执行结果文件名不匹配")
@@ -225,10 +239,11 @@ class EmployeeCodexRunner:
                     items = []
                     business = {"reported_result": business}
                 business["receipt_status"] = receipt_status
-            if (capability == PROBE_CAPABILITY and result["state"] == "SUCCESS"
-                    and business.get("probe_token") != (
-                task.get("parameters") or {}
-            ).get("probe_token")):
+            if (
+                capability == PROBE_CAPABILITY
+                and result["state"] == "SUCCESS"
+                and business.get("probe_token") != (task.get("parameters") or {}).get("probe_token")
+            ):
                 raise ValueError("连接验证回执不匹配")
             if capability == "post-comment" and result["state"] != "RESULT_UNKNOWN":
                 requested = int((task.get("parameters") or {}).get("count") or 1)
@@ -264,9 +279,12 @@ class EmployeeCodexRunner:
             if event_reader is not None:
                 event_reader.join(timeout=5)
             self._publish_bugs(run_root)
-            write_json(run_root / "runner-finished.json", {
-                "finished_at": datetime.now(UTC).isoformat(),
-            })
+            write_json(
+                run_root / "runner-finished.json",
+                {
+                    "finished_at": datetime.now(UTC).isoformat(),
+                },
+            )
 
     def _poll_stop(self, run_root: Path) -> bool:
         """读取停止指令；状态存储临时不可读时保持业务执行和既有超时限制。"""
@@ -276,15 +294,24 @@ class EmployeeCodexRunner:
             return self.should_stop()
         except (OSError, RuntimeError) as exc:
             if not isinstance(exc, OSError) and getattr(exc, "code", "") not in {
-                "STATE_BUSY", "STATE_UNREADABLE",
+                "STATE_BUSY",
+                "STATE_UNREADABLE",
             }:
                 raise
             with (run_root / "state-check-errors.jsonl").open("a", encoding="utf-8") as log:
-                log.write(json.dumps({
-                    "occurred_at": datetime.now(UTC).isoformat(),
-                    "stage": "stop_check", "error_type": type(exc).__name__,
-                    "message": str(exc), "action": "continue_until_next_check",
-                }, ensure_ascii=False) + "\n")
+                log.write(
+                    json.dumps(
+                        {
+                            "occurred_at": datetime.now(UTC).isoformat(),
+                            "stage": "stop_check",
+                            "error_type": type(exc).__name__,
+                            "message": str(exc),
+                            "action": "continue_until_next_check",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
             return False
 
     @staticmethod
@@ -300,11 +327,17 @@ class EmployeeCodexRunner:
                 except ValueError:
                     continue
                 item = event.get("item") or {}
-                timing.write(json.dumps({
-                    "received_at": datetime.now(UTC).isoformat(),
-                    "event": event.get("type"), "item_id": item.get("id"),
-                    "item_type": item.get("type"),
-                }) + "\n")
+                timing.write(
+                    json.dumps(
+                        {
+                            "received_at": datetime.now(UTC).isoformat(),
+                            "event": event.get("type"),
+                            "item_id": item.get("id"),
+                            "item_type": item.get("type"),
+                        }
+                    )
+                    + "\n"
+                )
                 timing.flush()
 
     def _publish_bugs(self, root: Path) -> None:
@@ -346,7 +379,7 @@ class EmployeeCodexRunner:
     def _write_entry(self, root: Path) -> None:
         """Keep Windows quoting in a tested launcher owned by the runner."""
         (root / "task-entry.cmd").write_text(
-            '@echo off\nchcp 65001 >nul\n'
+            "@echo off\nchcp 65001 >nul\n"
             f'"{self.project / ".venv" / "Scripts" / "python.exe"}" '
             f'"{self.project / "scripts" / "employee_task_cli.py"}" '
             f'--run-root "{root}" %*\nexit /b %errorlevel%\n',
@@ -374,7 +407,8 @@ step-progress.json 保存已执行步骤及各自输出。异常后读取当前�
 普通页面异常先观察当前页面；登录或身份异常暂停并报告，等待用户处理。消息采集只按任务或巡检安排执行。
 结果未知先核对原动作，保留成功步骤，确认前不重新发送。
 图片笔记、弹窗或选择器失效时使用视觉流程：
-1. 写原生 JSON：{{"args":["browser-snapshot","--output-file","{(root / 'observe.png').as_posix()}"]}}
+1. 写原生 JSON：
+   {{"args":["browser-snapshot","--output-file","{(root / "observe.png").as_posix()}"]}}
    经 invoke 调用后，必须使用你的 view_image 图片工具打开返回的 image_path。
    PNG 路径或 JSON 文本本身不是图像识别结果；图片工具不可用则记录阻塞原因。
 2. 根据看到的原始 PNG 像素坐标写 action.json，例如

@@ -267,9 +267,9 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
         time.sleep(0.5)
         click_result = page.click_publish_control()
     if not click_result.get("dispatched"):
-        error = PublishError("正式发布按钮尚未点击：" + str(
-            click_result.get("reason") or "扩展未返回派发确认"
-        ))
+        error = PublishError(
+            "正式发布按钮尚未点击：" + str(click_result.get("reason") or "扩展未返回派发确认")
+        )
         error.result_unknown = click_result.get("dispatched") is not False
         error.click_result = click_result
         if not error.result_unknown:
@@ -297,7 +297,9 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
             from .publish_links import complete_publish_link
 
             return complete_publish_link(
-                page, verified, expected_title,
+                page,
+                verified,
+                expected_title,
                 observe=lambda: _read_publish_observation(
                     page, expected_title=expected_title, initial_url=initial_url
                 ),
@@ -323,8 +325,11 @@ def _readback_published_note(page: Page, expected_title: str) -> dict:
     from .user_profile import get_user_profile
 
     if not ProductStore().get_setting("publish_profile_readback_enabled", True):
-        return {"verified": False, "status": "disabled_by_policy",
-                "message": "按设备规则使用创作中心发布成功证据"}
+        return {
+            "verified": False,
+            "status": "disabled_by_policy",
+            "message": "按设备规则使用创作中心发布成功证据",
+        }
     account = getattr(page, "account", "")
     if not account:
         return {"verified": False, "reason": "当前连接未提供账号槽位"}
@@ -336,7 +341,8 @@ def _readback_published_note(page: Page, expected_title: str) -> dict:
         profile = get_user_profile(page, uid, "")
         matches = [feed for feed in profile.feeds if feed.note_card.display_title == expected_title]
         return {
-            "verified": bool(matches), "user_id": uid,
+            "verified": bool(matches),
+            "user_id": uid,
             "note_ids": [feed.id for feed in matches],
             "message": "主页已找到本次笔记" if matches else "发布已成功，主页暂未显示本次笔记",
         }
@@ -611,7 +617,8 @@ def _click_publish_tab(page: Page, tab_name: str) -> None:
 
                 // 真 tab：有 data-hp-bound + 无 hp 陷阱属性 + 在视口里
                 for (const t of tabs) {{
-                    if (t.hasAttribute('data-hp-kind') || t.hasAttribute('button-hp-installed')) continue;
+                    if (t.hasAttribute('data-hp-kind') ||
+                        t.hasAttribute('button-hp-installed')) continue;
                     if (!t.hasAttribute('data-hp-bound')) continue;
                     const title = t.querySelector('span.title');
                     if (!title || title.textContent.trim() !== name) continue;
@@ -623,7 +630,8 @@ def _click_publish_tab(page: Page, tab_name: str) -> None:
 
                 // 兜底 1：无 hp 陷阱属性 + 在视口内（兼容 XHS 未来去掉 data-hp-bound）
                 for (const t of tabs) {{
-                    if (t.hasAttribute('data-hp-kind') || t.hasAttribute('button-hp-installed')) continue;
+                    if (t.hasAttribute('data-hp-kind') ||
+                        t.hasAttribute('button-hp-installed')) continue;
                     const title = t.querySelector('span.title');
                     if (!title || title.textContent.trim() !== name) continue;
                     const r = t.getBoundingClientRect();
@@ -647,7 +655,8 @@ def _click_publish_tab(page: Page, tab_name: str) -> None:
                         // 找视口内 + 无 hp 陷阱 + active 的 tab，取它的 title
                         const tabs = document.querySelectorAll({json.dumps(CREATOR_TAB)});
                         for (const t of tabs) {{
-                            if (t.hasAttribute('data-hp-kind') || t.hasAttribute('button-hp-installed')) continue;
+                            if (t.hasAttribute('data-hp-kind') ||
+                                t.hasAttribute('button-hp-installed')) continue;
                             if (!t.classList.contains('active')) continue;
                             const r = t.getBoundingClientRect();
                             if (r.left < -1000 || r.top < -1000) continue;
@@ -684,6 +693,7 @@ def _click_publish_tab(page: Page, tab_name: str) -> None:
     """)
     logger.error("调试信息: %s", debug_info)
     raise PublishError(f"没有找到发布 TAB - {tab_name}")
+
 
 # ========== 图片上传 ==========
 
@@ -873,9 +883,7 @@ def _input_tags(page: Page, content_selector: str, tags: list[str]) -> None:
     """逐个选择平台话题，并确认后续输入保留了之前的话题。"""
     time.sleep(1)
     _focus_content_end(page, content_selector)
-    page.evaluate(
-        'document.execCommand("insertParagraph", false, null)'
-    )
+    page.evaluate('document.execCommand("insertParagraph", false, null)')
     time.sleep(0.5)
 
     confirmed: list[str] = []
@@ -912,8 +920,9 @@ def _focus_content_end(page: Page, content_selector: str) -> None:
 
 def _read_topics(page: Page, content_selector: str) -> list[dict]:
     """读取平台生成的话题节点及 ID，普通井号文本不属于话题。"""
-    return page.evaluate(
-        f"""
+    return (
+        page.evaluate(
+            f"""
         (() => {{
             const editor = document.querySelector({json.dumps(content_selector)});
             if (!editor) return [];
@@ -926,7 +935,9 @@ def _read_topics(page: Page, content_selector: str) -> list[dict]:
             }});
         }})()
         """
-    ) or []
+        )
+        or []
+    )
 
 
 def _verify_topics(page: Page, content_selector: str, tags: list[str]) -> None:
@@ -940,10 +951,11 @@ def _verify_topics(page: Page, content_selector: str, tags: list[str]) -> None:
 
 def _select_topic_candidate(page: Page, tag: str) -> bool:
     """选择可见的同名话题，保留编辑器光标与平台候选的选择逻辑。"""
-    return bool(page.evaluate(
-        f"""
+    return bool(
+        page.evaluate(
+            f"""
         (() => {{
-            const selector = {json.dumps(f'{TAG_TOPIC_CONTAINER} {TAG_FIRST_ITEM}')};
+            const selector = {json.dumps(f"{TAG_TOPIC_CONTAINER} {TAG_FIRST_ITEM}")};
             const item = Array.from(document.querySelectorAll(selector)).find(el => {{
                 const rect = el.getBoundingClientRect();
                 const style = getComputedStyle(el);
@@ -957,7 +969,8 @@ def _select_topic_candidate(page: Page, tag: str) -> bool:
             return true;
         }})()
         """
-    ))
+        )
+    )
 
 
 def _input_single_tag(page: Page, content_selector: str, tag: str) -> None:

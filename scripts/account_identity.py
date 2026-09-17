@@ -121,15 +121,23 @@ def migrate_bound_platform(account: str, platform: str) -> dict:
         raise ValueError("目标平台与槽位配置不一致")
     previous = dict(record["current"])
     if previous.get("platform") != platform:
-        record["current"] = {**previous, "platform": platform,
-                             "profile_url": rewrite_platform_url(
-                                 previous.get("profile_url") or "", platform)}
+        record["current"] = {
+            **previous,
+            "platform": platform,
+            "profile_url": rewrite_platform_url(previous.get("profile_url") or "", platform),
+        }
         record.update(source="user_platform_selection", updated_at=_utc_now())
         _atomic_write_json(identity_record_path(account), record)
-        _append_json_line(identity_history_path(account), {
-            "event": "PLATFORM_SELECTED", "from": previous, "to": record["current"],
-            "source": "user_platform_selection", "updated_at": _utc_now(),
-        })
+        _append_json_line(
+            identity_history_path(account),
+            {
+                "event": "PLATFORM_SELECTED",
+                "from": previous,
+                "to": record["current"],
+                "source": "user_platform_selection",
+                "updated_at": _utc_now(),
+            },
+        )
     store = ProductStore()
     cached = store.get_setting("runtime_identity_checks", {})
     if account in cached and cached[account].get("platform") != platform:
@@ -195,9 +203,7 @@ def begin_login_switch(
 ) -> dict:
     account = validate_account_name(account)
     if load_switch_state(account):
-        raise RuntimeError(
-            f"账号 {account!r} 已处于换号流程中；请完成或取消现有换号流程"
-        )
+        raise RuntimeError(f"账号 {account!r} 已处于换号流程中；请完成或取消现有换号流程")
     observed = normalize_observed_identity(identity, platform=_account_platform(account))
     record = load_identity_record(account)
     previous = observed if observed["logged_in"] else (record or {}).get("current")
@@ -242,8 +248,7 @@ def complete_login_switch(
     expected = (expected_user_id or pending.get("target_user_id") or "").strip()
     if expected and current["user_id"] != expected:
         raise RuntimeError(
-            f"登录身份与预期不一致: expected={expected!r}, "
-            f"actual={current['user_id']!r}"
+            f"登录身份与预期不一致: expected={expected!r}, actual={current['user_id']!r}"
         )
 
     record = record_current_identity(
@@ -284,8 +289,7 @@ def cancel_login_switch(
     changed = bool(current_user_id and current_user_id != previous_user_id)
     if changed and not force:
         raise RuntimeError(
-            "检测到当前已登录另一个小红书账号；请完成换号，"
-            "或明确使用 --force 取消并重新记录身份"
+            "检测到当前已登录另一个小红书账号；请完成换号，或明确使用 --force 取消并重新记录身份"
         )
     switch_state_path(account).unlink(missing_ok=True)
     return {
@@ -312,9 +316,10 @@ def identity_status(account: str, observed: dict | None = None) -> dict:
             comparison = "logged_out"
         elif not record:
             comparison = "unbound"
-        elif current["platform"] != expected_platform:
-            comparison = "platform_mismatch"
-        elif record.get("current", {}).get("platform") != expected_platform:
+        elif (
+            current["platform"] != expected_platform
+            or record.get("current", {}).get("platform") != expected_platform
+        ):
             comparison = "platform_mismatch"
         elif current["user_id"] == record.get("current", {}).get("user_id"):
             comparison = "match"
@@ -335,8 +340,7 @@ def assert_live_identity(account: str, observed: dict) -> dict:
     status = identity_status(account, observed)
     if status["switch_pending"]:
         raise RuntimeError(
-            f"账号 {account!r} 正在换号，业务任务已暂停；"
-            "请先运行 account-switch-complete"
+            f"账号 {account!r} 正在换号，业务任务已暂停；请先运行 account-switch-complete"
         )
     if status["comparison"] == "logged_out":
         raise RuntimeError(f"账号 {account!r} 当前未登录")

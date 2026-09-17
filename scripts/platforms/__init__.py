@@ -16,8 +16,8 @@ from .spec import (
 )
 
 __all__ = [
-    "CapabilitySupport",
     "DEFAULT_PLATFORM",
+    "CapabilitySupport",
     "PlatformSpec",
     "detect_platform",
     "get_platform_capability",

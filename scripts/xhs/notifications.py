@@ -56,8 +56,9 @@ def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
     comments = list(unique.values())
     start, end = collection_window(captured_at)
     undated = sum(not event_day({**r, "event_type": "note_comment"}) for r in comments)
-    unidentified = sum(str(r["notification_id"]).startswith("dom:")
-                       and not r.get("comment_id") for r in comments)
+    unidentified = sum(
+        str(r["notification_id"]).startswith("dom:") and not r.get("comment_id") for r in comments
+    )
     complete = exhausted and not undated and not unidentified
 
     newest = max(
@@ -74,16 +75,36 @@ def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
         "last_seen_time": _epoch_to_iso(newest[0]) if newest[0] else None,
         "partial": not complete,
         "source": source,
-        "collection_batches": [{"metric": "received_comments", "unit": "event",
-            "period_start": start, "period_end": end,
-            "coverage": "complete" if complete else "partial",
-            "undated_count": undated, "unidentified_count": unidentified,
-            "source": source, "source_exhausted": exhausted, "observed_count": len(comments),
-            "event_index": [{"id": r.get("comment_id") or r["notification_id"],
-                             "date": event_day({**r, "event_type": "note_comment"})}
-                            for r in comments],
-            "reason": "" if complete else ("部分评论缺少发生日期" if undated else
-                "评论缺少平台事件标识" if unidentified else reason)}],
+        "collection_batches": [
+            {
+                "metric": "received_comments",
+                "unit": "event",
+                "period_start": start,
+                "period_end": end,
+                "coverage": "complete" if complete else "partial",
+                "undated_count": undated,
+                "unidentified_count": unidentified,
+                "source": source,
+                "source_exhausted": exhausted,
+                "observed_count": len(comments),
+                "event_index": [
+                    {
+                        "id": r.get("comment_id") or r["notification_id"],
+                        "date": event_day({**r, "event_type": "note_comment"}),
+                    }
+                    for r in comments
+                ],
+                "reason": ""
+                if complete
+                else (
+                    "部分评论缺少发生日期"
+                    if undated
+                    else "评论缺少平台事件标识"
+                    if unidentified
+                    else reason
+                ),
+            }
+        ],
     }
 
 
@@ -154,9 +175,7 @@ def reply_to_comment_notification(
 def _wait_for_captured_mentions(page, timeout: float = 8.0) -> dict | None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        raw = page.evaluate(
-            "JSON.stringify(window.__AUTO_XHS_MENTIONS__ || null)"
-        )
+        raw = page.evaluate("JSON.stringify(window.__AUTO_XHS_MENTIONS__ || null)")
         if raw:
             try:
                 value = json.loads(raw)
@@ -189,7 +208,9 @@ def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> l
         if not isinstance(comment_info, dict) or not notification_id:
             continue
         comment_id = str(comment_info.get("id") or comment_info.get("comment_id") or "").strip()
-        content = str(comment_info.get("content") or comment_info.get("comment_content") or "").strip()
+        content = str(
+            comment_info.get("content") or comment_info.get("comment_content") or ""
+        ).strip()
         if not content:
             continue
         target = comment_info.get("target_comment") or comment_info.get("targetComment") or {}
@@ -243,7 +264,8 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
       }};
       const text = (el) => String(el?.innerText || el?.textContent || '').trim();
         const relationPhrases = ['评论了你的笔记', '回复了你的评论', '在评论中提到了你'];
-      const replyNodes = Array.from(document.querySelectorAll('button,a,[role="button"],.action-reply'))
+      const replyNodes = Array.from(document.querySelectorAll(
+          'button,a,[role="button"],.action-reply'))
         .filter((el) => visible(el) && text(el) === '回复');
       const rows = [];
       const seen = new Set();
@@ -258,11 +280,15 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         if (!card || seen.has(card)) continue;
         seen.add(card);
         const lines = text(card).split(/\\n+/).map((v) => v.trim()).filter(Boolean);
-        const metaIndex = lines.findIndex((line) => relationPhrases.some((phrase) => line.includes(phrase)));
+        const metaIndex = lines.findIndex((line) => relationPhrases.some((phrase) =>
+            line.includes(phrase)));
         const relation = metaIndex >= 0 ? lines[metaIndex] : '';
-        const ignored = (line) => ['回复', '取消', '发送', '赞', '你的好友'].includes(line) || (/\\d/.test(line) && line.endsWith('前'));
-        const content = lines.slice(Math.max(0, metaIndex + 1)).find((line) => !ignored(line) && !line.startsWith('回复 ')) || '';
-        const nickname = lines.slice(0, Math.max(0, metaIndex)).find((line) => !ignored(line)) || '';
+        const ignored = (line) => ['回复', '取消', '发送', '赞', '你的好友'].includes(line) ||
+            (/\\d/.test(line) && line.endsWith('前'));
+        const content = lines.slice(Math.max(0, metaIndex + 1)).find((line) =>
+            !ignored(line) && !line.startsWith('回复 ')) || '';
+        const nickname = lines.slice(0, Math.max(0, metaIndex)).find((line) =>
+            !ignored(line)) || '';
         const noteLink = Array.from(card.querySelectorAll('a[href*="/explore/"]'))[0];
         const userLink = Array.from(card.querySelectorAll('a[href*="/user/profile/"]'))[0];
         const pathParts = (link) => {{
@@ -275,10 +301,12 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         const profileIndex = userParts.indexOf('profile');
         const feedId = exploreIndex >= 0 ? noteParts[exploreIndex + 1] || '' : '';
         const userId = profileIndex >= 0 ? userParts[profileIndex + 1] || '' : '';
-        const notificationId = card.getAttribute('data-notification-id') || card.getAttribute('data-id') || '';
+        const notificationId = card.getAttribute('data-notification-id') ||
+            card.getAttribute('data-id') || '';
         const commentId = card.getAttribute('data-comment-id') || '';
         const timeNode = card.querySelector('time,[data-time],[class*="time"]');
-        const rawTime = Number(timeNode?.getAttribute('data-time') || timeNode?.getAttribute('datetime') || 0);
+        const rawTime = Number(timeNode?.getAttribute('data-time') ||
+            timeNode?.getAttribute('datetime') || 0);
         const stableId = notificationId || ['dom', userId || nickname, feedId, content].join(':');
         if (!content || !stableId) continue;
         rows.push({{
@@ -375,7 +403,8 @@ def _mark_notification_script(
         const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
         return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
       }};
-      const replies = Array.from(document.querySelectorAll('button,a,[role="button"],.action-reply'))
+      const replies = Array.from(document.querySelectorAll(
+          'button,a,[role="button"],.action-reply'))
         .filter((el) => visible(el) && norm(el.innerText || el.textContent) === '回复');
       const relationPhrases = ['评论了你的笔记', '回复了你的评论', '在评论中提到了你'];
       const matches = [];
@@ -403,7 +432,8 @@ def _mark_notification_script(
       const unique = matches.filter((item, index) =>
         matches.findIndex((other) => other.card === item.card) === index
       );
-      if (unique.length !== 1) return {{found:false, reason: unique.length ? '匹配到多条相同通知' : '当前可见通知中没有目标评论'}};
+      if (unique.length !== 1) return {{found:false,
+          reason: unique.length ? '匹配到多条相同通知' : '当前可见通知中没有目标评论'}};
       unique[0].card.setAttribute('{_CARD_MARK}', '1');
       unique[0].reply.setAttribute('{_REPLY_MARK}', '1');
       unique[0].card.scrollIntoView({{block:'center'}});
@@ -466,16 +496,21 @@ def _wait_for_editor(page, *, expected_nickname: str, timeout: float = 5.0) -> d
         result = page.evaluate(
             f"""
             (() => {{
-              document.querySelectorAll('[{_EDITOR_MARK}]').forEach((el) => el.removeAttribute('{_EDITOR_MARK}'));
+              document.querySelectorAll('[{_EDITOR_MARK}]').forEach((el) =>
+                  el.removeAttribute('{_EDITOR_MARK}'));
               const card = document.querySelector('[{_CARD_MARK}]');
               if (!card) return {{found:false}};
               const expected = {nickname};
-              const editors = Array.from(card.querySelectorAll('textarea,input,[contenteditable="true"]'))
-                .filter((el) => {{ const r=el.getBoundingClientRect(); return r.width>0 && r.height>0; }});
-              const editor = editors.find((el) => !expected || String(el.getAttribute('placeholder') || '').includes(expected)) || editors[0];
+              const editors = Array.from(card.querySelectorAll(
+                  'textarea,input,[contenteditable="true"]'))
+                .filter((el) => {{ const r=el.getBoundingClientRect();
+                    return r.width>0 && r.height>0; }});
+              const editor = editors.find((el) => !expected ||
+                  String(el.getAttribute('placeholder') || '').includes(expected)) || editors[0];
               if (!editor) return {{found:false}};
               editor.setAttribute('{_EDITOR_MARK}', '1');
-              return {{found:true, tag:editor.tagName, placeholder:editor.getAttribute('placeholder') || ''}};
+              return {{found:true, tag:editor.tagName,
+                  placeholder:editor.getAttribute('placeholder') || ''}};
             }})()
             """
         )
@@ -493,17 +528,21 @@ def _mark_send_button(page, *, expected_nickname: str, expected_content: str) ->
     result = page.evaluate(
         f"""
         (() => {{
-          document.querySelectorAll('[{_SEND_MARK}]').forEach((el) => el.removeAttribute('{_SEND_MARK}'));
+          document.querySelectorAll('[{_SEND_MARK}]').forEach((el) =>
+              el.removeAttribute('{_SEND_MARK}'));
           const card = document.querySelector('[{_CARD_MARK}]');
           const editor = document.querySelector('[{_EDITOR_MARK}]');
           if (!card || !editor) return {{found:false}};
           const expected = {values};
           const placeholder = String(editor.getAttribute('placeholder') || '');
-          if (expected.nickname && placeholder && !placeholder.includes(expected.nickname)) return {{found:false}};
-          const actual = String(editor.value ?? editor.innerText ?? editor.textContent ?? '').trim();
+          if (expected.nickname && placeholder && !placeholder.includes(expected.nickname))
+              return {{found:false}};
+          const actual = String(
+              editor.value ?? editor.innerText ?? editor.textContent ?? '').trim();
           if (actual !== String(expected.content).trim()) return {{found:false}};
           const button = Array.from(card.querySelectorAll('button,a,[role="button"]'))
-            .find((el) => String(el.innerText || el.textContent || '').trim() === '发送' && !el.disabled);
+            .find((el) => String(el.innerText || el.textContent ||
+                '').trim() === '发送' && !el.disabled);
           if (!button) return {{found:false}};
           button.setAttribute('{_SEND_MARK}', '1');
           return {{found:true}};
@@ -525,9 +564,11 @@ def _wait_for_submission_ack(page, content: str, timeout: float = 8.0) -> str:
               const editor = card.querySelector('[{_EDITOR_MARK}]');
               const send = card.querySelector('[{_SEND_MARK}]');
               if (!editor) return 'editor-closed';
-              const value = String(editor.value ?? editor.innerText ?? editor.textContent ?? '').trim();
+              const value = String(
+                  editor.value ?? editor.innerText ?? editor.textContent ?? '').trim();
               if (!value && !send) return 'editor-cleared';
-              if (String(card.innerText || '').includes({expected}) && !send) return 'reply-rendered';
+              if (String(card.innerText || '').includes({expected}) && !send)
+                  return 'reply-rendered';
               return '';
             }})()
             """

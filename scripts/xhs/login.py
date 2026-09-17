@@ -54,8 +54,9 @@ def _is_current_user_profile(page: Page, current_url: str) -> bool:
     """Return whether the open profile page exposes the owner-only edit action."""
     if not _profile_user_id(current_url):
         return False
-    return page.evaluate(
-        """
+    return (
+        page.evaluate(
+            """
         (() => Array.from(document.querySelectorAll(
             'button, a, [role="button"], [aria-label], [title]'
         )).some((element) => {
@@ -65,15 +66,15 @@ def _is_current_user_profile(page: Page, current_url: str) -> bool:
             return text === '编辑资料' || aria === '编辑资料' || title === '编辑资料';
         }))()
         """
-    ) is True
+        )
+        is True
+    )
 
 
 def _find_profile_nav_href(page: Page) -> str:
     """Find the signed-in user's sidebar profile link with a guarded fallback."""
     profile_href = page.evaluate(
-        "document.querySelector("
-        f"{json.dumps(USER_PROFILE_NAV_LINK)}"
-        ")?.getAttribute('href') || ''"
+        f"document.querySelector({json.dumps(USER_PROFILE_NAV_LINK)})?.getAttribute('href') || ''"
     )
     if profile_href and _profile_user_id(str(profile_href)):
         return str(profile_href)
@@ -109,9 +110,12 @@ def _identity_from_profile(page: Page, profile_href: str) -> dict:
     current_url = str(page.evaluate("location.href") or "")
     nickname = ""
     if _profile_user_id(current_url) == user_id:
-        nickname = page.evaluate(
-            f"document.querySelector({json.dumps(USER_NICKNAME)})?.innerText?.trim() || ''"
-        ) or ""
+        nickname = (
+            page.evaluate(
+                f"document.querySelector({json.dumps(USER_NICKNAME)})?.innerText?.trim() || ''"
+            )
+            or ""
+        )
     return {
         "logged_in": True,
         "user_id": user_id,
@@ -132,7 +136,6 @@ def _wait_for_countdown(page: Page, timeout: float = 5.0) -> None:
             return
         time.sleep(0.3)
     raise RateLimitError()
-
 
 
 def get_current_user_identity(page: Page) -> dict:
@@ -197,15 +200,14 @@ def fetch_qrcode(page: Page) -> tuple[bytes, str, bool]:
     page.wait_for_element(QRCODE_IMG, timeout=15.0)
 
     # img.src 本身就是 data:image/png;base64,...，直接读取
-    src = page.evaluate(
-        f"document.querySelector({json.dumps(QRCODE_IMG)})?.src || ''"
-    )
+    src = page.evaluate(f"document.querySelector({json.dumps(QRCODE_IMG)})?.src || ''")
     if not src or "base64," not in src:
         raise RuntimeError("二维码图片 src 读取失败")
 
     b64_str = src.split("base64,", 1)[1]
 
     import base64
+
     png_bytes = base64.b64decode(b64_str)
 
     return png_bytes, b64_str, False
@@ -221,24 +223,24 @@ def _decode_qr_content(png_bytes: bytes) -> str | None:
 
     boundary = "----XhsQrBoundary"
     body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file";'
-        f' filename="qr.png"\r\n'
-        f"Content-Type: image/png\r\n\r\n"
-    ).encode() + png_bytes + f"\r\n--{boundary}--\r\n".encode()
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file";'
+            f' filename="qr.png"\r\n'
+            f"Content-Type: image/png\r\n\r\n"
+        ).encode()
+        + png_bytes
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
 
     try:
-        conn = http.client.HTTPSConnection(
-            "api.qrserver.com", timeout=5
-        )
+        conn = http.client.HTTPSConnection("api.qrserver.com", timeout=5)
         conn.request(
             "POST",
             "/v1/read-qr-code/",
             body=body,
             headers={
-                "Content-Type": (
-                    f"multipart/form-data; boundary={boundary}"
-                ),
+                "Content-Type": (f"multipart/form-data; boundary={boundary}"),
             },
         )
         resp = conn.getresponse()
@@ -272,8 +274,7 @@ def make_qrcode_url(
     if qr_content:
         image_url = (
             "https://api.qrserver.com/v1/create-qr-code/"
-            "?size=300x300&data="
-            + urllib.parse.quote(qr_content, safe="")
+            "?size=300x300&data=" + urllib.parse.quote(qr_content, safe="")
         )
         return image_url, qr_content
 
@@ -454,9 +455,7 @@ def logout(
     page.wait_dom_stable()
 
     if not _wait_for_logged_out(page, timeout=verification_timeout):
-        raise RuntimeError(
-            "自动退出未完成：未检测到明确的未登录界面，账号可能仍处于登录状态"
-        )
+        raise RuntimeError("自动退出未完成：未检测到明确的未登录界面，账号可能仍处于登录状态")
 
     logger.info("已退出登录并完成状态核验")
     return True
@@ -516,9 +515,7 @@ def _expire_web_session_cookie(page: Page) -> bool:
         and result.get("hadWebSession") is True
         and result.get("hasWebSession") is False
     )
-    if removed_in_page:
-        return True
-    return False
+    return bool(removed_in_page)
 
 
 def _mark_logout_target(page: Page, target: str) -> bool:
@@ -534,8 +531,7 @@ def _mark_logout_target(page: Page, target: str) -> bool:
         labels = ["退出登录", "退出账号"]
         preferred_selector = LOGOUT_MENU_ITEM
         search_selector = (
-            '[role="menuitem"], .menu-item, .dropdown-item, '
-            'button, [role="button"], li, a, div'
+            '[role="menuitem"], .menu-item, .dropdown-item, button, [role="button"], li, a, div'
         )
         restrict_to_dialog = False
     elif target == "confirm":
@@ -543,11 +539,11 @@ def _mark_logout_target(page: Page, target: str) -> bool:
         preferred_selector = ""
         search_selector = (
             '[role="dialog"] button, [role="dialog"] [role="button"], '
-            ".modal button, .modal [role=\"button\"], "
-            ".reds-modal button, .reds-modal [role=\"button\"], "
-            ".dialog button, .dialog [role=\"button\"], "
-            "[class*=\"modal\"] button, [class*=\"dialog\"] button, "
-            "[class*=\"popup\"] button, [class*=\"confirm\"] button"
+            '.modal button, .modal [role="button"], '
+            '.reds-modal button, .reds-modal [role="button"], '
+            '.dialog button, .dialog [role="button"], '
+            '[class*="modal"] button, [class*="dialog"] button, '
+            '[class*="popup"] button, [class*="confirm"] button'
         )
         restrict_to_dialog = True
     else:
