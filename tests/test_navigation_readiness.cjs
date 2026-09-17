@@ -153,3 +153,20 @@ for (const route of ['note', 'profile']) {
     assert.equal((await context.readNavigationState(1)).ready, false);
   });
 }
+
+test('ready home survives repeated business steps without navigation', async () => {
+  const url = 'https://www.xiaohongshu.com/explore';
+  const h = harness([{ ...ready(url), reason: 'dom' }]);
+  assert.equal((await h.context.cmdNavigate({ url: 'https://www.xiaohongshu.com/' })).reused, true);
+  assert.equal(h.navigations(), 0);
+});
+
+test('search and profile refresh retain collection freshness', async () => {
+  for (const path of ['/search_result?keyword=a', '/user/profile/u1']) {
+    const url = 'https://www.xiaohongshu.com' + path;
+    const reason = path.includes('profile') ? 'profile' : 'dom';
+    const h = harness([{ ...ready(url, 1), reason }, { ...ready(url, 2), reason }]);
+    assert.equal((await h.context.cmdNavigate({ url })).reused, false);
+    assert.equal(h.navigations(), 1);
+  }
+});

@@ -33,7 +33,7 @@ def recovery_for(payload: dict, exit_code: int) -> dict:
             "换号",
         )
     ):
-        kind, action = "identity", "处理登录或身份异常，确认绑定后继续当前步骤"
+        kind, action = "identity", "暂停当前账号并报告登录或身份异常，等待用户处理后继续"
     elif (
         exit_code
         or states & {"FAILED", "BLOCKED", "PARTIAL_SUCCESS", "UNKNOWN"}
@@ -45,7 +45,8 @@ def recovery_for(payload: dict, exit_code: int) -> dict:
     return {
         "kind": kind,
         "next_action": action,
-        "identity_check_required": kind == "identity",
+        "identity_check_required": False,
+        "user_action_required": kind == "identity",
         "refresh_inbox": False,
         "resume_scope": "current_step",
     }

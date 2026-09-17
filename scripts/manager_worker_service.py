@@ -2582,6 +2582,49 @@ class ManagerWorkerService(WorkerMemory):
             )
         return updated
 
+    def revise_publish_link(
+        self, task_id: str, *, account: str, title: str, link: dict
+    ) -> dict:
+        """Append a link-only revision to the existing successful worker receipt."""
+        from xhs.publish_links import note_link
+
+        fields = note_link(link.get("note_id"), link.get("note_url"))
+        if not fields or link.get("link_status") != "resolved":
+            raise WorkerServiceError("PUBLISH_LINK_REQUIRED", "尚未取得作品链接")
+        fields.update(link_status="resolved", link_reason="",
+                      link_source=link.get("link_source"))
+
+        def mutate(state: dict) -> tuple[dict, dict | None]:
+            current = self._find_execution(state, task_id, None)
+            if current["task"].get("account_slot") != account or current["state"] != "SUCCESS":
+                raise WorkerServiceError("PUBLISH_RECEIPT_MISMATCH", "原回执账号或成功状态不匹配")
+            items = current.get("item_results") or []
+            matches = [item for item in items if item.get("title") == title]
+            if len(matches) != 1:
+                raise WorkerServiceError("PUBLISH_ITEM_AMBIGUOUS", "原回执未找到唯一同标题发布项")
+            item = matches[0]
+            business = current.setdefault("business_result", {})
+            if all(item.get(key) == value for key, value in fields.items()) and (
+                len(items) != 1 or all(business.get(key) == value for key, value in fields.items())
+            ):
+                return copy.deepcopy(current), None
+            item.update(fields)
+            if len(items) == 1:
+                current.setdefault("business_result", {}).update(fields)
+            current["updated_at"] = utc_now()
+            self._append_result(state, current)
+            return copy.deepcopy(current), copy.deepcopy(state["results"][-1])
+
+        current, receipt = self._store.mutate(mutate)
+        if receipt:
+            revision = receipt.get("result_revision") or receipt["sequence"]
+            self._publish_outbox_record(
+                "result", current["task_id"], current["remote_execution_id"],
+                {"result": receipt}, record_id=f"{current['dispatch_id']}:result:{revision}",
+            )
+        return {"success": True, "task_id": task_id, "revised": receipt is not None,
+                **fields}
+
     def _read_local_task_outcome(self, local_task_id: str) -> dict[str, Any]:
         """Read a local terminal task and attach its persisted operation result."""
 

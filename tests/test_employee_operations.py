@@ -478,3 +478,28 @@ def test_action_attribution_validates_target_item(tmp_path: Path) -> None:
     with pytest.raises(ServiceError, match="有效的动作"):
         manager.save_action_attribution("single", {"item_index": 1, "execution_source": "human"})
     assert manager.store.list("action_attributions") == []
+
+
+def test_recovery_collection_records_preserve_content_and_creator_snapshots(tmp_path):
+    manager = manager_at(tmp_path)
+    state = manager.store.snapshot()
+    event = {"event_id": "e", "event_type": "note_comment", "handling_state": "NEW",
+             "occurred_at": "2026-09-16T01:00:00Z",
+             "payload": {"nickname": "读者", "content": "具体评论"}}
+    state["incremental_records"] = {
+        "a": {"machine_id": "PC001", "account_slot": "alpha", "data": event},
+        "b": {"machine_id": "PC001", "account_slot": "alpha", "data": event},
+        "c": {"machine_id": "PC002", "account_slot": "alpha", "data": event},
+    }
+    result = {"machine_id": "PC001", "account_slot": "alpha", "business_result": {
+        "source": "creator_manager", "captured_at": "2026-09-16T02:00:00Z",
+        "notes": [{"entity_id": "note", "title": "作品", "metrics": {"views": 0}}]}}
+    operations = EmployeeOperations(state, [result], manager._result_metric_counts)
+    records = operations.collection_records()
+    comments = [r for r in records if r.get("event_type") == "note_comment"]
+    assert len(comments) == 2
+    assert {r["machine_id"] for r in comments} == {"PC001", "PC002"}
+    assert all(r["message_preview"] == "具体评论" and r["requires_reply"] for r in comments)
+    snapshot = next(r for r in records if r.get("entity_type") == "note")
+    assert snapshot["metrics"]["views"] == 0
+    assert snapshot["recorded_at"] == "2026-09-16T02:00:00Z"

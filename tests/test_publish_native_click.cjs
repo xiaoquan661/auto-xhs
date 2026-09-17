@@ -4,7 +4,8 @@ const vm = require('node:vm');
 const test = require('node:test');
 const source = fs.readFileSync('extension/background.js', 'utf8');
 const code = source.slice(source.indexOf('function publishDomNodes('), source.indexOf('async function cmdClickViaDebugger('));
-function harness(disabled = false, text = '发布') {
+function harness(disabled = false, text = '发布', scale = 1) {
+  let pointer = {x:0,y:0};
   const calls = [];
   const root = {nodeName: 'HTML', children: [{nodeName: 'XHS-PUBLISH-BTN',
     attributes: ['is-publish', 'true'], shadowRoots: [{children: [
@@ -13,13 +14,16 @@ function harness(disabled = false, text = '发布') {
         children: [{nodeType: 3, nodeValue: text}]}
     ]}]}]};
   const context = vm.createContext({
-    getOrOpenPlatformTab: async () => ({id: 57}),
+    getOrOpenPlatformTab: async id => ({id: id ?? 57}),
     sleep: async () => {},
     _dispatchRealClickAt: async (target, x, y) => calls.push(['native', target.tabId, x, y]),
     chrome: { debugger: {
       attach: async () => calls.push(['attach']), detach: async () => calls.push(['detach']),
       sendCommand: async (_, method, params) => {
         calls.push([method, params]);
+        if (method === 'Input.dispatchMouseEvent') pointer = {x:params.x / scale,y:params.y / scale};
+        if (method === 'Runtime.evaluate' && params.expression === 'window.__xhsPointer') return {result:{value:pointer}};
+        if (method === 'Runtime.callFunctionOn' && params.functionDeclaration.includes(":hover")) return {result:{value:true}};
         if (method === 'DOM.getDocument') return {root};
         if (method === 'DOM.resolveNode') return {object: {objectId:'publish-button'}};
         if (method === 'Runtime.callFunctionOn' && params.returnByValue) {
@@ -49,4 +53,14 @@ test('unavailable publish control never sends a click', async () => {
     assert.equal(h.calls.some(c => c[0] === 'native'), false);
     assert.equal(h.calls.at(-1)[0], 'detach');
   }
+});
+
+test('publish input follows the measured zoom and explicit tab without submitting during inspection', async () => {
+  const h = harness(false, '发布', 1.4);
+  const r = await h.context.cmdClickPublishControl({_tab_id: 99, dry_run: true});
+  assert.equal(r.ready, true);
+  assert.equal(r.tab_id, 99);
+  assert.ok(Math.abs(r.point.x - 790 * 1.4) < 0.01);
+  assert.ok(Math.abs(r.point.y - 540 * 1.4) < 0.01);
+  assert.equal(h.calls.some(c => c[0] === 'native'), false);
 });

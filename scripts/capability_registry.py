@@ -138,6 +138,9 @@ _POLICIES = [
     # Read-only discovery and diagnostics.
     _policy("browser-snapshot", RiskLevel.READ_ONLY),
     _policy("publish-page-status", RiskLevel.READ_ONLY),
+    _policy("publish-pointer-check", RiskLevel.READ_ONLY),
+    _policy("account-platform-select", RiskLevel.SECURITY_CONFIG),
+    _policy("publish-link-reconcile", RiskLevel.READ_ONLY),
     _policy(
         "publish-prepared-retry",
         RiskLevel.EXTERNAL_OUTPUT,

@@ -384,6 +384,10 @@ async function pairExtension(bundleText) {
 // ───────────────────────── 命令路由 ─────────────────────────
 
 async function handleCommand(msg) {
+  if (!["visual_snapshot", "visual_action", "screenshot"].includes(msg.method)) {
+    await releaseVisualDebuggers();
+  }
+
   const { method, params = {} } = msg;
   const commandPlatform = normalizePlatform(msg.platform);
   const bindingPlatform = normalizePlatform(binding?.platform);
@@ -396,6 +400,13 @@ async function handleCommand(msg) {
       return await cmdVisualSnapshot(params);
     case "visual_action":
       return await cmdVisualAction(params);
+    case "set_bound_platform": {
+      const platform = normalizePlatform(params.platform);
+      binding = { ...binding, platform };
+      await chrome.storage.local.set({ [BINDING_STORAGE_KEY]: binding });
+      setTimeout(() => { if (ws) ws.close(); }, 500);
+      return { platform, updated: true };
+    }
     case "click_publish_control":
       return await cmdClickPublishControl(params);
     case "select_publish_tab":
@@ -793,17 +804,18 @@ async function getFreshXsecToken(tabId, noteId) {
   }
 }
 
-async function cmdNavigate({ url, _retried = false }) {
+async function cmdNavigate({ url, _retried = false, _tab_id = null }) {
   const expectedPlatform = normalizePlatform(binding?.platform);
   const targetPlatform = platformForUrl(url);
   const isNeutralPage = url === "about:blank";
   if (!isNeutralPage && targetPlatform !== expectedPlatform) {
     throw new Error(`导航目标平台不匹配: expected=${expectedPlatform}, actual=${targetPlatform || "unknown"}`);
   }
-  const tab = await getOrOpenPlatformTab();
+  const tab = await getOrOpenPlatformTab(_tab_id);
 
   const before = await readNavigationState(tab.id).catch(() => null);
-  const reuse = before?.ready && before.reason === "note"
+  const isHome = /^\/(?:explore\/?)?$/.test(new URL(url).pathname);
+  const reuse = before?.ready && (before.reason === "note" || (isHome && before.reason === "dom"))
     && sameNavigationTarget(before.url, url) && !tab.pendingUrl;
   // 若当前已在 xiaohongshu.com，用页面内 window.location.href 发起导航。
   // 这样浏览器将导航标记为 same-origin（Sec-Fetch-Site: same-origin），
@@ -811,7 +823,7 @@ async function cmdNavigate({ url, _retried = false }) {
   // Sec-Fetch-Site: none/cross-site 被 XHS 服务端识别为自动化访问。
   const isOnSamePlatform = platformForUrl(tab.url || "") === expectedPlatform;
   if (reuse) {
-    // The detail reader and comment command can share the already open note.
+    // Reuse the ready recommendation page or note across business steps.
   } else if (isOnSamePlatform) {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -912,11 +924,11 @@ async function cmdNavigate({ url, _retried = false }) {
     },
   }).catch(() => {});
 
-  return { ...readiness, reused: reuse };
+  return { ...readiness, reused: reuse, tab_id: tab.id };
 }
 
-async function cmdWaitForLoad({ timeout = 60000 }) {
-  const tab = await getOrOpenPlatformTab();
+async function cmdWaitForLoad({ timeout = 60000, _tab_id = null }) {
+  const tab = await getOrOpenPlatformTab(_tab_id);
   return await waitForTabComplete(tab.id, tab.pendingUrl || tab.url, timeout);
 }
 
@@ -1219,8 +1231,8 @@ function publishDomNodes(node) {
     ...(node.shadowRoots || []).flatMap(publishDomNodes)];
 }
 
-async function cmdClickPublishControl() {
-  const tab = await getOrOpenPlatformTab();
+async function cmdClickPublishControl({ _tab_id = null, dry_run = false } = {}) {
+  const tab = await getOrOpenPlatformTab(_tab_id);
   const target = { tabId: tab.id };
   await chrome.debugger.attach(target, "1.3");
   try {
@@ -1281,7 +1293,37 @@ async function cmdClickPublishControl() {
         }, {once: true, capture: true});
       }`,
     });
-    await _dispatchRealClickAt(target, pos.x, pos.y);
+    // Measure how native input coordinates map to page client coordinates at this zoom.
+    await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: `window.__xhsPointer = null;
+        window.__xhsPointerListener && document.removeEventListener('mousemove', window.__xhsPointerListener, true);
+        window.__xhsPointerListener = e => {window.__xhsPointer = {x:e.clientX, y:e.clientY};};
+        document.addEventListener('mousemove', window.__xhsPointerListener, true);`,
+    });
+    const probe = async (x, y) => {
+      await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+        type: "mouseMoved", x, y, button: "none", buttons: 0,
+      });
+      await sleep(50);
+      const r = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+        expression: "window.__xhsPointer", returnByValue: true,
+      });
+      return r.result?.value;
+    };
+    const a = await probe(100, 100), b = await probe(200, 200);
+    if (!a || !b || b.x === a.x || b.y === a.y) {
+      return {dispatched: false, reason: "无法核对鼠标与页面坐标"};
+    }
+    const point = {x: 100 + (pos.x - a.x) * 100 / (b.x - a.x),
+      y: 100 + (pos.y - a.y) * 100 / (b.y - a.y)};
+    await probe(point.x, point.y);
+    const hit = await chrome.debugger.sendCommand(target, "Runtime.callFunctionOn", {
+      objectId, returnByValue: true,
+      functionDeclaration: "function() { return this.matches(':hover'); }",
+    });
+    if (!hit.result?.value) return {dispatched: false, reason: "鼠标未命中发布按钮", point};
+    if (dry_run) return {dispatched: false, ready: true, point, tab_id: tab.id};
+    await _dispatchRealClickAt(target, point.x, point.y);
     const receipt = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: "window.__xhsPublishNativeClick || null", returnByValue: true,
     }).catch(() => null);

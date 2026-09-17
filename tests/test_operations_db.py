@@ -231,3 +231,36 @@ def test_existing_reply_schedule_migrates_to_agent_rule(tmp_path) -> None:
     for table in ("reply_rules", "reply_rule_versions"):
         columns = {row["name"] for row in database.fetch_all(f"PRAGMA table_info({table})")}
         assert "active_time_range" not in columns
+
+
+def test_platform_event_migration_preserves_existing_comment_links(tmp_path):
+    from scripts.inbound_event_service import InboundEventService
+
+    path = tmp_path / "operations.db"
+    with sqlite3.connect(path) as connection:
+        for version in range(1, 16):
+            connection.executescript(_MIGRATIONS[version])
+        connection.execute("PRAGMA user_version = 15")
+        connection.execute("INSERT INTO inbound_events "
+                           "(event_id,account_slot,event_type,platform_event_id,occurred_at,"
+                           "discovered_at,handling_state,created_task_id) "
+                           "VALUES ('old','a','note_comment','same','2026-09-15','2026-09-15',"
+                           "'HANDLED','reply-1')")
+        connection.execute("INSERT INTO comment_collection_batches "
+                           "(batch_id,account_slot,platform,started_at) "
+                           "VALUES ('batch','a','xiaohongshu','2026-09-15')")
+        connection.execute("INSERT INTO comment_batch_events (batch_id,event_id) "
+                           "VALUES ('batch','old')")
+    database = OperationsDatabase(path=path)
+    service = InboundEventService(database)
+    values = dict(account_slot="a", platform="rednote", event_type="note_comment",
+                  platform_event_id="same", occurred_at="2026-09-15T10:00:00Z")
+    new = service.record(**values)
+    repeated = service.record(**values)
+    assert new["created"] is True
+    assert repeated["created"] is False
+    assert repeated["event"]["event_id"] == new["event"]["event_id"]
+    assert service.get("old")["handling_state"] == "HANDLED"
+    assert service.get("old")["created_task_id"] == "reply-1"
+    assert database.fetch_one("SELECT event_id FROM comment_batch_events")["event_id"] == "old"
+    assert database.fetch_all("PRAGMA foreign_key_check") == []

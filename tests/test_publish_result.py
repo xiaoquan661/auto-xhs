@@ -296,3 +296,46 @@ def test_publish_machine_policy_skips_homepage(monkeypatch) -> None:
                         lambda *args: pytest.fail("禁用主页回读时不得导航"))
     result = _readback_published_note(SimpleNamespace(account="alpha"), "标题")
     assert result["status"] == "disabled_by_policy"
+
+
+def test_undispatched_click_repositions_then_publishes(monkeypatch):
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _: None)
+    page = PublishPage([_observation(feedback={"source": "xhr", "code": 0,
+                                             "data": {"note_id": "note-1"}})])
+    attempts = []
+    def click():
+        attempts.append(1)
+        return ({"dispatched": False, "reason": "鼠标未命中发布按钮"}
+                if len(attempts) == 1 else {"dispatched": True})
+    page.click_publish_control = click
+    assert click_publish_button(page, expected_title="测试标题")["verified"] is True
+    assert len(attempts) == 2
+
+
+def test_undispatched_failure_preserves_reason(monkeypatch):
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _: None)
+    page = PublishPage([])
+    attempts = []
+    def click():
+        attempts.append(1)
+        return {"dispatched": False, "reason": "鼠标未命中发布按钮"}
+    page.click_publish_control = click
+    with pytest.raises(PublishError, match="鼠标未命中发布按钮") as caught:
+        click_publish_button(page, expected_title="测试标题")
+    assert caught.value.result_unknown is False
+    assert caught.value.click_result["dispatched"] is False
+    assert len(attempts) == 2
+
+
+def test_missing_dispatch_confirmation_is_not_retried(monkeypatch):
+    monkeypatch.setattr("xhs.publish.time.sleep", lambda _: None)
+    page = PublishPage([])
+    attempts = []
+    def click():
+        attempts.append(1)
+        return {}
+    page.click_publish_control = click
+    with pytest.raises(PublishError) as caught:
+        click_publish_button(page, expected_title="测试标题")
+    assert caught.value.result_unknown is True
+    assert len(attempts) == 1

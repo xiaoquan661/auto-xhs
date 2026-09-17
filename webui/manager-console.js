@@ -249,7 +249,8 @@
     const list = element("dl", className);
     values.forEach(([label, value]) => {
       const item = element("div");
-      append(item, element("dt", "", label), element("dd", "", value || "—"));
+        append(item, element("dt", "", label), element("dd", "",
+          value === null || value === undefined || value === "" ? "—" : String(value)));
       list.appendChild(item);
     });
     return list;
@@ -309,7 +310,7 @@
       if (!select) return;
       const previous = select.value;
       const allOption = selector === "#manager-result-machine";
-      const placeholder = element("option", "", allOption ? "全部执行机" : "请选择执行机");
+      const placeholder = element("option", "", allOption ? "请选择员工机" : "请选择执行机");
       placeholder.value = "";
       select.replaceChildren(placeholder);
       state.machines.forEach((machine) => {
@@ -2071,9 +2072,11 @@
     if (!select) return;
     const previous = select.value;
     const accounts = new Set(
-      state.results.map(resultAccount).filter(Boolean),
+      [...state.accounts, ...state.results, ...(state.employeeSummary?.collection_records || [])]
+        .filter((row) => row.machine_id === $("#manager-result-machine").value)
+        .map(resultAccount).filter(Boolean),
     );
-    const placeholder = element("option", "", "全部账号");
+    const placeholder = element("option", "", "请选择账号");
     placeholder.value = "";
     const options = [...accounts].sort().map((account) => {
       const option = element("option", "", account);
@@ -2085,7 +2088,8 @@
   }
 
   function filteredResults() {
-    return state.results.filter(resultMatchesFilters);
+    return state.results.filter((result) => resultActionKind(result) === "publish"
+      && resultMatchesFilters(result));
   }
 
   function filteredResultHistory() {
@@ -2093,11 +2097,11 @@
   }
 
   function filteredIncrementalRecords() {
-    return state.incrementalRecords.filter((record) => {
+    return (state.employeeSummary?.collection_records || state.incrementalRecords).filter((record) => {
       const result = {
         ...record,
         task_id: record.source_task_id,
-        recorded_at: record.created_at || record.collected_at,
+        recorded_at: record.recorded_at || record.created_at || record.collected_at,
       };
       return resultMatchesFilters(result);
     });
@@ -2153,7 +2157,65 @@
     return result[`${field}_status`] || (field in result ? "observed" : "missing");
   }
 
+  function publishedMetricHistory(result, noteId) {
+    const snapshots = [];
+    function visit(value) {
+      if (!value || typeof value !== "object") return;
+      if (value.source === "creator_manager" && value.captured_at
+          && Array.isArray(value.notes)) {
+        value.notes.filter((note) => (note.entity_id || note.note_id) === noteId)
+          .forEach((note) => snapshots.push({captured_at: value.captured_at,
+            metrics: note.metrics || {}}));
+      }
+      Object.values(value).forEach(visit);
+    }
+    [...(state.resultHistory || []), ...state.results].filter((row) =>
+      row.machine_id === result.machine_id && resultAccount(row) === resultAccount(result))
+      .forEach((row) => visit(row.business_result));
+    snapshots.sort((a, b) => Date.parse(b.captured_at) - Date.parse(a.captured_at));
+    const daily = new Map();
+    snapshots.forEach((snapshot) => {
+      const day = new Intl.DateTimeFormat("sv-SE", {timeZone: "Asia/Shanghai",
+        year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date(snapshot.captured_at));
+      if (!daily.has(day)) daily.set(day, {...snapshot, day});
+    });
+    return [...daily.values()];
+  }
+
+  function publishedNoteMetrics(result) {
+    const panel = element("section", "manager-business-result");
+    panel.appendChild(element("h3", "", "笔记运营数据"));
+    panel.appendChild(element("p", "manager-inline-message",
+      "创作服务平台 · 笔记管理累计数据；按下发任务更新，每天保留最新一次采集。"));
+    const business = result.business_result || {};
+    const items = Array.isArray(result.item_results) && result.item_results.length
+      ? result.item_results : [business];
+    const fields = [["浏览量", "views"], ["点赞", "likes"], ["收藏", "favorites"],
+      ["评论", "comments"], ["转发", "shares"]];
+    items.forEach((item) => {
+      const id = item.note_id || item.feed_id || business.note_id;
+      const history = id ? publishedMetricHistory(result, id) : [];
+      const latest = history[0];
+      const card = element("article", "manager-business-item");
+      append(card, element("strong", "", item.title || item.note_title || business.title || "已发布笔记"),
+        factList([["笔记 ID", id], ...fields.map(([label, key]) =>
+          [label, latest?.metrics[key] ?? "待更新"]),
+        ["更新时间", latest ? formatTime(latest.captured_at) : "待下发采集任务"]]));
+      if (history.length) {
+        const details = element("details");
+        details.appendChild(element("summary", "", `每日记录（${history.length} 天）`));
+        history.forEach((snapshot) => append(details,
+          element("strong", "", snapshot.day), factList(fields.map(([label, key]) =>
+            [label, snapshot.metrics[key] ?? "未取得"]))));
+        card.appendChild(details);
+      }
+      panel.appendChild(card);
+    });
+    return panel;
+  }
+
   function renderBusinessResult(result) {
+    if (resultActionKind(result) === "publish") return publishedNoteMetrics(result);
     const status = resultDataStatus(result, "business_result");
     const business = result.business_result;
     if (status !== "observed" || !business || typeof business !== "object") {
@@ -2217,6 +2279,7 @@
   }
 
   function resultItemDetails(result) {
+    if (resultActionKind(result) === "publish") return null;
     const items = Array.isArray(result.item_results) ? result.item_results : [];
     if (!items.length) return null;
     const details = element("details", "manager-result-items");
@@ -2497,7 +2560,9 @@
       setText(`#manager-action-${kind}`, actionTargetActualText(results, kind));
     });
     resultView?.render({results, resultHistory: filteredResultHistory(),
-      incremental: filteredIncrementalRecords()});
+      incremental: filteredIncrementalRecords(),
+      reports: (state.employeeSummary?.daily_metrics || []).filter((row) =>
+        resultMatchesFilters({...row, recorded_at: `${row.date}T12:00:00+08:00`}))});
     renderExceptions();
   }
 
@@ -3145,7 +3210,18 @@
     resultView = window.AutoXhsResultView({state, element, append, stateBadge, formatTime,
       resultAccount, resultCapability, actualResultCount, requestedResultCount,
       resultDetailCard, resultAuditCard, operationReportCard, factList, collectionStatus,
-      resultMatchesFilters});
+      resultMatchesFilters, resultDate, metricLabels, publishedMetricHistory, publishedNoteMetrics,
+      resultLinks, recoverySelection: () => ({machine: $("#manager-result-machine").value,
+        account: $("#manager-result-account").value}),
+      selectRecoveryAccount: (machine, account) => {
+        $("#manager-result-machine").value = machine;
+        $("#manager-result-account").value = "";
+        populateResultAccounts();
+        $("#manager-result-account").value = account;
+        resultView.reset();
+        resultView.selectTab("results");
+        renderResults();
+      }});
     resultView.init();
     $("#manager-account-add").addEventListener("click", () => accountTools.open("create"));
     $("#manager-persona-editor-form").addEventListener("submit", savePersonaEditor);
@@ -3187,10 +3263,6 @@
       "#manager-result-end",
     ].forEach((selector) => $(selector)?.addEventListener("change", renderResults));
     $("#manager-result-reset")?.addEventListener("click", () => {
-      const machine = $("#manager-result-machine");
-      const account = $("#manager-result-account");
-      if (machine) machine.value = "";
-      if (account) account.value = "";
       setResultDateRange();
       renderResults();
     });

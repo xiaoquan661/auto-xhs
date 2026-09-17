@@ -768,6 +768,8 @@ def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
         parameters={
             "owner_user_id": args.owner_user_id or "",
             "max_notes": args.max_notes,
+            "source": args.source,
+            "note_ids": args.note_id,
         },
     )["task"]
     _output(service.execute_task(task["task_id"]))
@@ -1073,6 +1075,7 @@ def _publish_prepared_form(
         result = click_publish_button(page, expected_title=str(preview.get("title") or ""))
     except Exception as exc:
         workflow.fail(task["task_id"], exc, result_unknown=getattr(exc, "result_unknown", True))
+        exc.task_id = task["task_id"]
         raise
     task = workflow.complete_publish(task["task_id"], result)
     _output(
@@ -2390,6 +2393,11 @@ def build_parser() -> argparse.ArgumentParser:
         "collect-operations-metrics",
         help="回收当前账号及自己笔记的运营指标快照",
     )
+    sub.add_argument(
+        "--source", choices=["user_profile", "creator_manager", "notification_history"],
+        default="creator_manager", help="运营数据来源，默认创作中心笔记管理",
+    )
+    sub.add_argument("--note-id", action="append", default=[], help="指定已发布笔记，可重复")
     sub.add_argument("--owner-user-id", help="当前账号 UID；省略时从已核验身份读取")
     sub.add_argument("--max-notes", type=int, default=50, help="最多采集的最近笔记数")
     sub.set_defaults(func=cmd_collect_operations_metrics, requires_account_lock=False)
@@ -2553,7 +2561,9 @@ def main() -> None:
             args.func(args)
     except Exception as e:
         logger.error("执行失败: %s", e, exc_info=True)
-        _output({"success": False, "error": str(e)}, exit_code=2)
+        details = {key: getattr(e, key) for key in ("task_id", "click_result", "result_unknown")
+                   if hasattr(e, key)}
+        _output({"success": False, "error": str(e), **details}, exit_code=2)
 
 
 if __name__ == "__main__":

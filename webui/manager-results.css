@@ -99,3 +99,56 @@
   #results .recovery-table { min-width:700px; }
   #results .recovery-technical .manager-collection-grid { grid-template-columns:1fr; }
 }
+
+#results .recovery-help { padding:0 18px; color:#627590; font-size:13px; }
+#results .recovery-metric-lines { display:grid; gap:5px; min-width:145px; white-space:normal; }
+#results .recovery-content-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+#results .recovery-saved-reports { margin:20px; padding:16px; border:1px solid var(--recovery-line); border-radius:10px; }
+#results .recovery-saved-reports > summary { cursor:pointer; font-weight:600; }
+#results .recovery-saved-reports > p { color:#627590; font-size:13px; }
+#results .recovery-record-copy small { overflow-wrap:anywhere; white-space:normal; }
+#results #recovery-collection-tools label { display:flex; align-items:center; gap:10px; }
+#results #recovery-collection-search { min-width:240px; }
+#results #recovery-sync-dialog { width:min(1080px,calc(100vw - 40px)); }
+
+#results #manager-operation-report-list td:first-child { width:22%; }
+#results #manager-operation-report-list td:nth-last-child(2) { white-space:normal; min-width:130px; max-width:240px; line-height:1.6; }
+#results .recovery-overview[hidden], #results .recovery-action-strip[hidden] { display:none; }
+#results .recovery-metric-lines { font-size:12px; line-height:1.5; }
+
+#results .recovery-navigation { margin:20px 0; }
+#results .recovery-choice-section { margin-bottom:24px; }
+#results .recovery-choice-section h2 { font-size:14px; color:#63718a; margin:0 0 12px; font-weight:600; }
+#results .recovery-machine-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+#results .recovery-account-grid { display:flex; gap:12px; flex-wrap:wrap; }
+#results .recovery-choice { background:#fff; border:1px solid #e0e6f0; border-radius:12px; padding:18px 22px; text-align:left; display:flex; align-items:center; gap:18px; min-height:76px; color:#243653; cursor:pointer; }
+#results .recovery-choice strong { font-size:18px; }
+#results .recovery-choice > span { color:#74829a; font-size:13px; }
+#results .recovery-choice[aria-pressed="true"] { border-color:#315fec; background:#f0f4ff; box-shadow:0 0 0 1px #315fec; }
+#results .recovery-account-choice { min-width:240px; }
+#results .recovery-account-choice strong { font-size:15px; }
+#results .recovery-choice .recovery-avatar { background:#e6ecff; color:#315fec; width:42px; height:42px; display:grid; place-items:center; border-radius:12px; font-size:18px; }
+#results .recovery-step-hint { background:#fff; padding:40px; text-align:center; color:#74829a; border:1px dashed #dbe2ee; border-radius:14px; }
+#results .recovery-account-heading { display:flex; justify-content:space-between; align-items:center; padding:22px 24px 6px; }
+#results .recovery-account-heading h2 { font-size:20px; margin:0; }
+#results .recovery-account-heading p, #results #recovery-note-count { color:#74829a; font-size:12px; }
+#results .recovery-note-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; padding:8px 22px 24px; background:#f8faff; }
+#results .recovery-note-card { border:1px solid #e1e7f1; border-radius:14px; padding:22px; background:#fff; min-width:0; }
+#results .recovery-note-header { display:flex; justify-content:space-between; align-items:center; }
+#results .recovery-note-kind { font-size:11px; color:#74829a; }
+#results .recovery-note-card h3 { font-size:18px; line-height:1.55; margin:14px 0 8px; overflow-wrap:anywhere; }
+#results .recovery-note-time { font-size:12px; color:#74829a; line-height:1.6; }
+#results .recovery-note-metrics { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); padding:20px 0; margin:15px 0 12px; border-top:1px solid #edf0f6; border-bottom:1px solid #edf0f6; }
+#results .recovery-note-metrics div { display:grid; gap:7px; text-align:center; }
+#results .recovery-note-metrics strong { color:#20324f; font-size:23px; font-variant-numeric:tabular-nums; }
+#results .recovery-note-metrics span { color:#74829a; font-size:12px; }
+#results .recovery-note-actions { display:flex; justify-content:space-between; align-items:center; margin-top:18px; }
+#results .recovery-note-link { text-decoration:none; color:#315fec; font-size:13px; }
+#results .recovery-filters label[hidden], #results .manager-acceptance-panel[hidden], #results .recovery-content[hidden] { display:none; }
+@media(max-width:1000px) { #results .recovery-note-grid { grid-template-columns:1fr; } }
+@media(max-width:650px) { #results .recovery-machine-grid { grid-template-columns:1fr; } #results .recovery-account-choice { width:100%; } #results .recovery-note-card { padding:16px; } }
+
+#results .recovery-choice-section { margin-bottom:18px; }
+#results .recovery-choice { min-height:64px; padding:14px 20px; }
+#results .recovery-navigation { margin:18px 0; }
+#results .recovery-account-heading { padding-top:18px; }

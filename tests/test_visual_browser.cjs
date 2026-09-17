@@ -42,7 +42,7 @@ test('snapshot captures the requested tab rather than the active tab',async()=>{
   assert.equal(h.calls[0].state,'normal');
   assert.equal(h.calls[0].focused,true);
   assert.equal(h.calls[1].tab,9);
-  assert.equal(h.calls.at(-3).detach,9);
+  assert.equal(h.calls.some(x=>x.detach),false);
   assert.equal(h.calls.at(-2).tab,5);
   assert.equal(h.calls.at(-1).state,'minimized');
   assert.equal(result.window_restored_for_capture,true);
@@ -127,12 +127,13 @@ test('changed frame rejects clicks before dispatch',async()=>{
   const h=harness();
   await assert.rejects(h.context.cmdVisualAction({_tab_id:5,frame:{...h.frame,scroll_y:40},
     action:'click',x:20,y:30}),/VISUAL_FRAME_CHANGED/);
-  assert.equal(h.calls.length,0);
+  assert.equal(h.calls.some(x=>x.x !== undefined),false);
+  assert.ok(h.calls.some(x=>x.detach===5));
 });
 test('visual click uses CSS pixels and detaches',async()=>{
   const h=harness();
   await h.context.cmdVisualAction({_tab_id:5,frame:h.frame,action:'click',x:20,y:30});
-  assert.ok(h.calls.some(x=>x.x===20 && x.y===30));assert.equal(h.calls.at(-1).detach,5);
+  assert.ok(h.calls.some(x=>x.x===20 && x.y===30));assert.ok(h.calls.some(x=>x.detach===5));
 });
 test('activity clears the busy badge on success and reports failure',async()=>{
   const h=harness();
@@ -152,4 +153,55 @@ test('a suspended page activity label does not block the command result',async()
   h.context.setTimeout=(fn)=>setTimeout(fn,1);
   h.context.chrome.scripting.executeScript=()=>new Promise(()=>{});
   assert.equal(await h.context.withBridgeActivity({method:'visual_snapshot'},async()=>42),42);
+});
+
+
+test('action waits for debugger banner viewport before checking screenshot',async()=>{
+  const h=harness();
+  let attached=false, reads=0;
+  h.context.chrome.windows.get=async()=>({state:'maximized'});
+  h.context.chrome.debugger.attach=async()=>{attached=true;};
+  h.context.chrome.debugger.detach=async()=>{attached=false;};
+  h.context.chrome.scripting.executeScript=async()=>{
+    assert.equal(attached,true);
+    return [{result:{...h.frame,height:++reads<3?604:534}}];
+  };
+  const result=await h.context.cmdVisualAction({_tab_id:5,
+    frame:{...h.frame,height:534},action:'click',x:20,y:500});
+  assert.equal(result.dispatched,true);
+  assert.ok(reads>=5);
+  assert.equal(attached,false);
+  assert.equal(h.calls.filter(x=>x.x===20 && x.y===500).length,1);
+});
+
+test('real document change stops input after attachment and restores window',async()=>{
+  const h=harness();
+  h.context.setTimeout=(fn)=>setTimeout(fn,1);
+  await assert.rejects(h.context.cmdVisualAction({_tab_id:9,
+    frame:{...h.frame,document_id:'previous'},action:'click',x:20,y:30}),
+    error=>/VISUAL_FRAME_CHANGED/.test(error.message) && !/RESULT_UNKNOWN/.test(error.message));
+  assert.equal(h.calls.some(x=>x.x !== undefined),false);
+  assert.ok(h.calls.some(x=>x.detach===9));
+  assert.equal(h.calls.at(-2).tab,5);
+  assert.equal(h.calls.at(-1).state,'minimized');
+});
+
+
+test('image observation and click share one debugger attachment',async()=>{
+  const h=harness();
+  h.context.chrome.windows.get=async()=>({state:'maximized'});
+  const shot=await h.context.cmdVisualSnapshot({_tab_id:9});
+  assert.equal(h.calls.some(x=>x.detach),false);
+  await h.context.cmdVisualAction({_tab_id:9,frame:shot.frame,action:'click',x:20,y:30});
+  assert.equal(h.calls.filter(x=>x.attach===9).length,1);
+  assert.equal(h.calls.filter(x=>x.detach===9).length,1);
+});
+
+test('switching to a normal command releases screenshot attachment',async()=>{
+  const h=harness();
+  await h.context.cmdVisualSnapshot({_tab_id:9});
+  await h.context.releaseVisualDebuggers();
+  assert.equal(h.calls.filter(x=>x.detach===9).length,1);
+  await h.context.releaseVisualDebuggers();
+  assert.equal(h.calls.filter(x=>x.detach===9).length,1);
 });

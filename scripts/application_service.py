@@ -3070,7 +3070,7 @@ class ApplicationService(ApplicationMemory):
             source=source,
             metrics=account.get("metrics") or {},
             extra=account.get("extra") or {},
-        )
+        ) if account else None
         note_snapshots = [
             self.metrics.record_snapshot(
                 account_slot=account_slot,
