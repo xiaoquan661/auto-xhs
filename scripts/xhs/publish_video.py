@@ -27,21 +27,6 @@ from .types import PublishVideoContent
 logger = logging.getLogger(__name__)
 
 
-def publish_video_content(page: Page, content: PublishVideoContent) -> None:
-    """发布视频内容（填写表单 + 点击发布）。
-
-    Args:
-        page: CDP 页面对象。
-        content: 视频发布内容。
-
-    Raises:
-        PublishError: 发布失败。
-        UploadTimeoutError: 上传/处理超时。
-    """
-    fill_publish_video_form(page, content)
-    click_publish_video_button(page)
-
-
 def fill_publish_video_form(page: Page, content: PublishVideoContent) -> None:
     """填写视频发布表单，不点击发布按钮。
 
@@ -75,18 +60,6 @@ def fill_publish_video_form(page: Page, content: PublishVideoContent) -> None:
         content.schedule_time,
         content.visibility,
     )
-
-
-def click_publish_video_button(page: Page) -> None:
-    """点击视频发布按钮。
-
-    Args:
-        page: CDP 页面对象。
-    """
-    _wait_for_publish_button_clickable(page)
-    page.click_element(PUBLISH_BUTTON)
-    time.sleep(3)
-    logger.info("视频发布完成")
 
 
 def _upload_video(page: Page, video_path: str) -> None:

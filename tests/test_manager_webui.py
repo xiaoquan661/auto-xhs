@@ -37,6 +37,18 @@ def test_manager_console_exposes_six_product_views() -> None:
     assert 'data-manager-view-link="operations"' not in html
 
 
+def test_manager_assets_preserve_shared_plan_and_account_styles() -> None:
+    css = _source("control-room.css")
+    assert not (WEBUI / "manager-planning.js").exists()
+    assert ".daily-plan-summary" not in css
+    assert ".daily-plan-inputs" not in css
+    assert "#planning" not in css
+    assert ".daily-plan-numbers { display: grid;" in css
+    assert ".worker-next-account .daily-plan-numbers { padding: 10px 0; }" in css
+    assert ".manager-account-tools label {" in css
+    assert ".manager-account-tools select, .manager-account-tools textarea {" in css
+
+
 def test_account_workspace_displays_units_and_attention() -> None:
     html = _source("index.html")
     for marker in (
