@@ -128,8 +128,11 @@ def cmd_publish_prepared_retry(args: Any) -> None:
         raise XHSError("再次提交已准备表单需要用户明确授权")
     workflow = PublishWorkflowService()
     original = workflow.get(args.task_id, account=args.account)
-    if original["state"] != "RESULT_UNKNOWN":
-        raise XHSError("原任务不是待核对的发布任务")
+    retryable = original["state"] == "RESULT_UNKNOWN" or (
+        original["state"] == "FAILED" and original.get("error_code") == "PUBLISH_NOT_DISPATCHED"
+    )
+    if not retryable:
+        raise XHSError("原任务不是待核对或明确未提交的发布任务")
     browser, page = _connect_existing(args)
     try:
         preview = original["parameters"]["preview"]
@@ -145,11 +148,85 @@ def cmd_publish_prepared_retry(args: Any) -> None:
         browser.close()
 
 
+def cmd_publish_link_reconcile(args: Any) -> None:
+    from cli import _connect_existing, _output
+    from manager_worker_service import ManagerWorkerService
+    from publish_workflow import PublishWorkflowService
+
+    browser, page = _connect_existing(args)
+    try:
+        result = PublishWorkflowService().reconcile_link(
+            args.task_id, account=args.account, page=page
+        )
+        if args.worker_task_id and result["result"].get("link_status") == "resolved":
+            result["receipt"] = ManagerWorkerService().revise_publish_link(
+                args.worker_task_id, account=args.account,
+                title=result["title"], link=result["result"],
+            )
+        _output(result)
+    finally:
+        browser.close()
+
+
+def cmd_platform_select(args: Any) -> None:
+    from dataclasses import asdict
+
+    from account_identity import migrate_bound_platform
+    from account_manager import AccountConfig, _write_config, load_account
+    from bridge_lifecycle import start_bridge, stop_bridge
+    from cli import _output
+    from xhs.bridge import BridgePage
+
+    if not args.confirm:
+        raise XHSError("平台调整需要用户确认当前登录平台")
+    config = load_account(args.account)
+    if config.platform == args.platform:
+        migrate_bound_platform(args.account, args.platform)
+        _output({"success": True, "platform": args.platform, "binding_updated": True})
+        return
+    page = BridgePage(config.bridge_url, account=config.name, account_id=config.account_id,
+                      bridge_token=config.bridge_token, platform=config.platform)
+    result = page._call("set_bound_platform", {"platform": args.platform})
+    if not result.get("updated"):
+        raise XHSError("扩展平台尚未更新")
+    updated = AccountConfig(**{**asdict(config), "platform": args.platform})
+    _write_config(updated)
+    migrate_bound_platform(args.account, args.platform)
+    stop_bridge(config)
+    _output(start_bridge(updated))
+
+
+def cmd_publish_pointer_check(args: Any) -> None:
+    from cli import _connect_existing, _output
+    from xhs.publish import _select_publish_preview
+
+    browser, page = _connect_existing(args)
+    try:
+        title = Path(args.title_file).read_text(encoding="utf-8").strip()
+        _select_publish_preview(page, title)
+        _output(page._call("click_publish_control", {"dry_run": True}))
+    finally:
+        browser.close()
+
+
 def register_commands(subparsers: Any) -> None:
-    retry = subparsers.add_parser("publish-prepared-retry", help="经用户授权再次提交匹配的原发布表单")
+    platform = subparsers.add_parser("account-platform-select", help="按用户指定更新槽位平台")
+    platform.add_argument("--platform", required=True, choices=["xiaohongshu", "rednote"])
+    platform.add_argument("--confirm", action="store_true")
+    platform.set_defaults(func=cmd_platform_select)
+    pointer = subparsers.add_parser("publish-pointer-check", help="移动鼠标核对发布按钮位置")
+    pointer.add_argument("--title-file", required=True)
+    pointer.set_defaults(func=cmd_publish_pointer_check)
+    retry = subparsers.add_parser(
+        "publish-prepared-retry", help="经用户授权再次提交匹配的原发布表单"
+    )
     retry.add_argument("--task-id", required=True)
     retry.add_argument("--confirm", action="store_true")
     retry.set_defaults(func=cmd_publish_prepared_retry)
+    reconcile = subparsers.add_parser("publish-link-reconcile", help="补查已发布笔记链接并修订回执")
+    reconcile.add_argument("--task-id", required=True)
+    reconcile.add_argument("--worker-task-id")
+    reconcile.set_defaults(func=cmd_publish_link_reconcile)
     status = subparsers.add_parser("publish-page-status", help="只读查看匹配发布页的布局与提示")
     status.add_argument("--title-file", required=True)
     status.set_defaults(func=cmd_publish_page_status)

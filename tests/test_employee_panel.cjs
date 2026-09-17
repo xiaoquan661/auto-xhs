@@ -246,3 +246,53 @@ function checkOverviewMetricScope() {
   console.log("PASS: overview shows active metrics while account details retain passive metrics");
 }
 checkOverviewMetricScope();
+
+function checkPublishHistoryInRenderedProfile() {
+  const fixture = {...state, results: [today, yesterday].map((date, i) => ({
+    machine_id: "QA-A", account_slot: "same-slot", date,
+    task_id: `publish-${i}`, capability: "publish", completed_at: `${date}T08:00:00Z`,
+    item_results: [{title: `历史发布-${i}`, status: "SUCCESS", verified: true,
+      note_url: `https://www.xiaohongshu.com/explore/history${i}`}],
+  }))};
+  const view = context.window.AutoXhsEmployeePanel({...services, state: fixture});
+  view.render("QA-A:same-slot");
+  assert.ok(root.innerHTML.includes("历史发布-0"));
+  assert.ok(root.innerHTML.includes("历史发布-1"));
+  assert.ok(root.innerHTML.includes("https://www.xiaohongshu.com/explore/history1"));
+  assert.ok(root.innerHTML.includes("2 条记录 · 2 轮"));
+  view.render("QA-B:same-slot");
+  assert.ok(!root.innerHTML.includes("历史发布-1"));
+  console.log("PASS: rendered account history includes yesterday and today with note links");
+}
+checkPublishHistoryInRenderedProfile();
+
+function checkPassivePresentation() {
+  const handlers={}; root.addEventListener=(name,fn)=>handlers[name]=fn;
+  const fixture={...state, employeeSummary:{daily_metrics:[
+    {machine_id:"QA-A",account_slot:"same-slot",date:today,metrics:{received_comments:{
+      actual:null,observed_new:1,passive_view:{count_display:"至少 1",status:"部分数据待补齐",
+        status_code:"partial",pending_count:1,replied_count:0,reason:"尚有时段未覆盖",
+        missing_intervals:[{start:`${today}T12:00:00+08:00`,end:`${today}T13:00:00+08:00`}]}}}},
+    {machine_id:"QA-A",account_slot:"same-slot",date:yesterday,metrics:{received_comments:{
+      actual:0,coverage:"complete",passive_view:{count_display:"0",status:"当日统计完整",
+        status_code:"complete",pending_count:0,replied_count:0}}}}],
+    collection_records:[{machine_id:"QA-A",account_slot:"same-slot",statistics_date:today,
+      event_type:"note_comment",actor_name:"读者甲",message_preview:"评论<正文>",handling_state:"NEW"},
+      {machine_id:"QA-B",account_slot:"same-slot",statistics_date:today,event_type:"note_comment",
+        message_preview:"另一个账号的私密正文"}]}};
+  const view=context.window.AutoXhsEmployeePanel({...services,state:fixture});view.init();
+  view.render("QA-A:same-slot");
+  assert(root.innerHTML.indexOf('class="action-details"') < root.innerHTML.indexOf('data-panel="passive-interactions"'), 'received interactions follow execution records');
+  let html=root.innerHTML.split('data-panel="passive-interactions"')[1].split('</section>')[0];
+  assert.ok(html.includes("至少 1")); assert.ok(html.includes("待处理 1"));
+  assert.ok(html.includes("待补齐时段"));assert.ok(html.includes("评论&lt;正文&gt;"));
+  assert.ok(!html.includes("另一个账号的私密正文"));
+  const target=root.innerHTML.split('data-panel="today-targets"')[1].split('data-panel="history"')[0];
+  assert.ok(!target.includes("新增粉丝"));assert.ok(!target.includes("收到新评论"));
+  handlers.change({target:{matches:selector=>selector==="[data-passive-date]",value:yesterday}});
+  html=root.innerHTML.split('data-panel="passive-interactions"')[1].split('</section>')[0];
+  assert.ok(html.includes("当日统计完整"));assert.ok(!html.includes("评论&lt;正文&gt;"));
+  assert.ok(!html.includes('class="passive-count">至少 1'));
+  console.log("PASS: passive count/status separation, missing intervals, date switching, content escaping and account isolation");
+}
+checkPassivePresentation();

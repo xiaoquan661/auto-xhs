@@ -218,6 +218,23 @@ class BusinessRunner:
                 max_items=int(parameters.get("max_notes") or 20),
             )
         if capability == "collect-operations-metrics":
+            if parameters.get("source") == "notification_history":
+                from xhs.growth_notifications import collect_growth_notifications
+
+                growth = collect_growth_notifications(page)
+                return {
+                    "source": "notification_history",
+                    "captured_at": growth["captured_at"],
+                    "growth_notifications": growth,
+                    "partial": bool(growth.get("partial")),
+                }
+            if parameters.get("source") == "creator_manager":
+                from xhs.creator_metrics import collect_creator_metrics
+
+                return collect_creator_metrics(
+                    page, note_ids=parameters.get("note_ids") or [],
+                    max_notes=int(parameters.get("max_notes") or 50),
+                )
             from xhs.growth_notifications import collect_growth_notifications
             from xhs.metrics_collector import collect_operations_metrics
 

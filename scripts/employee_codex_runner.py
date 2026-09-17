@@ -371,7 +371,7 @@ cmd 参数直接填写下面的 call 命令；shell 字段已选择解释器，�
 业务状态以输出内容为准；exit_code=0 本身不代表业务成功。仅输出截断或需错误详情时读取文件。
 step-progress.json 保存已执行步骤及各自输出。异常后读取当前步骤的 recovery 建议，
 复用已读任务、绑定身份、固定事件集合和已完成结果，从失败点继续。
-普通页面异常先观察当前页面；身份异常才重新核验；消息采集只按任务或巡检安排执行。
+普通页面异常先观察当前页面；登录或身份异常暂停并报告，等待用户处理。消息采集只按任务或巡检安排执行。
 结果未知先核对原动作，保留成功步骤，确认前不重新发送。
 图片笔记、弹窗或选择器失效时使用视觉流程：
 1. 写原生 JSON：{{"args":["browser-snapshot","--output-file","{(root / 'observe.png').as_posix()}"]}}
@@ -425,8 +425,10 @@ item_results=[]。不调用项目业务命令，不访问账号、浏览器或�
 这些技能路径均相对于 {self.project}，读取后复用，不搜索文件位置。
 使用本项目 Python CLI / ApplicationService 执行链，复用机器当前配置和账号环境。
 使用指定 account_slot 本地已绑定的 UID 核对下发账号身份，绑定有效时直接开始业务。
-本机槽位检查使用 {{"args":["account-doctor"]}}，身份与连接由项目执行链校验。
-日常任务复用槽位绑定；首次绑定、用户手动换号或主动检查身份时才读取页面 UID。
+直接执行授权业务，连接异常时才使用 {{"args":["account-doctor"]}} 读取本机状态。
+日常任务复用槽位绑定，不调用 check-login 或 account-identity，不进入自己的主页核验身份。
+登录或身份异常暂停并报告，用户单独发起身份检查或换号后再继续。
+复用当前已就绪页面；不为任务开始、步骤切换或普通异常刷新页面。
 身份不符、绑定缺失或换号未完成时返回 BLOCKED。
 仅执行任务 capability、parameters 与 authorization 授权的范围和数量。
 账号人设来自 persona_snapshot 或 parameters.persona；未填写时使用默认“友好评论者”。
@@ -441,6 +443,13 @@ evidence_path；只有平台回读确认的评论才写 SUCCESS 和 platform_rea
 结果未知写 RESULT_UNKNOWN。最终结果准确反映逐项结果与实际完成数量。
 发布任务按经理下发的发帖目标生成内容后直接正式发布，使用 publish / publish-video；
 长文在 next-step 后自动发布。发布回读确认后才计入 publish 实际数；
+笔记链接回传属于同一发布任务的必做步骤：成功后取得 note_id、note_url，再写最终回执。
+publish 返回 link_status=pending 时，本轮继续 publish-link-reconcile --task-id <本地发布任务ID>；
+原员工回执尚未 finish 时不传 --worker-task-id。仍缺链接则截图并用 view_image 看图，
+从创作中心笔记管理按本次标题定位作品、读取真实链接，再调用补查更新台账。
+最终 item_results 和 business_result 均填写真实 note_id、note_url、link_status。
+取得链接才将整条发布任务报告 SUCCESS。平台暂不可读或多项同名无法确认时，记录
+PARTIAL_SUCCESS、已确认发布数和链接未完成原因，不能把它标成全部完成；禁止再次发布。
 RESULT_UNKNOWN 先核对原结果。保持源码、Chrome Profile、登录和配对状态。
 不创建定时任务或子 Agent，任务完成后返回结构化结果并结束。
 """

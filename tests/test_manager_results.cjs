@@ -21,7 +21,7 @@ class Node {
 }
 const nodes = {};
 const node = (selector) => nodes[selector] ||= new Node();
-const tabs = ["results", "incremental", "reports", "audit"].map((key) => {
+const tabs = ["results", "incremental", "reports"].map((key) => {
   const button = new Node("button"); button.dataset.recoveryTab = key; return button;
 });
 const panes = tabs.map((button) => {
@@ -44,7 +44,14 @@ const state = {
 };
 const context = vm.createContext({window: {}, document: {querySelector: () => root}});
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../webui/manager-results.js"), "utf8"), context);
+let selection = {machine:"",account:""};
+let selectedCalls = [];
 const view = context.window.AutoXhsResultView({
+  recoverySelection: () => selection,
+  selectRecoveryAccount: (machine, account) => {selection={machine,account}; selectedCalls.push(selection);},
+  publishedMetricHistory: (record, id) => id === "note-17" ? [{metrics:{views:0, likes:2},captured_at:"2026-09-16"}] : [],
+  publishedNoteMetrics: () => new Node("article", "", "每日数据"),
+  resultLinks: () => [{url:"https://www.xiaohongshu.com/explore/example"}],
   state, element: (...args) => new Node(...args),
   append: (parent, ...children) => children.forEach((child) => parent.appendChild(child)),
   stateBadge: (value) => new Node("span", "", value), formatTime: (value) => value || "—",
@@ -55,83 +62,54 @@ const view = context.window.AutoXhsResultView({
   resultDetailCard: (record) => new Node("article", "", record.task_id),
   resultAuditCard: (record) => new Node("article", "", record.task_id),
   operationReportCard: (record) => new Node("article", "", record.report_id),
-  factList: () => new Node(), collectionStatus: (machine) => ({cached: machine.offline}),
+  factList: (pairs) => new Node("dl", "", JSON.stringify(pairs)),
+  resultDate: r => (r.created_at || "").slice(0, 10),
+  metricLabels: {publish: "发布", comment: "评论"}, collectionStatus: (machine) => ({cached: machine.offline}),
   resultMatchesFilters: (record) => record.machine_id === "PC-A",
 });
 view.init();
-const results = Array.from({length: 18}, (_, index) => ({
-  task_id: `task-${index}`, machine_id: index % 2 ? "PC-B" : "PC-A",
-  account_slot: "same-slot", capability: "post-comment", summary: `评论记录 ${index}`,
-  created_at: new Date(Date.UTC(2026, 8, 8, index)).toISOString(),
-  state: index % 3 ? "SUCCESS" : "FAILED", actual: index === 17 ? 0 : undefined, target: 5,
-}));
-const values = {results, incremental: [{record_type: "record", machine_id: "PC-A"}],
-  resultHistory: results.map((record) => ({...record, result_revision: 2}))};
-const rows = (selector = "#manager-result-list") => node(selector).children[0].children[0]
-  .children.find((child) => child.tag === "tbody").children;
-const cellText = (row, column) => row.children[column].children[0].textContent;
-
+state.machines = [{machine_id:"PC-A", last_result_success_at:"2026-09-16"}, {machine_id:"PC-B"}];
+const results = Array.from({length:18},(_,i) => ({task_id:`task-${i}`,machine_id:"PC-A",
+  account_slot:"same-slot",capability:"publish",state:i%3 ? "SUCCESS":"FAILED",
+  created_at:new Date(Date.UTC(2026,8,8,i)).toISOString(),
+  item_results:[{note_id:`note-${i}`,title:`笔记 ${i}`}]}));
+state.results=results;
+const values={results,incremental:[],reports:[],resultHistory:results};
 view.render(values);
-assert.equal(rows().length, 8);
-assert.equal(rows()[0].children[0].children[0].children[1].textContent, "评论记录 17");
-assert.equal(cellText(rows()[0], 2), "0 / 5");
-assert.equal(cellText(rows()[1], 2), "— / 5");
-assert.equal(node("#recovery-attention-total").textContent, 6);
-assert.equal(node("#recovery-success-total").textContent, 12);
-assert.equal(node("#recovery-prev").disabled, true);
+assert.equal(node("#recovery-account-content").hidden,true);
+const machines=node("#recovery-navigation").children[0].children[1].children;
+assert.equal(machines.length,2);
+machines[0].emit("click"); view.render(values);
+assert.equal(selection.machine,"PC-A");
+assert.equal(selection.account,"");
+assert.equal(node("#recovery-account-content").hidden,true);
+let accounts=node("#recovery-navigation").children[1].children[1].children;
+assert.equal(accounts.length,1);
+assert.ok(JSON.stringify(accounts).includes("山野日记"));
+assert.ok(!JSON.stringify(accounts).includes("城市生活"));
+accounts[0].emit("click"); view.render(values);
+assert.equal(node("#recovery-account-content").hidden,false);
+let cards=()=>node("#manager-result-list").children[0].children;
+assert.equal(cards().length,8);
+assert.equal(cards()[0].children[1].textContent,"笔记 17");
+assert.ok(JSON.stringify(cards()[0]).includes('"textContent":"0"'));
+assert.ok(JSON.stringify(cards()[0]).includes("点赞"));
+cards()[0].children.at(-1).children.at(-1).emit("click");
+assert.equal(node("#recovery-detail-dialog").open,true);
+assert.ok(JSON.stringify(node("#recovery-detail-content").children).includes("每日数据"));
 node("#recovery-next").emit("click");
-assert.equal(node("#recovery-page-number").textContent, "2 / 3");
-view.render(values);
-assert.equal(node("#recovery-page-number").textContent, "2 / 3");
-node("#recovery-next").emit("click");
-assert.equal(rows().length, 2);
-assert.equal(node("#recovery-next").disabled, true);
-scopes[1].emit("click");
-assert.equal(rows().length, 6);
-assert.equal(node("#recovery-page-number").textContent, "1 / 1");
-assert.ok(view.visibleResults().every((record) => record.state === "FAILED"));
-scopes[0].emit("click");
-node("#recovery-search").value = "山野日记";
-node("#recovery-search").emit("input");
-assert.equal(view.visibleResults().length, 9);
-assert.ok(view.visibleResults().every((record) => record.machine_id === "PC-A"));
-node("#recovery-search").value = "发表评论";
-node("#recovery-search").emit("input");
-assert.equal(view.visibleResults().length, 18);
-rows()[0].children.at(-1).children[0].emit("click");
-assert.equal(node("#recovery-detail-dialog").open, true);
-assert.equal(node("#recovery-detail-content").children[0].textContent, "task-17");
-node("#recovery-detail-close").emit("click");
-assert.equal(node("#recovery-detail-dialog").open, false);
-node("#recovery-search").value = "不存在的内容";
-node("#recovery-search").emit("input");
-assert.equal(node("#recovery-page-info").textContent, "共 0 条");
-assert.equal(node("#recovery-next").disabled, true);
-node("#manager-result-reset").emit("click");
-assert.equal(rows().length, 8);
-assert.equal(node("#recovery-search").value, "");
-console.log("PASS: newest results, pagination, refresh, zero counts, scoped search and detail dialog");
-
-tabs[1].emit("click");
-assert.equal(panes[0].hidden, true);
-assert.equal(panes[1].hidden, false);
-assert.equal(node("#recovery-list-tools").hidden, true);
-assert.equal(rows("#manager-incremental-list").length, 1);
-tabs[2].emit("click");
-assert.equal(rows("#manager-operation-report-list").length, 1);
-assert.equal(cellText(rows("#manager-operation-report-list")[0], 2), "0 / 5");
-tabs[2].emit("keydown", {key: "ArrowRight", preventDefault() {}});
-assert.equal(tabs[3].focused, true);
-assert.equal(rows("#manager-result-audit-list").length, 8);
-node("#recovery-next").emit("click");
-assert.equal(node("#recovery-page-number").textContent, "2 / 3");
-node(".recovery-filters").emit("change");
-assert.equal(node("#recovery-page-number").textContent, "1 / 3");
+assert.equal(node("#recovery-page-number").textContent,"2 / 3");
+node("#recovery-search").value="笔记 17";node("#recovery-search").emit("input");
+assert.equal(cards().length,1);
 node("#recovery-sync-details").emit("click");
-assert.equal(node(".recovery-technical").open, true);
-assert.equal(panes[3].hidden, false);
-state.machines[0].offline = true;
+assert.equal(node("#recovery-sync-dialog").open,true);
+node("#recovery-audit-next").emit("click");
+assert.equal(node("#recovery-audit-page").textContent,"2 / 3 · 18 条回执");
+node("#recovery-navigation").children[0].children[1].children[1].emit("click");
 view.render(values);
-assert.equal(node("#recovery-sync-label").textContent, "1 台员工机待同步");
-assert.equal(node("#recovery-sync-bar").dataset.tone, "warning");
-console.log("PASS: report and audit tabs, keyboard navigation, filter reset and sync status");
+assert.equal(selection.machine,"PC-B");assert.equal(selection.account,"");
+assert.equal(node("#recovery-account-content").hidden,true);
+accounts=node("#recovery-navigation").children[1].children[1].children;
+assert.ok(JSON.stringify(accounts).includes("城市生活"));
+assert.ok(!JSON.stringify(accounts).includes("山野日记"));
+console.log("PASS: machine/account hierarchy, account isolation, note cards, zero metrics, details, search and pagination");

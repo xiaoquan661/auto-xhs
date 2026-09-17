@@ -1,3 +1,27 @@
+// Keep the debugger banner stable while the Agent reads a screenshot and acts on it.
+const visualAttachments = new Map();
+async function releaseVisualDebugger(tabId) {
+  const timer = visualAttachments.get(tabId);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  visualAttachments.delete(tabId);
+  await chrome.debugger.detach({tabId}).catch(() => {});
+}
+async function releaseVisualDebuggers() {
+  for (const tabId of [...visualAttachments.keys()]) await releaseVisualDebugger(tabId);
+}
+async function acquireVisualDebugger(target) {
+  if (!visualAttachments.has(target.tabId)) await chrome.debugger.attach(target, "1.3");
+  clearTimeout(visualAttachments.get(target.tabId));
+  const timer = setTimeout(() => releaseVisualDebugger(target.tabId), 180000);
+  timer?.unref?.();
+  visualAttachments.set(target.tabId, timer);
+}
+chrome.debugger.onDetach?.addListener(source => {
+  clearTimeout(visualAttachments.get(source.tabId));
+  visualAttachments.delete(source.tabId);
+});
+
 // Browser observations and actions share the same tab and viewport.
 async function visualFrame(tabId) {
   const [result] = await chrome.scripting.executeScript({
@@ -37,7 +61,7 @@ async function cmdVisualSnapshot(params = {}) {
       captureWindowState = restored.state;
       await chrome.tabs.update(tab.id, { active: true });
     }
-    await chrome.debugger.attach(target, "1.3");
+    await acquireVisualDebugger(target);
     attached = true;
     const adjustments = [];
     // Window restoration and the debugger banner can resize the viewport.
@@ -60,7 +84,7 @@ async function cmdVisualSnapshot(params = {}) {
     if (!snapshot) throw new Error(`页面布局持续变化，请重新截图：${JSON.stringify(adjustments)}`);
   } finally {
     try {
-      if (attached) await chrome.debugger.detach(target).catch(() => {});
+      if (attached && !snapshot) await releaseVisualDebugger(tab.id);
       if (previousActiveTab && previousActiveTab.id !== tab.id) {
         await chrome.tabs.update(previousActiveTab.id, { active: true });
       }
@@ -86,10 +110,8 @@ function visualFrameChanges(before, after) {
 
 async function cmdVisualAction(params) {
   const tab = await getOrOpenPlatformTab(params._tab_id);
-  const frame = await visualFrame(tab.id);
-  if (!params.frame || !sameVisualFrame(params.frame, frame)) {
-    throw new Error("VISUAL_FRAME_CHANGED: 页面已变化，请重新截图后操作");
-  }
+  const frame = params.frame;
+  if (!frame) throw new Error("缺少截图视口，请先截图");
   const { action, x, y } = params;
   if (!["click", "scroll", "type", "key"].includes(action)) throw new Error("不支持的视觉操作");
   if (["click", "scroll"].includes(action) &&
@@ -99,8 +121,31 @@ async function cmdVisualAction(params) {
     ArrowUp: 38, ArrowDown: 40, Backspace: 8 };
   if (action === "key" && !keys[params.key]) throw new Error("不支持的按键");
   const target = { tabId: tab.id };
-  await chrome.debugger.attach(target, "1.3");
+  const windowBefore = await chrome.windows.get(tab.windowId);
+  const restoreWindow = windowBefore.state === "minimized";
+  let previousActiveTab;
+  let attached = false;
+  let attempted = false;
   try {
+    if (restoreWindow) {
+      [previousActiveTab] = await chrome.tabs.query({ windowId: tab.windowId, active: true });
+      await chrome.windows.update(tab.windowId, { state: "normal", focused: true });
+      await chrome.tabs.update(tab.id, { active: true });
+    }
+    await acquireVisualDebugger(target);
+    attached = true;
+    // Compare under the same debugger banner and restored-window state as the image.
+    let stable = 0;
+    let current;
+    for (let attempt = 0; attempt < 20 && stable < 3; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      current = await visualStep("读取操作视口", visualFrame(tab.id));
+      stable = sameVisualFrame(frame, current) ? stable + 1 : 0;
+    }
+    if (stable < 3) {
+      throw new Error(`VISUAL_FRAME_CHANGED: 页面已变化，请重新截图后操作；${JSON.stringify(visualFrameChanges(frame, current))}`);
+    }
+    attempted = true;
     if (action === "click") await _dispatchRealClickAt(target, x, y);
     if (action === "scroll") await chrome.debugger.sendCommand(target,
       "Input.dispatchMouseEvent", { type: "mouseWheel", x, y,
@@ -114,9 +159,17 @@ async function cmdVisualAction(params) {
     }
     return { dispatched: true, tab_id: tab.id };
   } catch (error) {
+    if (!attempted) throw error;
     throw new Error(`RESULT_UNKNOWN: 操作已尝试，请先截图核对；${error.message}`);
   } finally {
-    await chrome.debugger.detach(target).catch(() => {});
+    try {
+      if (attached) await releaseVisualDebugger(tab.id);
+      if (previousActiveTab && previousActiveTab.id !== tab.id) {
+        await chrome.tabs.update(previousActiveTab.id, { active: true });
+      }
+    } finally {
+      if (restoreWindow) await chrome.windows.update(tab.windowId, { state: "minimized" });
+    }
   }
 }
 

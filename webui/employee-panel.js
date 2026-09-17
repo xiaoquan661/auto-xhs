@@ -9,6 +9,8 @@ window.AutoXhsEmployeePanel = function (services) {
     ["reply", "评论回复"], ["private_reply", "私信回复"], ["new_followers", "新增粉丝"],
     ["received_likes", "收获点赞"], ["received_comments", "收到新评论"],
     ["received_private_messages", "收到私信"]];
+  const passiveKinds = ["new_followers", "received_likes", "received_comments", "received_private_messages"];
+  const passiveDates = new Map();
   const overviewKinds = ["browse", "publish", "like", "comment", "private_message", "friend_request"];
   const overviewFields = metricFields.filter(([kind]) => overviewKinds.includes(kind));
   const actionKinds = ["publish", "like", "comment", "friend_request", "private_message", "private_reply"];
@@ -522,6 +524,68 @@ window.AutoXhsEmployeePanel = function (services) {
       }).join("") || '<p class="empty-state">等待员工机账号同步。</p>'}</section>`;
   }
 
+  function passivePresentation(metric) {
+    if (metric.passive_view) return metric.passive_view;
+    const complete = metric.coverage === "complete";
+    const observed = metric.observed_new || 0;
+    return {count_display: complete ? String(metric.actual ?? 0) : observed ? `至少 ${observed}` : "—",
+      status: complete ? "统计完整" : observed ? "部分数据待补齐" : "未采集",
+      status_code: complete ? "complete" : observed ? "partial" : "not_collected",
+      reason: metric.collection_reason || "该日期尚无可用于统计的采集记录",
+      last_collected_at: metric.collection_progress?.last_collected_at,
+      missing_intervals: metric.collection_progress?.missing_intervals || []};
+  }
+
+  function passivePanel(account, today) {
+    const dates = [today, ...historyDates(account)];
+    const date = passiveDates.get(key(account)) || today;
+    const metrics = dailyMetrics(account, date).filter((metric) => passiveKinds.includes(metric.kind));
+    const eventKinds = {new_followers: ["new_follower"], received_likes: ["received_like"],
+      received_comments: ["note_comment", "comment_reply"],
+      received_private_messages: ["private_message", "private_message_item"]};
+    const records = (state.employeeSummary?.collection_records || []).filter((row) =>
+      key(row) === key(account) && row.statistics_date === date);
+    const cards = metrics.map((metric) => {
+      const view = passivePresentation(metric);
+      const events = records.filter((row) => eventKinds[metric.kind].includes(row.event_type));
+      const expandedId = `passive:${key(account)}:${date}:${metric.kind}`;
+      const updated = view.last_collected_at ? `最近采集 ${stamp(view.last_collected_at)}` : "尚无有效采集时间";
+      return `<article class="passive-card" data-passive-kind="${metric.kind}">
+        <header><h3>${esc(metric.label)}</h3>${badge(view.status,
+          view.status_code === "complete" ? "good" : view.status_code === "failed" ? "bad" : "muted")}</header>
+        <div class="passive-count">${esc(view.count_display)}<small>${esc(view.unit || (metric.kind === "new_followers" ? "人" : metric.kind === "received_likes" ? "次" : "条"))}</small></div>
+        <p class="passive-updated">${updated}</p>
+        <details data-expanded="${esc(expandedId)}"${open(expandedId)}><summary>查看明细与采集状态</summary>
+          <div class="passive-evidence">
+        ${view.pending_count != null ? `<p class="passive-handling">已采集记录中：待处理 ${number(view.pending_count)} · 已回复 ${number(view.replied_count)}</p>` : ""}
+        ${view.conversation_count != null ? `<p>涉及 ${number(view.conversation_count)} 个会话</p>` : ""}
+        ${view.reason ? `<p class="passive-reason">${esc(view.reason)}</p>` : '<p class="passive-reason">按平台发生日期去重统计</p>'}
+          ${view.as_of ? `<p>${view.status_code === "complete" ? "统计截至" : "统计范围结束"}：${stamp(view.as_of)}</p>` : ""}
+          ${view.last_attempt_at ? `<p>最近尝试：${stamp(view.last_attempt_at)}</p>` : ""}
+          ${(view.missing_intervals || []).map((gap) => `<p>待补齐时段：${stamp(gap.start)} — ${stamp(gap.end)}</p>`).join("")}
+          ${view.undated_count ? `<p>${number(view.undated_count)} 条记录缺少发生日期，保留在采集数据中。</p>` : ""}
+          ${metric.current_total != null ? `<p>截至采集时总量：${number(metric.current_total)} · ${stamp(metric.current_total_at)}</p>` : ""}
+          ${metric.sampled_net_change ? `<p>采样净变化：${number(metric.sampled_net_change.value)}（${stamp(metric.sampled_net_change.from)} — ${stamp(metric.sampled_net_change.to)}）</p>` : ""}
+          <p>${events.length ? `本页可查看 ${events.length} 条互动记录` : "该日期暂无可展示的逐条互动明细"}</p>
+          ${events.map((row) => `<article class="passive-event"><strong>${esc(row.actor_name || row.payload?.nickname || "用户未记录")}</strong>
+            <small>${stamp(row.occurred_at)}</small><p>${esc(row.message_preview || row.payload?.content || row.summary || "互动已记录")}</p>
+            <small>${esc(({NEW:"待处理", REPLIED:"已回复", IGNORED:"已跳过", HUMAN_OWNED:"人工处理"})[row.handling_state] || "已采集")}</small>
+            ${row.target_url ? link(row.target_url, "查看来源") : ""}</article>`).join("")}
+          </div></details></article>`;
+    }).join("");
+    return `<section class="passive-panel" data-panel="passive-interactions">
+      <div class="section-heading compact"><div><h2>收到的互动</h2><p class="plain-help">${esc(account.machine_id)} · ${esc(accountName(account))} · 北京时间，按互动发生日期统计</p></div>
+        <label class="passive-date-label">查看日期 <select data-passive-date aria-label="收到的互动日期">${options(dates.map((d) => [d, d === today ? `${d} · 今天` : d]), date)}</select></label></div>
+      <p class="passive-explanation">${date === today ? "今天的数据截至最近一次采集。" : "历史日期按全天统计。"}完整采集后无新增显示 0；部分记录显示“至少”；未取得数量显示 —。</p>
+      <div class="passive-grid">${cards}</div>
+      <details class="passive-history" data-expanded="passive-history:${esc(key(account))}"${open(`passive-history:${key(account)}`)}><summary>往日互动数据（${dates.length - 1} 天）</summary>
+      <div class="history-table-wrap"><table class="history-table"><thead><tr><th>日期</th>${metrics.map((m) => `<th>${esc(m.label)}</th>`).join("")}</tr></thead><tbody>
+      ${dates.slice(1).map((day) => `<tr><th><button type="button" data-passive-day="${day}">${day}</button></th>${dailyMetrics(account, day).filter((m) => passiveKinds.includes(m.kind)).map((m) => {
+        const v = passivePresentation(m);
+        return `<td><strong>${esc(v.count_display)}</strong><small>${esc(v.status)}</small></td>`;
+      }).join("")}</tr>`).join("") || '<tr><td colspan="5">暂无历史互动数据</td></tr>'}</tbody></table></div></details></section>`;
+  }
+
   function todayTable(account, date) {
     const uid = account.current_uid || account.uid || "待同步";
     const taskSummary = account.current_task_title || (receipts(account, date).length
@@ -529,7 +593,7 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<div class="daily-targets" data-panel="today-targets"><div class="daily-targets-head"><strong>今日目标 / 实际</strong><small>${esc(date)} · ${esc(taskSummary)}</small></div>
       <div class="daily-account-snapshot"><span>今日执行账号</span><strong>${esc(account.nickname || account.account_slot)}</strong><small>Profile ${esc(uid)}</small></div>
       <div class="daily-targets-table"><div class="daily-target-row daily-target-header"><span>指标</span><span>目标</span><span>实际</span><span>状态</span></div>
-      ${dailyMetrics(account, date).map((metric) => `${metric.kind === "browse" ? '<div class="daily-metric-group">主动动作</div>' : metric.kind === "reply" ? '<div class="daily-metric-group" title="员工机定时巡检执行或采集，经 Outbox 回传后展示">被动动作与信息</div>' : ""}<div class="daily-target-row"><span${metric.execution_source === "worker_polling" ? ' title="员工机定时巡检执行或采集，经 Outbox 回传后展示"' : ""}>${metric.label}</span><span>${number(metric.target)}</span>
+      ${dailyMetrics(account, date).filter((metric) => !passiveKinds.includes(metric.kind)).map((metric) => `${metric.kind === "browse" ? '<div class="daily-metric-group">主动动作</div>' : metric.kind === "reply" ? '<div class="daily-metric-group" title="员工机定时巡检执行或采集，经 Outbox 回传后展示">互动回复</div>' : ""}<div class="daily-target-row"><span${metric.execution_source === "worker_polling" ? ' title="员工机定时巡检执行或采集，经 Outbox 回传后展示"' : ""}>${metric.label}</span><span>${number(metric.target)}</span>
         <span class="daily-actual-cell"><strong>${metricActual(metric)}</strong></span>
         <span>${badge(metric.status, ({success: "good", warning: "warn", info: "muted"}[metric.tone] || "muted"))}
         ${metric.collection?.last_collected_at ? `<small>最近采集：${esc(metric.collection.last_collected_at)}</small>` : ""}</span></div>`).join("")}</div></div>`;
@@ -540,15 +604,15 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<details class="history-details" data-panel="history" data-expanded="history:${esc(key(account))}"${open(`history:${key(account)}`, dates.length > 0)}>
       <summary>往日目标 / 实际（${dates.length} 天）</summary>
       <div class="history-table-wrap"><table class="history-table"><thead><tr><th>日期</th><th>当日执行账号</th>
-      ${metricFields.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>
+      ${metricFields.filter(([kind]) => !passiveKinds.includes(kind)).map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>
       ${dates.map((date) => {
         const receipt = receipts(account, date)[0] || {};
         const identity = receipt.account_snapshot || {};
         return `<tr><th>${date}</th><td class="history-account-cell">${esc(identity.nickname || receipt.account_name || account.account_slot)}<small>Profile ${esc(identity.uid || receipt.account_uid || "未记录")}</small></td>
-        ${dailyMetrics(account, date).map((metric) => `<td>${number(metric.target)} / ${metricActual(metric)}</td>`).join("")}</tr>`;
+        ${dailyMetrics(account, date).filter((metric) => !passiveKinds.includes(metric.kind)).map((metric) => `<td>${number(metric.target)} / ${metricActual(metric)}</td>`).join("")}</tr>`;
       }).join("")
         || `<tr><td colspan="${metricFields.length + 2}">还没有读取到往日的任务记录。</td></tr>`}</tbody></table></div>
-      <small class="history-note">每格为“目标 / 实际”。四项被动信息为北京时间每日新增，零点切换新一天；历史日报和累计量保留。历史“至少”为已确认数量，“采集缺口”为尚未采齐。鼠标悬停查看采集时间与账号总量。</small></details>`;
+      <small class="history-note">每格为执行动作的“目标 / 实际”。收到的互动在独立区域按日期查看。</small></details>`;
   }
 
   function actionList(account, accountActions) {
@@ -661,7 +725,7 @@ window.AutoXhsEmployeePanel = function (services) {
 
   function profileCard(account, machine) {
     const date = localDateValue(new Date());
-    const accountActions = actions(account, date);
+    const accountActions = actions(account);
     const last = accountActions[0];
     const uid = account.current_uid || account.uid || "未绑定";
     const domain = account.platform === "rednote" ? "www.rednote.com" : "www.xiaohongshu.com";
@@ -680,7 +744,7 @@ window.AutoXhsEmployeePanel = function (services) {
       <div class="machine-profile-link-row"><div><span>${platformName(account)}账号主页</span><strong>Profile ${esc(uid)}</strong></div>${link(profileUrl, "打开主页", "facebook-profile-link")}</div>
       ${todayTable(account, date)}${historyTable(account)}
       <div class="worker-business-strip" aria-label="${esc(account.account_slot)} 业务数据">${facts(
-        dailyMetrics(account, date).filter((metric) => !actionKinds.includes(metric.kind))
+        dailyMetrics(account, date).filter((metric) => !actionKinds.includes(metric.kind) && !passiveKinds.includes(metric.kind))
           .map((metric) => [metric.label, metric.actual]))}</div>
       <div class="machine-task">${facts([["当前阶段", account.stage || "待配置"], ["今日已采集会话", account.session_count ?? null],
         ["运营天数", account.operating_days == null ? null : `${account.operating_days} 天`],
@@ -688,7 +752,7 @@ window.AutoXhsEmployeePanel = function (services) {
       <div class="machine-task-wide"><span>最后动作链接</span>${link(last?.url, "打开最后动作", "last-action-link")}</div>
       <div class="machine-task-wide"><span>发帖受众</span><strong>${esc(account.publish_audience || "待配置")}</strong></div>
       <div class="machine-task-wide"><span>当前任务</span><strong>${esc(account.current_task_title || tasks[0]?.request?.title || "暂无任务")}</strong></div></div>
-      ${actionList(account, accountActions)}${moduleDetails(account)}
+      ${actionList(account, accountActions)}${passivePanel(account, date)}${moduleDetails(account)}
       <div class="machine-footer"><span>${esc(labelFor(machine.status))}</span><span>心跳 ${stamp(machine.updated_at)} · 抓取 ${stamp(machine.outbox_collection?.observed_at)}</span></div></div></details>`;
   }
 
@@ -712,7 +776,20 @@ window.AutoXhsEmployeePanel = function (services) {
   }
 
   function init() {
+    host.addEventListener("click", (event) => {
+      const button = event.target.closest?.("[data-passive-day]");
+      if (!button) return;
+      passiveDates.set(selected, button.dataset.passiveDay);
+      renderedSelection = null;
+      render();
+    });
     host.addEventListener("change", async (event) => {
+      if (event.target.matches("[data-passive-date]")) {
+        passiveDates.set(selected, event.target.value);
+        renderedSelection = null;
+        render();
+        return;
+      }
       if (event.target.matches("[data-action-record]")) {
         const select = event.target;
         const message = select.closest(".action-management-controls").querySelector("[data-attribution-message]");

@@ -109,6 +109,35 @@ def record_current_identity(
     return payload
 
 
+def migrate_bound_platform(account: str, platform: str) -> dict:
+    """Preserve the user's bound UID when they explicitly select its platform."""
+    from platforms import rewrite_platform_url
+    from product_store import ProductStore
+
+    record = load_identity_record(account)
+    if not record or not record.get("current", {}).get("user_id"):
+        raise ValueError("槽位缺少已有 UID，不能迁移平台记录")
+    if _account_platform(account) != platform:
+        raise ValueError("目标平台与槽位配置不一致")
+    previous = dict(record["current"])
+    if previous.get("platform") != platform:
+        record["current"] = {**previous, "platform": platform,
+                             "profile_url": rewrite_platform_url(
+                                 previous.get("profile_url") or "", platform)}
+        record.update(source="user_platform_selection", updated_at=_utc_now())
+        _atomic_write_json(identity_record_path(account), record)
+        _append_json_line(identity_history_path(account), {
+            "event": "PLATFORM_SELECTED", "from": previous, "to": record["current"],
+            "source": "user_platform_selection", "updated_at": _utc_now(),
+        })
+    store = ProductStore()
+    cached = store.get_setting("runtime_identity_checks", {})
+    if account in cached and cached[account].get("platform") != platform:
+        cached.pop(account)
+        store.set_setting("runtime_identity_checks", cached)
+    return record
+
+
 def replace_current_identity(
     account: str,
     identity: dict,

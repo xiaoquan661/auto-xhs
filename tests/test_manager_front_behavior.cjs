@@ -103,7 +103,9 @@ const resultContext = vm.createContext({
   append: (parent, ...children) => children.forEach((child) => parent.appendChild(child)),
   labelFor: (value) => value,
 });
-for (const name of ["numericCount", "resultDataStatus", "renderBusinessResult", "resultCompleteness"]) {
+resultContext.state = {tasks: []};
+for (const name of ["taskForResult", "resultRequest", "resultCapability", "resultActionKind",
+  "numericCount", "resultDataStatus", "renderBusinessResult", "resultCompleteness"]) {
   vm.runInContext(extract(name), resultContext);
 }
 const collectedResult = {

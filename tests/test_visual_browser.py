@@ -75,7 +75,8 @@ def test_readback_failure_preserves_dispatched_action(tmp_path: Path):
 def test_recovery_keeps_current_step_and_inbox(payload, expected):
     result = recovery_for(payload, 2)
     assert result["kind"] == expected
-    assert result["identity_check_required"] == (expected == "identity")
+    assert result["identity_check_required"] is False
+    assert result["user_action_required"] == (expected == "identity")
     assert not result["refresh_inbox"] and result["resume_scope"] == "current_step"
 
 

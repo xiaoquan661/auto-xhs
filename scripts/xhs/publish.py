@@ -146,18 +146,19 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
                 return body.includes('HTTPBizError')
                     || /"code":\\s*-913\\d/.test(body)
                     || body.includes('禁止发笔记')
-                    || /"note_id":\\s*"[^"]+"/.test(body);
+                    || /"(?:note_id|noteId)":\\s*"[^"]+"/.test(body);
             }
 
             function capture(source, info) {
-                if (window.__xhsPublishResult) return;  // first-wins
+                const previous = window.__xhsPublishResult;
+                if (previous && !(info.code === 0 || info.success === true)) return;
+                if (previous && !JSON.stringify(info).match(/"(?:note_id|noteId)"/)) return;
                 const result = {source, captured_at: Date.now(), ...info};
                 window.__xhsPublishResult = result;
                 try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(result)); } catch (e) {}
             }
 
             function captureFromBody(source, url, status, body) {
-                if (window.__xhsPublishResult) return;
                 if (!looksLikePublishResp(body)) return;
                 try {
                     const j = JSON.parse(body);
@@ -261,8 +262,19 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
 
     # Read the closed shadow button's layout and click it in one debugger session.
     click_result = page.click_publish_control()
+    if click_result.get("dispatched") is False:
+        logger.warning("发布尚未派发，重新定位按钮: %s", click_result)
+        time.sleep(0.5)
+        click_result = page.click_publish_control()
     if not click_result.get("dispatched"):
-        raise PublishError("正式发布按钮尚未点击")
+        error = PublishError("正式发布按钮尚未点击：" + str(
+            click_result.get("reason") or "扩展未返回派发确认"
+        ))
+        error.result_unknown = click_result.get("dispatched") is not False
+        error.click_result = click_result
+        if not error.result_unknown:
+            error.code = "PUBLISH_NOT_DISPATCHED"
+        raise error
     logger.info("已原生点击正式发布按钮: %s", click_result)
 
     # 3) 轮询等待平台成功响应、成功提示或笔记管理页回读（15s 超时）。
@@ -282,16 +294,14 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
                 verified["source"],
             )
             verified["click_result"] = click_result
-            time.sleep(2)
-            verified["profile_readback"] = _readback_published_note(page, expected_title)
-            note_ids = verified["profile_readback"].get("note_ids") or []
-            if not verified.get("note_id") and len(note_ids) == 1:
-                verified["note_id"] = note_ids[0]
-            if verified.get("note_id"):
-                verified["note_url"] = (
-                    f"https://www.xiaohongshu.com/explore/{verified['note_id']}"
-                )
-            return verified
+            from .publish_links import complete_publish_link
+
+            return complete_publish_link(
+                page, verified, expected_title,
+                observe=lambda: _read_publish_observation(
+                    page, expected_title=expected_title, initial_url=initial_url
+                ),
+            )
         time.sleep(0.3)
 
     logger.warning("15s 内未取得可验证的发布成功证据")
@@ -798,6 +808,8 @@ def _fill_publish_form(
         except Exception as e:
             logger.warning("设置原创声明失败: %s", e)
 
+    if tags:
+        _verify_topics(page, content_selector, tags)
     logger.info("表单填写完成，进入正式发布")
 
 
@@ -858,66 +870,98 @@ def _check_content_max_length(page: Page) -> None:
 
 
 def _input_tags(page: Page, content_selector: str, tags: list[str]) -> None:
-    """输入标签。"""
+    """逐个选择平台话题，并确认后续输入保留了之前的话题。"""
     time.sleep(1)
-
-    # 先记录当前段落数（insertParagraph 之前），之后用于精确定位正文最后一段
-    # 注意：必须在 insertParagraph 之前记录，否则 para_count_before 会包含新增的 tags 行
-    para_count_before = int(page.evaluate(
-        f'document.querySelector("{content_selector}").querySelectorAll("p").length'
-    ) or 1)
-
-    # 用 evaluate 直接 focus 编辑器、光标移到末尾并换行一次
-    # 避免 click_element 因 isTrusted=false 无法真正 focus Quill 编辑器的问题
+    _focus_content_end(page, content_selector)
     page.evaluate(
-        f"""
-        (() => {{
-            const el = document.querySelector("{content_selector}");
-            if (!el) return;
-            el.focus();
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            range.collapse(false);
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-            document.execCommand("insertParagraph", false, null);
-        }})()
-        """
+        'document.execCommand("insertParagraph", false, null)'
     )
     time.sleep(0.5)
 
-    for tag in tags:
-        tag = tag.lstrip("#")
+    confirmed: list[str] = []
+    for tag in dict.fromkeys(tag.lstrip("#").strip() for tag in tags):
+        _focus_content_end(page, content_selector)
         _input_single_tag(page, content_selector, tag)
+        confirmed.append(tag)
+        _verify_topics(page, content_selector, confirmed)
 
-    # 输入完所有 tags 后，回到正文最后一段（tags 输入前的最后一段）末尾，按下回车
-    # 用 para_count_before 精确定位，避免 tags 输入后 Quill 自动新增空段导致偏移
+    # 失焦后再次回读，确认编辑器已提交所有话题节点。
+    page.click_element(TITLE_INPUT)
+    time.sleep(0.3)
+    _verify_topics(page, content_selector, confirmed)
+
+
+def _focus_content_end(page: Page, content_selector: str) -> None:
+    """将光标放在话题节点外，供下一个话题输入。"""
     page.evaluate(
         f"""
         (() => {{
-            const el = document.querySelector("{content_selector}");
-            if (!el) return;
-            const paras = el.querySelectorAll("p");
-            // tags 输入前最后一段的索引 = para_count_before - 1
-            const lastContent = paras[{para_count_before} - 1];
-            if (!lastContent) return;
+            const el = document.querySelector({json.dumps(content_selector)});
+            if (!el) throw new Error('正文编辑器不存在');
             el.focus();
             const range = document.createRange();
-            range.selectNodeContents(lastContent);
+            range.selectNodeContents(el.lastElementChild || el);
             range.collapse(false);
             const sel = window.getSelection();
             sel.removeAllRanges();
             sel.addRange(range);
-            document.execCommand("insertParagraph", false, null);
         }})()
         """
     )
-    time.sleep(0.3)
+
+
+def _read_topics(page: Page, content_selector: str) -> list[dict]:
+    """读取平台生成的话题节点及 ID，普通井号文本不属于话题。"""
+    return page.evaluate(
+        f"""
+        (() => {{
+            const editor = document.querySelector({json.dumps(content_selector)});
+            if (!editor) return [];
+            return Array.from(editor.querySelectorAll('a[data-topic]')).flatMap(el => {{
+                try {{
+                    const topic = JSON.parse(el.getAttribute('data-topic'));
+                    return topic && topic.id && topic.id !== 'newTopic_Id' && topic.name
+                        ? [{{id: String(topic.id), name: topic.name}}] : [];
+                }} catch (_) {{ return []; }}
+            }});
+        }})()
+        """
+    ) or []
+
+
+def _verify_topics(page: Page, content_selector: str, tags: list[str]) -> None:
+    names = {topic["name"] for topic in _read_topics(page, content_selector)}
+    missing = [tag.lstrip("#").strip() for tag in tags if tag.lstrip("#").strip() not in names]
+    if missing:
+        error = PublishError("话题尚未生效：" + "、".join(missing))
+        error.code = "PUBLISH_TOPICS_NOT_CONFIRMED"
+        raise error
+
+
+def _select_topic_candidate(page: Page, tag: str) -> bool:
+    """选择可见的同名话题，保留编辑器光标与平台候选的选择逻辑。"""
+    return bool(page.evaluate(
+        f"""
+        (() => {{
+            const selector = {json.dumps(f'{TAG_TOPIC_CONTAINER} {TAG_FIRST_ITEM}')};
+            const item = Array.from(document.querySelectorAll(selector)).find(el => {{
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                const name = el.querySelector('.name')?.textContent.trim().replace(/^#/, '');
+                return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden'
+                    && name === {json.dumps(tag)};
+            }});
+            if (!item) return false;
+            // 直接触发该候选的 Vue onClick；保持正文选区，供平台 command 替换 #query。
+            item.click();
+            return true;
+        }})()
+        """
+    ))
 
 
 def _input_single_tag(page: Page, content_selector: str, tag: str) -> None:
-    """输入单个标签。"""
+    """输入话题名称、选择同名候选，等待平台生成带 ID 的话题节点。"""
     # 输入 #
     page.type_text("#", delay_ms=0)
     time.sleep(0.3)
@@ -927,25 +971,25 @@ def _input_single_tag(page: Page, content_selector: str, tag: str) -> None:
         page.type_text(char, delay_ms=0)
         time.sleep(random.uniform(0.05, 0.12))
 
-    # 等待标签联想出现（最多 3 秒）
-    deadline = time.monotonic() + 3.0
+    # 搜索候选异步更新；精确匹配完整名称后只选择一次。
     clicked = False
-    while time.monotonic() < deadline:
+    for _ in range(16):
         time.sleep(0.5)
-        if page.has_element(TAG_TOPIC_CONTAINER):
-            item_selector = f"{TAG_TOPIC_CONTAINER} {TAG_FIRST_ITEM}"
-            if page.has_element(item_selector):
-                page.click_element(item_selector)
-                logger.info("点击标签联想: %s", tag)
-                clicked = True
-                break
+        if _select_topic_candidate(page, tag):
+            clicked = True
+            break
 
     if not clicked:
-        # 没有联想，直接空格
-        logger.warning("未找到标签联想，直接输入空格: %s", tag)
-        page.type_text(" ", delay_ms=0)
+        error = PublishError(f"未找到同名话题候选：{tag}")
+        error.code = "PUBLISH_TOPICS_NOT_CONFIRMED"
+        raise error
 
-    time.sleep(0.8)
+    for _ in range(12):
+        time.sleep(0.5)
+        if any(topic["name"] == tag for topic in _read_topics(page, content_selector)):
+            logger.info("话题已生效: %s", tag)
+            return
+    _verify_topics(page, content_selector, [tag])
 
 
 # ========== 定时发布 ==========

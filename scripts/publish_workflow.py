@@ -181,6 +181,25 @@ class PublishWorkflowService:
         self._record_completion(completed, result=result, published=True)
         return completed
 
+    def reconcile_link(self, task_id: str, *, account: str, page: object) -> dict:
+        """Enrich a successful publication without submitting content again."""
+        from xhs.publish_links import complete_publish_link
+
+        task = self.get(task_id, account=account)
+        if task["state"] != "SUCCESS":
+            raise ServiceError("PUBLISH_NOT_CONFIRMED", "仅补查已确认发布成功的笔记")
+        rows = self.published_posts.list(account_slot=account)
+        record = next((row for row in rows if row["publish_task_id"] == task_id), None)
+        if record is None:
+            raise ServiceError("NOT_FOUND", "原发布记录不存在")
+        result = complete_publish_link(
+            page, record["platform_result"], record["title"]
+        )
+        self.published_posts.record(task, result=result)
+        self.tasks.update_parameters(task_id, published_link=result)
+        return {"task_id": task_id, "account_slot": account, "title": record["title"],
+                "result": result}
+
     def fail(
         self,
         task_id: str,
@@ -197,7 +216,7 @@ class PublishWorkflowService:
             error_code=(
                 "PUBLISH_PREVIEW_UNAVAILABLE"
                 if getattr(exc, "code", None) == "PUBLISH_PREVIEW_UNAVAILABLE"
-                else "PUBLISH_EXECUTION_ERROR"
+                else getattr(exc, "code", "PUBLISH_EXECUTION_ERROR")
             ),
             recommended_action=(
                 "请先在小红书创作中心检查结果，不要直接重复发布"
@@ -207,7 +226,8 @@ class PublishWorkflowService:
         )
         self._record_completion(
             completed,
-            result={"message": str(exc)},
+            result={"message": str(exc),
+                    **({"click_result": exc.click_result} if hasattr(exc, "click_result") else {})},
             published=published,
         )
         return completed

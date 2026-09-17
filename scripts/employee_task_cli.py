@@ -54,6 +54,12 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
                     raise ValueError("账号由任务槽位指定；查询帮助请用 task-entry.cmd help")
                 if cli_main is None:
                     from cli import main as cli_main
+                if (
+                    args[0] in {"check-login", "account-identity"}
+                    and "--help" not in args
+                    and task.get("capability") != args[0]
+                ):
+                    raise ValueError("普通任务复用绑定身份；身份检查请由用户单独发起")
                 sys.argv = ["cli", "--account", task["account_slot"], *args]
                 cli_main()
             except SystemExit as exc:

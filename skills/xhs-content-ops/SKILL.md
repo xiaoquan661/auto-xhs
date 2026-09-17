@@ -61,7 +61,22 @@ API 模型兼容入口。
   账号启用规则。
 - 所有步骤记录真实结果，不把草稿、表单填写或排队描述为发布成功。
 
-## 竞品分析
+## 已发布笔记运营数据
+
+用户下发更新任务时，按机器和账号收集该账号已发布笔记 ID，执行：
+
+```text
+python scripts/cli.py --account <槽位> collect-operations-metrics --source creator_manager --note-id <笔记ID>
+```
+
+多个作品重复传入 `--note-id`。从创作服务平台的笔记管理读取浏览量、点赞、收藏、评论、
+转发累计值，不执行身份检查或进入个人主页。图文和视频使用同一采集链。
+将命令完整 `result` 放入员工回执的 `business_result`，保留 source、captured_at、notes
+及缺失笔记 ID。经理沿用 outbox 回收，控制台按机器、槽位、笔记 ID 关联发布记录，
+每天展示最后一次快照。部分字段或目标笔记未取得时保留 PARTIAL_SUCCESS 和缺失说明。
+本功能按用户任务更新；执行结束后停止。界面展示上次采集时间。
+
+## 竞品分析流程
 
 ```text
 确认关键词或竞品账号

@@ -118,7 +118,9 @@ class BridgePage:
         return result
 
     def navigate(self, url: str) -> None:
-        self._call("navigate", {"url": rewrite_platform_url(url, self._platform)})
+        result = self._call("navigate", {"url": rewrite_platform_url(url, self._platform)})
+        if isinstance(result, dict) and result.get("tab_id") is not None:
+            self._tab_id = int(result["tab_id"])
 
     def wait_for_load(self, timeout: float = 60.0) -> None:
         self._call("wait_for_load", {"timeout": int(timeout * 1000)})

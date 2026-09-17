@@ -10,7 +10,7 @@ from pathlib import Path
 
 from product_store import product_root
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 _MIGRATIONS = {
     1: """
@@ -450,6 +450,42 @@ _MIGRATIONS = {
                            WHERE reason = 'outside_active_time'
                              AND COALESCE(reply_task_id, '') = '');
     """,
+    16: """
+        CREATE TABLE inbound_events_next (
+            event_id TEXT PRIMARY KEY,
+            account_slot TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            platform_event_id TEXT NOT NULL,
+            object_type TEXT NOT NULL DEFAULT '',
+            object_id TEXT NOT NULL DEFAULT '',
+            actor_user_id TEXT NOT NULL DEFAULT '',
+            occurred_at TEXT NOT NULL,
+            discovered_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            classification TEXT NOT NULL DEFAULT '',
+            handling_state TEXT NOT NULL DEFAULT 'NEW',
+            created_task_id TEXT,
+            platform TEXT NOT NULL DEFAULT 'xiaohongshu',
+            comment_id TEXT,
+            note_id TEXT,
+            parent_comment_id TEXT,
+            author_name TEXT,
+            content TEXT,
+            parent_content TEXT,
+            target_url TEXT,
+            last_seen_at TEXT,
+            detail_state TEXT NOT NULL DEFAULT 'MISSING',
+            UNIQUE (account_slot, platform, event_type, platform_event_id)
+        );
+        INSERT INTO inbound_events_next SELECT * FROM inbound_events;
+        DROP TABLE inbound_events;
+        ALTER TABLE inbound_events_next RENAME TO inbound_events;
+        CREATE INDEX inbound_events_account_state_idx
+            ON inbound_events (account_slot, handling_state, occurred_at DESC);
+        CREATE INDEX inbound_comment_relation_idx
+            ON inbound_events(account_slot, platform, comment_id, parent_comment_id);
+    """,
+
 }
 
 
@@ -477,6 +513,8 @@ class OperationsDatabase:
             if current > SCHEMA_VERSION:
                 raise RuntimeError("运营数据库版本高于当前程序支持范围")
             for version in range(current + 1, SCHEMA_VERSION + 1):
+                if version == 16:
+                    connection.execute("PRAGMA foreign_keys = OFF")
                 try:
                     connection.executescript("BEGIN IMMEDIATE;\n" + _MIGRATIONS[version])
                     if version in {10, 12}:
@@ -488,6 +526,8 @@ class OperationsDatabase:
                 except Exception:
                     connection.rollback()
                     raise
+                finally:
+                    connection.execute("PRAGMA foreign_keys = ON")
             connection.commit()
 
     @contextmanager

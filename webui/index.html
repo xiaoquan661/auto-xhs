@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="/styles.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/control-room.css?v=20260909-polling-1" />
-    <link rel="stylesheet" href="/employee-panel.css?v=20260915-daily-overview-1" />
-    <link rel="stylesheet" href="/manager-results.css?v=20260908-results-1" />
+    <link rel="stylesheet" href="/employee-panel.css?v=20260916-passive-interactions-2" />
+    <link rel="stylesheet" href="/manager-results.css?v=20260916-recovery-account-2" />
     <link rel="stylesheet" href="/manager-acceptance.css?v=20260910" />
     <link rel="stylesheet" href="/manager-debug.css?v=20260910" />
   </head>
@@ -139,8 +139,9 @@
         </section>
 
         <section class="workspace-view" id="results" data-manager-view="results" hidden>
-          <header class="page-topbar recovery-heading"><div><h1>数据回收</h1><p>查看执行成果，及时处理需要关注的记录。</p></div></header>
-          <div class="recovery-sync" id="recovery-sync-bar"><strong id="recovery-sync-label">正在同步员工机数据</strong><span id="recovery-sync-time">等待首次回收</span><button id="recovery-sync-details" type="button">同步详情 →</button></div>
+          <header class="page-topbar recovery-heading"><div><h1>数据回收</h1><p>选择员工机和账号，查看已发布内容的运营数据。</p></div></header>
+          <div class="recovery-sync" id="recovery-sync-bar"><strong id="recovery-sync-label">正在同步员工机数据</strong><span id="recovery-sync-time">等待首次回收</span><button id="recovery-sync-details" type="button">同步状态与历史 →</button></div>
+          <section id="recovery-navigation" class="recovery-navigation" aria-label="员工机与账号选择"></section>
           <div class="recovery-overview">
             <article><span>已回收结果</span><strong id="manager-result-total">—</strong></article>
             <article><span>已完成</span><strong id="recovery-success-total">—</strong></article>
@@ -162,35 +163,38 @@
             <div><span>回复 · 目标 / 实际</span><strong id="manager-action-reply">—</strong></div>
             <div><span>发布 · 目标 / 实际</span><strong id="manager-action-publish">—</strong></div>
           </div>
-          <section class="recovery-content">
+          <section class="recovery-content" id="recovery-account-content" hidden>
+            <div class="recovery-account-heading"><div><h2 id="recovery-account-title"></h2><p>按笔记查看最新累计数据与每日记录</p></div><span id="recovery-note-count"></span></div>
             <div class="recovery-tabs" role="tablist" aria-label="回收数据视图">
-              <button id="recovery-tab-results" type="button" role="tab" data-recovery-tab="results" aria-selected="true" aria-controls="recovery-pane-results">执行结果 <b data-recovery-count="results">0</b></button>
-              <button id="recovery-tab-incremental" type="button" role="tab" data-recovery-tab="incremental" aria-selected="false" aria-controls="recovery-pane-incremental" tabindex="-1">增量记录 <b data-recovery-count="incremental">0</b></button>
-              <button id="recovery-tab-reports" type="button" role="tab" data-recovery-tab="reports" aria-selected="false" aria-controls="recovery-pane-reports" tabindex="-1">运营报告 <b data-recovery-count="reports">0</b></button>
-              <button id="recovery-tab-audit" type="button" role="tab" data-recovery-tab="audit" aria-selected="false" aria-controls="recovery-pane-audit" tabindex="-1">同步与审计 <b data-recovery-count="audit">0</b></button>
+              <button id="recovery-tab-results" type="button" role="tab" data-recovery-tab="results" aria-selected="true" aria-controls="recovery-pane-results">发布内容 <b data-recovery-count="results">0</b></button>
+              <button id="recovery-tab-incremental" type="button" role="tab" data-recovery-tab="incremental" aria-selected="false" aria-controls="recovery-pane-incremental" tabindex="-1">采集数据 <b data-recovery-count="incremental">0</b></button>
+              <button id="recovery-tab-reports" type="button" role="tab" data-recovery-tab="reports" aria-selected="false" aria-controls="recovery-pane-reports" tabindex="-1">运营汇总 <b data-recovery-count="reports">0</b></button>
             </div>
             <div class="recovery-filters" aria-label="员工机、账号与日期筛选">
-              <label><span>员工机</span><select id="manager-result-machine"></select></label>
-              <label><span>账号</span><select id="manager-result-account"></select></label>
+              <label hidden><span>员工机</span><select id="manager-result-machine"></select></label>
+              <label hidden><span>账号</span><select id="manager-result-account"></select></label>
               <label><span>开始日期</span><input id="manager-result-start" type="date" /></label>
               <label><span>结束日期</span><input id="manager-result-end" type="date" /></label>
-              <button class="secondary-button" id="manager-result-reset" type="button">重置筛选</button>
+              <button class="secondary-button" id="manager-result-reset" type="button">重置日期</button>
               <div class="recovery-collect"><label><input id="manager-collect-evidence" type="checkbox" checked /> 同步证据</label><button class="secondary-button" id="manager-collect-results" type="button">立即回收</button></div>
             </div>
             <p class="action-message" id="manager-collect-message" role="status"></p>
             <div class="recovery-list-tools" id="recovery-list-tools">
               <div class="recovery-scopes" aria-label="结果状态"><button type="button" data-recovery-scope="all" aria-pressed="true">全部结果</button><button type="button" data-recovery-scope="attention" aria-pressed="false">需关注</button><button type="button" data-recovery-scope="success" aria-pressed="false">已完成</button></div>
-              <input id="recovery-search" type="search" aria-label="搜索执行结果" placeholder="搜索动作、账号或执行内容" />
+              <input id="recovery-search" type="search" aria-label="搜索发布内容" placeholder="搜索笔记标题或发布内容" />
             </div>
             <section id="recovery-pane-results" role="tabpanel" aria-labelledby="recovery-tab-results" data-recovery-pane="results"><div id="manager-result-list"></div></section>
+            <div id="recovery-collection-tools" class="recovery-list-tools" hidden><label>数据类型 <select id="recovery-collection-type"><option value="all">全部类型</option><option value="comment">评论</option><option value="message">私信</option><option value="follower">新增粉丝</option><option value="like">收获点赞</option><option value="metrics">指标快照</option><option value="collection">采集与回复记录</option><option value="other">其他数据</option></select></label><input id="recovery-collection-search" type="search" aria-label="搜索采集数据" placeholder="搜索内容、用户或笔记" /></div>
+            <p id="recovery-view-help" class="recovery-help"></p>
             <section id="recovery-pane-incremental" role="tabpanel" aria-labelledby="recovery-tab-incremental" data-recovery-pane="incremental" hidden><div id="manager-incremental-list"></div></section>
-            <section id="recovery-pane-reports" role="tabpanel" aria-labelledby="recovery-tab-reports" data-recovery-pane="reports" hidden><div id="manager-operation-report-list"></div></section>
-            <section id="recovery-pane-audit" role="tabpanel" aria-labelledby="recovery-tab-audit" data-recovery-pane="audit" hidden>
-              <details class="recovery-technical"><summary>员工机同步状态与回执归档</summary><p id="manager-collection-schedule">等待首次收集</p><div class="manager-collection-grid" id="manager-collection-list"></div></details>
-              <div id="manager-result-audit-list"></div>
-            </section>
+            <section id="recovery-pane-reports" role="tabpanel" aria-labelledby="recovery-tab-reports" data-recovery-pane="reports" hidden><div id="manager-operation-report-list"></div><details class="recovery-saved-reports"><summary>已保存的报告快照</summary><p>报告保留生成时的数据；当前运营情况请查看上方按日汇总。</p><div id="recovery-saved-report-list"></div></details></section>
+
             <footer class="recovery-pager"><span id="recovery-page-info" aria-live="polite">正在读取记录</span><button id="recovery-prev" type="button">上一页</button><span id="recovery-page-number">1 / 1</span><button id="recovery-next" type="button">下一页</button></footer>
           </section>
+            <dialog id="recovery-sync-dialog" class="recovery-detail" aria-labelledby="recovery-sync-title"><header class="recovery-detail-head"><h2 id="recovery-sync-title">同步状态与回执历史</h2><button id="recovery-sync-close" type="button">关闭</button></header>
+              <details class="recovery-technical"><summary>员工机同步状态与回执归档</summary><p id="manager-collection-schedule">等待首次收集</p><div class="manager-collection-grid" id="manager-collection-list"></div></details>
+              <div id="manager-result-audit-list"></div><footer class="recovery-pager"><button id="recovery-audit-prev" type="button">上一页</button><span id="recovery-audit-page"></span><button id="recovery-audit-next" type="button">下一页</button></footer>
+            </dialog>
           <dialog class="recovery-detail" id="recovery-detail-dialog" aria-labelledby="recovery-detail-title"><header class="recovery-detail-head"><h2 id="recovery-detail-title">执行详情</h2><button id="recovery-detail-close" type="button">关闭</button></header><div id="recovery-detail-content"></div></dialog>
         </section>
 
@@ -385,10 +389,10 @@
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
     <script src="/manager-debug.js?v=20260910" defer></script>
     <script src="/manager-account-tools.js?v=20260908-account-identity-1" defer></script>
-    <script src="/employee-panel.js?v=20260915-publish-links-1" defer></script>
-    <script src="/manager-results.js?v=20260909-follow-blogger-1" defer></script>
+    <script src="/employee-panel.js?v=20260916-passive-interactions-2" defer></script>
+    <script src="/manager-results.js?v=20260916-recovery-account-2" defer></script>
     <script src="/manager-memory.js?v=20260909" defer></script>
     <script src="/manager-polling.js?v=20260909-polling-1" defer></script>
-    <script src="/manager-console.js?v=20260915-account-workspace-1" defer></script>
+    <script src="/manager-console.js?v=20260916-recovery-account-2" defer></script>
   </body>
 </html>

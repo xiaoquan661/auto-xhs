@@ -8,9 +8,10 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-from collection_coverage import batch_summary, covered_dates
+from collection_coverage import batch_summary, covered_dates, observations_for_result
 from metric_temporality import event_day, event_time
 from operations_context import event_location, observed_post_date, platform_origin, warm_candidates
+from passive_metrics import passive_view
 from publish_workflow import PUBLISH_WORKFLOW_CAPABILITIES, VERIFIED_PUBLISH_EVIDENCE
 from service_errors import ServiceError
 
@@ -176,6 +177,21 @@ class EmployeeOperations:
             }
             for r in results
         ]
+        # Some historical receipts retain coverage only in their business result.
+        # Reuse explicit collector intervals; receipt success alone proves no interval.
+        for result in results:
+            body = result.get("business_result") or {}
+            task = {**(result.get("task_request") or {}),
+                    "task_id": result.get("task_id") or result.get("record_id"),
+                    "account_slot": self.slot(result),
+                    "capability": result.get("capability")
+                    or (result.get("task_request") or {}).get("capability")}
+            batches = observations_for_result(
+                task, body, result.get("recorded_at") or result.get("created_at") or ""
+            )
+            if batches:
+                sources.append({"machine_id": result.get("machine_id"),
+                                "account_slot": self.slot(result), "data": batches})
         for source in [*sorted(sources, key=lambda row: row.get("collected_at") or ""), *imported]:
             for row in flatten_observations(source.get("data")):
                 slot = source.get("account_slot") or row.get("account_slot") or ""
@@ -540,6 +556,12 @@ class EmployeeOperations:
                                              collection_reason="当日尚未采集，计数从零开始")
                     else:
                         metrics[kind].update(status="采集不完整", incomplete=True)
+                presentation = passive_view(metrics[kind], events, receipts, day)
+                metrics[kind].update(
+                    passive_view=presentation,
+                    actual_display=presentation["count_display"],
+                    collection_reason=presentation["reason"],
+                )
             if kind in {"reply", "private_reply"} and not (
                 target is not None and actual is not None and actual >= target
             ) and any(
@@ -784,6 +806,39 @@ class EmployeeOperations:
             else 0
         )
 
+    def collection_records(self) -> list[dict]:
+        """Expose the same deduplicated observations used by account daily metrics."""
+        records = []
+        for (machine, slot), rows in self.observations.items():
+            for row in rows:
+                timing = event_time(row)
+                records.append({
+                    **self.event_view(row), "machine_id": machine, "account_slot": slot,
+                    "recorded_at": timing["occurred_at"] or row.get("captured_at")
+                    or timing["observed_at"] or row.get("created_at"),
+                    "time_basis": timing["time_basis"], "statistics_date": event_day(row),
+                })
+        snapshots = {
+            (r["machine_id"], r["account_slot"], r.get("entity_id"), r.get("captured_at"))
+            for r in records if r.get("entity_type") == "note"
+        }
+        for result in self.results:
+            business = result.get("business_result") or {}
+            if business.get("source") != "creator_manager":
+                continue
+            for note in business.get("notes") or []:
+                machine, slot = result.get("machine_id"), self.slot(result)
+                captured = note.get("captured_at") or business.get("captured_at")
+                key = (machine, slot, note.get("entity_id"), captured)
+                if key in snapshots:
+                    continue
+                snapshots.add(key)
+                records.append({
+                    **note, "machine_id": machine, "account_slot": slot, "entity_type": "note",
+                    "captured_at": captured, "recorded_at": captured, "time_basis": "collected",
+                })
+        return records
+
     def summary(self, accounts: list[dict], day: str | None = None) -> dict:
         today = datetime.now(UTC).astimezone(BUSINESS_TIMEZONE).date()
         day = day or today.isoformat()
@@ -825,5 +880,6 @@ class EmployeeOperations:
             "timezone": "Asia/Shanghai",
             "accounts": [self.enrich_account(a, day) for a in accounts],
             "daily_metrics": daily_metrics,
+            "collection_records": self.collection_records(),
             "daily_report": self.report((date.fromisoformat(day) - timedelta(days=1)).isoformat()),
         }

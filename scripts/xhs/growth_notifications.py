@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -127,15 +128,20 @@ def collect_growth_notifications(page: Any, *, max_items: int = 100) -> dict:
     ):
         import json
 
-        selected = page.evaluate(
-            """(() => {
+        select_script = """(() => {
           const labels = LABELS;
           const tab = [...document.querySelectorAll('[role="tab"], .tab-item, .tab')]
             .find(el => labels.includes((el.innerText || '').trim()));
           if (!tab) return false;
-          tab.click(); return true;
+          tab.click();
+          return tab.classList.contains("active") || tab.getAttribute("aria-selected") === "true";
         })()""".replace("LABELS", json.dumps(labels, ensure_ascii=False))
-        )
+        selected = False
+        for _ in range(40):
+            if page.evaluate(select_script) is True:
+                selected = True
+                break
+            time.sleep(0.25)
         tabs.append(bool(selected))
         channel_rows = []
         exhausted = False
@@ -143,6 +149,12 @@ def collect_growth_notifications(page: Any, *, max_items: int = 100) -> dict:
         if selected:
             from .notification_history import read_notification_history
 
+            # The tab is visible before its asynchronous notification response arrives.
+            for _ in range(40):
+                observed = page.evaluate("window.__AUTO_XHS_GROWTH__ || {}")
+                if parse_growth_api(observed, metric, captured)[0] is not None:
+                    break
+                time.sleep(0.25)
             channel_rows, exhausted, stop = read_notification_history(
                 page, lambda: page.evaluate(_READ_GROWTH_JS), max_items=max_items
             )

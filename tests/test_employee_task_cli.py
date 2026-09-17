@@ -91,3 +91,30 @@ def test_comment_loads_registered_persona_and_keeps_retry_snapshot(tmp_path: Pat
     saved = manager.store.get("tasks", "task-1")["request"]
     assert saved["parameters"]["persona"]["tone"] == "自然简短"
     assert manager.dispatch_task(request)["success"]
+
+
+def test_business_task_keeps_identity_checks_out_of_browser(tmp_path: Path) -> None:
+    from employee_recovery import recovery_for
+    write_object(tmp_path / "task.json", {
+        "task_id": "one", "account_slot": "alpha", "capability": "publish"
+    })
+    for command in ("check-login", "account-identity"):
+        request = tmp_path / f"{command}.json"
+        write_object(request, {"args": [command]})
+        called = []
+        assert invoke(tmp_path, request, lambda called=called: called.append(True)) == 2
+        assert not called
+    recovery = recovery_for({"error_code": "LOGIN_REQUIRED"}, 1)
+    assert recovery["user_action_required"] is True
+    assert recovery["identity_check_required"] is False
+
+
+def test_explicit_identity_task_remains_available(tmp_path: Path) -> None:
+    write_object(tmp_path / "task.json", {
+        "task_id": "one", "account_slot": "alpha", "capability": "account-identity"
+    })
+    request = tmp_path / "identity.json"
+    write_object(request, {"args": ["account-identity"]})
+    called = []
+    assert invoke(tmp_path, request, lambda called=called: called.append(True)) == 0
+    assert called == [True]
