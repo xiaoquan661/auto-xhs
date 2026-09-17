@@ -22,7 +22,7 @@ _CLOSE_SELECTORS = (
 
 
 def _card_selector(feed_id: str) -> str:
-    return f'a[href*="/explore/{feed_id}"]'
+    return f'a[href*="/explore/{feed_id}"], a[href*="/discovery/item/{feed_id}"]'
 
 
 def _wait_until(page, predicate, timeout: float = 10.0, interval: float = 0.25) -> bool:

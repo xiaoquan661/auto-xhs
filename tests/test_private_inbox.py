@@ -45,6 +45,17 @@ class FakePage:
         raise AssertionError(script)
 
 
+def test_private_history_owner_mismatch_rejects_batch(monkeypatch) -> None:
+    from scripts.xhs.private_inbox import PrivateHistoryOwnerMismatchError
+
+    monkeypatch.setattr(
+        "scripts.xhs.private_history.collect_message_history",
+        lambda *_: {"available": True, "owner_uid": "other-account"},
+    )
+    with pytest.raises(PrivateHistoryOwnerMismatchError, match="本批数据未入库"):
+        collect_private_messages(FakePage(), expected_owner_uid="bound-account")
+
+
 def test_private_inbox_only_returns_conversations_last_authored_by_peer() -> None:
     result = collect_private_messages(FakePage(), max_conversations=10)
 

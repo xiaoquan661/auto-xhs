@@ -150,7 +150,7 @@ class EmployeeCodexRunner:
             },
         )
         try:
-            with (run_root / "events.jsonl").open("w", encoding="utf-8") as events:
+            with (run_root / "events.jsonl").open("a", encoding="utf-8") as events:
                 process = subprocess.Popen(
                     command,
                     stdin=subprocess.PIPE,
@@ -175,6 +175,8 @@ class EmployeeCodexRunner:
                 process.stdin.write(prompt)
                 process.stdin.close()
                 deadline = time.monotonic() + float(task.get("timeout_seconds") or 1800)
+                idle_limit = float((task.get("parameters") or {}).get("agent_idle_seconds") or 300)
+                last_activity = time.time()
                 while True:
                     if not claimed and claim_path.exists():
                         try:
@@ -195,10 +197,24 @@ class EmployeeCodexRunner:
                         return self._incomplete(
                             task, "员工 Agent 执行超时，执行结果待核对", run_root
                         )
+                    activity = max(
+                        [last_activity]
+                        + [p.stat().st_mtime for p in (
+                            run_root / "events.jsonl", run_root / "step-progress.json"
+                        ) if p.exists()]
+                    )
+                    if time.time() - activity >= idle_limit:
+                        self._stop(process)
+                        event_reader.join(timeout=5)
+                        return self._resume_or_incomplete(
+                            task, "员工 Agent 无进展超时", run_root
+                        )
                     time.sleep(1)
                 event_reader.join(timeout=5)
             if not result_path.exists() and not (run_root / "execution-result.json").exists():
-                return self._incomplete(task, "员工 Agent 未返回完整的领取回执和结果", run_root)
+                return self._resume_or_incomplete(
+                    task, "员工 Agent 未返回完整的领取回执和结果", run_root
+                )
             result = (
                 json.loads(result_path.read_text(encoding="utf-8-sig"))
                 if result_path.exists()
@@ -370,11 +386,25 @@ class EmployeeCodexRunner:
 
     @staticmethod
     def _incomplete(task: dict[str, Any], message: str, root: Path) -> dict[str, Any]:
+        progress = root / "step-progress.json"
+        checkpoint = json.loads(progress.read_text(encoding="utf-8")) if progress.exists() else {}
         return {
             "state": "RESULT_UNKNOWN" if task.get("write_intent") else "FAILED",
             "message": message,
             "evidence_index": {"agent_run": str(root)},
+            "business_result": {"step_checkpoint": checkpoint, "resume_scope": "remaining_steps"},
         }
+
+    def _resume_or_incomplete(self, task: dict[str, Any], message: str, root: Path) -> dict:
+        from employee_recovery import can_resume
+
+        if not task.get("recovery_attempt") and can_resume(root):
+            write_json(root / "runner-recovery.json", {
+                "reason": message, "attempt": 1, "resume_scope": "remaining_steps",
+                "started_at": datetime.now(UTC).isoformat(),
+            })
+            return self({**task, "recovery_attempt": 1})
+        return self._incomplete(task, message + "，已保存步骤进度供断点恢复", root)
 
     def _write_entry(self, root: Path) -> None:
         """Keep Windows quoting in a tested launcher owned by the runner."""
@@ -404,6 +434,10 @@ cmd 参数直接填写下面的 call 命令；shell 字段已选择解释器，�
 业务状态以输出内容为准；exit_code=0 本身不代表业务成功。仅输出截断或需错误详情时读取文件。
 step-progress.json 保存已执行步骤及各自输出。异常后读取当前步骤的 recovery 建议，
 复用已读任务、绑定身份、固定事件集合和已完成结果，从失败点继续。
+若task.json含recovery_attempt，先读取step-progress.json恢复剩余步骤，禁止重新跑完整任务。
+同一写入步骤保持原参数文件名；固定入口复用已完成结果，待核对提交不重发。
+读取/截图遇到可恢复页面错误时入口有限重试一次；不要再对同一故障循环调用。
+已由用户手动确认的槽位与历史数据归属核对分开，历史待归属项单列，不能充当本次新身份异常。
 普通页面异常先观察当前页面；登录或身份异常暂停并报告，等待用户处理。消息采集只按任务或巡检安排执行。
 结果未知先核对原动作，保留成功步骤，确认前不重新发送。
 图片笔记、弹窗或选择器失效时使用视觉流程：

@@ -1,5 +1,9 @@
 # 员工任务执行入口
 
+主动评论由 post-comment 在点击前监听平台成功提示，返回 confirmation_source=platform_success_notice
+及 platform_receipt 时即已完成确认，直接保存回执。发送后不滚动评论列表、不重新打开详情寻找
+自己的评论。8秒未捕获明确提示则保留 RESULT_UNKNOWN 并结束该步骤，不自动重发。
+
 员工在任务目录使用 `call task-entry.cmd`，命令工具选择 Windows cmd、`login=false`。
 宿主负责 Python、项目和任务目录的绝对路径。账号由 `task.json` 注入。
 
@@ -69,6 +73,28 @@ runner 保留原生 `events.jsonl`，另存 `event-timing.jsonl` 的事件接收
 等待、完成或异常状态。
 
 ## 当前步骤恢复
+
+固定入口在命令开始前写入RUNNING步骤，结束后保存参数、结果和完成时间。截图和详情读取
+遇到明确的页面变化或对应临时超时，自动再执行一次并保留首轮输出。每个写入步骤保持
+原参数文件名，已完成步骤再次invoke直接复用结果；待核对写入不重复提交。
+
+runner以事件和步骤更新监测进展，默认连续300秒无进展时保存断点。缺少结束回执或无进展
+且断点没有待核对写入时，最多重启一轮Agent恢复剩余步骤；有未确认写入时保留待核对。
+历史待归属数据单独列出；用户已确认槽位时，不把旧归属疑点反复当作当前新身份异常。
+
+### 关注执行
+
+关注按槽位平台分别执行。RedNote 与小红书的路由、页面布局和关注控件分别依据当前平台页面
+读取，不能复用另一平台的主页选择器或截图坐标。RedNote 已验证可在笔记详情页通过项目
+browser-snapshot/browser-action 点击作者旁关注按钮并原地确认；小红书需观察其当前详情页
+的实际控件后执行。视觉点击关注必须在任务授权内，保存作者、笔记、点击前后状态与截图，
+逐项记录 action=follow、changed 和 platform_readback；明确新关注成功才计入实际数。
+
+小红书在已打开的目标笔记详情页使用 follow-user，入口先验证当前笔记作者并点击详情页
+的 .note-detail-follow-btn button.follow-button，原地读取关系状态。RedNote 详情页控件
+未被适配器识别时使用授权内视觉步骤，入口明确报告所需步骤，不跳转到小红书主页流程。
+截图回执 visual_protocol_version=2 标识新版布局变化重采样链路；扩展更新后需重新加载，
+并用真实 browser-snapshot 验证运行版本和实际图像。
 
 `step-progress.json` 保存每个步骤的输出位置，失败步骤另存 `.recovery.json`。普通异常
 观察当前页面并从失败点继续，复用绑定身份、已读任务、固定事件集合和已完成结果。

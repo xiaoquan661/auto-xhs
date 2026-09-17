@@ -59,6 +59,22 @@ function harness(states) {
 }
 const ready = (url = note, documentId = 1) => ({ url, documentId, ready: true, reason: 'note', readyState: 'interactive' });
 
+test('browser error page recovers with one tab navigation', async () => {
+  const h = harness([{ ...ready(), ready: false }, ready(note, 2)]);
+  h.context.chrome.scripting.executeScript = async () => {
+    throw new Error('Frame with ID 0 is showing error page');
+  };
+  await h.context.cmdNavigate({ url: note });
+  assert.equal(h.navigations(), 1);
+});
+
+test('unrelated navigation errors remain visible', async () => {
+  const h = harness([{ ...ready(), ready: false }]);
+  h.context.chrome.scripting.executeScript = async () => { throw new Error('permission denied'); };
+  await assert.rejects(h.context.cmdNavigate({ url: note }), /permission denied/);
+  assert.equal(h.navigations(), 0);
+});
+
 test('ready note is reused across detail and comment despite loading resources', async () => {
   const h = harness([ready()]);
   const result = await h.context.cmdNavigate({ url: note + '?xsec_token=fresh' });

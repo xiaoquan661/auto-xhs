@@ -75,7 +75,7 @@ async function cmdVisualSnapshot(params = {}) {
       const after = await visualStep("读取截图后视口", visualFrame(tab.id));
       if (sameVisualFrame(frame, after)) {
         snapshot = { data, tab_id: tab.id, frame, captured_at: new Date().toISOString(),
-          capture_attempts: attempt, frame_adjustments: adjustments };
+          capture_attempts: attempt, frame_adjustments: adjustments, visual_protocol_version: 2 };
         break;
       }
       adjustments.push(visualFrameChanges(frame, after));
