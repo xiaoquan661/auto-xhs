@@ -90,6 +90,19 @@ class DailyOperationsRunner:
                 )
             return {"success": True, "status": value, **current}
 
+        def dispatch(request: dict) -> dict:
+            result = self.manager.dispatch_task(request)
+            if result.get("success") is False:
+                execution = result.get("task") or {}
+                return status(
+                    str(result.get("status") or "RETRY_PENDING"),
+                    success=False,
+                    last_action_id=request["task_id"],
+                    error_code=execution.get("error_code") or "",
+                    message=execution.get("message") or result.get("message") or "",
+                )
+            return status("DISPATCHED", last_action_id=request["task_id"])
+
         # A running action is collected before expiry is finalized.
         active = [
             e
@@ -107,8 +120,7 @@ class DailyOperationsRunner:
                 None,
             )
             if pending and start <= now < end:
-                self.manager.dispatch_task(pending["request"])
-                return status("DISPATCHED", last_action_id=pending["task_id"])
+                return dispatch(pending["request"])
             return status("WAITING_RECEIPT")
         receipt_ids = {r.get("task_id") for r in results}
         if any(
@@ -207,12 +219,11 @@ class DailyOperationsRunner:
         from service_errors import ServiceError
 
         try:
-            self.manager.dispatch_task(request)
+            return dispatch(request)
         except ServiceError as exc:
             if exc.code in {"OPERATIONS_WINDOW_WAIT", "OPERATIONS_PUBLISH_WAIT"}:
                 return status("WAITING_POLICY", message=exc.message)
             raise
-        return status("DISPATCHED", last_action_id=action["action_id"])
 
     def supplied_action(
         self, task: dict, remaining: dict, uncertain: Counter, linked: list[dict]

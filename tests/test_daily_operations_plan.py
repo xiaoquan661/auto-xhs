@@ -455,3 +455,34 @@ def test_daily_plan_runs_through_manager_envelopes_and_collected_receipts(tmp_pa
     assert outcome["actual"]["browse"] == 2 and outcome["actual"]["like"] == 1
     assert outcome["actual"]["comment"] == 1
     assert manager.get_goal(identifier)["goal"]["progress"]["actual_total"] == 4
+
+
+def test_daily_runner_records_failed_dispatch_and_resumes_saved_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = manager_at(tmp_path, monkeypatch)
+    task = submitted(manager)
+    now = datetime.fromisoformat("2026-09-09T10:00:00+08:00")
+    requests = []
+
+    def dispatch(payload: dict) -> dict:
+        requests.append(copy.deepcopy(payload))
+        pending = len(requests) == 1
+        execution = manager.store.put("tasks", payload["task_id"], {
+            "task_id": payload["task_id"], "request": payload,
+            "dispatch_state": "PENDING_DISPATCH" if pending else "ACCEPTED",
+            "created_at": now.isoformat(), "message": "员工机离线" if pending else "",
+        })
+        return {"success": not pending, "status": execution["dispatch_state"], "task": execution}
+
+    monkeypatch.setattr(manager, "dispatch_task", dispatch)
+    monkeypatch.setattr(manager, "collect_results", lambda *args, **kwargs: {})
+    first = DailyOperationsRunner(ManagerAgentService(manager)).tick(task, now)
+    assert not first["success"]
+    current = manager.get_operation_task(task["operation_task_id"])["operation_task"]
+    assert current["daily_session"]["status"] == "PENDING_DISPATCH"
+    assert current["daily_session"]["message"] == "员工机离线"
+    second = DailyOperationsRunner(ManagerAgentService(manager)).tick(current, now)
+    assert second["success"] and second["status"] == "DISPATCHED"
+    assert requests[0] == requests[1]
+    assert len(manager.list_tasks()["tasks"]) == 1

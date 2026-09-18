@@ -120,6 +120,12 @@ class ManagerAgentService:
             operation_task_id = str(task.get("operation_task_id") or "")
             try:
                 outcome = self._process_operation(task)
+                if outcome.get("success") and task.get("last_agent_error"):
+                    self.manager.store.update(
+                        "operation_tasks",
+                        operation_task_id,
+                        lambda row: {**row, "last_agent_error": None},
+                    )
             except Exception as exc:
                 outcome = {
                     "success": False,
@@ -127,20 +133,14 @@ class ManagerAgentService:
                     "error_code": type(exc).__name__,
                     "message": str(exc),
                 }
-                if operation_task_id:
-                    try:
-                        current = self.manager.get_operation_task(operation_task_id)["operation_task"]
-                        if current.get("state") in {"PLANNING", "RUNNING", "DISPATCHING"}:
-                            self.manager.finish_operation_task(
-                                operation_task_id,
-                                {
-                                    "manager_agent_id": self.agent_id,
-                                    "state": "BLOCKED",
-                                    "result_summary": f"经理Agent推进失败：{str(exc)}",
-                                },
-                            )
-                    except Exception:
-                        pass
+                self.manager.store.update(
+                    "operation_tasks",
+                    operation_task_id,
+                    lambda row, error=outcome: {
+                        **row,
+                        "last_agent_error": {**error, "recorded_at": utc_now()},
+                    },
+                )
                 self._message(
                     operation_task_id,
                     from_agent=self.agent_id,
@@ -260,115 +260,43 @@ class ManagerAgentService:
             )
 
         planned_actions = list((task.get("plan") or {}).get("planned_actions") or [])
-        dispatch_failures = list((task.get("plan") or {}).get("dispatch_failures") or [])
-        failed_action_ids = {str(item.get("action_id") or "") for item in dispatch_failures}
         occupied_accounts: set[tuple[str, str]] = set()
         for action in planned_actions:
-            action_id = str(action.get("action_id") or "")
-            if action_id in failed_action_ids:
-                continue
-            task_request = self._task_request(task, action)
-            task_id = task_request["task_id"]
-            account_key = (
-                str(task_request["machine_id"]).upper(),
-                str(task_request["account_slot"]),
-            )
-            existing = self._find_execution_task(task_id)
-            if existing is not None:
-                if (
-                    existing.get("reconciliation_required")
-                    or self._task_state(existing) == "WAITING_APPROVAL"
-                ):
-                    self.manager.reconcile_task(task_id)
-                if self._task_state(existing) not in FINAL_TASK_STATES:
-                    occupied_accounts.add(account_key)
-                continue
+            account_key = (str(action["machine_id"]).upper(), str(action["account_slot"]))
             if account_key in occupied_accounts:
                 continue
-            employee_agent = f"{task_request['machine_id']}-AGENT"
-            self._message(
-                operation_task_id,
-                task_id=task_id,
-                from_agent=self.agent_id,
-                to_agent=employee_agent,
-                message_type="TASK_DISPATCH",
-                status="DISPATCHING",
-                summary=task_request["request_summary"],
-                payload={
-                    "capability": task_request["capability"],
-                    "expected_metrics": action.get("expected_metrics") or {},
-                },
-            )
             try:
-                self.manager.dispatch_task(task_request)
-            except ServiceError as exc:
-                if exc.code in {"OPERATIONS_WINDOW_WAIT", "OPERATIONS_PUBLISH_WAIT"}:
-                    self._message(
-                        operation_task_id,
-                        task_id=task_id,
-                        from_agent=self.agent_id,
-                        to_agent="WEBUI",
-                        message_type="POLICY_WAIT",
-                        status="WAITING",
-                        summary=exc.message,
-                    )
-                    occupied_accounts.add(account_key)
-                    continue
-                dispatch_failures.append(
-                    self._dispatch_failure(action, task_request, exc.code, exc.message)
-                )
-                failed_action_ids.add(action_id)
-                self._message(
-                    operation_task_id,
-                    task_id=task_id,
-                    from_agent=self.agent_id,
-                    to_agent="WEBUI",
-                    message_type="TASK_DISPATCH_FAILED",
-                    status="FAILED",
-                    summary=exc.message,
-                    payload={"error_code": exc.code, "action_id": action_id},
-                )
-                continue
+                outcome = self._advance_action(task, action)
             except Exception as exc:
-                message = str(exc) or type(exc).__name__
-                dispatch_failures.append(
-                    self._dispatch_failure(action, task_request, type(exc).__name__, message)
-                )
-                failed_action_ids.add(action_id)
-                self._message(
-                    operation_task_id,
-                    task_id=task_id,
-                    from_agent=self.agent_id,
-                    to_agent="WEBUI",
-                    message_type="TASK_DISPATCH_FAILED",
-                    status="FAILED",
-                    summary=message,
-                    payload={"error_code": type(exc).__name__, "action_id": action_id},
-                )
-                continue
-            occupied_accounts.add(account_key)
-
-        if dispatch_failures != list((task.get("plan") or {}).get("dispatch_failures") or []):
-            plan = dict(task.get("plan") or {})
-            plan["dispatch_failures"] = dispatch_failures
-            task = self.manager.record_operation_plan(
-                operation_task_id,
-                {
-                    "manager_agent_id": self.agent_id,
-                    "plan_summary": plan.get("summary") or "经理Agent批量派发",
-                    "planned_actions": planned_actions,
-                    "dispatch_failures": dispatch_failures,
-                },
-            )["operation_task"]
+                outcome = {
+                    "success": False,
+                    "status": "RETRY_PENDING",
+                    "error_code": exc.code if isinstance(exc, ServiceError) else type(exc).__name__,
+                    "message": str(exc),
+                }
+            if outcome["status"] not in FINAL_TASK_STATES:
+                occupied_accounts.add(account_key)
+            self._record_action_outcome(operation_task_id, action, outcome)
 
         refreshed = self.manager.get_operation_task(operation_task_id)["operation_task"]
         linked_tasks = self._linked_execution_tasks(operation_task_id)
-        if any(item.get("reconciliation_required") for item in linked_tasks):
-            return {"success": False, "status": "RECONCILIATION_REQUIRED"}
-        if len(linked_tasks) + len(dispatch_failures) < len(planned_actions) or any(
-            self._task_state(item) not in FINAL_TASK_STATES for item in linked_tasks
+        if any(
+            item.get("reconciliation_required") or self._task_state(item) == "RESULT_UNKNOWN"
+            for item in linked_tasks
         ):
-            return {"success": True, "status": str(refreshed.get("state") or "RUNNING")}
+            return {"success": False, "status": "RECONCILIATION_REQUIRED"}
+        dispatch_failures = (refreshed.get("plan") or {}).get("dispatch_failures") or []
+        # Match each planned action to its execution, never add failure counts to task counts.
+        executions = {item["task_id"]: item for item in linked_tasks}
+        expected_ids = {self._action_task_id(task, action) for action in planned_actions}
+        if expected_ids - executions.keys() or any(
+            self._task_state(executions[identifier]) not in FINAL_TASK_STATES
+            for identifier in expected_ids & executions.keys()
+        ):
+            return {
+                "success": not dispatch_failures,
+                "status": "RETRY_PENDING" if dispatch_failures else str(refreshed["state"]),
+            }
 
         progress = refreshed.get("progress") or {}
         target_metrics = progress.get("target_metrics") or {}
@@ -409,19 +337,101 @@ class ManagerAgentService:
         return {"success": state == "COMPLETED", "status": state, "message": summary}
 
     @staticmethod
-    def _dispatch_failure(
-        action: dict[str, Any], request: dict[str, Any], error_code: str, message: str
-    ) -> dict[str, Any]:
+    def _action_task_id(task: dict[str, Any], action: dict[str, Any]) -> str:
+        return (
+            f"{task['operation_task_id'].lower()}-{action['machine_id'].lower()}-"
+            f"{str(action['action_id']).lower()}"
+        )
+
+    def _advance_action(self, task: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+        task_id = self._action_task_id(task, action)
+        existing = self._find_execution_task(task_id)
+        if existing is not None:
+            state = self._task_state(existing)
+            if existing.get("reconciliation_required") or state == "RESULT_UNKNOWN":
+                return {
+                    "success": False,
+                    "status": "RECONCILIATION_REQUIRED",
+                    "message": "原任务结果待核对，保持当前动作",
+                }
+            if state == "WAITING_APPROVAL":
+                self.manager.reconcile_task(task_id)
+                existing = self._find_execution_task(task_id) or existing
+                state = self._task_state(existing)
+            if existing.get("reconciliation_required") or state == "RESULT_UNKNOWN":
+                return {
+                    "success": False,
+                    "status": "RECONCILIATION_REQUIRED",
+                    "message": "原任务结果待核对，保持当前动作",
+                }
+            if state not in {"PENDING_DISPATCH", "TRANSFERRED"}:
+                return {
+                    "success": state not in {"FAILED", "BLOCKED", "RESULT_UNKNOWN"},
+                    "status": state,
+                    "message": existing.get("message") or "",
+                    "error_code": existing.get("error_code") or "",
+                }
+            request = existing["request"]
+        else:
+            request = self._task_request(task, action)
+        self._message(
+            task["operation_task_id"],
+            task_id=task_id,
+            from_agent=self.agent_id,
+            to_agent=f"{action['machine_id']}-AGENT",
+            message_type="TASK_DISPATCH",
+            status="DISPATCHING",
+            summary=request["request_summary"],
+            payload={
+                "capability": action["capability"],
+                "expected_metrics": action.get("expected_metrics") or {},
+            },
+        )
+        result = self.manager.dispatch_task(request)
+        execution = result.get("task") or {}
+        state = self._task_state(execution) if execution else result.get("status", "UNKNOWN")
+        if execution.get("reconciliation_required") or state == "RESULT_UNKNOWN":
+            state = "RECONCILIATION_REQUIRED"
         return {
-            "action_id": str(action.get("action_id") or ""),
-            "task_id": str(request.get("task_id") or ""),
-            "machine_id": str(request.get("machine_id") or ""),
-            "account_slot": str(request.get("account_slot") or ""),
-            "capability": str(request.get("capability") or ""),
-            "error_code": str(error_code),
-            "message": str(message),
-            "recorded_at": utc_now(),
+            "success": bool(result.get("success")) and state != "RECONCILIATION_REQUIRED",
+            "status": state,
+            "error_code": execution.get("error_code") or "",
+            "message": execution.get("message") or result.get("message") or "",
         }
+
+    def _record_action_outcome(
+        self, operation_task_id: str, action: dict[str, Any], outcome: dict[str, Any]
+    ) -> None:
+        def update(row: dict[str, Any]) -> dict[str, Any]:
+            plan = dict(row.get("plan") or {})
+            failures = [
+                item
+                for item in plan.get("dispatch_failures") or []
+                if item.get("action_id") != action["action_id"]
+            ]
+            if not outcome["success"]:
+                failures.append(
+                    {
+                        **outcome,
+                        "action_id": action["action_id"],
+                        "machine_id": action["machine_id"],
+                        "account_slot": action["account_slot"],
+                        "recorded_at": utc_now(),
+                    }
+                )
+            return {**row, "plan": {**plan, "dispatch_failures": failures}}
+
+        self.manager.store.update("operation_tasks", operation_task_id, update)
+        if not outcome["success"]:
+            self._message(
+                operation_task_id,
+                from_agent=self.agent_id,
+                to_agent="WEBUI",
+                message_type="TASK_DISPATCH_FAILED",
+                status=outcome["status"],
+                summary=outcome.get("message") or outcome["status"],
+                payload={**outcome, "action_id": action["action_id"]},
+            )
 
     def _build_plan(self, task: dict[str, Any]) -> dict[str, Any]:
         goal = task.get("goal_snapshot") or {}
@@ -581,9 +591,7 @@ class ManagerAgentService:
         operation_task_id = str(task["operation_task_id"])
         capability = str(action["capability"])
         machine_id = str(action["machine_id"]).upper()
-        task_id = (
-            f"{operation_task_id.lower()}-{machine_id.lower()}-{str(action['action_id']).lower()}"
-        )
+        task_id = self._action_task_id(task, action)
         expected = action.get("expected_metrics") or {}
         metric_text = "、".join(f"{name} {count}" for name, count in expected.items())
         return {
