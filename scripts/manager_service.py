@@ -1179,6 +1179,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
         plan = {
             "summary": str(request.get("plan_summary") or "").strip(),
             "planned_actions": [item for item in raw_actions if isinstance(item, dict)],
+            "dispatch_failures": [
+                item for item in (request.get("dispatch_failures") or []) if isinstance(item, dict)
+            ],
             "recorded_by": task["manager_agent_id"],
             "recorded_at": utc_now(),
         }

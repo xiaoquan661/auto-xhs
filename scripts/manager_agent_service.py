@@ -127,6 +127,20 @@ class ManagerAgentService:
                     "error_code": type(exc).__name__,
                     "message": str(exc),
                 }
+                if operation_task_id:
+                    try:
+                        current = self.manager.get_operation_task(operation_task_id)["operation_task"]
+                        if current.get("state") in {"PLANNING", "RUNNING", "DISPATCHING"}:
+                            self.manager.finish_operation_task(
+                                operation_task_id,
+                                {
+                                    "manager_agent_id": self.agent_id,
+                                    "state": "BLOCKED",
+                                    "result_summary": f"经理Agent推进失败：{str(exc)}",
+                                },
+                            )
+                    except Exception:
+                        pass
                 self._message(
                     operation_task_id,
                     from_agent=self.agent_id,
@@ -246,8 +260,13 @@ class ManagerAgentService:
             )
 
         planned_actions = list((task.get("plan") or {}).get("planned_actions") or [])
+        dispatch_failures = list((task.get("plan") or {}).get("dispatch_failures") or [])
+        failed_action_ids = {str(item.get("action_id") or "") for item in dispatch_failures}
         occupied_accounts: set[tuple[str, str]] = set()
         for action in planned_actions:
+            action_id = str(action.get("action_id") or "")
+            if action_id in failed_action_ids:
+                continue
             task_request = self._task_request(task, action)
             task_id = task_request["task_id"]
             account_key = (
@@ -295,14 +314,58 @@ class ManagerAgentService:
                     )
                     occupied_accounts.add(account_key)
                     continue
-                raise
+                dispatch_failures.append(
+                    self._dispatch_failure(action, task_request, exc.code, exc.message)
+                )
+                failed_action_ids.add(action_id)
+                self._message(
+                    operation_task_id,
+                    task_id=task_id,
+                    from_agent=self.agent_id,
+                    to_agent="WEBUI",
+                    message_type="TASK_DISPATCH_FAILED",
+                    status="FAILED",
+                    summary=exc.message,
+                    payload={"error_code": exc.code, "action_id": action_id},
+                )
+                continue
+            except Exception as exc:
+                message = str(exc) or type(exc).__name__
+                dispatch_failures.append(
+                    self._dispatch_failure(action, task_request, type(exc).__name__, message)
+                )
+                failed_action_ids.add(action_id)
+                self._message(
+                    operation_task_id,
+                    task_id=task_id,
+                    from_agent=self.agent_id,
+                    to_agent="WEBUI",
+                    message_type="TASK_DISPATCH_FAILED",
+                    status="FAILED",
+                    summary=message,
+                    payload={"error_code": type(exc).__name__, "action_id": action_id},
+                )
+                continue
             occupied_accounts.add(account_key)
+
+        if dispatch_failures != list((task.get("plan") or {}).get("dispatch_failures") or []):
+            plan = dict(task.get("plan") or {})
+            plan["dispatch_failures"] = dispatch_failures
+            task = self.manager.record_operation_plan(
+                operation_task_id,
+                {
+                    "manager_agent_id": self.agent_id,
+                    "plan_summary": plan.get("summary") or "经理Agent批量派发",
+                    "planned_actions": planned_actions,
+                    "dispatch_failures": dispatch_failures,
+                },
+            )["operation_task"]
 
         refreshed = self.manager.get_operation_task(operation_task_id)["operation_task"]
         linked_tasks = self._linked_execution_tasks(operation_task_id)
         if any(item.get("reconciliation_required") for item in linked_tasks):
             return {"success": False, "status": "RECONCILIATION_REQUIRED"}
-        if len(linked_tasks) < len(planned_actions) or any(
+        if len(linked_tasks) + len(dispatch_failures) < len(planned_actions) or any(
             self._task_state(item) not in FINAL_TASK_STATES for item in linked_tasks
         ):
             return {"success": True, "status": str(refreshed.get("state") or "RUNNING")}
@@ -315,8 +378,12 @@ class ManagerAgentService:
             for name, target in target_metrics.items()
             if int(actual_metrics.get(name) or 0) < int(target)
         }
-        state = "COMPLETED" if not missing else "BLOCKED"
-        if missing:
+        state = "COMPLETED" if not missing and not dispatch_failures else "BLOCKED"
+        if dispatch_failures:
+            summary = "部分员工任务派发失败：" + "；".join(
+                f"{item['account_slot']}：{item['message']}" for item in dispatch_failures
+            )
+        elif missing:
             summary = "执行已结束，目标仍缺：" + "、".join(
                 f"{name} {count}" for name, count in missing.items()
             )
@@ -340,6 +407,21 @@ class ManagerAgentService:
             payload={"target_metrics": target_metrics, "actual_metrics": actual_metrics},
         )
         return {"success": state == "COMPLETED", "status": state, "message": summary}
+
+    @staticmethod
+    def _dispatch_failure(
+        action: dict[str, Any], request: dict[str, Any], error_code: str, message: str
+    ) -> dict[str, Any]:
+        return {
+            "action_id": str(action.get("action_id") or ""),
+            "task_id": str(request.get("task_id") or ""),
+            "machine_id": str(request.get("machine_id") or ""),
+            "account_slot": str(request.get("account_slot") or ""),
+            "capability": str(request.get("capability") or ""),
+            "error_code": str(error_code),
+            "message": str(message),
+            "recorded_at": utc_now(),
+        }
 
     def _build_plan(self, task: dict[str, Any]) -> dict[str, Any]:
         goal = task.get("goal_snapshot") or {}
