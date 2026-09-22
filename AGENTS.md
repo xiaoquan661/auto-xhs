@@ -107,7 +107,7 @@ python scripts/cli.py --account brand-a fill-publish --title-file t.txt --conten
 | 账号与连接 | `account-onboard`、`account-start`、`account-doctor`、`account-pair-*` |
 | 身份与换号 | `check-login`、`account-identity`、`account-switch-*` |
 | 浏览与互动 | `list-feeds`、`search-feeds`、`get-feed-detail`、`like-feed`、`favorite-feed` |
-| 评论与回复 | `post-comment`、`random-comment`、`reply-comment`、`collect-note-comments`、`generate-reply-draft` |
+| 评论与回复 | `post-comment`、`reply-comment`、`collect-note-comments`、`generate-reply-draft` |
 | 分步发布 | `fill-publish`、`fill-publish-video`、`long-article`、`select-template`、`next-step`、`click-publish`、`save-draft` |
 | 私信与主加 | `private-message-context`、`collect-private-messages`、`prepare-private-messages`、`send-private-messages`、`follow-user` |
 | 数据与诊断 | `collect-operations-metrics`、`diagnose-404`、`check-risk`、`get-netlog`、`risk-report` |

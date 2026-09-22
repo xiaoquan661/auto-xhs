@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from math import ceil
 from typing import Any
 
 from daily_operations_plan import HARD_METRICS, remaining_budget
@@ -202,13 +203,15 @@ class DailyOperationsRunner:
         )
         request = self.agent._task_request(task, action)
         request["platform"] = identity["platform"]
-        request["timeout_seconds"] = min(600, max(1, (end - now).total_seconds()))
+        request["timeout_seconds"] = min(
+            max(600, request["timeout_seconds"]), max(1, (end - now).total_seconds())
+        )
         # Preserve the action before dispatch so a restart reuses its exact request.
         self.manager.record_operation_plan(
             identifier,
             {
                 "manager_agent_id": self.agent.agent_id,
-                "plan_summary": "按剩余预算逐项派发",
+                "plan_summary": "按剩余预算批量派发",
                 "planned_actions": [
                     *(item for item in (task.get("plan") or {}).get("planned_actions") or []
                       if item.get("action_id") != action["action_id"]),
@@ -305,25 +308,29 @@ class DailyOperationsRunner:
             if attempts[name] >= spec["budgets"][name] + policy["replacement_round_limit"]:
                 available[name] = 0
         if available["browse"]:
+            batch_count = ceil(available["browse"] / 15)
+            browse_count = ceil(available["browse"] / batch_count)
+            like_count = min(browse_count, ceil(available["like"] / batch_count))
             return {
                 "capability": "home-engagement",
-                "write_intent": available["like"] > 0,
-                "expected_metrics": {"browse": 1, "like": int(available["like"] > 0)},
+                "write_intent": like_count > 0,
+                "expected_metrics": {"browse": browse_count, "like": like_count},
                 "parameters": {
-                    "browse_count": 1,
-                    "like_count": int(available["like"] > 0),
-                    "duration_minutes": 2,
+                    "browse_count": browse_count,
+                    "like_count": like_count,
+                    "duration_minutes": max(10, browse_count + like_count * 3),
                     "min_read_seconds": 15,
                     "max_read_seconds": 45,
                 },
             }
         if available["comment"]:
+            comment_count = min(3, available["comment"])
             return {
-                "capability": "random-comment",
+                "capability": "post-comment",
                 "write_intent": True,
-                "expected_metrics": {"comment": 1},
+                "expected_metrics": {"comment": comment_count},
                 "parameters": {
-                    "count": 1,
+                    "count": comment_count,
                     "candidate_pool_size": 10,
                     "collection_minutes": 2,
                     "style": "natural",

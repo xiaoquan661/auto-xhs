@@ -39,13 +39,16 @@ Object.assign(collectionContext, {
 });
 collectionContext.state.machines = [{machine_id: "PC057", result_sync_status: "IDLE",
   outbox_collection: {observed_at: new Date().toISOString(), pending_records: 0,
-    imported_records: 57, total_records: 57, batch_records: 0, batch_results: 0,
+    imported_records: 57, total_records: 57, imported_tasks: 4, total_tasks: 4,
+    pending_tasks: 0, batch_records: 0, batch_results: 0,
     batch_events: 0, batch_acknowledgements: 0}}];
 vm.runInContext(extract("renderOutboxCollection"), collectionContext);
 collectionContext.renderOutboxCollection();
 const collectionCard = collectionNodes["#manager-collection-list"].items[0];
 assert.equal(collectionCard.children[0].children[1].textContent, "已收齐");
-assert.equal(collectionCard.children[1].values.find(([label]) => label === "待收回执")[1], "0");
+assert.equal(collectionCard.children[1].values.find(([label]) => label === "待收任务")[1], "0");
+assert.equal(collectionCard.children[1].values.find(([label]) => label === "已导入 / 任务总数")[1], "4 / 4");
+assert.equal(collectionCard.children[1].values.find(([label]) => label === "原始回执")[1], "57 / 57");
 const context = vm.createContext({ $: (selector) => controls[selector] });
 for (const name of ["taskPrimaryState", "taskIsExecuting", "operationTaskMatchesFilters"]) {
   vm.runInContext(extract(name), context);

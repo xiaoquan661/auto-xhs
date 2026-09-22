@@ -312,7 +312,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
         """Return one manager-local snapshot for the WebUI without contacting workers."""
 
         view = copy.copy(self)
-        view.store = self.store.read_view()
+        view.store = self.store.read_view(excluded_fields=frozenset({
+            "memory_context", "memory_records", "memory_usages",
+        }), copy_on_read=False)
         view._progress_collections = {}
         return view._dashboard_snapshot()
 
@@ -2794,16 +2796,32 @@ class ManagerService(ManagerMemory, ManagerPolling):
         if collection_error:
             status = "PARTIAL_SUCCESS"
         all_records = [item for item in index["records"] if isinstance(item, dict)]
+        def record_task_key(item: dict) -> str:
+            return str(
+                item.get("remote_execution_id")
+                or item.get("task_id")
+                or f"record:{item.get('sequence')}"
+            )
+
+        task_keys = {record_task_key(item) for item in all_records}
+        imported_task_keys = {
+            record_task_key(item)
+            for item in all_records
+            if int(item.get("sequence") or 0) <= next_cursor
+        }
         outbox_collection = {
             "observed_at": sync_at,
             "remote_updated_at": index.get("updated_at"),
             "total_records": len(all_records),
+            "total_tasks": len(task_keys),
             "imported_records": sum(
                 int(item.get("sequence") or 0) <= next_cursor for item in all_records
             ),
+            "imported_tasks": len(imported_task_keys),
             "pending_records": sum(
                 int(item.get("sequence") or 0) > next_cursor for item in all_records
             ),
+            "pending_tasks": len(task_keys - imported_task_keys),
             "cursor": next_cursor,
             "high_watermark": int(index.get("high_watermark") or 0),
             "batch_records": (

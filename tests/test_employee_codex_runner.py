@@ -156,6 +156,40 @@ def test_timeout_terminates_owned_process(tmp_path: Path, monkeypatch) -> None:
     assert "超时" in result["message"]
 
 
+@pytest.mark.parametrize("active", [True, False])
+def test_browser_checkpoint_controls_idle_timeout(
+    tmp_path: Path, monkeypatch, active: bool,
+) -> None:
+    body = (
+        "for index in range(20):\n"
+        "    (root / 'command.bridge.progress.json').write_text(json.dumps({'items': index}))\n"
+        "    time.sleep(0.2)\n"
+        if active else
+        "(root / 'command.bridge.progress.json').write_text('{}')\ntime.sleep(20)\n"
+    )
+    install_fake_codex(monkeypatch, tmp_path, body + FILE_RESULT_SCRIPT)
+    result = EmployeeCodexRunner(tmp_path / "state")(
+        task(parameters={"agent_idle_seconds": 1.5, "probe_token": "local-round-trip"},
+             timeout_seconds=10)
+    )
+    assert result["state"] == ("SUCCESS" if active else "FAILED"), result
+    if not active:
+        assert "无进展超时" in result["message"]
+
+
+def test_browser_activity_keeps_absolute_timeout(tmp_path: Path, monkeypatch) -> None:
+    body = (
+        "for index in range(100):\n"
+        "    (root / 'command.bridge.progress.json').write_text(str(index))\n"
+        "    time.sleep(0.1)\n"
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    result = EmployeeCodexRunner(tmp_path / "state")(
+        task(parameters={"agent_idle_seconds": 5}, timeout_seconds=1)
+    )
+    assert "执行超时" in result["message"]
+
+
 def test_pause_stops_agent(tmp_path: Path, monkeypatch) -> None:
     install_fake_codex(monkeypatch, tmp_path, "time.sleep(60)")
     result = EmployeeCodexRunner(tmp_path / "state", should_stop=lambda: True)(

@@ -492,7 +492,7 @@ class ManagerAgentService:
                         "action_id": f"comment-{index + 1}",
                         "machine_id": str(target["machine_id"]).upper(),
                         "account_slot": str(target["account_slot"]),
-                        "capability": "random-comment",
+                        "capability": "post-comment",
                         "expected_metrics": {"comment": comment_count},
                         "parameters": {
                             "count": comment_count,

@@ -57,7 +57,6 @@ _REDNOTE_UNKNOWN = {
     "follow-user",
     "post-comment",
     "reply-comment",
-    "random-comment",
     "home-engagement",
     "private-message-context",
     "send-private-messages",

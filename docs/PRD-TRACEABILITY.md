@@ -132,7 +132,7 @@
 | REPLY-01 | 账号人格配置、身份关联、历史版本与任务快照 | AUTOMATED_TESTED | `ManagerService.save_persona`、`attach_memory`；人格编辑浏览器回读及派发快照测试 |
 | MEMORY-03 | 动作事实、交接摘要和经验建议的过程与结束回传 | AUTOMATED_TESTED | 既有 Worker outbox 与经理回收接入；重放去重、事实/建议分流及结果保留测试 |
 | MEMORY-04 | 经验五态审核、普通经验经理 Agent 审核、核心规则用户确认、账号或共享入库 | AUTOMATED_TESTED | `memory_review_service.py`、`memory_governance.py`；语义审核模拟、版本校验、重复/冲突、共享入库来源及浏览器审核回读 |
-| MEMORY-05 | 按治理、共享、账号、短期、任务顺序召回并记录生成采用来源 | AUTOMATED_TESTED | `memory_context.py`、`application_memory.py`、`memory_comment.py`；任务执行、评论与回复生成采用版本、员工上下文缓存和账号隔离测试 |
+| MEMORY-05 | 按治理、共享、账号、短期、任务顺序召回并记录生成采用来源 | AUTOMATED_TESTED | `memory_context.py`、`application_memory.py`；员工Agent任务上下文、生成采用版本、员工上下文缓存和账号隔离测试 |
 | MEMORY-06 | 纠正、替换、过期和版本追溯，验证跨日恢复与更新效果 | AUTOMATED_TESTED | `tests/test_memory_lifecycle.py`；更新前后生成正文与引用版本、跨日恢复、重复回传、失效排除和使用记录回收 |
 
 该表编号属于 `REQ-20260904-001 v1.1` 需求范围。调用方法、分层存储和验收边界见

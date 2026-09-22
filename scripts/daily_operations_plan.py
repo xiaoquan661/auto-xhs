@@ -16,7 +16,7 @@ OPPORTUNITY_METRICS = ("friend_request",)
 DEFAULT_POLICY = {
     "start_time": "09:00",
     "end_time": "22:00",
-    "action_spacing_seconds": 300,
+    "action_spacing_seconds": 180,
     "replacement_round_limit": 4,
     "profile_post_cap": 7,
     "process_inbound_comments": True,

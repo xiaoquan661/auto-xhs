@@ -1703,89 +1703,8 @@ def test_keyword_engagement_preserves_item_results_and_partial_state(tmp_path, m
     assert received["parameters"]["excluded_by_action"] == {"like": [], "favorite": []}
 
 
-def test_random_comment_requires_click_authorization_and_valid_limits(tmp_path) -> None:
-    service = ApplicationService(product_store=ProductStore(tmp_path / "product"))
-
-    with pytest.raises(ServiceError) as missing_authorization:
-        service.create_task(
-            source="webui",
-            account_slot="alpha",
-            capability="random-comment",
-            request_summary="随机评论",
-            parameters={"count": 1, "candidate_pool_size": 20, "collection_minutes": 2},
-        )
-    with pytest.raises(ServiceError) as excessive_count:
-        service.create_task(
-            source="webui",
-            account_slot="alpha",
-            capability="random-comment",
-            request_summary="随机评论",
-            parameters={
-                "count": 4,
-                "candidate_pool_size": 20,
-                "collection_minutes": 2,
-                "style": "natural",
-                "direct_send_authorized": True,
-            },
-        )
-
-    assert missing_authorization.value.code == "CONFIRMATION_REQUIRED"
-    assert excessive_count.value.code == "INVALID_REQUEST"
 
 
-def test_random_comment_executes_immediately_and_preserves_item_results(
-    tmp_path, monkeypatch
-) -> None:
-    received: dict = {}
-
-    def execute(account, capability, parameters):
-        received.update(account=account, capability=capability, parameters=parameters)
-        return {
-            "success": True,
-            "partial": False,
-            "result_type": "random_comment",
-            "message": "随机评论完成，共发送 1 条评论",
-            "items": [
-                {
-                    "feed_id": "feed-1",
-                    "title": "露营清单",
-                    "content": "整理得很清楚",
-                    "status": "success",
-                    "success": True,
-                }
-            ],
-        }
-
-    service = ApplicationService(
-        product_store=ProductStore(tmp_path / "product"),
-        business_runner=BusinessRunner(execute),
-    )
-    monkeypatch.setattr(
-        service,
-        "get_account_status",
-        lambda _account: {"ready": True, "next_action": None},
-    )
-    task = service.create_task(
-        source="webui",
-        account_slot="alpha",
-        capability="random-comment",
-        request_summary="首页随机评论：直接发送 1 条",
-        parameters={
-            "count": 1,
-            "candidate_pool_size": 20,
-            "collection_minutes": 2,
-            "style": "natural",
-            "direct_send_authorized": True,
-        },
-    )["task"]
-
-    result = service.execute_task(task["task_id"])
-
-    assert task["state"] == "QUEUED"
-    assert result["task"]["state"] == "SUCCESS"
-    assert result["result"]["items"][0]["content"] == "整理得很清楚"
-    assert received["capability"] == "random-comment"
-    assert received["parameters"]["direct_send_authorized"] is True
 
 
 @pytest.mark.parametrize("unknown", [False, True])

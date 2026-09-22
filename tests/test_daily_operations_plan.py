@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -151,6 +152,14 @@ def test_preview_blocks_health_persona_and_publish_limits(tmp_path: Path, monkey
 def test_runner_waits_dispatches_and_resumes_from_receipts(tmp_path: Path, monkeypatch) -> None:
     manager = manager_at(tmp_path, monkeypatch)
     task = submitted(manager)
+    manager.store.update(
+        "operation_tasks", task["operation_task_id"],
+        lambda row: {**row, "daily_material": {
+            **row["daily_material"], "strategy": {
+                **row["daily_material"]["strategy"], "action_spacing_seconds": 300,
+            },
+        }},
+    )
     agent = ManagerAgentService(manager)
     runner = DailyOperationsRunner(agent)
     now = datetime.fromisoformat("2026-09-09T10:00:00+08:00")
@@ -221,7 +230,7 @@ def test_unknown_budget_is_reserved_while_other_metrics_continue() -> None:
     action = DailyOperationsRunner.next_action(
         spec, remaining, Counter(like=1), Counter(), collected, set()
     )
-    assert action["capability"] == "random-comment"
+    assert action["capability"] == "post-comment"
     remaining["comment"] = 0
     assert (
         DailyOperationsRunner.next_action(
@@ -429,10 +438,11 @@ def test_daily_plan_runs_through_manager_envelopes_and_collected_receipts(tmp_pa
                         "browse": {"status": "success"},
                         "like": {
                             "status": "success"
-                            if dispatched["parameters"]["like_count"]
+                            if index < dispatched["parameters"]["like_count"]
                             else "skipped"
                         },
                     }
+                    for index in range(dispatched["parameters"]["browse_count"])
                 ]
                 row.pop("actual_count", None)
         return result
@@ -450,11 +460,56 @@ def test_daily_plan_runs_through_manager_envelopes_and_collected_receipts(tmp_pa
         if outcome["status"] == "COMPLETED":
             break
     assert outcome["status"] == "COMPLETED"
-    assert len(transport.accepted) == 5
+    assert len(transport.accepted) == 4
     assert all(r["parameters"]["daily_plan"]["plan_version"] == 1 for r in transport.accepted)
     assert outcome["actual"]["browse"] == 2 and outcome["actual"]["like"] == 1
     assert outcome["actual"]["comment"] == 1
     assert manager.get_goal(identifier)["goal"]["progress"]["actual_total"] == 4
+
+
+@pytest.mark.parametrize("remaining_browse,expected,likes", [
+    (30, 15, 2), (17, 9, 2), (70, 14, 1), (16, 8, 2), (8, 8, 3),
+])
+def test_daily_browse_batches_remaining_budget(
+    remaining_browse: int, expected: int, likes: int,
+) -> None:
+    spec = {"strategy": normalize_policy(None), "budgets": {
+        "browse": 70, "like": 4, "comment": 2,
+    }}
+    assert spec["strategy"]["action_spacing_seconds"] == 180
+    linked = [{"request": {"capability": capability}} for capability in (
+        "collect-note-comments", "collect-operations-metrics",
+    )]
+    action = DailyOperationsRunner.next_action(
+        spec, {"browse": remaining_browse, "like": 4, "comment": 2},
+        Counter(like=1), Counter(), linked, set(),
+    )
+    assert action["parameters"]["browse_count"] == expected
+    assert action["parameters"]["like_count"] == likes
+    assert action["expected_metrics"] == {"browse": expected, "like": likes}
+    assert action["parameters"]["duration_minutes"] >= expected + likes * 3
+
+
+def test_daily_batch_timeout_covers_reading_and_likes(tmp_path: Path, monkeypatch) -> None:
+    manager = manager_at(tmp_path, monkeypatch)
+    task = submitted(manager)
+    task = manager.claim_operation_task(
+        task["operation_task_id"], {"manager_agent_id": "MANAGER-AGENT-01"}
+    )["operation_task"]
+    task["daily_material"]["budgets"].update(browse=30, like=4)
+    runner = DailyOperationsRunner(ManagerAgentService(manager))
+    original = runner.next_action
+    monkeypatch.setattr(runner, "next_action", lambda spec, remaining, uncertain, failures,
+        linked, excluded: original(spec, remaining, uncertain, failures, [
+            {"request": {"capability": "collect-note-comments"}},
+            {"request": {"capability": "collect-operations-metrics"}},
+        ], excluded))
+    calls = []
+    monkeypatch.setattr(manager, "dispatch_task", lambda request: calls.append(request) or {})
+    runner.tick(task, datetime.fromisoformat("2026-09-09T10:00:00+08:00"))
+    assert calls[0]["parameters"]["browse_count"] == 15
+    assert calls[0]["parameters"]["like_count"] == 2
+    assert calls[0]["timeout_seconds"] == 21 * 60 + 120
 
 
 def test_daily_runner_records_failed_dispatch_and_resumes_saved_task(

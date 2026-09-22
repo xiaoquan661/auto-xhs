@@ -40,7 +40,8 @@ def creator_candidates(page: object, title: str) -> list[dict]:
                 const impression = JSON.parse(card.getAttribute('data-impression'));
                 const id = impression?.noteTarget?.value?.noteId;
                 if (typeof id === 'string' && /^[a-f\d]{24}$/i.test(id)) {
-                    results.push({note_id: id, note_url: ''});
+                    results.push({note_id: id, note_url: '',
+                        review_status: card.textContent.includes('审核中') ? '审核中' : ''});
                 }
             } catch (_) {}
         }
@@ -76,6 +77,8 @@ def creator_candidates(page: object, title: str) -> list[dict]:
         link = note_link(candidate.get("note_id"), candidate.get("note_url"),
                          platform=getattr(page, "platform", "xiaohongshu"))
         if link:
+            if candidate.get("review_status"):
+                link["review_status"] = candidate["review_status"]
             unique[link["note_id"]] = link
     return list(unique.values())
 
@@ -87,6 +90,9 @@ def lookup_creator_link(page: object, title: str) -> dict:
         page.navigate(MANAGER_URL)
         page.wait_for_load()
         for attempt in range(11):
+            if attempt and attempt % 2 == 0:
+                page.navigate(MANAGER_URL)
+                page.wait_for_load()
             matches = creator_candidates(page, title)
             if len(matches) == 1:
                 return {**matches[0], "link_status": "resolved", "link_source": "creator_manager",

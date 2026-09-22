@@ -54,11 +54,14 @@ def confirmed_counts(result: dict, request: dict) -> Counter[str]:
     body = body if isinstance(body, dict) else {}
     if capability in {"home-engagement", "keyword-engagement"}:
         for item in items:
-            browse = item.get("browse") or {}
+            browse = item.get("browse")
             like = item.get("like") or (item.get("actions") or {}).get("like") or {}
-            counts["browse"] += int(_success(browse))
+            counts["browse"] += int(
+                browse is True or (isinstance(browse, dict) and _success(browse))
+            )
             counts["like"] += int(
-                _success(like) and _verified(like) and like.get("changed") is not False
+                isinstance(like, dict)
+                and _success(like) and _verified(like) and like.get("changed") is not False
             )
         return counts
     for action, (_, capabilities) in ACTION_CATALOG.items():

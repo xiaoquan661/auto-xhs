@@ -516,6 +516,10 @@ class ManagerWorkerService(WorkerMemory):
         )
         pending_inbox = len(list((Path(config["task_inbox_root"]) / "pending").glob("*.json")))
         collected = sum(item["delivery_state"] == "COLLECTED" for item in outbox_records)
+        outbox_summaries = self._summarize_outbox_records(outbox_records, executions)
+        collected_tasks = sum(
+            item["delivery_state"] == "COLLECTED" for item in outbox_summaries
+        )
         callback_states = [str(item.get("callback_status") or "") for item in executions]
         manager_connection = (
             "CONNECTED"
@@ -556,6 +560,9 @@ class ManagerWorkerService(WorkerMemory):
                 "pending_inbox": pending_inbox,
                 "pending_outbox": len(outbox_records) - collected,
                 "collected_outbox": collected,
+                "pending_tasks": len(outbox_summaries) - collected_tasks,
+                "collected_tasks": collected_tasks,
+                "outbox_task_count": len(outbox_summaries),
                 "high_watermark": int(state["next_outbox_sequence"]) - 1,
                 "last_written_at": outbox_records[0].get("recorded_at") if outbox_records else None,
                 "last_collected_at": max(
@@ -580,6 +587,7 @@ class ManagerWorkerService(WorkerMemory):
             "executions": executions,
             "agent_messages": agent_messages,
             "outbox_records": outbox_records,
+            "outbox_summaries": outbox_summaries,
             "account_requests": sorted(
                 (copy.deepcopy(item) for item in state["account_requests"].values()),
                 key=lambda item: str(item.get("updated_at") or ""),
@@ -587,6 +595,59 @@ class ManagerWorkerService(WorkerMemory):
             ),
             "alerts": alerts,
         }
+
+    @staticmethod
+    def _summarize_outbox_records(
+        records: list[dict], executions: list[dict]
+    ) -> list[dict]:
+        """Group immutable transport records into one operator-facing row per run."""
+        execution_by_id = {
+            str(item.get("remote_execution_id") or ""): item for item in executions
+        }
+        grouped: dict[str, dict] = {}
+        for record in records:
+            execution_id = str(record.get("remote_execution_id") or "")
+            task_id = str(record.get("task_id") or "")
+            key = execution_id or task_id or f"record:{record.get('sequence', '')}"
+            sequence = int(record.get("sequence") or 0)
+            summary = grouped.setdefault(
+                key,
+                {
+                    "task_id": task_id,
+                    "remote_execution_id": execution_id,
+                    "record_count": 0,
+                    "record_types": [],
+                    "first_sequence": sequence,
+                    "last_sequence": sequence,
+                    "first_recorded_at": record.get("recorded_at"),
+                    "last_recorded_at": record.get("recorded_at"),
+                    "delivery_state": "PENDING",
+                },
+            )
+            summary["record_count"] += 1
+            record_type = str(record.get("record_type") or "unknown")
+            if record_type not in summary["record_types"]:
+                summary["record_types"].append(record_type)
+            summary["first_sequence"] = min(summary["first_sequence"], sequence)
+            summary["last_sequence"] = max(summary["last_sequence"], sequence)
+            if str(record.get("recorded_at") or "") < str(summary["first_recorded_at"] or ""):
+                summary["first_recorded_at"] = record.get("recorded_at")
+            if str(record.get("recorded_at") or "") > str(summary["last_recorded_at"] or ""):
+                summary["last_recorded_at"] = record.get("recorded_at")
+
+        for summary in grouped.values():
+            execution = execution_by_id.get(summary["remote_execution_id"], {})
+            summary["state"] = str(execution.get("state") or "UNKNOWN")
+            summary["callback_status"] = str(execution.get("callback_status") or "")
+            summary["delivery_state"] = (
+                "COLLECTED" if summary["callback_status"] == "RESULT_ACK" else "PENDING"
+            )
+            summary["record_types"].sort()
+        return sorted(
+            grouped.values(),
+            key=lambda item: int(item.get("last_sequence") or 0),
+            reverse=True,
+        )
 
     def list_accounts(self) -> dict[str, Any]:
         """通过 API-only 执行服务读取账号清单与逐账号状态。"""
@@ -3333,7 +3394,7 @@ class ManagerWorkerService(WorkerMemory):
                 }
             ]
 
-        if capability == "random-comment":
+        if capability in {"post-comment", "random-comment"}:
             successful = [
                 item
                 for item in item_results

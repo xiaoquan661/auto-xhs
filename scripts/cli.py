@@ -36,7 +36,6 @@ logger = logging.getLogger("xhs-cli")
 
 _IDENTITY_GUARDED_COMMANDS = {
     "home-engagement",
-    "random-comment",
     "post-comment",
     "reply-comment",
     "like-feed",
@@ -500,22 +499,6 @@ def cmd_keyword_engagement(args: argparse.Namespace) -> None:
         browser.close()
 
 
-def cmd_random_comment(args: argparse.Namespace) -> None:
-    """从首页推荐中随机选择笔记并直接发表评论。"""
-    from xhs.random_comment import random_comment
-
-    browser, page = _connect(args)
-    try:
-        result = random_comment(
-            page,
-            count=args.count,
-            candidate_pool_size=args.candidate_pool_size,
-            collection_duration_seconds=args.collect_minutes * 60,
-            style=args.style,
-        )
-        _output(result, exit_code=0 if result.get("success") else 2)
-    finally:
-        browser.close()
 
 
 def cmd_home_engagement(args: argparse.Namespace) -> None:
@@ -2254,22 +2237,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--candidate-pool-size", type=int, default=20, help="滑动搜集的候选池数量")
     sub.add_argument("--collect-minutes", type=int, default=2, help="最长滑动搜集时间")
     sub.set_defaults(func=cmd_keyword_engagement)
-
-    # random-comment
-    sub = subparsers.add_parser(
-        "random-comment",
-        help="从首页推荐随机选择笔记并直接发表评论",
-    )
-    sub.add_argument("--count", type=int, default=1, choices=range(1, 4), help="随机评论数量")
-    sub.add_argument("--candidate-pool-size", type=int, default=20, help="候选池数量")
-    sub.add_argument("--collect-minutes", type=int, default=2, help="最长搜集时间")
-    sub.add_argument(
-        "--style",
-        choices=("natural", "praise", "question"),
-        default="natural",
-        help="评论风格",
-    )
-    sub.set_defaults(func=cmd_random_comment)
 
     # home-engagement
     sub = subparsers.add_parser(

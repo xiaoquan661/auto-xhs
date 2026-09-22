@@ -168,13 +168,14 @@ def test_creator_card_impression_id_is_read_from_real_script():
     runner = r"""
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
 const script=JSON.parse(fs.readFileSync(0,'utf8'));
-const card=(title,id)=>({querySelector:()=>({textContent:title}),
+const card=(title,id)=>({textContent:title+' 审核中',querySelector:()=>({textContent:title}),
  getAttribute:()=>JSON.stringify({noteTarget:{value:{noteId:id}}})});
 const context={location:{href:'https://creator.rednote.com/new/note-manager'},
  window:{},URL,document:{querySelectorAll:selector=>selector==='.note-card[data-impression]'
  ?[card('目标作品','6aaa2b64000000000f03a800'),card('其他作品','6aaa2b64000000000f03a801')]:[]}};
 const result=vm.runInNewContext(script,context);
 assert.equal(result.length,1);assert.equal(result[0].note_id,'6aaa2b64000000000f03a800');
+assert.equal(result[0].review_status,'审核中');
 """
     node = shutil.which("node") or str(
         Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe"
@@ -199,5 +200,19 @@ def test_same_publish_call_waits_for_creator_card_and_returns_link():
     assert result["link_status"] == "resolved"
     assert result["link_reason"] == ""
     assert result["note_url"] == "https://www.rednote.com/discovery/item/6aaa2b64000000000f03a800"
-    page.navigate.assert_called_once()
+    assert page.navigate.call_count == 3
+    page.click_publish_control.assert_not_called()
+
+
+def test_creator_refresh_finds_reviewing_note():
+    page = Mock()
+    page.platform = "xiaohongshu"
+    page.evaluate.side_effect = lambda _: (
+        [{"note_id": "abc", "review_status": "审核中"}]
+        if page.navigate.call_count > 1 else []
+    )
+    result = lookup_creator_link(page, "标题")
+    assert result["link_status"] == "resolved"
+    assert result["review_status"] == "审核中"
+    assert page.navigate.call_count == 2
     page.click_publish_control.assert_not_called()

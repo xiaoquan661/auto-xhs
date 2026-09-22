@@ -73,7 +73,7 @@ def test_service_backed_collectors_do_not_take_the_cli_lock_twice():
     assert send.requires_account_lock is False
 
 
-def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
+def test_v1_output_confirmation_rules():
     output_policies = [
         policy
         for policy in list_capability_policies()
@@ -88,7 +88,6 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
         "publish",
         "publish-video",
         "post-comment",
-        "random-comment",
         "reply-comment",
         "fill-publish",
         "fill-publish-video",
@@ -106,8 +105,6 @@ def test_v1_output_confirmation_rules_include_user_authorized_random_comment():
     assert get_capability_policy("publish-prepared-retry").requires_confirmation is True
     assert get_capability_policy("publish-page-status").risk_level is RiskLevel.READ_ONLY
     assert get_capability_policy("reply-comment").requires_confirmation is True
-    assert get_capability_policy("random-comment").requires_confirmation is False
-    assert get_capability_policy("random-comment").supports_scheduling is False
     assert get_capability_policy("home-engagement").requires_confirmation is False
     assert get_capability_policy("home-engagement").requires_identity_check is True
     assert get_capability_policy("home-engagement").risk_level == RiskLevel.STATE_CHANGE

@@ -167,7 +167,6 @@ Bridge 默认以独立后台进程启动，关闭 Agent 或 PowerShell 不应终
 ```bash
 python scripts/cli.py --account brand-a search-feeds --keyword "咖啡"
 python scripts/cli.py --account brand-b search-feeds --keyword "露营"
-python scripts/cli.py --account brand-a random-comment --count 1 --style natural
 
 # 单次首页会话：浏览 6 篇，其中点赞 2 篇
 python scripts/cli.py --account brand-a home-engagement --browse-count 6 --like-count 2
@@ -446,8 +445,7 @@ python scripts/cli.py --account brand-a collect-private-messages `
 | `generate-reply-draft`      | 为新评论或入站私信事件生成智能回复待确认草稿          |
 | `reply-cycle`               | 按账号规则处理一轮新评论和新私信，发送后回读并记录    |
 | `reply-inbox`               | Codex 采集、读取上下文并应用一个结构化回复决策        |
-| `post-comment`              | V1.0 使用当前确认链；V1.5 目标为当前任务点击后直发    |
-| `random-comment`            | 当前任务点击一次性授权 1–3 条随机评论                 |
+| `post-comment`              | Agent理解内容并生成评论后，逐条提交及回读             |
 | `home-engagement`           | 单次首页会话完成浏览和点赞并输出逐篇记录               |
 | `reply-comment`             | 单次回复执行器；规则周期通过专用操作调用并要求回读     |
 | `like-feed`                 | 点赞 / 取消点赞                                       |

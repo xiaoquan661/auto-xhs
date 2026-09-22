@@ -201,8 +201,16 @@ def create_operation(
     return str(operation["operation_task_id"])
 
 
-def test_manager_agent_claims_plans_dispatches_collects_and_finishes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("persona_identity", [{}, None])
+def test_manager_agent_claims_plans_dispatches_collects_and_finishes(
+    tmp_path: Path, persona_identity: dict | None
+) -> None:
     manager, transport = build_manager(tmp_path)
+    for persona in manager.store.list("personas"):
+        manager.store.update(
+            "personas", persona["persona_id"],
+            lambda row: {**row, "identity": persona_identity},
+        )
     operation_task_id = create_operation(
         manager,
         {"browse": 10, "like": 3, "comment": 1},
@@ -502,7 +510,7 @@ def test_terminal_record_and_error_do_not_count_as_two_actions(
     assert len(manager.list_tasks()["tasks"]) == 1
     monkeypatch.setattr(manager, "dispatch_task", original)
     ManagerAgentService(manager).run_cycle()
-    assert [r["capability"] for r in transport.accepted] == ["home-engagement", "random-comment"]
+    assert [r["capability"] for r in transport.accepted] == ["home-engagement", "post-comment"]
 
 
 @pytest.mark.parametrize("dispatch_state", ["PENDING_DISPATCH", "TRANSFERRED"])

@@ -230,6 +230,49 @@ def test_worker_dashboard_snapshot_is_local_and_read_only(tmp_path) -> None:
     assert state_path.read_text(encoding="utf-8") == before
 
 
+def test_worker_dashboard_groups_transport_receipts_by_execution(tmp_path) -> None:
+    service = make_service(tmp_path / "worker")
+    records = [
+        {
+            "task_id": "task-1",
+            "remote_execution_id": "exec-1",
+            "record_type": "acknowledgement",
+            "sequence": 1,
+            "recorded_at": "2026-09-18T00:00:00+00:00",
+        },
+        {
+            "task_id": "task-1",
+            "remote_execution_id": "exec-1",
+            "record_type": "event",
+            "sequence": 2,
+            "recorded_at": "2026-09-18T00:00:01+00:00",
+        },
+        {
+            "task_id": "task-1",
+            "remote_execution_id": "exec-1",
+            "record_type": "result",
+            "sequence": 3,
+            "recorded_at": "2026-09-18T00:00:02+00:00",
+        },
+    ]
+    summaries = service._summarize_outbox_records(
+        records,
+        [
+            {
+                "task_id": "task-1",
+                "remote_execution_id": "exec-1",
+                "state": "SUCCESS",
+                "callback_status": "RESULT_ACK",
+            }
+        ],
+    )
+
+    assert len(summaries) == 1
+    assert summaries[0]["record_count"] == 3
+    assert summaries[0]["record_types"] == ["acknowledgement", "event", "result"]
+    assert summaries[0]["delivery_state"] == "COLLECTED"
+
+
 def test_default_root_uses_environment(monkeypatch, tmp_path) -> None:
     root = tmp_path / "environment-worker"
     monkeypatch.setenv("XHS_MANAGER_WORKER_HOME", str(root))
@@ -727,7 +770,7 @@ def test_worker_records_context_comment_and_submission_stages(tmp_path: Path) ->
     request = task_request()
     request["task"] = {
         **request["task"],
-        "capability": "random-comment",
+        "capability": "post-comment",
         "parameters": {"count": 1},
     }
     service = make_service(

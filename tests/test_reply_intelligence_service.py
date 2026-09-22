@@ -181,7 +181,9 @@ def test_reply_client_calls_configured_chat_completion_endpoint() -> None:
     assert calls[0][1]["json"]["messages"][1]["content"] == "user"
 
 
-def test_application_service_creates_one_agent_draft(tmp_path) -> None:
+def test_application_service_creates_one_agent_draft(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XHS_MANAGER_HOME", str(tmp_path / "manager"))
+    monkeypatch.setenv("XHS_MANAGER_WORKER_HOME", str(tmp_path / "worker"))
     client = FakeReplyClient(
         '{"reply":"可以的，周六下午见～", "intent":"question", '
         '"confidence":0.88, "reason":"笔记已说明活动时间"}'

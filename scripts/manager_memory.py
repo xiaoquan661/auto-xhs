@@ -97,7 +97,7 @@ class ManagerMemory:
         )
         if persona:
             persona = {k: copy.deepcopy(v) for k, v in persona.items() if k != "versions"}
-            if persona.get("identity", {}).get("uid") and persona["identity"] != identity:
+            if (persona.get("identity") or {}).get("uid") and persona["identity"] != identity:
                 raise ServiceError(
                     "PERSONA_IDENTITY_MISMATCH", "账号身份已变更，请更新账号人格", 409
                 )

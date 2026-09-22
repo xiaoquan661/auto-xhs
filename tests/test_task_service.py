@@ -107,19 +107,6 @@ def test_external_output_waits_for_approval(tmp_path) -> None:
     assert task["state"] == "WAITING_APPROVAL"
 
 
-def test_authorized_random_comment_is_immediately_queued(tmp_path) -> None:
-    service = _service(tmp_path)
-
-    task = service.create(
-        source="webui",
-        account_slot="alpha",
-        capability="random-comment",
-        request_summary="随机评论 1 条",
-        parameters={"direct_send_authorized": True, "count": 1},
-    )
-
-    assert task["risk_level"] == "L2"
-    assert task["state"] == "QUEUED"
 
 
 def test_publish_task_enters_execution_queue(tmp_path) -> None:

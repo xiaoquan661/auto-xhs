@@ -103,32 +103,6 @@ class BusinessRunner:
                 collection_duration_seconds=int(parameters.get("collection_minutes") or 2) * 60,
                 excluded_by_action=parameters.get("excluded_by_action") or {},
             )
-        if capability == "random-comment":
-            from memory_comment import MemoryCommentGenerator
-            from xhs.random_comment import random_comment
-
-            context = parameters.get("memory_context") or {}
-            generator = (
-                MemoryCommentGenerator(context) if context.get("identity", {}).get("uid") else None
-            )
-            result = random_comment(
-                page,
-                count=int(parameters.get("count") or 1),
-                candidate_pool_size=int(parameters.get("candidate_pool_size") or 20),
-                collection_duration_seconds=int(parameters.get("collection_minutes") or 2) * 60,
-                style=str(parameters.get("style") or "natural"),
-                excluded_feed_ids=parameters.get("excluded_feed_ids") or [],
-                excluded_user_ids=parameters.get("excluded_user_ids") or [],
-                content_generator=generator,
-            )
-            if generator:
-                result["memory_usages"] = generator.usages
-                result["adopted_memory_refs"] = list(
-                    dict.fromkeys(
-                        ref for usage in generator.usages for ref in usage["adopted_refs"]
-                    )
-                )
-            return result
         if capability == "home-engagement":
             from xhs.home_engagement import home_engagement
 
