@@ -41,7 +41,9 @@ def test_worker_history_and_outbox_expose_required_read_only_details() -> None:
     ):
         assert marker in html
     assert "function renderHistory()" in script
-    assert "function renderOutbox(exchange, records)" in script
+    assert "function renderOutbox(exchange, records, summaries = [])" in script
+    assert "const grouped = summaries.length ? summaries : records" in script
+    assert "exchange.pending_tasks ?? exchange.pending_outbox" in script
     assert "last_written_at" in script
     assert "last_collected_at" in script
     assert "重复执行" not in script

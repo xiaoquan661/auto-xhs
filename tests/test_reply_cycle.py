@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.application_service import ApplicationService
 from scripts.operations_db import OperationsDatabase
 from scripts.product_store import ProductStore
 from scripts.reply_intelligence_service import ReplyIntelligenceService
 from scripts.xhs.direct_message import PrivateMessageContextChangedError
+
+
+@pytest.fixture(autouse=True)
+def isolated_reply_memory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XHS_MANAGER_HOME", str(tmp_path / "manager"))
+    monkeypatch.setenv("XHS_MANAGER_WORKER_HOME", str(tmp_path / "worker"))
 
 
 class FakeReplyClient:

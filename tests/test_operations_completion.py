@@ -488,7 +488,7 @@ def test_outbound_comment_receipt_supplies_warm_interaction_evidence():
         [
             {
                 "record_id": "comment-result",
-                "capability": "random-comment",
+                "capability": "post-comment",
                 "platform": "rednote",
                 "completed_at": "2026-09-08T01:00:00Z",
                 "item_results": [{"success": True, "author_user_id": "reader", "content": "你好"}],

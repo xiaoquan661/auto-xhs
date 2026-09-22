@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from manager_agent_service import ManagerAgentService
 from manager_service import ManagerService
 from manager_store import ManagerStore
@@ -168,14 +169,20 @@ def test_daily_engagement_plan_budgets_employee_timing(tmp_path: Path) -> None:
     assert request["timeout_seconds"] > parameters["duration_minutes"] * 60
 
 
-def create_operation(manager: ManagerService, metrics: dict[str, int]) -> str:
+def create_operation(
+    manager: ManagerService,
+    metrics: dict[str, int],
+    *,
+    account_slot: str = "tesssst",
+    operation_task_id: str = "OPERATION-PC057-AUTO-001",
+) -> str:
     goal = manager.save_goal(
         {
             "title": "PC057 运营目标",
             "desired_outcome": "完成浏览互动并回收结果",
             "period_start": "2026-09-03",
             "period_end": "2026-09-03",
-            "targets": [{"machine_id": "PC057", "account_slot": "tesssst"}],
+            "targets": [{"machine_id": "PC057", "account_slot": account_slot}],
             "target_metrics": metrics,
             "content_topics": ["推荐视频"],
         }
@@ -183,7 +190,7 @@ def create_operation(manager: ManagerService, metrics: dict[str, int]) -> str:
     manager.activate_goal(goal["goal_id"])
     operation = manager.create_operation_task(
         {
-            "operation_task_id": "OPERATION-PC057-AUTO-001",
+            "operation_task_id": operation_task_id,
             "goal_id": goal["goal_id"],
             "title": "PC057 自动执行",
             "instructions": "浏览 10 个视频，点赞 3 篇并评论 1 篇",
@@ -194,8 +201,16 @@ def create_operation(manager: ManagerService, metrics: dict[str, int]) -> str:
     return str(operation["operation_task_id"])
 
 
-def test_manager_agent_claims_plans_dispatches_collects_and_finishes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("persona_identity", [{}, None])
+def test_manager_agent_claims_plans_dispatches_collects_and_finishes(
+    tmp_path: Path, persona_identity: dict | None
+) -> None:
     manager, transport = build_manager(tmp_path)
+    for persona in manager.store.list("personas"):
+        manager.store.update(
+            "personas", persona["persona_id"],
+            lambda row: {**row, "identity": persona_identity},
+        )
     operation_task_id = create_operation(
         manager,
         {"browse": 10, "like": 3, "comment": 1},
@@ -288,3 +303,298 @@ def test_completed_results_can_reconcile_a_previously_blocked_operation(tmp_path
         "comment": 1,
         "like": 3,
     }
+
+
+def four_operations(manager: ManagerService) -> list[str]:
+    identifiers = []
+    for index in range(4):
+        slot = f"account-{index}"
+        manager.save_persona(
+            {
+                "machine_id": "PC057",
+                "account_slot": slot,
+                "display_name": slot,
+                "content_topics": ["生活"],
+            }
+        )
+        identifiers.append(
+            create_operation(
+                manager,
+                {"browse": 10},
+                account_slot=slot,
+                operation_task_id=f"BATCH-{index}",
+            )
+        )
+    return identifiers
+
+
+@pytest.mark.parametrize("stage", ["plan", "request", "dispatch"])
+def test_four_accounts_continue_and_resume_after_one_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+) -> None:
+    from service_errors import ServiceError
+
+    manager, transport = build_manager(tmp_path)
+    identifiers = four_operations(manager)
+    agent = ManagerAgentService(manager)
+    owner, name = (
+        (manager, "dispatch_task")
+        if stage == "dispatch"
+        else (agent, "_build_plan" if stage == "plan" else "_task_request")
+    )
+    original = getattr(owner, name)
+
+    def fail_first(task: dict, *args: object) -> dict:
+        if task.get("operation_task_id") == identifiers[0]:
+            raise ServiceError("ACCOUNT_BUSY", "账号暂时占用")
+        return original(task, *args)
+
+    monkeypatch.setattr(owner, name, fail_first)
+    first = agent.run_cycle()
+    assert first["processed"] == 4
+    assert first["status"] == "PARTIAL_SUCCESS"
+    assert {r["account_slot"] for r in transport.accepted} == {
+        "account-1",
+        "account-2",
+        "account-3",
+    }
+    failed = manager.get_operation_task(identifiers[0])["operation_task"]
+    assert failed["state"] == "PLANNING"
+    error = failed.get("last_agent_error") or failed["plan"]["dispatch_failures"][0]
+    assert "账号暂时占用" in error["message"]
+    monkeypatch.setattr(owner, name, original)
+    # Restart the driver: progress and retry inputs must be durable.
+    second = ManagerAgentService(manager).run_cycle()
+    assert second["success"]
+    assert len(transport.accepted) == 4
+    current = manager.get_operation_task(identifiers[0])["operation_task"]
+    assert not current.get("last_agent_error")
+    assert not current["plan"]["dispatch_failures"]
+
+
+def test_offline_dispatch_resumes_same_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from manager_transport import ManagerTransportError
+
+    manager, transport = build_manager(tmp_path)
+    create_operation(manager, {"browse": 10})
+    original = transport.invoke
+
+    def offline(machine: dict, action: str, payload: dict, **kwargs: object) -> dict:
+        if action == "accept-task":
+            raise ManagerTransportError("OFFLINE", "暂时离线", result_unknown=False)
+        return original(machine, action, payload, **kwargs)
+
+    monkeypatch.setattr(transport, "invoke", offline)
+    assert not ManagerAgentService(manager).run_cycle()["success"]
+    pending = manager.list_tasks()["tasks"][0]
+    assert pending["dispatch_state"] == "PENDING_DISPATCH"
+    monkeypatch.setattr(transport, "invoke", original)
+    assert ManagerAgentService(manager).run_cycle()["success"]
+    assert len(transport.accepted) == 1
+    resumed = manager.list_tasks()["tasks"][0]
+    assert resumed["dispatch_id"] == pending["dispatch_id"]
+    assert resumed["request"] == pending["request"]
+
+
+def test_unknown_delivery_waits_without_resend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from manager_transport import ManagerTransportError
+
+    manager, transport = build_manager(tmp_path)
+    create_operation(manager, {"browse": 10, "comment": 1})
+    original = transport.invoke
+    attempts = []
+
+    def interrupted(machine: dict, action: str, payload: dict, **kwargs: object) -> dict:
+        if action == "accept-task":
+            attempts.append(payload)
+            raise ManagerTransportError("TIMEOUT", "确认中断", result_unknown=True)
+        return original(machine, action, payload, **kwargs)
+
+    monkeypatch.setattr(transport, "invoke", interrupted)
+    assert not ManagerAgentService(manager).run_cycle()["success"]
+    monkeypatch.setattr(transport, "invoke", original)
+    second = ManagerAgentService(manager).run_cycle()
+    assert second["outcomes"][0]["status"] == "RECONCILIATION_REQUIRED"
+    assert len(attempts) == 1
+    assert transport.accepted == []
+    assert len(manager.list_tasks()["tasks"]) == 1
+
+
+def test_failure_record_preserves_running_phase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from service_errors import ServiceError
+
+    manager, transport = build_manager(tmp_path)
+    identifiers = four_operations(manager)
+    # Combine the four accounts in one operation to exercise its action loop.
+    rows = [manager.store.get("operation_tasks", identifier) for identifier in identifiers]
+    task = rows[0]
+    task["targets"] = [row["targets"][0] for row in rows]
+    task["persona_bindings"] = [row["persona_bindings"][0] for row in rows]
+    task["goal_snapshot"]["target_metrics"] = {"browse": 40}
+    manager.store.put("operation_tasks", identifiers[0], task)
+    original = manager.dispatch_task
+
+    def dispatch(request: dict) -> dict:
+        if request["account_slot"] == "account-0":
+            raise ServiceError("ACCOUNT_BUSY", "账号暂时占用")
+        return original(request)
+
+    monkeypatch.setattr(manager, "dispatch_task", dispatch)
+    agent = ManagerAgentService(manager)
+    outcome = agent._process_operation(task)
+    assert not outcome["success"]
+    assert len(transport.accepted) == 3
+    current = manager.get_operation_task(identifiers[0])["operation_task"]
+    assert current["state"] in {"DISPATCHING", "RUNNING"}
+    assert len(current["plan"]["dispatch_failures"]) == 1
+    monkeypatch.setattr(manager, "dispatch_task", original)
+    assert agent._process_operation(current)["success"]
+    assert len(transport.accepted) == 4
+
+
+def test_exception_after_acceptance_does_not_duplicate_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, transport = build_manager(tmp_path)
+    identifier = create_operation(manager, {"browse": 10})
+    original = manager.dispatch_task
+
+    def accepted_then_error(request: dict) -> dict:
+        original(request)
+        raise RuntimeError("接收后本地记录中断")
+
+    monkeypatch.setattr(manager, "dispatch_task", accepted_then_error)
+    assert not ManagerAgentService(manager).run_cycle()["success"]
+    monkeypatch.setattr(manager, "dispatch_task", original)
+    assert ManagerAgentService(manager).run_cycle()["success"]
+    assert len(transport.accepted) == 1
+    assert manager.get_operation_task(identifier)["operation_task"]["state"] != "BLOCKED"
+
+
+def test_terminal_record_and_error_do_not_count_as_two_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, transport = build_manager(tmp_path)
+    identifier = create_operation(manager, {"browse": 10, "comment": 1})
+    original = manager.dispatch_task
+
+    def recorded_then_error(request: dict) -> dict:
+        original(request)
+        manager.store.update(
+            "tasks",
+            request["task_id"],
+            lambda row: {
+                **row,
+                "dispatch_state": "BLOCKED",
+                "business_state": "BLOCKED",
+                "message": "本次执行失败",
+            },
+        )
+        raise RuntimeError("本地后处理失败")
+
+    monkeypatch.setattr(manager, "dispatch_task", recorded_then_error)
+    ManagerAgentService(manager).run_cycle()
+    current = manager.get_operation_task(identifier)["operation_task"]
+    assert current["state"] not in {"BLOCKED", "COMPLETED"}
+    assert len(current["plan"]["planned_actions"]) == 2
+    assert len(manager.list_tasks()["tasks"]) == 1
+    monkeypatch.setattr(manager, "dispatch_task", original)
+    ManagerAgentService(manager).run_cycle()
+    assert [r["capability"] for r in transport.accepted] == ["home-engagement", "post-comment"]
+
+
+@pytest.mark.parametrize("dispatch_state", ["PENDING_DISPATCH", "TRANSFERRED"])
+def test_pending_delivery_reuses_saved_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dispatch_state: str,
+) -> None:
+    manager, transport = build_manager(tmp_path)
+    create_operation(manager, {"browse": 10})
+    ManagerAgentService(manager).run_cycle()
+    saved = manager.list_tasks()["tasks"][0]
+    manager.store.update(
+        "tasks",
+        saved["task_id"],
+        lambda row: {
+            **row,
+            "dispatch_state": dispatch_state,
+            "business_state": "",
+        },
+    )
+    calls = []
+
+    def resume(request: dict) -> dict:
+        calls.append(request)
+        execution = manager.store.update(
+            "tasks",
+            saved["task_id"],
+            lambda row: {
+                **row,
+                "dispatch_state": "ACCEPTED",
+            },
+        )
+        return {"success": True, "status": "TASK_ACK", "task": execution}
+
+    monkeypatch.setattr(manager, "dispatch_task", resume)
+    assert ManagerAgentService(manager).run_cycle()["success"]
+    assert calls == [saved["request"]]
+    assert len(transport.accepted) == 1
+
+
+def test_four_claimed_empty_plans_dispatch_in_one_cycle(tmp_path: Path) -> None:
+    manager, transport = build_manager(tmp_path)
+    identifiers = four_operations(manager)
+    agent = ManagerAgentService(manager)
+    for identifier in identifiers:
+        claimed = manager.claim_operation_task(identifier, {"manager_agent_id": agent.agent_id})
+        assert not (claimed["operation_task"].get("plan") or {}).get("planned_actions")
+    assert agent.run_cycle()["success"]
+    assert {r["account_slot"] for r in transport.accepted} == {
+        "account-0",
+        "account-1",
+        "account-2",
+        "account-3",
+    }
+    for identifier in identifiers:
+        current = manager.get_operation_task(identifier)["operation_task"]
+        assert current["plan"]["planned_actions"]
+        assert current["progress"]["execution_task_count"] == 1
+
+
+def test_immediate_unknown_result_holds_following_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, transport = build_manager(tmp_path)
+    identifier = create_operation(manager, {"browse": 10, "comment": 1})
+    original = manager.dispatch_task
+
+    def uncertain(request: dict) -> dict:
+        original(request)
+        execution = manager.store.update(
+            "tasks",
+            request["task_id"],
+            lambda row: {
+                **row,
+                "business_state": "RESULT_UNKNOWN",
+                "reconciliation_required": True,
+            },
+        )
+        return {"success": True, "status": "RESULT_UNKNOWN", "task": execution}
+
+    monkeypatch.setattr(manager, "dispatch_task", uncertain)
+    result = ManagerAgentService(manager).run_cycle()
+    assert result["outcomes"][0]["status"] == "RECONCILIATION_REQUIRED"
+    assert len(transport.accepted) == 1
+    assert manager.get_operation_task(identifier)["operation_task"]["state"] != "COMPLETED"

@@ -87,7 +87,7 @@ def warm_candidates(events: list[dict], results: list[dict]) -> list[dict]:
             ).get("user_id")
             if user:
                 followed.add(str(user))
-        if capability == "random-comment":
+        if capability in {"post-comment", "random-comment"}:
             source_id = result.get("record_id") or result.get("task_id")
             for index, item in enumerate(result.get("item_results") or body.get("items") or []):
                 if item.get("success") is True and item.get("author_user_id"):

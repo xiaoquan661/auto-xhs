@@ -197,12 +197,7 @@ class EmployeeCodexRunner:
                         return self._incomplete(
                             task, "员工 Agent 执行超时，执行结果待核对", run_root
                         )
-                    activity = max(
-                        [last_activity]
-                        + [p.stat().st_mtime for p in (
-                            run_root / "events.jsonl", run_root / "step-progress.json"
-                        ) if p.exists()]
-                    )
+                    activity = self._last_activity(run_root, last_activity)
                     if time.time() - activity >= idle_limit:
                         self._stop(process)
                         event_reader.join(timeout=5)
@@ -372,6 +367,13 @@ class EmployeeCodexRunner:
                 write_json(path.with_suffix(".error"), {"error": str(exc)})
 
     @staticmethod
+    def _last_activity(root: Path, started_at: float) -> float:
+        """Observe browser business checkpoints while a CLI call is still running."""
+        paths = [root / "events.jsonl", root / "step-progress.json"]
+        paths.extend(root.glob("*.bridge.progress.json"))
+        return max([started_at] + [path.stat().st_mtime for path in paths if path.exists()])
+
+    @staticmethod
     def _stop(process: subprocess.Popen[str]) -> None:
         if os.name == "nt":
             subprocess.run(
@@ -501,6 +503,15 @@ item_results=[]。不调用项目业务命令，不访问账号、浏览器或�
 仅执行任务 capability、parameters 与 authorization 授权的范围和数量。
 账号人设来自 persona_snapshot 或 parameters.persona；未填写时使用默认“友好评论者”。
 阅读真实笔记和上下文后依据人设自主生成评论，不能用固定模板代替理解。
+主动评论任务（post-comment）的内容由你这个员工 Agent 生成：
+1. 从本批已浏览笔记或首页选择授权数量的目标，get-feed-detail 取得实际笔记信息。
+2. 通过截图或DOM读取理解目标内容：截图使用 browser-snapshot 加 view_image；
+   文字使用 get-feed-detail 的真实标题、正文等内容。由你结合内容和人设智能生成评论。
+   图片信息对理解必不可少时看图，内容不足时跳过并说明原因。
+3. 将 feed_id、截图路径或DOM读取证据、内容依据和最终评论保存到本地证据文件。
+4. 使用 post-comment 提交最终文本并回读，每条回执保留内容证据、评论和提交结果。
+post-comment 任务未指定笔记时，由你按 count 授权数量选择目标并逐条生成、提交评论。
+用户已明确给定的评论原文按授权文本发送。
 逐篇浏览随机停留 15–45 秒；点赞间隔 90–180 秒且穿插至少 2 篇不点赞的浏览。
 如任务约定更长间隔，以任务为准。评论按任务指定节奏执行。
 敏感文本只放在固定入口的 JSON args 中，由入口在进程内传给 cli.main。
@@ -511,6 +522,9 @@ evidence_path；只有平台回读确认的评论才写 SUCCESS 和 platform_rea
 结果未知写 RESULT_UNKNOWN。最终结果准确反映逐项结果与实际完成数量。
 发布任务按经理下发的发帖目标生成内容后直接正式发布，使用 publish / publish-video；
 长文在 next-step 后自动发布。发布回读确认后才计入 publish 实际数；
+创作中心笔记管理不是实时更新页面：读取旧状态或尚未出现本次作品时，刷新笔记管理页后重读。
+唯一匹配本次作品显示“审核中”即证明已提交审核，记录 review_status=审核中；取得作品ID和链接后
+完成发布回执，不等待审核通过。只读补查最多20秒，仍缺证据就回传当前结果与原因并结束。
 笔记链接回传属于同一发布任务的必做步骤：成功后取得 note_id、note_url，再写最终回执。
 publish 返回 link_status=pending 时，本轮继续 publish-link-reconcile --task-id <本地发布任务ID>；
 原员工回执尚未 finish 时不传 --worker-task-id。仍缺链接则截图并用 view_image 看图，

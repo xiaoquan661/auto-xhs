@@ -2492,15 +2492,20 @@
       const receipt = machine.outbox_collection || {};
       const observed = Number.isFinite(Date.parse(receipt.observed_at || ""));
       const badge = stateBadge(current.status);
-      if (["IDLE", "SUCCESS"].includes(current.status) && receipt.pending_records === 0) {
+      if (["IDLE", "SUCCESS"].includes(current.status)
+        && (receipt.pending_tasks ?? receipt.pending_records) === 0) {
         badge.textContent = "已收齐";
       }
       append(head, element("strong", "", machine.machine_id), badge);
       append(card, head, factList([
         ["最近尝试", formatTime(machine.last_result_sync_at)],
         ["最近成功", formatTime(machine.last_result_success_at)],
-        [current.cached ? "上次已知待收" : "待收回执", observed ? String(receipt.pending_records) : "未知"],
-        ["已导入 / 回执总数", observed ? `${receipt.imported_records} / ${receipt.total_records}` : "未知"],
+        [current.cached ? "上次已知待收任务" : "待收任务",
+          observed ? String(receipt.pending_tasks ?? receipt.pending_records) : "未知"],
+        ["已导入 / 任务总数", observed
+          ? `${receipt.imported_tasks ?? receipt.imported_records} / ${receipt.total_tasks ?? receipt.total_records}`
+          : "未知"],
+        ["原始回执", observed ? `${receipt.imported_records} / ${receipt.total_records}` : "未知"],
         ["本轮导入", observed ? `${receipt.batch_records} 份（结果 ${receipt.batch_results}、进度 ${receipt.batch_events}、接收确认 ${receipt.batch_acknowledgements}）` : "尚未收集"],
       ]));
       if (current.cached) card.appendChild(element("p", "manager-inline-message", observed

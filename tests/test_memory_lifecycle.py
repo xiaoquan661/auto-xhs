@@ -10,7 +10,6 @@ from application_service import ApplicationService
 from manager_agent_service import ManagerAgentService
 from manager_service import ManagerService
 from manager_store import ManagerStore
-from memory_comment import MemoryCommentGenerator
 from memory_context import ORDER, source_refs
 from memory_review_service import MemoryReviewService
 from product_store import ProductStore
@@ -171,16 +170,15 @@ def test_review_to_next_task_comment_and_returned_usage(tmp_path: Path) -> None:
 
     def execute(payload: dict) -> dict:
         context = payload["parameters"]["memory_context"]
-        client = ContentClient()
-        generate = MemoryCommentGenerator(context, client=client, memory=employee.memory)
-        text = generate(SimpleNamespace(title="盆栽养护", body="窗台光照", desc=""))
-        assert text == "先核对光照"
-        assert list(client.inputs[0]) == ORDER
-        assert client.inputs[0]["governance"]["account_persona"]["tone"] == "自然具体"
-        outcomes.extend(generate.usages)
+        assert context["persona"]["tone"] == "自然具体"
+        usage = employee.memory.record_usage(
+            context, task_id=payload["task_id"], stage="comment_generation",
+            adopted=[row["ref"] for row in source_refs(context)], outcome="COMMENT_GENERATED",
+        )
+        outcomes.append(usage)
         return {
             "state": "SUCCESS",
-            "business_result": {"adopted_memory_refs": generate.usages[0]["adopted_refs"]},
+            "business_result": {"adopted_memory_refs": usage["adopted_refs"]},
         }
 
     employee.run_task("task-a", executor=execute)

@@ -159,23 +159,6 @@ def get_current_user_identity(page: Page) -> dict:
         return {**_EMPTY_IDENTITY, "logged_in": None, "error": str(exc)}
 
 
-def check_login_status(page: Page) -> bool:
-    """检查登录状态。
-
-    Returns:
-        True 已登录，False 未登录。
-    """
-    # 直接等待登录状态或登录容器出现，替代 _wait_for_auth_ui
-    deadline = time.monotonic() + 10.0
-    while time.monotonic() < deadline:
-        if page.has_element(LOGIN_STATUS):
-            return True
-        if page.has_element(LOGIN_CONTAINER):
-            return False
-        time.sleep(0.2)
-    return False
-
-
 def fetch_qrcode(page: Page) -> tuple[bytes, str, bool]:
     """获取登录二维码图片。
 

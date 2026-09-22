@@ -324,10 +324,13 @@
     );
   }
 
-  function renderOutbox(exchange, records) {
+  function renderOutbox(exchange, records, summaries = []) {
+    const grouped = summaries.length ? summaries : records;
     setText(
       "#worker-outbox-summary",
-      `待回传 ${exchange.pending_outbox || 0} · 已回收 ${exchange.collected_outbox || 0} · 高水位 ${exchange.high_watermark || 0}`,
+      `待回传任务 ${exchange.pending_tasks ?? exchange.pending_outbox ?? 0} · `
+        + `已回收任务 ${exchange.collected_tasks ?? exchange.collected_outbox ?? 0} · `
+        + `原始回执 ${records.length} · 高水位 ${exchange.high_watermark || 0}`,
     );
     const summary = $("#worker-outbox-facts");
     summary.replaceChildren(
@@ -343,24 +346,29 @@
       }),
     );
     $("#worker-outbox-list").replaceChildren(
-      ...(records.length
-        ? records.map((record) => {
+      ...(grouped.length
+        ? grouped.map((record) => {
             const card = node("article", "record-card");
             const head = node("div", "record-head");
             const copy = node("div");
             append(
               copy,
-              node("strong", "", `${record.record_type} · ${record.task_id}`),
-              node("small", "", record.relative_path),
+              node("strong", "", `${record.task_id || "未关联任务"}`),
+              node("small", "", record.remote_execution_id || "—"),
             );
             append(head, copy, badge(record.delivery_state));
             append(
               card,
               head,
               facts([
-                ["序号", record.sequence],
+                ["包含回执", record.record_count || 1],
+                ["回执类型", Array.isArray(record.record_types)
+                  ? record.record_types.join("、") : record.record_type],
+                ["序号范围", record.first_sequence && record.last_sequence
+                  ? `${record.first_sequence}–${record.last_sequence}` : record.sequence],
                 ["执行编号", record.remote_execution_id],
-                ["写入时间", formatTime(record.recorded_at)],
+                ["写入时间", formatTime(record.last_recorded_at || record.recorded_at)],
+                ["执行状态", label(record.state)],
               ]),
             );
             return card;
@@ -418,7 +426,7 @@
       ...(alerts.length ? alerts.map(alertCard) : [empty("本机当前没有需要处置的告警。")]),
     );
     renderHistory();
-    renderOutbox(exchange, snapshot.outbox_records || []);
+    renderOutbox(exchange, snapshot.outbox_records || [], snapshot.outbox_summaries || []);
   }
 
   function selectView(view, updateHash = true) {

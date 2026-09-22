@@ -31,7 +31,7 @@ metadata:
 | 子命令 | 用途 |
 |---|---|
 | `post-comment` | 对指定笔记发送一条评论 |
-| `random-comment` | 从首页推荐随机选择 1–3 篇并直接评论 |
+| 智能批量评论 | Agent 选择 1–3 篇、理解内容并生成文本，通过 `post-comment` 逐条提交 |
 | `reply-comment` | 回复指定评论或用户 |
 | `like-feed` | 点赞或取消点赞 |
 | `favorite-feed` | 收藏或取消收藏 |
@@ -143,17 +143,14 @@ python scripts/cli.py --account <账号别名> post-comment `
 
 Codex 只在用户指定的当前账号、目标和任务范围内执行，不扩展成持续评论计划。
 
-## 随机评论
+## 智能批量评论
 
-当前点击一次性授权本账号、本任务 1–3 条：
-
-```powershell
-python scripts/cli.py --account <账号别名> random-comment `
-  --count 3 `
-  --candidate-pool-size 20 `
-  --collect-minutes 2 `
-  --style natural
-```
+本账号、本任务按授权选择1–3篇目标。评论内容统一由员工Agent理解内容后生成。
+读取路径可选择 `get-feed-detail` 返回的真实DOM文字，或通过 `browser-snapshot` 截图并
+使用 `view_image` 看图。图片信息对理解必不可少时看图，内容不足时跳过并说明原因。
+Agent结合真实内容与人设生成评论，保存目标、截图或DOM证据、内容依据和最终文本，
+再逐条通过 `post-comment` 提交并回读。Python负责读取、提交及回读。
+批量评论使用 `post-comment` 员工任务携带数量授权，由上述智能流程逐条完成。
 
 任务结束后逐条反馈笔记、实际评论文本和成功、失败或结果未知状态。
 

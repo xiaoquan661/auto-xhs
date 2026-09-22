@@ -40,23 +40,6 @@ from .urls import PUBLISH_URL
 logger = logging.getLogger(__name__)
 
 
-def publish_image_content(page: Page, content: PublishImageContent) -> None:
-    """发布图文内容（填写表单 + 点击发布）。
-
-    Args:
-        page: CDP 页面对象。
-        content: 发布内容。
-
-    Raises:
-        PublishError: 发布失败。
-        UploadTimeoutError: 上传超时。
-        TitleTooLongError: 标题超长。
-        ContentTooLongError: 正文超长。
-    """
-    fill_publish_form(page, content)
-    click_publish_button(page)
-
-
 def fill_publish_form(page: Page, content: PublishImageContent) -> None:
     """填写图文发布表单，不点击发布按钮。
 

@@ -1104,21 +1104,6 @@ class ApplicationService(ApplicationMemory):
             )
             self._record_task_event(task, target_key)
             return {"success": True, "task": task}
-        if task["capability"] == "random-comment" and live_uid and not memory_identity:
-            _, context = self.reply_memory_context(
-                {
-                    "event_id": task_id,
-                    "account_slot": task["account_slot"],
-                    "platform": task_platform,
-                    "payload": {"content": parameters.get("keyword", "")},
-                },
-                live_uid,
-            )
-            from memory_context import ordered_context
-
-            parameters["memory_context"] = ordered_context(
-                context, {**task, "parameters": parameters}
-            )
         persona_snapshot = task.get("persona_snapshot")
         if isinstance(persona_snapshot, dict) and persona_snapshot:
             parameters["persona_context"] = dict(persona_snapshot)
@@ -2965,35 +2950,6 @@ class ApplicationService(ApplicationMemory):
             if not count <= candidate_pool_size <= 100:
                 raise ServiceError(
                     "INVALID_REQUEST", "候选池数量必须不少于互动数量，且不超过 100 篇"
-                )
-            if not 1 <= collection_minutes <= 10:
-                raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")
-        if capability == "random-comment":
-            if parameters.get("direct_send_authorized") is not True:
-                raise ServiceError(
-                    "CONFIRMATION_REQUIRED",
-                    "随机评论会直接发送，必须确认本次任务授权",
-                    409,
-                )
-            if str(parameters.get("style") or "natural") not in {
-                "natural",
-                "praise",
-                "question",
-            }:
-                raise ServiceError("INVALID_REQUEST", "请选择有效的随机评论风格")
-            try:
-                count = int(parameters.get("count"))
-                candidate_pool_size = int(parameters.get("candidate_pool_size", 20))
-                collection_minutes = int(parameters.get("collection_minutes", 2))
-            except (TypeError, ValueError) as exc:
-                raise ServiceError(
-                    "INVALID_REQUEST", "评论数量、候选池和搜集时间必须是整数"
-                ) from exc
-            if not 1 <= count <= 3:
-                raise ServiceError("INVALID_REQUEST", "随机评论数量必须在 1 到 3 篇之间")
-            if not count <= candidate_pool_size <= 100:
-                raise ServiceError(
-                    "INVALID_REQUEST", "候选池数量必须不少于评论数量，且不超过 100 篇"
                 )
             if not 1 <= collection_minutes <= 10:
                 raise ServiceError("INVALID_REQUEST", "最长搜集时间必须在 1 到 10 分钟之间")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from math import ceil
 from typing import Any
 
 from daily_operations_plan import HARD_METRICS, remaining_budget
@@ -90,6 +91,19 @@ class DailyOperationsRunner:
                 )
             return {"success": True, "status": value, **current}
 
+        def dispatch(request: dict) -> dict:
+            result = self.manager.dispatch_task(request)
+            if result.get("success") is False:
+                execution = result.get("task") or {}
+                return status(
+                    str(result.get("status") or "RETRY_PENDING"),
+                    success=False,
+                    last_action_id=request["task_id"],
+                    error_code=execution.get("error_code") or "",
+                    message=execution.get("message") or result.get("message") or "",
+                )
+            return status("DISPATCHED", last_action_id=request["task_id"])
+
         # A running action is collected before expiry is finalized.
         active = [
             e
@@ -107,8 +121,7 @@ class DailyOperationsRunner:
                 None,
             )
             if pending and start <= now < end:
-                self.manager.dispatch_task(pending["request"])
-                return status("DISPATCHED", last_action_id=pending["task_id"])
+                return dispatch(pending["request"])
             return status("WAITING_RECEIPT")
         receipt_ids = {r.get("task_id") for r in results}
         if any(
@@ -190,13 +203,15 @@ class DailyOperationsRunner:
         )
         request = self.agent._task_request(task, action)
         request["platform"] = identity["platform"]
-        request["timeout_seconds"] = min(600, max(1, (end - now).total_seconds()))
+        request["timeout_seconds"] = min(
+            max(600, request["timeout_seconds"]), max(1, (end - now).total_seconds())
+        )
         # Preserve the action before dispatch so a restart reuses its exact request.
         self.manager.record_operation_plan(
             identifier,
             {
                 "manager_agent_id": self.agent.agent_id,
-                "plan_summary": "按剩余预算逐项派发",
+                "plan_summary": "按剩余预算批量派发",
                 "planned_actions": [
                     *(item for item in (task.get("plan") or {}).get("planned_actions") or []
                       if item.get("action_id") != action["action_id"]),
@@ -207,12 +222,11 @@ class DailyOperationsRunner:
         from service_errors import ServiceError
 
         try:
-            self.manager.dispatch_task(request)
+            return dispatch(request)
         except ServiceError as exc:
             if exc.code in {"OPERATIONS_WINDOW_WAIT", "OPERATIONS_PUBLISH_WAIT"}:
                 return status("WAITING_POLICY", message=exc.message)
             raise
-        return status("DISPATCHED", last_action_id=action["action_id"])
 
     def supplied_action(
         self, task: dict, remaining: dict, uncertain: Counter, linked: list[dict]
@@ -294,25 +308,29 @@ class DailyOperationsRunner:
             if attempts[name] >= spec["budgets"][name] + policy["replacement_round_limit"]:
                 available[name] = 0
         if available["browse"]:
+            batch_count = ceil(available["browse"] / 15)
+            browse_count = ceil(available["browse"] / batch_count)
+            like_count = min(browse_count, ceil(available["like"] / batch_count))
             return {
                 "capability": "home-engagement",
-                "write_intent": available["like"] > 0,
-                "expected_metrics": {"browse": 1, "like": int(available["like"] > 0)},
+                "write_intent": like_count > 0,
+                "expected_metrics": {"browse": browse_count, "like": like_count},
                 "parameters": {
-                    "browse_count": 1,
-                    "like_count": int(available["like"] > 0),
-                    "duration_minutes": 2,
+                    "browse_count": browse_count,
+                    "like_count": like_count,
+                    "duration_minutes": max(10, browse_count + like_count * 3),
                     "min_read_seconds": 15,
                     "max_read_seconds": 45,
                 },
             }
         if available["comment"]:
+            comment_count = min(3, available["comment"])
             return {
-                "capability": "random-comment",
+                "capability": "post-comment",
                 "write_intent": True,
-                "expected_metrics": {"comment": 1},
+                "expected_metrics": {"comment": comment_count},
                 "parameters": {
-                    "count": 1,
+                    "count": comment_count,
                     "candidate_pool_size": 10,
                     "collection_minutes": 2,
                     "style": "natural",

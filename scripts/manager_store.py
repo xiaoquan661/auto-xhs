@@ -63,10 +63,14 @@ class ManagerStore:
     def snapshot(self) -> dict:
         return self._transaction(lambda state: copy.deepcopy(state), write=False)
 
-    def read_view(self) -> ManagerStore:
+    def read_view(
+        self, *, excluded_fields: frozenset[str] = frozenset(), copy_on_read: bool = True,
+    ) -> ManagerStore:
         """Read once and release the file lock before composing a response."""
         state = self._transaction(lambda state: state, write=False)
-        return _ManagerReadView(self.root, state)
+        if excluded_fields:
+            state = _project_fields(state, excluded_fields)
+        return _ManagerReadView(self.root, state, copy_on_read=copy_on_read)
 
     def mutate(self, callback: Callable[[dict], T]) -> T:
         """Commit a linked plan, goal and operation task together."""
@@ -221,12 +225,31 @@ class ManagerStore:
             raise ValueError(f"未知经理机数据集合: {collection}")
 
 
+def _project_fields(value: object, excluded: frozenset[str]) -> object:
+    """Build display data while retaining the full persisted task evidence."""
+    if isinstance(value, dict):
+        return {k: _project_fields(v, excluded) for k, v in value.items() if k not in excluded}
+    if isinstance(value, list):
+        return [_project_fields(v, excluded) for v in value]
+    return value
+
+
 class _ManagerReadView(ManagerStore):
     """Request-local state; regular readers still return independent objects."""
 
-    def __init__(self, root: Path, state: dict) -> None:
+    def __init__(self, root: Path, state: dict, *, copy_on_read: bool = True) -> None:
         super().__init__(root)
         self._state = state
+        self._copy_on_read = copy_on_read
+
+    def snapshot(self) -> dict:
+        return super().snapshot() if self._copy_on_read else dict(self._state)
+
+    def list(self, collection: str) -> list[dict]:
+        if self._copy_on_read:
+            return super().list(collection)
+        self._check_collection(collection)
+        return [dict(row) for row in self._state[collection].values()]
 
     def _transaction(self, callback: Callable[[dict], T], *, write: bool) -> T:
         if write:

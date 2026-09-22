@@ -223,16 +223,6 @@ _POLICIES = [
         requires_confirmation=False,
         enabled_in_v1=True,
     ),
-    # A user-created random-comment task uses the WebUI submit click as the
-    # one-time authorization for that account and batch size.
-    _policy(
-        "random-comment",
-        RiskLevel.EXTERNAL_OUTPUT,
-        requires_identity_check=True,
-        requires_result_verification=True,
-        requires_confirmation=False,
-        enabled_in_v1=True,
-    ),
     # Home engagement is a bounded browse-and-like batch.
     _policy(
         "home-engagement",

@@ -31,7 +31,7 @@ metadata:
 | `get-feed-detail` | 获取笔记详情和评论 |
 | `user-profile` | 获取用户主页 |
 | `post-comment` | 对指定笔记评论 |
-| `random-comment` | 当前点击授权 1–3 条随机评论 |
+| 智能批量评论 | Agent通过截图或DOM理解内容、生成1–3条评论，逐条调用 `post-comment` 提交 |
 | `home-engagement` | 单次首页会话完成浏览和点赞并输出逐篇记录 |
 | `reply-comment` | 单次回复 |
 | `like-feed` | 点赞笔记 |
