@@ -46,6 +46,12 @@ def recovery_for(payload: dict, exit_code: int) -> dict:
     )
     if "RESULT_UNKNOWN" in text or "RECONCILIATION_REQUIRED" in text:
         kind, action = "reconcile", "核对当前动作的原始结果和平台回读，确认前保持当前步骤"
+    elif "RELOCATE_REQUIRED" in text or "VISUAL_FRAME_CHANGED" in text:
+        kind, action = "relocate", (
+            "点击尚未发出；查看返回的新截图，重新定位并使用新步骤文件继续。"
+            "再次视口变化时，导航点击用target_text匹配当前DOM唯一目标；"
+            "业务提交使用专用命令。保留此前完成步骤"
+        )
     elif any(
         code in text
         for code in (
