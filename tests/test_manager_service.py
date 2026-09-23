@@ -472,7 +472,7 @@ def test_account_management_sync_preserves_new_worker_receipt(
     assert updated["management_sync_status"] == "SUCCESS"
 
 
-def test_disabled_account_cannot_receive_a_new_task(tmp_path: Path) -> None:
+def test_disabled_account_cannot_receive_a_new_task(tmp_path: Path, monkeypatch) -> None:
     manager, transport = service(tmp_path)
     register_ready(manager)
     transport.queue("list-accounts", {"success": True, "accounts": [remote_account()]})
@@ -483,6 +483,9 @@ def test_disabled_account_cannot_receive_a_new_task(tmp_path: Path) -> None:
         {"account_note": "暂停运营", "scheduling_enabled": False},
     )
 
+    monkeypatch.setattr(
+        manager, "_attach_task_context", lambda _: pytest.fail("暂停账号不加载任务上下文")
+    )
     with pytest.raises(ServiceError, match="暂停调度") as exc_info:
         manager.dispatch_task(task_request())
 
@@ -691,7 +694,10 @@ def test_result_snapshot_separates_current_revisions_from_audit_history(
     assert [item["record_id"] for item in snapshot["results"]] == [
         item["record_id"] for item in payload["current_results"]
     ]
-    assert len(snapshot["result_history"]) == 3
+    assert snapshot["details_deferred"] is True
+    assert snapshot["result_history"] == []
+    assert len(manager.dashboard_details("audit")["result_history"]) == 3
+    assert "result_history" not in manager.dashboard_details("debug")
 
 
 def test_stale_machine_is_not_reported_ready_and_dispatch_rechecks_health(

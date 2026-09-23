@@ -25,6 +25,9 @@ class FakeManagerService:
     def dashboard_snapshot(self) -> dict:
         return self._result("dashboard_snapshot")
 
+    def dashboard_details(self, section: str = "all") -> dict:
+        return self._result("dashboard_details", section)
+
     def list_accounts(self) -> dict:
         return self._result("list_accounts")
 
@@ -219,6 +222,9 @@ class FakeManagerService:
     ("path", "expected_call"),
     [
         ("/api/v1/manager/dashboard-snapshot", ("dashboard_snapshot",)),
+        ("/api/v1/manager/dashboard-details/audit", ("dashboard_details", "audit")),
+        ("/api/v1/manager/dashboard-details/messages", ("dashboard_details", "messages")),
+        ("/api/v1/manager/dashboard-details/debug", ("dashboard_details", "debug")),
         ("/api/v1/manager/machines", ("list_machines",)),
         ("/api/v1/manager/accounts", ("list_accounts",)),
         ("/api/v1/manager/alerts", ("list_account_alerts",)),

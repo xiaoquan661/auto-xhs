@@ -66,8 +66,8 @@ class ManagerStore:
     def read_view(
         self, *, excluded_fields: frozenset[str] = frozenset(), copy_on_read: bool = True,
     ) -> ManagerStore:
-        """Read once and release the file lock before composing a response."""
-        state = self._transaction(lambda state: state, write=False)
+        """Read the atomically replaced file without waiting for background writers."""
+        state = self._read_state()
         if excluded_fields:
             state = _project_fields(state, excluded_fields)
         return _ManagerReadView(self.root, state, copy_on_read=copy_on_read)
@@ -244,6 +244,9 @@ class _ManagerReadView(ManagerStore):
 
     def snapshot(self) -> dict:
         return super().snapshot() if self._copy_on_read else dict(self._state)
+
+    def _read_state(self) -> dict:
+        return self._state
 
     def list(self, collection: str) -> list[dict]:
         if self._copy_on_read:

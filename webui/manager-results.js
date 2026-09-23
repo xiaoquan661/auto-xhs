@@ -33,8 +33,7 @@ window.AutoXhsResultView = function (services) {
   const actionName = (record) => actionNames[resultCapability(record)] || "运营任务";
   const accountName = (record) => {
     const slot = resultAccount(record);
-    return state.accounts.find((item) => item.machine_id === record.machine_id
-      && item.account_slot === slot)?.nickname || slot || "账号未记录";
+    return slot || "账号未记录";
   };
   const labels = {...metricLabels, new_followers: "新增粉丝", received_likes: "收获点赞",
     received_comments: "收到评论", received_private_messages: "收到私信"};
@@ -232,8 +231,8 @@ window.AutoXhsResultView = function (services) {
       accounts.forEach((account) => {
         const button = el("button", "recovery-choice recovery-account-choice"); button.type = "button";
         button.setAttribute("aria-pressed", String(selection.account === account.account_slot));
-        append(button, el("span", "recovery-avatar", (account.nickname || account.account_slot).slice(0, 1)),
-          copyCell(account.nickname || account.account_slot, `${account.platform === "rednote" ? "RedNote" : "小红书"} · ${account.account_slot}`));
+        append(button, el("span", "recovery-avatar", (account.account_slot).slice(0, 1)),
+          copyCell(account.account_slot, `${account.platform === "rednote" ? "RedNote" : "小红书"} · ${account.account_slot}`));
         button.addEventListener("click", () => selectRecoveryAccount(selection.machine, account.account_slot));
         choices.appendChild(button);
       });

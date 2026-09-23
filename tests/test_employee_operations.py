@@ -439,6 +439,25 @@ def test_publishing_counts_verified_completion_and_home_counts_observed_zero(
     assert metrics["like"]["actual"] == 0
 
 
+def test_agent_flat_home_receipt_counts_only_confirmed_actions(tmp_path: Path) -> None:
+    manager = manager_at(tmp_path)
+    receipt(
+        manager, "agent-home", capability="home-engagement", item_results_status="observed",
+        item_results=[
+            {"status": "SUCCESS", "browsed": True, "liked": True,
+             "platform_readback": True},
+            {"success": True, "browsed": True, "liked": False},
+            {"status": "SUCCESS", "browsed": True, "liked": True,
+             "platform_readback": False},
+            {"status": "RESULT_UNKNOWN", "success": True, "browsed": True,
+             "liked": True, "platform_readback": True},
+        ],
+    )
+    metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
+    assert metrics["browse"]["actual"] == 3
+    assert metrics["like"]["actual"] == 1
+
+
 def test_action_attribution_updates_summary_and_preserves_original_receipt(tmp_path: Path) -> None:
     manager = manager_at(tmp_path)
     original = receipt(

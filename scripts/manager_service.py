@@ -318,6 +318,21 @@ class ManagerService(ManagerMemory, ManagerPolling):
         view._progress_collections = {}
         return view._dashboard_snapshot()
 
+    def dashboard_details(self, section: str = "all") -> dict:
+        """Load receipt audit, Agent conversation and repair history on demand."""
+        view = copy.copy(self)
+        view.store = self.store.read_view(excluded_fields=frozenset({
+            "memory_context", "memory_records", "memory_usages",
+        }), copy_on_read=False)
+        result = {"success": True}
+        if section in {"all", "audit"}:
+            result["result_history"] = view.list_results()["result_history"]
+        if section in {"all", "messages"}:
+            result["agent_messages"] = view.list_agent_messages()["agent_messages"]
+        if section in {"all", "debug"}:
+            result["debug"] = view.debug_action("list")
+        return result
+
     def _progress_records(self, collection: str) -> list[dict]:
         """Reuse read-only progress inputs within one dashboard response."""
         cache = getattr(self, "_progress_collections", None)
@@ -340,7 +355,6 @@ class ManagerService(ManagerMemory, ManagerPolling):
         personas_payload = self.list_personas()
         goals_payload = self.list_goals()
         operation_tasks_payload = self.list_operation_tasks()
-        messages_payload = self.list_agent_messages()
         employee_summary = EmployeeOperations(
             self._employee_view_state(),
             results_payload["current_results"],
@@ -408,9 +422,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
             "schedules": schedules_payload["schedules"],
             "operation_reports": reports_payload["reports"],
             "transfers": transfers_payload["transfers"],
-            "debug": self.debug_action("list"),
+            "details_deferred": True,
             "results": results_payload["current_results"],
-            "result_history": results_payload["result_history"],
+            "result_history": [],
             "incremental_records": results_payload["incremental_records"],
             "result_summary": results_payload["summary"],
             "accounts": accounts,
@@ -421,7 +435,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
             "employee_summary": employee_summary,
             "acceptance": self.operations_acceptance(),
             "operation_tasks": operation_tasks_payload["operation_tasks"],
-            "agent_messages": messages_payload["agent_messages"],
+            "agent_messages": [],
             "versions": self.store.list("versions"),
             "data_sources": [
                 data_source("health_accounts", "机器与账号缓存"),
@@ -1512,7 +1526,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         }
 
     def dispatch_task(self, request: dict) -> dict:
-        normalized = self._attach_task_context(self._normalize_task_request(request))
+        normalized = self._normalize_task_request(request)
         task_id = normalized["task_id"]
         machine = self._get_machine(normalized["machine_id"])
         existing = self.store.get("tasks", task_id)
@@ -1528,6 +1542,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 "目标账号已在经理机暂停调度",
                 409,
             )
+        normalized = self._attach_task_context(normalized)
         if existing is None:
             if normalized["capability"] == "post-comment" and not (
                 normalized.get("persona_snapshot") or normalized["parameters"].get("persona")
@@ -1559,6 +1574,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
                         or ""
                     ),
                     write_intent=normalized["write_intent"],
+                    now=(datetime.fromisoformat(normalized["parameters"]["scheduled_at"])
+                         if normalized["parameters"].get("scheduled_at") else None),
                 )
                 if not normalized["parameters"].get("daily_plan"):
                     normalized["parameters"] = {
@@ -3299,6 +3316,10 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 None,
             )
         if task is None:
+            return
+        if int(task.get("reviewed_result_revision") or 0) > int(
+            result.get("result_revision") or result.get("sequence") or 0
+        ):
             return
         self._update_task(
             task["task_id"],
@@ -5042,12 +5063,24 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 if not isinstance(item, dict):
                     continue
                 browse = item.get("browse") if isinstance(item.get("browse"), dict) else {}
-                if str(browse.get("status") or "").lower() == "success":
+                flat_success = (
+                    str(item.get("status") or "").upper() not in {
+                        "FAILED", "BLOCKED", "SKIPPED", "RESULT_UNKNOWN",
+                        "RECONCILIATION_REQUIRED",
+                    }
+                    and (item.get("success") is True
+                         or str(item.get("status") or "").upper() == "SUCCESS")
+                )
+                if (str(browse.get("status") or "").lower() == "success"
+                        or (flat_success and item.get("browsed") is True)):
                     browsed += 1
                 like = item.get("like") if isinstance(item.get("like"), dict) else {}
                 if (
                     like.get("success") is True
                     or str(like.get("status") or "").lower() == "success"
+                    or (flat_success and item.get("liked") is True
+                        and item.get("platform_readback") is True
+                        and item.get("changed") is not False)
                 ):
                     liked += 1
             counts: Counter[str] = Counter()
@@ -5608,10 +5641,10 @@ class ManagerService(ManagerMemory, ManagerPolling):
         return goal
 
     def _get_operation_task(self, operation_task_id: str) -> dict:
-        task = self.store.get(
-            "operation_tasks",
-            str(operation_task_id).strip().upper(),
-        )
+        identifier = str(operation_task_id).strip()
+        task = self.store.get("operation_tasks", identifier)
+        if task is None:
+            task = self.store.get("operation_tasks", identifier.upper())
         if task is None:
             raise ServiceError("OPERATION_TASK_NOT_FOUND", "运营任务不存在", 404)
         return task
@@ -5700,9 +5733,12 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
     def _update_operation_task(self, operation_task_id: str, **values) -> dict:
         values["updated_at"] = utc_now()
+        identifier = str(operation_task_id).strip()
+        if self.store.get("operation_tasks", identifier) is None:
+            identifier = identifier.upper()
         updated = self.store.update(
             "operation_tasks",
-            str(operation_task_id).strip().upper(),
+            identifier,
             lambda current: {**current, **values},
         )
         if updated is None:

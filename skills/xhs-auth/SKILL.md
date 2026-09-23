@@ -66,7 +66,13 @@ python scripts/cli.py --account <账号别名> delete-cookies
 只有页面回读到明确未登录状态时才能报告退出成功。该操作不删除 Chrome Profile、扩展、Bridge
 或槽位配置。
 
-## 半自动换号
+## 控制台切换账号
+
+用户先在槽位对应的浏览器中登录目标账号。“检查身份”读取当前页 UID，与槽位绑定 UID 比较，并提供“复制当前 UID”。
+
+控制台提供一个“切换账号”入口，输入新 UID 后调用 account-switch-complete 重新读取当前页身份。输入与当前 UID 一致时更新槽位绑定并保存换号历史；不一致时报告换号失败并保留原绑定。此入口无需预先调用 account-switch-begin。
+
+## 分步换号兼容命令
 
 ### 1. 读取当前身份
 
@@ -95,7 +101,7 @@ python scripts/cli.py --account <账号别名> account-switch-complete `
   [--label <用途备注>]
 ```
 
-只有当前 UID 与预期一致，并且换号状态有效时，才能更新槽位身份和恢复业务。放弃流程时执行：
+提供预期 UID 时，当前 UID 与预期一致即可更新槽位身份；既有分步换号流程继续使用其待完成记录。放弃流程时执行：
 
 ```powershell
 python scripts/cli.py --account <账号别名> account-switch-cancel --confirm

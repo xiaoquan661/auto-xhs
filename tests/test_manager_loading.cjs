@@ -13,6 +13,8 @@ function deferred() {
   let paints = 0;
   const state = {};
   const context = vm.createContext({state, api: "/api", managerApi: "/manager",
+    accountDisplayState: (account) => account, selectedView: "employee-units",
+    selectedOperationTaskId: "", loadDashboardDetails: () => {},
     fetchJson: (url) => url.endsWith("dashboard-snapshot") ? pending.snapshot.promise
       : url.endsWith("tasks") ? pending.tasks.promise : pending.system.promise,
     renderAll: () => {paints++;}, renderUnavailable: () => {},

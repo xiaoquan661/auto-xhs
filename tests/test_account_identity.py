@@ -106,7 +106,7 @@ def test_switch_completion_rejects_wrong_or_same_user(tmp_path, monkeypatch):
         target_user_id="user-new",
     )
 
-    with pytest.raises(RuntimeError, match="与预期不一致"):
+    with pytest.raises(RuntimeError, match="不一致"):
         complete_login_switch("alpha", _identity("user-wrong"))
     with pytest.raises(RuntimeError, match="仍是原小红书账号"):
         complete_login_switch("alpha", _identity("user-old"))
@@ -236,3 +236,17 @@ def test_pending_switch_blocks_business_commands_but_allows_auth(tmp_path, monke
     _ensure_switch_allows_command(
         argparse.Namespace(account="alpha", allow_during_switch=True)
     )
+
+
+@pytest.mark.parametrize("observed", ["user-new", "user-old"])
+def test_direct_switch_checks_uid_before_binding(tmp_path, monkeypatch, observed):
+    monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
+    record_current_identity("alpha", _identity("user-old"), source="test")
+    with pytest.raises(RuntimeError, match="不一致"):
+        complete_login_switch("alpha", _identity(observed), expected_user_id="wrong")
+    assert identity_status("alpha", _identity("user-old"))["comparison"] == "match"
+    event = complete_login_switch("alpha", _identity(observed), expected_user_id=observed)
+    assert event["from"]["user_id"] == "user-old"
+    assert event["to"]["user_id"] == observed
+    assert load_switch_state("alpha") is None
+    assert identity_status("alpha", _identity(observed))["comparison"] == "match"

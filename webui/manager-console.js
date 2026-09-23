@@ -34,6 +34,12 @@
     snapshot: {},
   };
   const pendingActions = new Set();
+  function accountDisplayState(account) {
+    return account.scheduling_enabled === false
+      ? { ...account, login_status: account.login_status || account.health_state, health_state: "PAUSED" }
+      : account;
+  }
+
   const expandedPersonas = new Set();
   const expandedWorkerDays = new Set();
   let editingPersona = null;
@@ -199,7 +205,7 @@
       [
         "REGISTERED",
         "UNVERIFIED",
-        "PAUSED",
+        "BLOCKED",
         "PENDING_DISPATCH",
         "PREPARING",
         "CHECK_UNKNOWN",
@@ -215,7 +221,7 @@
     ) {
       return "warning";
     }
-    if (["OFFLINE", "BLOCKED", "FAILED"].includes(normalized)) return "danger";
+    if (["OFFLINE", "PAUSED", "FAILED"].includes(normalized)) return "danger";
     return "neutral";
   }
 
@@ -317,7 +323,7 @@
         const option = element(
           "option",
           "",
-          `${machine.host_alias || machine.machine_id} · ${labelFor(machine.status)}`,
+          `${machine.machine_id} · ${labelFor(machine.status)}`,
         );
         option.value = machine.machine_id;
         select.appendChild(option);
@@ -339,7 +345,7 @@
     button.setAttribute("aria-pressed", String(active));
     if (active) button.classList.add("active");
 
-    const name = account.nickname || account.account_slot;
+    const name = account.account_slot;
     const platform = account.platform === "rednote" ? "RedNote" : "小红书";
     button.title = `${name} · ${account.machine_id} / ${account.account_slot} · ${platform}`;
     const avatar = element("span", "manager-rail-avatar", Array.from(name).slice(0, 2).join(""));
@@ -475,8 +481,8 @@
       "#publish-dialog-subtitle",
       `${machineIdForPublishTask(task) || "未识别节点"} / ${task.account_slot || "—"}`,
     );
-    setText("#publish-account-avatar", String(account?.nickname || task.account_slot || "账").slice(0, 1));
-    setText("#publish-account-name", account?.nickname || task.account_slot);
+    setText("#publish-account-avatar", String(task.account_slot || "账").slice(0, 1));
+    setText("#publish-account-name", task.account_slot);
     setText("#publish-account-identity", `UID ${identity.live_user_id || account?.uid || "未核验"}`);
     setText(
       "#publish-kind",
@@ -620,7 +626,7 @@
     const copy = element("div", "manager-record-copy");
     append(
       copy,
-      element("strong", "", account.nickname || account.account_slot),
+      element("strong", "", account.account_slot),
       element(
         "small",
         "",
@@ -673,8 +679,7 @@
       const more = element("details", "manager-account-more");
       more.appendChild(element("summary", "", "更多账号管理"));
       const tools = element("div", "manager-card-actions");
-      for (const [label, action] of [["扩展配对", "pair-begin"], ["切换账号", "switch-begin"],
-        ["完成换号", "switch-complete"], ["退出登录", "logout"],
+      for (const [label, action] of [["扩展配对", "pair-begin"], ["切换账号", "switch-complete"], ["退出登录", "logout"],
         ["停止 Bridge", "bridge-stop"], ["删除账号槽位", "delete"]]) {
         const button = element("button", "secondary-button", label);
         button.type = "button";
@@ -783,11 +788,9 @@
   }
 
   function workerDayCard(machineId, accountSlot, date) {
-    const account = state.accounts.find((item) => item.machine_id === machineId
-      && item.account_slot === accountSlot);
     const card = element("section", "worker-day-account");
     append(card, append(element("div", "worker-account-strip"),
-      element("span", "", "执行账号"), element("strong", "", account?.nickname || accountSlot),
+      element("span", "", "执行账号"), element("strong", "", accountSlot),
       element("small", "", `${machineId} / ${accountSlot}`)));
     const rows = workerDayMetrics(machineId, accountSlot, date).map((metric) => {
       const badge = element("span", "manager-state-badge", metric.status);
@@ -835,13 +838,11 @@
     }
     host.replaceChildren(...plan.accounts.filter((row) => row.machine_id === machineId
       && row.participating).map((row) => {
-      const account = state.accounts.find((item) => item.machine_id === machineId
-        && item.account_slot === row.account_slot);
       const card = element("article", "worker-next-account");
       const heading = element("div", "room-section-head");
       const badge = element("span", "manager-state-badge", "已规划");
       badge.dataset.tone = "success";
-      append(heading, element("h3", "", `${plan.plan_date} · ${account?.nickname || row.account_slot}`), badge);
+      append(heading, element("h3", "", `${plan.plan_date} · ${row.account_slot}`), badge);
       const metrics = element("div", "daily-plan-numbers");
       ["browse", "like", "comment", "publish"].forEach((kind) => {
         append(metrics, append(element("div"), element("span", "", metricLabels[kind]),
@@ -855,7 +856,7 @@
 
   function renderMachineDetail(machine) {
     setText("#manager-machine-detail-kicker", `员工机 · ${machine.machine_id}`);
-    setText("#manager-machine-detail-title", machine.host_alias || machine.machine_id);
+    setText("#manager-machine-detail-title", machine.machine_id);
     setText("#manager-machine-detail-description", "按账号查看运营目标与实际完成情况。");
     const today = localDateValue(new Date());
     renderWorkerNextDay(machine.machine_id, today);
@@ -1004,7 +1005,7 @@
     const copy = element("span");
     append(
       copy,
-      element("strong", "", machine.host_alias || machine.machine_id),
+      element("strong", "", machine.machine_id),
       element("small", "", `${machine.machine_id} · ${labelFor(machine.status)}`),
     );
     const count = state.accounts.filter((account) => account.machine_id === machine.machine_id).length;
@@ -1514,6 +1515,7 @@
   }
 
   function renderOperationTaskDetail(operationTaskId, openDialog = false) {
+    if (openDialog) void loadDashboardDetails("messages");
     const dialog = $("#manager-operation-detail-dialog");
     const task = state.operationTasks.find(
       (item) => item.operation_task_id === operationTaskId,
@@ -1655,7 +1657,7 @@
         fetchJson(`${managerApi}/accounts`),
         fetchJson(`${managerApi}/alerts`),
       ]);
-      state.accounts = accountsPayload.accounts || [];
+      state.accounts = (accountsPayload.accounts || []).map(accountDisplayState);
       state.alerts = alertsPayload.alerts || [];
       renderAll();
       const failed = results.filter(
@@ -1695,7 +1697,7 @@
   function accountThumbnailCard(account) {
     const machine = state.machines.find((item) => item.machine_id === account.machine_id);
     const persona = accountPersona(account);
-    const name = account.nickname || account.account_slot;
+    const name = account.account_slot;
     const platform = account.platform === "rednote" ? "RedNote" : "小红书";
     const status = account.health_state || "UNKNOWN";
     const card = element("button", "room-node-card room-account-card");
@@ -1726,10 +1728,10 @@
     card.type = "button";
     card.dataset.managerMachineSelect = machine.machine_id;
     card.dataset.tone = toneFor(machine.status);
-    card.setAttribute("aria-label", `查看 ${machine.host_alias || machine.machine_id} 员工机详情`);
+    card.setAttribute("aria-label", `查看 ${machine.machine_id} 员工机详情`);
     const head = append(element("div", "room-node-head"),
       append(element("div"), element("small", "", `员工机 · ${machine.machine_id}`),
-        element("h3", "", machine.host_alias || machine.machine_id)), stateBadge(machine.status));
+        element("h3", "", machine.machine_id)), stateBadge(machine.status));
     const personas = [...new Set(accounts.map((account) => {
       const persona = accountPersona(account);
       return persona?.display_name || persona?.persona_id;
@@ -1743,7 +1745,7 @@
         element("dt", "", name), element("dd", "", value))));
     append(card, head, facts);
     accounts.forEach((account) => card.appendChild(append(element("div", "room-node-account"),
-      element("span", "", account.nickname || account.account_slot),
+      element("span", "", account.account_slot),
       element("strong", "", `${account.account_slot} · ${account.current_uid || account.uid || "身份待同步"}`))));
     if (!accounts.length) card.appendChild(element("p", "room-footnote", "等待账号绑定回执"));
     card.appendChild(element("small", "room-node-updated",
@@ -2359,17 +2361,59 @@
 
   function operationalExceptions() {
     const exceptions = [];
+    const paused = new Map(state.accounts.filter((a) => a.scheduling_enabled === false)
+      .map((a) => [`${a.machine_id}:${a.account_slot}`, a]));
+    const grouped = new Map();
+    const seenTasks = new Set();
+    const addFailure = (record, task, isResult) => {
+      const machine = record.machine_id || task.machine_id || "";
+      const slot = record.account_slot || task.request?.account_slot || "";
+      const status = String(isResult ? record.state || record.status || ""
+        : task.business_state || task.dispatch_state || "").toUpperCase();
+      const uncertain = ["RESULT_UNKNOWN", "DISPATCH_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(status)
+        || (!isResult && taskNeedsReconciliation(task));
+      const identity = `${machine}:${record.task_id || record.remote_execution_id}`;
+      if (seenTasks.has(identity)) return;
+      seenTasks.add(identity);
+      const capability = record.capability || task.request?.capability || "任务";
+      if (!uncertain && paused.has(`${machine}:${slot}`) && capability.startsWith("collect-")) return;
+      const key = uncertain ? identity
+        : `${machine}:${slot}:${capability}:${status}:${record.error_code || ""}`;
+      const item = {
+        title: `${machine} / ${slot || "—"} · ${uncertain ? "结果待核对" : "执行异常"}`,
+        object: `${capability} · ${record.task_id || record.remote_execution_id || "—"}`,
+        state: status || "WARNING",
+        time: record.collected_at || record.updated_at || record.recorded_at,
+        message: record.result_summary || record.message || record.error || "任务结果需要查看",
+        recommendation: uncertain ? "核对原任务执行证据。" : "查看最近一次执行记录。",
+        operationTaskId: record.operation_task_id || task.request?.operation_task_id,
+        count: 1,
+      };
+      const previous = grouped.get(key);
+      if (previous) {
+        const latest = String(item.time || "") > String(previous.time || "") ? item : previous;
+        grouped.set(key, {...latest, count: previous.count + 1});
+      } else grouped.set(key, item);
+    };
+    paused.forEach((account) => exceptions.push({
+      title: `${account.machine_id} / ${account.account_slot} · 已暂停`,
+      object: account.account_note || "账号已暂停调度",
+      state: "PAUSED", time: account.management_updated_at,
+      message: account.account_note || "账号已暂停调度",
+      recommendation: "按账号处理安排恢复调度。",
+    }));
     state.machines
       .filter((machine) => !["READY", "PAUSED"].includes(String(machine.status || "").toUpperCase()))
       .forEach((machine) => exceptions.push({
         title: `${machine.machine_id} · 员工机状态异常`,
-        object: machine.host_alias || machine.machine_id,
+        object: machine.machine_id,
         state: machine.status || "UNKNOWN",
         time: machine.last_check_at,
         message: machine.last_error || `SSH ${labelFor(machine.ssh_state)}`,
         recommendation: "检查 SSH 连接与员工机执行服务。",
       }));
-    state.alerts.forEach((alert) => exceptions.push({
+    state.alerts.filter((alert) => !paused.has(`${alert.machine_id}:${alert.account_slot}`))
+      .forEach((alert) => exceptions.push({
       title: `${alert.machine_id || "—"} / ${alert.account_slot || "—"} · 账号异常`,
       object: alert.reason || "账号状态待处理",
       state: alert.severity || "WARNING",
@@ -2377,42 +2421,24 @@
       message: alert.reason || "账号状态待确认",
       recommendation: alert.recommended_action || "进入员工机账号详情处理。",
     }));
-    state.tasks
-      .filter((task) => taskNeedsReconciliation(task)
-        || ["FAILED", "BLOCKED"].includes(String(task.business_state || "").toUpperCase()))
-      .forEach((task) => exceptions.push({
-        title: `${task.task_id} · 任务需要处理`,
-        object: task.machine_id || "未指定员工机",
-        state: taskPrimaryState(task),
-        time: task.updated_at,
-        message: task.message || task.result_summary || "任务状态需要核对",
-        recommendation: task.recommended_action || "读取员工机状态并完成对账。",
-        operationTaskId: task.request?.operation_task_id,
-    }));
     state.results.forEach((result) => {
       const resultState = String(result.state || result.status || "").toUpperCase();
-      const itemStatus = String(
-        result.item_results_status || ("item_results" in result ? "observed" : "missing"),
-      ).toUpperCase();
-      const incrementalStatus = String(
-        result.incremental_data_status
-          || ("incremental_data" in result ? "observed" : "missing"),
-      ).toUpperCase();
-      const businessStatus = resultDataStatus(result, "business_result");
-      const incomplete = itemStatus !== "OBSERVED" || incrementalStatus !== "OBSERVED"
-        || businessStatus !== "observed";
       if (!["FAILED", "BLOCKED", "RESULT_UNKNOWN", "PARTIAL_SUCCESS"].includes(resultState)
-        && !result.manual_action_required && !incomplete) return;
-      exceptions.push({
-        title: `${result.task_id || result.remote_execution_id} · 结果异常`,
-        object: `${result.machine_id || "—"} / ${resultAccount(result) || "—"}`,
-        state: resultState || "WARNING",
-        time: result.collected_at || result.recorded_at,
-        message: result.result_summary || result.error || result.error_code || resultCompleteness(result),
-        recommendation: result.recommended_action || "查看逐项结果和回收审计。",
-        operationTaskId: result.operation_task_id,
-      });
+        && !result.manual_action_required) {
+        if (["SUCCESS", "CANCELLED", "DISABLED"].includes(resultState)) {
+          seenTasks.add(`${result.machine_id}:${result.task_id || result.remote_execution_id}`);
+        }
+        return;
+      }
+      const task = state.tasks.find((t) => t.task_id === result.task_id && t.machine_id === result.machine_id) || {};
+      addFailure({...result, account_slot: resultAccount(result)}, task, true);
     });
+    state.tasks.filter((task) => taskNeedsReconciliation(task)
+      || ["FAILED", "BLOCKED"].includes(String(task.business_state || "").toUpperCase()))
+      .forEach((task) => addFailure(task, task, false));
+    grouped.forEach((item) => exceptions.push({...item,
+      message: item.count > 1 ? `${item.message}（同类记录 ${item.count} 次，展示最近一次）` : item.message,
+    }));
     const resultSync = state.sync.results || {};
     if (!["", "SUCCESS", "IDLE", "NEVER"].includes(String(resultSync.status || "").toUpperCase())) {
       exceptions.push({
@@ -2723,21 +2749,22 @@
   }
 
   function renderAll() {
-    debugView?.render();
-    employeePanel?.render(selectedEmployeeAccount);
+    if (selectedView === "settings") debugView?.render();
+    if (selectedView === "employee-units") employeePanel?.render(selectedEmployeeAccount);
     renderMachines();
     renderPublishReviews();
-    renderAccountWorkspace();
+    if (selectedView === "accounts") renderAccountWorkspace();
     populateOperationFilters();
     renderGoals();
     renderOperationTasks();
     renderOverviewSummary();
     renderSchedules();
     renderTransfers();
-    renderResults();
+    if (selectedView === "results") renderResults();
+    if (selectedView === "exceptions") renderExceptions();
     renderVersions();
     renderSyncStatus();
-    renderSystemSettings();
+    if (selectedView === "settings") renderSystemSettings();
   }
 
   function renderSystemSettings() {
@@ -2758,7 +2785,7 @@
     $("#manager-settings-machines").replaceChildren(...(state.machines.length
       ? state.machines.map((machine) => append(element("article", "manager-settings-machine"),
         append(element("div", "manager-card-head"),
-          recordTitle(machine.host_alias || machine.machine_id, machine.machine_id),
+          recordTitle(machine.machine_id, machine.machine_id),
           stateBadge(machine.status)),
         factList([
           ["经理机", machine.manager_id],
@@ -2803,10 +2830,13 @@
     const next = allowed.has(viewId) ? viewId : "employee-units";
     const scrollPosition = window.scrollY;
     selectedView = next;
+    const pageTitles = {"employee-units": "", workers: "员工机", accounts: "账号管理",
+      results: "数据回收", exceptions: "异常中心", settings: "系统设置"};
+    document.title = "小红书运营" + (pageTitles[next] ? ` · ${pageTitles[next]}` : "");
     $(".control-room").dataset.currentView = next;
-    renderMachineNavigation();
-    if (next === "workers") renderMachineStage();
-    if (next === "employee-units") employeePanel?.render(selectedEmployeeAccount);
+    if (state.available) renderAll();
+    else renderMachineNavigation();
+    if (["results", "settings"].includes(next)) void loadDashboardDetails();
     localStorage.setItem(VIEW_STORAGE_KEY, next);
     document.querySelectorAll("[data-manager-view]").forEach((view) => {
       const active = view.dataset.managerView === next;
@@ -2932,10 +2962,10 @@
     state.versions = snapshot.versions || [];
     state.results = snapshot.results || [];
     state.acceptance = snapshot.acceptance || {};
-    state.resultHistory = snapshot.result_history || state.results;
+    state.resultHistory = snapshot.details_deferred ? state.results : snapshot.result_history || state.results;
     state.incrementalRecords = snapshot.incremental_records || [];
     state.resultSummary = snapshot.result_summary || {};
-    state.accounts = snapshot.accounts || [];
+    state.accounts = (snapshot.accounts || []).map(accountDisplayState);
     state.alerts = snapshot.alerts || [];
     state.sync = snapshot.collection || {};
     state.personas = snapshot.personas || [];
@@ -2946,6 +2976,9 @@
     state.agentMessages = snapshot.agent_messages || [];
     snapshotRendered = true;
     renderAll();
+    if (["results", "settings"].includes(selectedView) || selectedOperationTaskId) {
+      void loadDashboardDetails();
+    }
     const readTime = new Date().toLocaleTimeString("zh-CN", { hour12: false });
     setText("#manager-last-read", readTime);
     setText("#room-live-state", "自动更新中");
@@ -2954,6 +2987,35 @@
     setMessage("#manager-account-message", `账号缓存已更新 · ${readTime}`, "success");
     await auxiliary;
     return true;
+  }
+
+  async function loadDashboardDetails(requestedSection) {
+    const snapshot = state.snapshot;
+    if (!snapshot?.details_deferred) return;
+    const sections = requestedSection ? [requestedSection] : [
+      ...(selectedView === "results" ? ["audit"] : []),
+      ...(selectedView === "settings" ? ["debug"] : []),
+      ...(selectedOperationTaskId ? ["messages"] : []),
+    ];
+    snapshot.detailSections ||= {};
+    await Promise.all(sections.map(async (section) => {
+      if (snapshot.detailSections[section]) return;
+      snapshot.detailSections[section] = "loading";
+      try {
+        const details = await fetchJson(`${managerApi}/dashboard-details/${section}`);
+        if (state.snapshot !== snapshot) return;
+        if (details.debug) snapshot.debug = details.debug;
+        if (details.result_history) state.resultHistory = details.result_history;
+        if (details.agent_messages) state.agentMessages = details.agent_messages;
+        snapshot.detailSections[section] = "loaded";
+        renderAll();
+      } catch (error) {
+        snapshot.detailSections[section] = "";
+        if (state.snapshot === snapshot) {
+          setMessage("#manager-cluster-message", `历史详情读取失败：${error.message}`, "warning");
+        }
+      }
+    }));
   }
 
   function scheduleRefresh() {

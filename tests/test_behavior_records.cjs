@@ -22,6 +22,16 @@ function panel(receipts) {
 }
 function actions(receipts) { return panel(receipts).actions(account, date); }
 
+const submittedComment = {status: "BLOCKED", success: false, comment_id: "submitted-1",
+  submitted: true, platform_readback: true, identity_match: false};
+assert.equal(actions([{capability: "post-comment", item_results: [submittedComment]}])[0].status,
+  "SUBMITTED_PENDING_REVIEW");
+panel([{capability: "post-comment", item_results: [submittedComment]}]).render("m:a");
+assert.match(root.innerHTML, /已发送·归属待核对/);
+assert.equal(actions([{capability: "post-comment", item_results: [{...submittedComment,
+  status: "SUCCESS", success: true, attribution_review: {status: "CONFIRMED"}}]}])[0].status,
+"SUCCESS");
+
 const compound = {capability: "home-engagement", state: "BLOCKED", item_results: [
   {action: "browse", status: "SUCCESS", title: "笔记一"},
   {action: "comment", success: true, platform_readback: true, comment_text: "正文<测试>"},

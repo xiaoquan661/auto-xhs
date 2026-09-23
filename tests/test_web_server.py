@@ -698,7 +698,7 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
             assert payload["status"] == "ok"
 
         with urlopen(f"{base_url}/", timeout=3) as response:
-            assert "经理机运营控制台" in response.read().decode("utf-8")
+            assert "小红书运营" in response.read().decode("utf-8")
             assert response.headers[SESSION_HEADER] == token
 
         with urlopen(f"{base_url}/workspace.css", timeout=3) as response:

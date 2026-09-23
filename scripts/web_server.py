@@ -474,6 +474,11 @@ def _dispatch_manager_api(
         return manager.debug_action("list")
     if path == f"{prefix}/dashboard-snapshot":
         return manager.dashboard_snapshot()
+    if path == f"{prefix}/dashboard-details":
+        return manager.dashboard_details()
+    for section in ("audit", "messages", "debug"):
+        if path == f"{prefix}/dashboard-details/{section}":
+            return manager.dashboard_details(section)
     if path == f"{prefix}/database/schema":
         return manager.query_business_data()
     if path == f"{prefix}/acceptance":

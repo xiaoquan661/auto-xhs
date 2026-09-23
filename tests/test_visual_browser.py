@@ -31,6 +31,22 @@ class Page:
         return {"dispatched": True}
 
 
+def test_snapshot_waits_for_delayed_debugger_resize(tmp_path, monkeypatch):
+    monkeypatch.setattr("visual_browser.time.sleep", lambda _: None)
+    page = Page()
+    original = page.visual_snapshot
+    heights = iter([585, 529, 529])
+
+    def capture(tab_id=None):
+        result = original(tab_id)
+        result["frame"]["height"] = next(heights)
+        return result
+
+    page.visual_snapshot = capture
+    result = save_snapshot(page, tmp_path / "settled.png", "alpha")
+    assert result["frame"]["height"] == 529
+
+
 def test_image_handoff_and_pixel_coordinates(tmp_path: Path):
     page = Page()
     before = save_snapshot(page, tmp_path / "before.png", "alpha")

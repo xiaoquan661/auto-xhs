@@ -53,6 +53,12 @@ API 模型兼容入口。
 
 ## 强制约束
 
+每日指标通过每日计划下发时，提前生成并投递完整批次时间表，由员工执行服务本地定时启动。
+指定时刻使用 `daily_policy.batch_start_times`（北京时间HH:MM数组），批间隔使用
+`action_spacing_seconds`；完整流程见 `docs/EMPLOYEE-BATCH-SCHEDULE.md`。
+经理收到任务接收确认后结束本轮，员工到点执行后续批次。已下发任务按原编号核对，
+不能通过再次拆分完整日指标处理等待状态。
+
 - 多账号命令把 `--account <账号别名>` 放在子命令之前。
 - 每一步都服从对应子技能：读取参考 `xhs-explore`，发布参考 `xhs-publish`，互动参考
   `xhs-interact`，身份参考 `xhs-auth`。

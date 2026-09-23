@@ -701,7 +701,7 @@ class ApplicationService(ApplicationMemory):
             "account": account,
             "switch": event,
             "business_tasks_blocked": False,
-            "message": "新登录身份已核验并绑定，业务任务已恢复",
+            "message": "换号成功，槽位已绑定所输入的 UID",
         }
 
     def cancel_account_switch(self, account: str, *, confirmed: bool) -> dict:

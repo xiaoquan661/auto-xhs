@@ -19,8 +19,8 @@ function find(node, predicate) {
 const readyIdentity = {recorded: true, user_id: "red-user", live_user_id: "red-user",
   live_nickname: "测试昵称", matches_record: true};
 async function setup(identity, options = {}) {
-  const body = new Node("body"); const calls = [];
-  const context = vm.createContext({window: {}, document: {body, createElement: (tag) => new Node(tag)}});
+  const body = new Node("body"); const calls = []; const copied = [];
+  const context = vm.createContext({window: {}, navigator: {clipboard: {writeText: async (text) => copied.push(text)}}, document: {body, createElement: (tag) => new Node(tag)}});
   vm.runInContext(source, context);
   const response = {success: true, account: {platform: "rednote", raw_status: "READY", identity},
     operation: {identity: {platform: "rednote", user_id: "red-user", nickname: "测试昵称"}}};
@@ -41,7 +41,8 @@ async function setup(identity, options = {}) {
     },
   });
   await tools.open("identity-check", {machine_id: "PC057", account_slot: "red account", platform: "rednote"});
-  return {body, calls,
+  return {body, calls, copied,
+    copy: find(body, (node) => node.textContent === "复制当前 UID"),
     retry: find(body, (node) => node.textContent === "重新检查身份"),
     confirm: find(body, (node) => node.textContent === "确认此账号并绑定"),
     result: find(body, (node) => node.className === "manager-account-tools-result")};
@@ -67,11 +68,14 @@ async function setup(identity, options = {}) {
   const mismatched = await setup({...readyIdentity, user_id: "old-user", matches_record: false});
   assert.match(mismatched.result.textContent, /不一致/);
   assert.equal(mismatched.confirm.hidden, true);
+  await mismatched.copy.click();
+  assert.deepEqual(mismatched.copied, ["red-user"]);
   const switching = await setup({recorded: false, switch_pending: true});
   assert.match(switching.result.textContent, /正在换号/);
   assert.equal(switching.confirm.hidden, true);
   const failed = await setup({}, {checkError: "页面读取超时"});
   assert.equal(failed.confirm.hidden, true);
+  assert.equal(failed.copy.disabled, true);
   assert.equal(failed.result.textContent, "页面读取超时");
   const loggedOut = await setup({recorded: true, logged_out: true});
   assert.equal(loggedOut.confirm.hidden, true);
