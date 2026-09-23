@@ -11,30 +11,19 @@ from urllib.parse import quote
 
 try:
     from .employee_codex_runner import EmployeeCodexRunner
-    from .manager_worker_service import TASK_FINAL_STATES, ManagerWorkerService
+    from .manager_worker_service import ManagerWorkerService
     from .run_lock import RunLock
 except ImportError:
     from employee_codex_runner import EmployeeCodexRunner
-    from manager_worker_service import TASK_FINAL_STATES, ManagerWorkerService
+    from manager_worker_service import ManagerWorkerService
     from run_lock import RunLock
 
 
 def queue_ready(state: dict, execution: dict) -> bool:
     """Keep acceptance order inside one account, without holding other accounts."""
-    slot = execution["task"].get("account_slot")
-    order = (execution["accepted_at"], execution["remote_execution_id"])
-    for other in state["executions"].values():
-        if other["task"].get("account_slot") != slot:
-            continue
-        if (other["accepted_at"], other["remote_execution_id"]) < order and (
-            other["state"] not in TASK_FINAL_STATES
-        ):
-            return False
-    dependencies = (execution["task"].get("parameters") or {}).get("depends_on_task_ids", [])
-    by_task = {row["task_id"]: row for row in state["executions"].values()}
-    return all(
-        by_task.get(key, {}).get("state") in TASK_FINAL_STATES for key in dependencies
-    )
+    from worker_batch_scheduler import queue_status
+
+    return queue_status(state, execution)[0] == "READY"
 
 
 def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
@@ -81,12 +70,13 @@ def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
                 if any(
                     row["state"] not in {"SUCCESS", "PARTIAL_SUCCESS"}
                     for row in state["executions"].values()
-                    if row["task_id"] in (execution["task"].get("parameters") or {}).get(
-                        "depends_on_task_ids", []
-                    )
+                    if row["task_id"]
+                    in (execution["task"].get("parameters") or {}).get("depends_on_task_ids", [])
                 )
                 else EmployeeCodexRunner(
-                    service.root, on_claim=claimed, should_stop=should_stop,
+                    service.root,
+                    on_claim=claimed,
+                    should_stop=should_stop,
                     on_bug=lambda payload: service.debug_action("report", payload),
                 )
             ),

@@ -21,6 +21,8 @@ DEFAULT_POLICY = {
     "profile_post_cap": 7,
     "process_inbound_comments": True,
     "process_inbound_messages": False,
+    "collect_work_metrics": False,
+    "batch_start_times": [],
 }
 
 
@@ -41,16 +43,28 @@ def normalize_policy(value: dict | None, previous: dict | None = None) -> dict:
         if name not in value:
             continue
         item = value[name]
-        if name in {"start_time", "end_time"}:
+        if name == "batch_start_times":
+            if not isinstance(item, list) or any(
+                not isinstance(v, str) or not re.fullmatch(r"\d{2}:\d{2}", v) for v in item
+            ):
+                raise ServiceError("INVALID_DAILY_POLICY", "批次时间应为 HH:MM 数组")
+            try:
+                for clock_value in item:
+                    time.fromisoformat(clock_value)
+            except ValueError as exc:
+                raise ServiceError("INVALID_DAILY_POLICY", "批次时间超出有效范围") from exc
+            if item != sorted(set(item)):
+                raise ServiceError("INVALID_DAILY_POLICY", "批次时间应按顺序排列且不重复")
+        elif name in {"start_time", "end_time"}:
             if not isinstance(item, str) or not re.fullmatch(r"\d{2}:\d{2}", item):
                 raise ServiceError("INVALID_DAILY_POLICY", "执行时间应为 HH:MM")
             try:
                 time.fromisoformat(item)
             except ValueError as exc:
                 raise ServiceError("INVALID_DAILY_POLICY", "执行时间超出有效范围") from exc
-        elif name.startswith("process_"):
+        elif name.startswith("process_") or name == "collect_work_metrics":
             if type(item) is not bool:
-                raise ServiceError("INVALID_DAILY_POLICY", "入站检查选项应为布尔值")
+                raise ServiceError("INVALID_DAILY_POLICY", "采集检查选项应为布尔值")
         elif type(item) is not int or item < 0:
             raise ServiceError("INVALID_DAILY_POLICY", "数量、间隔和替换轮数应为非负整数")
         policy[name] = item
@@ -77,6 +91,7 @@ def generate_account(day: str, account: dict, override: dict | None = None) -> d
     stage = str(source.get("stage") or config.get("stage") or "稳定运营")
     pressure = str(source.get("pressure") or config.get("pressure") or "低压")
     participating = account.get("health_state") == "READY"
+    participating = participating and account.get("scheduling_enabled") is not False
     participating = participating and source.get("participating", True) is True
     participating = participating and "观察" not in stage
     evidence = account.get("planning_evidence") or {}
@@ -199,6 +214,7 @@ def material(plan: dict, row: dict, account: dict, persona: dict | None) -> dict
         "time_window": window(plan["plan_date"], policy),
         "strategy": {
             **policy,
+            "dispatch_mode": "employee_schedule",
             "target_selection": "employee_owned",
             "warm_follow_only": True,
             "unknown_result": "isolate_target",

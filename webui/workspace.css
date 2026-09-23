@@ -2109,3 +2109,19 @@ summary:focus-visible {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
   gap: 12px;
 }
+
+.manager-account-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  max-width: calc(100vw - 32px);
+  padding: 14px 24px;
+  border: 1px solid #a8dbc0;
+  border-radius: 12px;
+  color: #17673d;
+  background: #dff3e8;
+  box-shadow: 0 8px 28px rgba(23, 103, 61, .15);
+  overflow-wrap: anywhere;
+}

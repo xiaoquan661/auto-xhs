@@ -1,13 +1,13 @@
 window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi, load}) {
   const titles = {create: "新增员工机账号", delete: "删除账号槽位", "pair-begin": "扩展配对",
-    "switch-begin": "切换账号", "switch-complete": "完成换号", logout: "退出登录",
+    "switch-begin": "切换账号", "switch-complete": "切换账号", logout: "退出登录",
     "bridge-stop": "停止 Bridge"};
   const descriptions = {
     create: "选择账号所属员工机，创建独立环境或绑定该员工机已有的 Chrome Profile。",
     delete: "账号槽位将移入员工机归档，Chrome Profile 和小红书登录数据保留。请输入槽位名称确认。",
     "pair-begin": "生成配对信息后，在对应员工机的 Chrome Profile 扩展中粘贴并确认。",
     "switch-begin": "退出当前账号后，请在对应员工机的 Chrome Profile 中登录新账号。",
-    "switch-complete": "在员工机登录新账号后，填写期望 UID 并核验身份，完成换号。",
+    "switch-complete": "请输入新账号 UID。系统读取当前网页登录的 UID，一致后更新该槽位的绑定。",
     logout: "退出该员工机账号的小红书登录会话。",
     "bridge-stop": "停止该账号的 Bridge 服务。",
   };
@@ -52,8 +52,18 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
     const retry = node("button", "重新检查身份"); retry.type = "button";
     retry.className = "secondary-button"; retry.disabled = true;
     const actions = node("div"); actions.className = "manager-identity-actions";
-    actions.append(confirm, retry);
-    dialog.append(heading, node("p", `${account.machine_id} / ${account.account_slot}`), facts, result, actions);
+    const copyUid = node("button", "复制当前 UID"); copyUid.type = "button";
+    copyUid.className = "secondary-button"; copyUid.disabled = true;
+    const uidText = node("textarea"); uidText.readOnly = true;
+    uidText.setAttribute("aria-label", "当前登录 UID（可复制）");
+    const copyStatus = node("p"); copyStatus.setAttribute("role", "status");
+    copyUid.addEventListener("click", async () => {
+      const copied = await copyPairingText(uidText);
+      copyStatus.textContent = copied ? "UID 已复制" : "已选中 UID，请按 Ctrl+C 复制。";
+    });
+    actions.append(confirm, retry, copyUid);
+
+    dialog.append(heading, node("p", `${account.machine_id} / ${account.account_slot}`), facts, uidText, copyStatus, result, actions);
     dialog.addEventListener("close", () => dialog.remove());
     document.body.append(dialog); dialog.showModal();
     const base = `${managerApi}/machines/${encodeURIComponent(account.machine_id)}/accounts/${encodeURIComponent(account.account_slot)}`;
@@ -63,26 +73,29 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
       const identity = snapshot.identity || {};
       const platform = snapshot.platform || account.platform;
       observedUid = observed.user_id || identity.live_user_id || "";
+      uidText.value = observedUid;
+      copyUid.disabled = !observedUid || payload.success === false || identity.logged_out;
+      copyStatus.textContent = "";
       const fact = (label, value) => {
         const row = node("div"); row.append(node("dt", label), node("dd", value || "尚未读取"));
         facts.append(row);
       };
       facts.replaceChildren();
       fact("平台", platform === "rednote" ? "RedNote" : "小红书");
-      fact("当前登录昵称", observed.nickname || identity.live_nickname);
+      fact("账号槽位", snapshot.account_slot || account.account_slot);
       fact("当前登录 UID", observedUid);
       fact("槽位绑定 UID", identity.user_id || "尚未绑定");
       confirm.hidden = true;
       if (payload.success === false) {
         result.textContent = payload.message || "本次身份核对未完成，请重新检查。";
       } else if (identity.switch_pending) {
-        result.textContent = "该槽位正在换号，请通过“完成换号”核验新账号。";
+        result.textContent = "该槽位正在换号，请通过“切换账号”核验新账号。";
       } else if (!observedUid || identity.logged_out) {
         result.textContent = "当前登录身份尚未读取成功，请在员工机确认登录后重新检查。";
       } else if (observed.platform && observed.platform !== platform) {
         result.textContent = "当前登录平台与槽位平台不一致，请检查对应员工机的 Profile。";
       } else if (identity.recorded === false) {
-        result.textContent = "已读取当前登录账号，等待首次绑定确认。请核对上方昵称与 UID。";
+        result.textContent = "已读取当前登录账号，等待首次绑定确认。请核对上方 UID。";
         confirm.hidden = false;
       } else if (identity.matches_record) {
         const ready = snapshot.raw_status === "READY" || snapshot.status === "READY";
@@ -97,7 +110,7 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
     }
     async function check() {
       retry.disabled = true; confirm.hidden = true;
-      facts.replaceChildren(); observedUid = "";
+      facts.replaceChildren(); observedUid = ""; uidText.value = ""; copyUid.disabled = true;
       result.textContent = "正在读取员工机当前登录身份并核对槽位记录…";
       try {
         const payload = await mutateJson(`${base}/identity/check`, "POST", {});
@@ -154,7 +167,7 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
     if (action === "create") {
       const machine = field("machine", "所属员工机", "select"); machine.required = true;
       option(machine, "", "请选择员工机");
-      state.machines.forEach((item) => option(machine, item.machine_id, item.host_alias || item.machine_id));
+      state.machines.forEach((item) => option(machine, item.machine_id, item.machine_id));
       if (state.machines.length === 1) machine.value = state.machines[0].machine_id;
       field("name", "账号槽位名称").required = true;
       platformField("");
@@ -202,7 +215,7 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
     result.setAttribute("role", "status");
     form.append(submit, result);
     form.addEventListener("submit", async (event) => {
-      event.preventDefault(); submit.disabled = true; result.textContent = "正在提交…";
+      event.preventDefault(); submit.disabled = true; result.textContent = action === "switch-complete" ? "正在核对当前登录 UID…" : "正在提交…";
       const machine = fields.machine?.value || account.machine_id;
       const slot = fields.name?.value.trim() || account.account_slot || "";
       let verb = action;
@@ -227,8 +240,13 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
             values.profile_display_name = profile.display_name || "";
           }
         }
+        if (action === "switch-complete" && !values.expected_user_id) {
+          throw new Error("请输入新账号 UID");
+        }
         const operation = await call(machine, slot, verb, values);
-        result.textContent = operation.message || operation.next_action || "操作已完成。";
+        if (operation.success === false) throw new Error(operation.message || "操作失败");
+        result.textContent = action === "switch-complete" ? "换号成功，槽位已绑定所输入的 UID。"
+          : operation.message || operation.next_action || "操作已完成。";
         if (action === "pair-begin") {
           const bundle = operation.pairing?.pairing_bundle || "";
           const pairedPlatform = operation.pairing?.platform || fields.platform.value;
@@ -264,6 +282,14 @@ window.AutoXhsAccountTools = function ({state, mutateJson, fetchJson, managerApi
             + "请将配对信息粘贴到对应员工机 Profile 的扩展中并确认。";
         }
         submit.hidden = true;
+        if (action === "create") {
+          const notice = node("div", `新增成功 · ${machine} / ${slot}`);
+          notice.className = "manager-account-toast";
+          notice.setAttribute("role", "status");
+          document.body.append(notice);
+          dialog.close();
+          setTimeout(() => notice.remove(), 5000);
+        }
         try {
           await fetchJson(`${managerApi}/machines/${encodeURIComponent(machine)}/accounts`);
           await load();

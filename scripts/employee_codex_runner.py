@@ -516,7 +516,11 @@ post-comment 任务未指定笔记时，由你按 count 授权数量选择目标
 如任务约定更长间隔，以任务为准。评论按任务指定节奏执行。
 敏感文本只放在固定入口的 JSON args 中，由入口在进程内传给 cli.main。
 每次外部写入前将目标与内容写入本地证据，再调用一次；不自动重试结果未知的外部写入。
-评论发送后读取笔记评论，核对本账号 UID 和原文，保存平台回读证据。
+主动评论以本次提交后平台明确的评论成功提示确认发送结果。
+post-comment返回confirmation_source=platform_success_notice时，保存platform_receipt和证据路径，
+该条记录SUCCESS、success=true、platform_readback=true，并保留confirmation_source。
+无需再滚动评论区查找原文或核对评论作者UID；历史归属核对与本次发送结果分别记录。
+没有明确成功提示时保留结果待核对，不重复发送。仅按钮点击或命令退出码不代表评论成功。
 每条评论在 item_results 中提供 status、success、feed_id、content、platform_readback、
 evidence_path；只有平台回读确认的评论才写 SUCCESS 和 platform_readback=true。
 结果未知写 RESULT_UNKNOWN。最终结果准确反映逐项结果与实际完成数量。

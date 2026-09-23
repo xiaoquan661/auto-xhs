@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import struct
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,17 @@ def save_snapshot(page: Any, destination: Path, account: str, tab_id: int | None
     if not destination.is_absolute() or destination.suffix.lower() != ".png":
         raise XHSError("截图输出需要 PNG 绝对路径")
     snapshot = page.visual_snapshot(tab_id)
+    # Attaching Chrome's debugger may resize the viewport after the first capture.
+    # Deliver an image only after a second observation confirms the settled frame.
+    for _ in range(3):
+        time.sleep(0.5)
+        current = page.visual_snapshot(snapshot["tab_id"])
+        if current["frame"] == snapshot["frame"]:
+            snapshot = current
+            break
+        snapshot = current
+    else:
+        raise XHSError("截图视口仍在变化，请等待页面稳定后重新截图")
     png = base64.b64decode(snapshot.pop("data"))
     if png[:8] != b"\x89PNG\r\n\x1a\n":
         raise XHSError("扩展未返回 PNG 图片")

@@ -230,7 +230,11 @@ def complete_login_switch(
     account = validate_account_name(account)
     pending = load_switch_state(account)
     if not pending:
-        raise RuntimeError(f"账号 {account!r} 当前没有待完成的换号流程")
+        if not str(expected_user_id or "").strip():
+            raise RuntimeError("请输入新账号 UID")
+        record = load_identity_record(account) or {}
+        pending = {"from": record.get("current"), "target_label": record.get("label"),
+                   "started_at": _utc_now()}
     expected_platform = _account_platform(account)
     current = normalize_observed_identity(identity, platform=expected_platform)
     if not current["logged_in"]:
@@ -242,13 +246,13 @@ def complete_login_switch(
 
     previous = pending.get("from") or {}
     previous_user_id = str(previous.get("user_id") or "")
-    if previous_user_id and previous_user_id == current["user_id"]:
+    if not expected_user_id and previous_user_id and previous_user_id == current["user_id"]:
         platform_name = get_platform_spec(expected_platform).display_name
         raise RuntimeError(f"当前仍是原{platform_name}账号；请先登录另一个账号")
     expected = (expected_user_id or pending.get("target_user_id") or "").strip()
     if expected and current["user_id"] != expected:
         raise RuntimeError(
-            f"登录身份与预期不一致: expected={expected!r}, actual={current['user_id']!r}"
+            f"换号失败：输入 UID {expected} 与当前登录 UID {current['user_id']} 不一致"
         )
 
     record = record_current_identity(

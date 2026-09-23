@@ -18,6 +18,12 @@ CommandHandler = Callable[[argparse.Namespace, ManagerService], dict]
 ServiceFactory = Callable[[argparse.Namespace], ManagerService]
 
 
+def _review_comments(args: argparse.Namespace, service: ManagerService) -> dict:
+    from comment_receipt_review import review_comments
+
+    return review_comments(service.store, load_json_object(args.input_file))
+
+
 def _database_action(args: argparse.Namespace, service: ManagerService) -> dict:
     from manager_database import ManagerDatabase
 
@@ -96,6 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manager-home", help="经理机状态目录的绝对路径")
     parser.add_argument("--openssh-home", help="包含 ssh.exe 和 scp.exe 的绝对目录")
     resources = parser.add_subparsers(dest="resource", required=True)
+    review = resources.add_parser("review-comments", help="根据用户核对修订已提交评论的归属")
+    _add_input_file(review, "包含机器、槽位、回执编号和核对依据的 UTF-8 JSON 绝对路径")
+    review.set_defaults(handler=_review_comments)
     database = resources.add_parser("database", help="经理运营数据库与全字段只读查询")
     database_actions = database.add_subparsers(dest="action", required=True)
     for name in ("sync", "schema", "query", "collect"):

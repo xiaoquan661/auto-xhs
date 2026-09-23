@@ -369,7 +369,7 @@ const machineContext = vm.createContext({
     dataset: {}, classList: {toggle() {}}, setAttribute() {},
     replaceChildren(...items) {this.items = items;},
   },
-  setText() {}, populateMachineSelects() {},
+  setText() {}, populateMachineSelects() {}, renderAll() {}, loadDashboardDetails() {},
   localStorage: {setItem() {}},
   document: {querySelectorAll: () => []},
   window: {scrollY: 400, location: {hash: "#workers"}, history: {replaceState() {}},
@@ -383,6 +383,12 @@ const machineContext = vm.createContext({
 });
 for (const name of ["employeeAccountKey", "renderMachineNavigation", "renderMachineStage", "selectMachine",
   "renderMachines", "selectManagerView"]) vm.runInContext(extract(name), machineContext);
+machineContext.renderAll = () => {
+  if (machineContext.selectedView === "employee-units") {
+    machineContext.employeePanel?.render(machineContext.selectedEmployeeAccount);
+  }
+  machineContext.renderMachines();
+};
 machineContext.selectMachine("");
 assert.equal(machineContext.selectedView, "workers");
 assert.equal(machineContext.selectedMachineId, "");
@@ -466,11 +472,13 @@ const secondCard = cardContext.accountThumbnailCard({machine_id: "QA-A", account
 assert.equal(firstCard.dataset.employeeAccountSelect, "QA-A:first");
 assert.equal(secondCard.dataset.employeeAccountSelect, "QA-A:second");
 assert.equal(secondCard.dataset.tone, "BLOCKED");
-assert.ok(cardText(firstCard).includes("First account"));
+assert.ok(cardText(firstCard).includes("first"));
+assert.ok(!cardText(firstCard).includes("First account"));
 assert.ok(!cardText(firstCard).includes("Second"));
 assert.ok(cardText(secondCard).includes("RedNote"));
 assert.ok(cardText(secondCard).includes("uid-second"));
 assert.ok(cardText(secondCard).includes("Second persona"));
+assert.ok(!cardText(secondCard).includes("Second account"));
 assert.ok(!cardText(secondCard).includes("First"));
 cardContext.state.machines = [];
 assert.ok(cardText(cardContext.accountThumbnailCard({machine_id: "QA-A", account_slot: "cached"}))

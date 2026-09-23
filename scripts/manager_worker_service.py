@@ -136,7 +136,8 @@ class _JsonWorkerStore:
         self.lock_path = self.root / "worker-state.lock"
 
     def snapshot(self) -> dict[str, Any]:
-        return self._transaction(lambda state: copy.deepcopy(state), write=False)
+        # Writers replace the complete file atomically; readers use the last committed state.
+        return self._read_state()
 
     def mutate(self, callback: Callable[[dict[str, Any]], T]) -> T:
         return self._transaction(callback, write=True)
@@ -192,7 +193,14 @@ class _JsonWorkerStore:
             json.dumps(state, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        os.replace(temporary, self.path)
+        for attempt in range(100):
+            try:
+                os.replace(temporary, self.path)
+                break
+            except PermissionError:
+                if attempt == 99:
+                    raise
+                time.sleep(0.05)
 
 
 def _default_account_summary() -> list[dict[str, Any]]:
@@ -1545,8 +1553,35 @@ class ManagerWorkerService(WorkerMemory):
                 raise WorkerServiceError("INVALID_TASK_STATE", "当前任务状态不能启动")
             if state["machine"]["paused"]:
                 return copy.deepcopy(execution), False
-            if execution.get("runner_started_at"):
+            from worker_batch_scheduler import queue_status
+
+            queue_state, message = queue_status(state, execution)
+            execution["queue_state"] = queue_state
+            execution["message"] = message
+            if queue_state in {"BLOCKED", "EXPIRED"}:
+                execution.update(state="BLOCKED", finished_at=utc_now(), updated_at=utc_now())
+                self._append_result(state, execution)
                 return copy.deepcopy(execution), False
+            if queue_state != "READY":
+                return copy.deepcopy(execution), False
+            if execution.get("runner_started_at"):
+                pid = execution.get("runner_pid")
+                age = (datetime.now(UTC) - datetime.fromisoformat(
+                    execution["runner_started_at"]
+                )).total_seconds()
+                if (pid and process_is_running(int(pid))) or age < 60:
+                    return copy.deepcopy(execution), False
+                run_root = self.root / "agent-runs" / execution["remote_execution_id"]
+                if execution.get("started_at") or (run_root / "claimed.json").exists():
+                    execution.update(
+                        state="RESULT_UNKNOWN", reconciliation_required=True,
+                        message="员工已领取但进程退出，先核对原执行结果",
+                        finished_at=utc_now(), updated_at=utc_now(),
+                    )
+                    self._append_result(state, execution)
+                    return copy.deepcopy(execution), False
+                execution["runner_pid"] = None
+                execution["startup_recoveries"] = execution.get("startup_recoveries", 0) + 1
             execution["runner_started_at"] = utc_now()
             execution["updated_at"] = execution["runner_started_at"]
             execution["message"] = "任务已进入员工Agent执行队列"
@@ -1554,6 +1589,8 @@ class ManagerWorkerService(WorkerMemory):
 
         execution, should_start = self._store.mutate(reserve)
         if not should_start:
+            if execution.get("finished_at") and execution.get("queue_state"):
+                self.push_task_result(remote_execution_id=execution["remote_execution_id"])
             response = self._execution_response(execution, idempotent=True)
             response["status"] = "TASK_ACK"
             return response
@@ -1893,6 +1930,13 @@ class ManagerWorkerService(WorkerMemory):
                 raise WorkerServiceError("INVALID_TASK_STATE", "当前任务状态不能执行")
             if state["machine"]["paused"]:
                 return copy.deepcopy(execution), False
+            if (execution["task"].get("parameters") or {}).get("scheduled_at"):
+                from worker_batch_scheduler import queue_status
+
+                readiness, reason = queue_status(state, execution)
+                if readiness != "READY":
+                    execution.update(queue_state=readiness, message=reason)
+                    return copy.deepcopy(execution), False
             execution["state"] = "RUNNING"
             execution["started_at"] = utc_now()
             execution["updated_at"] = execution["started_at"]
@@ -1908,10 +1952,19 @@ class ManagerWorkerService(WorkerMemory):
         if not should_execute:
             if execution["state"] == "ACCEPTED":
                 execution = copy.deepcopy(execution)
-                execution["blocked_reason"] = "执行机已暂停"
+                execution["blocked_reason"] = execution.get("message") or "执行机已暂停"
             return self._execution_response(execution, idempotent=True)
         execute = executor or self._executor or self._execute_via_local_api
         payload = copy.deepcopy(execution["task"])
+        if (payload.get("parameters") or {}).get("scheduled_at"):
+            excluded = set(payload["parameters"].get("excluded_feed_ids") or [])
+            for prior in self._store.snapshot()["executions"].values():
+                if (prior["task"].get("account_slot") == payload.get("account_slot")
+                        and prior["task"].get("operation_task_id")
+                        == payload.get("operation_task_id")):
+                    excluded.update(str(item["feed_id"]) for item in prior.get("item_results", [])
+                                    if item.get("feed_id"))
+            payload["parameters"]["excluded_feed_ids"] = sorted(excluded)
         payload.setdefault("task_id", execution["task_id"])
         payload.setdefault("dispatch_id", execution["dispatch_id"])
         payload.setdefault("remote_execution_id", execution["remote_execution_id"])
@@ -1949,6 +2002,14 @@ class ManagerWorkerService(WorkerMemory):
                 "message": str(exc) or "任务执行失败",
                 "raw_result": {},
             }
+
+        receipt_root = self.root / "pending-outcomes"
+        receipt_root.mkdir(parents=True, exist_ok=True)
+        _write_json_atomic(receipt_root / f"{execution['remote_execution_id']}.json", {
+            "task_id": execution["task_id"],
+            "remote_execution_id": execution["remote_execution_id"],
+            "outcome": outcome,
+        })
 
         def finalize(state: dict[str, Any]) -> dict[str, Any]:
             current = self._find_execution(
@@ -2503,6 +2564,7 @@ class ManagerWorkerService(WorkerMemory):
 
     def reconcile_agent_exits(self) -> None:
         """Let periodic manager health checks collect interrupted Agent receipts."""
+        self.recover_pending_outcomes()
         for execution in self._store.snapshot()["executions"].values():
             if execution.get("state") in {"RUNNING", "PAUSE_REQUESTED", "RECONCILIATION_REQUIRED"}:
                 outcome = self._agent_exit_outcome(execution)
@@ -2510,6 +2572,30 @@ class ManagerWorkerService(WorkerMemory):
                     self._reconcile_execution_status(
                         {**execution, "observed_executor_outcome": outcome}
                     )
+
+    def recover_pending_outcomes(self) -> None:
+        """Commit verified execution outcomes and outbox records without replaying work."""
+        for path in sorted((self.root / "pending-outcomes").glob("*.json")):
+            try:
+                receipt = json.loads(path.read_text(encoding="utf-8"))
+                execution = self._find_execution(
+                    self._store.snapshot(), receipt["task_id"], receipt["remote_execution_id"]
+                )
+                if execution["state"] in {"PAUSED", "PAUSE_REQUESTED", "RECONCILIATION_REQUIRED"}:
+                    continue
+                if execution["state"] == "RUNNING" or (
+                    execution["state"] == "RESULT_UNKNOWN"
+                    and execution.get("error_code") == "AGENT_PROCESS_EXITED"
+                ):
+                    execution = self._reconcile_execution_status({
+                        **execution, "observed_executor_outcome": receipt["outcome"],
+                    })
+                if execution["state"] not in TASK_FINAL_STATES:
+                    continue
+                self.push_task_result(remote_execution_id=execution["remote_execution_id"])
+                path.replace(path.with_suffix(".done"))
+            except Exception:
+                logging.exception("回执持久化尚未完成，下轮继续: %s", path.name)
 
     def _agent_exit_outcome(self, execution: dict[str, Any]) -> dict[str, Any] | None:
         """A missing final receipt remains unknown after runner and Agent have exited."""

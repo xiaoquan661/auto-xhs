@@ -94,7 +94,7 @@
     if (["READY", "SUCCESS", "COMPLETED", "COLLECTED", "CONNECTED"].includes(state)) {
       return "good";
     }
-    if (["FAILED", "BLOCKED", "RESULT_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(state)) {
+    if (["FAILED", "PAUSED", "RESULT_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(state)) {
       return "danger";
     }
     return "warn";
@@ -137,6 +137,8 @@
         ["运营任务", task.operation_task_id],
         ["来源经理 Agent", task.manager_agent_id || task.manager_id],
         ["账号槽位", task.account_slot],
+        ["计划执行时间", task.parameters?.scheduled_at],
+        ["批次", task.parameters?.batch_index ? `${task.parameters.batch_index}/${task.parameters.batch_count}` : ""],
         ["人设快照", persona.display_name || persona.persona_id],
         ["能力", task.capability],
         ["当前阶段", execution.stage || progress.stage || label(execution.state)],
@@ -204,7 +206,7 @@
     const card = node("article", "record-card");
     const head = node("div", "record-head");
     const copy = node("div");
-    append(copy, node("strong", "", account.nickname || slot), node("small", "", slot));
+    append(copy, node("strong", "", slot), node("small", "", slot));
     append(head, copy, badge(account.health_state || account.status));
     append(
       card,
@@ -214,7 +216,7 @@
         ["Bridge", label(account.bridge_status || account.bridge?.status)],
         ["扩展", label(account.extension_status)],
         ["Profile", label(account.profile_status)],
-        ["身份", account.identity?.nickname || label(account.identity?.status)],
+        ["身份", label(account.identity?.status)],
         ["经理机备注", management.account_note || "尚未配置"],
         ["调度状态", management.scheduling_enabled === false ? "暂停调度" : "允许调度"],
         ["现场请求", fieldRequest.request_id ? label(fieldRequest.state) : "无"],
@@ -431,6 +433,9 @@
 
   function selectView(view, updateHash = true) {
     const selected = validViews.has(view) ? view : "overview";
+    const pageTitles = {overview: "员工执行", current: "当前任务", history: "执行记录",
+      outbox: "回传队列", local: "本机管理"};
+    document.title = `小红书运营 · ${pageTitles[selected]}`;
     $$('[data-worker-view]').forEach((section) => {
       section.hidden = section.dataset.workerView !== selected;
     });

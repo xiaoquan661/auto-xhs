@@ -65,7 +65,8 @@ assert.ok(followerDetails.includes("新关注读者"));
 assert.ok(followerDetails.includes("已采集"));
 assert.ok(!followerDetails.includes("主动关注对象"));
 assert.ok(!followerDetails.includes("待处理"));
-assert.ok(root.innerHTML.includes("&lt;script&gt;name&lt;/script&gt;"));
+assert.ok(root.innerHTML.includes("<h2>same-slot</h2>"));
+assert.ok(!root.innerHTML.includes("&lt;script&gt;name&lt;/script&gt;"));
 assert.ok(root.innerHTML.includes("&lt;b&gt;text&lt;/b&gt;"));
 assert.ok(!root.innerHTML.includes("Second account"));
 const metrics = panel.dailyMetrics(state.accounts[0], today);
@@ -188,7 +189,7 @@ function checkAccountUnits() {
   assert.ok(!root.innerHTML.includes("First account plan"));
   isolated.machines = [];
   units.render("QA-A:second");
-  assert.ok(root.innerHTML.includes("Second same-machine account"));
+  assert.ok(root.innerHTML.includes("<h2>second</h2>"));
   assert.ok(root.innerHTML.includes("Second inbox"));
   units.render("QA-A:deleted");
   assert.ok(root.innerHTML.includes("全部账号"));

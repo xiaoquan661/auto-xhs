@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from math import ceil
 from typing import Any
 
+from comment_receipt_review import pending_comment_attribution
 from daily_operations_plan import HARD_METRICS, remaining_budget
 from employee_operations import EmployeeOperations
 
@@ -38,9 +39,10 @@ class DailyOperationsRunner:
                     self.manager.reconcile_task(execution["task_id"])
             self.manager.collect_results(identity["machine_id"], download_evidence=True)
             linked = self.agent._linked_execution_tasks(identifier)
+        current_results = self.manager.list_results()["current_results"]
         results = [
             r
-            for r in self.manager.list_results()["current_results"]
+            for r in current_results
             if (
                 r.get("operation_task_id") or (r.get("task_request") or {}).get("operation_task_id")
             )
@@ -103,6 +105,24 @@ class DailyOperationsRunner:
                     message=execution.get("message") or result.get("message") or "",
                 )
             return status("DISPATCHED", last_action_id=request["task_id"])
+
+        pending_attribution = [
+            r["record_id"] for r in current_results
+            if r.get("machine_id") == identity["machine_id"]
+            and (r.get("account_slot") or (r.get("task_request") or {}).get("account_slot"))
+            == identity["account_slot"]
+            and pending_comment_attribution(r)
+        ]
+        if pending_attribution:
+            return status(
+                "WAITING_RECONCILIATION", pending_attribution=pending_attribution,
+                message="评论已提交，账号归属待核对，暂停后续派发",
+            )
+
+        if policy.get("dispatch_mode") == "employee_schedule":
+            from scheduled_daily_batches import advance_batches
+
+            return advance_batches(self, task, now, remaining, uncertain, linked, status)
 
         # A running action is collected before expiry is finalized.
         active = [
@@ -286,7 +306,7 @@ class DailyOperationsRunner:
                     "expected_metrics": {},
                     "write_intent": False,
                 }
-        if "collect-operations-metrics" not in done:
+        if policy.get("collect_work_metrics", False) and "collect-operations-metrics" not in done:
             return {
                 "capability": "collect-operations-metrics",
                 "parameters": {},

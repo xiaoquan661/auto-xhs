@@ -35,6 +35,23 @@ def account() -> dict:
     }
 
 
+def test_paused_account_plan_and_optional_work_metrics() -> None:
+    row = generate_account("2026-09-22", {**account(), "scheduling_enabled": False})
+    assert row["participating"] is False
+    assert set(row["metrics"].values()) == {0}
+    spec = {"strategy": normalize_policy({"process_inbound_comments": False}),
+            "budgets": {"browse": 1, "like": 0}}
+    action = DailyOperationsRunner.next_action(
+        spec, {"browse": 1, "like": 0}, Counter(), Counter(), [], set(),
+    )
+    assert action["capability"] == "home-engagement"
+    spec["strategy"]["collect_work_metrics"] = True
+    action = DailyOperationsRunner.next_action(
+        spec, {"browse": 1, "like": 0}, Counter(), Counter(), [], set(),
+    )
+    assert action["capability"] == "collect-operations-metrics"
+
+
 def manager_at(root: Path, monkeypatch: pytest.MonkeyPatch) -> ManagerService:
     manager = ManagerService(store=ManagerStore(root))
     manager.store.put("machines", "PC001", {"machine_id": "PC001"})
@@ -74,10 +91,17 @@ def request() -> dict:
     }
 
 
-def submitted(manager: ManagerService) -> dict:
+def submitted(manager: ManagerService, *, legacy: bool = True) -> dict:
     manager.save_daily_plan(request())
     result = manager.submit_daily_plan({"plan_date": "2026-09-09", "version": 1})
-    return manager.get_operation_task(result["submissions"][0]["operation_task_id"])[
+    identifier = result["submissions"][0]["operation_task_id"]
+    if legacy:
+        # These regression cases cover already persisted incremental plans.
+        def retain_incremental(row: dict) -> dict:
+            row["daily_material"]["strategy"].pop("dispatch_mode", None)
+            return row
+        manager.store.update("operation_tasks", identifier, retain_incremental)
+    return manager.get_operation_task(identifier)[
         "operation_task"
     ]
 
@@ -210,7 +234,7 @@ def test_runner_waits_dispatches_and_resumes_from_receipts(tmp_path: Path, monke
     )
     assert runner.tick(task, now)["status"] == "WAITING_SPACING"
     assert runner.tick(task, now.replace(minute=6))["status"] == "DISPATCHED"
-    assert calls[-1]["capability"] == "collect-operations-metrics"
+    assert calls[-1]["capability"] == "home-engagement"
     assert calls[-1]["parameters"]["excluded_user_ids"] == ["uid-1"]
     assert len(calls) == 2
 
@@ -460,7 +484,8 @@ def test_daily_plan_runs_through_manager_envelopes_and_collected_receipts(tmp_pa
         if outcome["status"] == "COMPLETED":
             break
     assert outcome["status"] == "COMPLETED"
-    assert len(transport.accepted) == 4
+    assert len(transport.accepted) == 3
+    assert "collect-operations-metrics" not in {r["capability"] for r in transport.accepted}
     assert all(r["parameters"]["daily_plan"]["plan_version"] == 1 for r in transport.accepted)
     assert outcome["actual"]["browse"] == 2 and outcome["actual"]["like"] == 1
     assert outcome["actual"]["comment"] == 1

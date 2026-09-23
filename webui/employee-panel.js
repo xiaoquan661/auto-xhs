@@ -41,12 +41,13 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<span title="${esc(details.join("；"))}">${number(text)}</span>`;
   };
   const key = (account) => `${account.machine_id}:${account.account_slot}`;
-  const accountName = (account) => account.nickname || account.account_slot;
+  const accountName = (account) => account.account_slot;
   const platformName = (account) => account.platform === "rednote" ? "RedNote" : "小红书";
   const machineFor = (account) => state.machines.find((machine) =>
     machine.machine_id === account.machine_id) || {machine_id: account.machine_id};
   const tone = (status) => ({READY: "good", SUCCESS: "good", COMPLETED: "good",
-    WARNING: "warn", OFFLINE: "warn", BLOCKED: "bad", FAILED: "bad"}[status] || "muted");
+    WARNING: "warn", OFFLINE: "warn", SUBMITTED_PENDING_REVIEW: "warn",
+    BLOCKED: "warn", PAUSED: "bad", FAILED: "bad"}[status] || "muted");
   const badge = (text, color = "muted") => `<span class="status-pill tone-${color}">${esc(text)}</span>`;
   const stamp = (value) => {
     if (!value) return "暂无";
@@ -146,6 +147,7 @@ window.AutoXhsEmployeePanel = function (services) {
         contentLabel: ["comment", "reply", "private_reply", "private_message"].includes(kind)
           ? "本次文本" : "内容摘要",
         status: behaviorStatus(item, kind),
+        reviewed: item.attribution_review?.status === "CONFIRMED",
         source: item.execution_source || result.execution_source || "machine",
         attributed: Boolean(item.attribution_updated_at || result.attribution_updated_at),
         ...extra,
@@ -289,6 +291,10 @@ window.AutoXhsEmployeePanel = function (services) {
       || kinds[capability] || "other";
   }
   function behaviorStatus(item, kind) {
+    if (kind === "comment" && item.comment_id && item.platform_readback === true
+      && [item.submitted, item.submission_confirmed, item.platform_submission_confirmed]
+        .some((value) => value === true) && item.identity_match === false
+      && item.attribution_review?.status !== "CONFIRMED") return "SUBMITTED_PENDING_REVIEW";
     const status = String(item.send_state || item.state || item.status || "").toUpperCase();
     if (["RESULT_UNKNOWN", "RECONCILIATION_REQUIRED", "FAILED", "BLOCKED", "SKIPPED",
       "SKIP", "NOT_SENT", "NOT_ATTEMPTED", "PENDING_MANUAL", "PENDING_LOCAL",
@@ -313,9 +319,11 @@ window.AutoXhsEmployeePanel = function (services) {
       receiptObservations(value[name]));
   }
   function behaviorResult(action) {
+    if (action.status === "SUCCESS" && action.reviewed) return "成功·用户核对";
     if (["SKIP", "SKIPPED"].includes(action.status)
       && /无待回复|没有待回复/.test(action.outcome || "")) return "无需执行";
-    const labels = {SUCCESS: "成功", FAILED: "失败", BLOCKED: "未执行", NOT_SENT: "未发送",
+    const labels = {SUCCESS: "成功", SUBMITTED_PENDING_REVIEW: "已发送·归属待核对",
+      FAILED: "失败", BLOCKED: "未执行", NOT_SENT: "未发送",
       SKIPPED: "已跳过", SKIP: "已跳过", NOT_ATTEMPTED: "未执行", NO_ACTION: "无需执行",
       NO_CHANGE: "已满足", UNKNOWN: "待核对", RESULT_UNKNOWN: "待核对",
       RECONCILIATION_REQUIRED: "待核对", PENDING_MANUAL: "待处理", PENDING_LOCAL: "待处理",
@@ -348,7 +356,7 @@ window.AutoXhsEmployeePanel = function (services) {
       data-employee-account-select="${esc(key(account))}">
       <div class="overview-node-head"><div><span>${platformName(account)} · ${esc(account.account_slot)}</span>
         <h3>${esc(accountName(account))}</h3></div>${badge(labelFor(account.health_state), tone(account.health_state))}</div>
-      <dl>${[["所属机器", machine.host_alias || machine.machine_id], ["账号人设", persona?.display_name || persona?.persona_id || "友好评论者（默认）"],
+      <dl>${[["所属机器", machine.machine_id], ["账号人设", persona?.display_name || persona?.persona_id || "友好评论者（默认）"],
         ["设备连接", labelFor(machine.ssh_state || "UNKNOWN")],
         ["当前任务", account.current_task_title || "暂无任务"]].map(([name, value]) => `<div><dt>${name}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
       <div class="overview-account-line"><span>账号 UID</span><strong>${esc(account.current_uid || account.uid || "身份待同步")}</strong></div>
@@ -397,7 +405,7 @@ window.AutoXhsEmployeePanel = function (services) {
       <section class="overview-node-panel" data-panel="accounts"><div class="overview-section-head"><div><strong>账号单元</strong>
         <span>状态颜色：绿色正常，黄色受限，红色需要人工处理</span></div><span>${state.accounts.length} 个账号</span></div>
         <div class="overview-node-grid">${state.accounts.map(accountCard).join("") || '<p class="empty-state">等待员工机账号同步</p>'}</div></section>
-      ${operationsOverview()}${todayPlanning()}${dailyReport()}
+      ${todayPlanning()}${dailyReport()}
       <div class="overview-lower-grid"><section class="panel plain-panel" data-panel="actual-summary">
         <div class="section-heading compact"><div><p class="eyebrow">今日进度</p><h2>实际动作汇总</h2></div><span>${state.accounts.length} 个账号</span></div>
         <div class="result-grid">${facts([["物理员工机", state.machines.length, `${online} 台连接正常`],
@@ -591,7 +599,7 @@ window.AutoXhsEmployeePanel = function (services) {
     const taskSummary = account.current_task_title || (receipts(account, date).length
       ? "今日执行回执已回传" : "今日执行回执待回传");
     return `<div class="daily-targets" data-panel="today-targets"><div class="daily-targets-head"><strong>今日目标 / 实际</strong><small>${esc(date)} · ${esc(taskSummary)}</small></div>
-      <div class="daily-account-snapshot"><span>今日执行账号</span><strong>${esc(account.nickname || account.account_slot)}</strong><small>Profile ${esc(uid)}</small></div>
+      <div class="daily-account-snapshot"><span>今日执行账号</span><strong>${esc(account.account_slot)}</strong><small>Profile ${esc(uid)}</small></div>
       <div class="daily-targets-table"><div class="daily-target-row daily-target-header"><span>指标</span><span>目标</span><span>实际</span><span>状态</span></div>
       ${dailyMetrics(account, date).filter((metric) => !passiveKinds.includes(metric.kind)).map((metric) => `${metric.kind === "browse" ? '<div class="daily-metric-group">主动动作</div>' : metric.kind === "reply" ? '<div class="daily-metric-group" title="员工机定时巡检执行或采集，经 Outbox 回传后展示">互动回复</div>' : ""}<div class="daily-target-row"><span${metric.execution_source === "worker_polling" ? ' title="员工机定时巡检执行或采集，经 Outbox 回传后展示"' : ""}>${metric.label}</span><span>${number(metric.target)}</span>
         <span class="daily-actual-cell"><strong>${metricActual(metric)}</strong></span>
@@ -608,7 +616,7 @@ window.AutoXhsEmployeePanel = function (services) {
       ${dates.map((date) => {
         const receipt = receipts(account, date)[0] || {};
         const identity = receipt.account_snapshot || {};
-        return `<tr><th>${date}</th><td class="history-account-cell">${esc(identity.nickname || receipt.account_name || account.account_slot)}<small>Profile ${esc(identity.uid || receipt.account_uid || "未记录")}</small></td>
+        return `<tr><th>${date}</th><td class="history-account-cell">${esc(receipt.account_slot || account.account_slot)}<small>Profile ${esc(identity.uid || receipt.account_uid || "未记录")}</small></td>
         ${dailyMetrics(account, date).filter((metric) => !passiveKinds.includes(metric.kind)).map((metric) => `<td>${number(metric.target)} / ${metricActual(metric)}</td>`).join("")}</tr>`;
       }).join("")
         || `<tr><td colspan="${metricFields.length + 2}">还没有读取到往日的任务记录。</td></tr>`}</tbody></table></div>
@@ -735,7 +743,7 @@ window.AutoXhsEmployeePanel = function (services) {
     return `<details class="machine-card tone-${tone(account.health_state)}" data-panel="employee-profile"
       data-expanded="profile:${esc(key(account))}"${open(`profile:${key(account)}`, true)}><summary class="machine-card-summary">
       <div class="machine-card-head"><div class="machine-identity"><span class="worker-icon">EMP</span><div><p>EMPLOYEE / PROFILE</p>
-        <h3>${esc(account.nickname || account.account_slot)}</h3><small>${esc(machine.machine_id)} · ${esc(account.account_slot)} · Profile ${esc(uid)}</small></div></div>
+        <h3>${esc(account.account_slot)}</h3><small>${esc(machine.machine_id)} · ${esc(account.account_slot)} · Profile ${esc(uid)}</small></div></div>
       <div class="machine-live"><i class="signal tone-${tone(machine.status)}"></i><strong>${machine.ssh_state === "ONLINE" ? "设备连接正常" : esc(labelFor(machine.ssh_state || "UNKNOWN"))}</strong>
       <small>${stamp(machine.updated_at)}</small><span class="account-status-inline">${esc(labelFor(account.health_state))}</span>
       <small class="machine-summary-activity">运营 ${number(account.operating_days)} 天 · 最后 ${last ? `${esc(last.label)} ${stamp(last.at)}` : "暂无动作"}</small></div></div></summary>

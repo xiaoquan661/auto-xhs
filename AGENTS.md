@@ -59,6 +59,11 @@ python scripts/cli.py --account brand-a fill-publish --title-file t.txt --conten
 
 ### 操作约束
 
+- 主动评论以本次提交后平台明确的“评论成功”提示确认发送成功。
+  `confirmation_source=platform_success_notice` 时保存 `platform_receipt` 和证据路径，
+  逐项回执记录成功；无需再滚动评论区寻找原文或核对评论作者 UID。
+  无明确成功提示时保留结果待核对，不重复发送。历史评论归属核对与本次发送结果分别记录。
+
 - 发布任务生成内容后直接正式发布，回读平台结果后记录成功。
 - 文件路径使用绝对路径。
 - 敏感内容通过文件传递，不内联到命令行参数。

@@ -272,7 +272,15 @@ def serve(host: str = "127.0.0.1", port: int = DEFAULT_EXECUTOR_PORT) -> None:
         (_validate_bind_host(host), port),
         make_executor_handler(service, worker_service=worker_service),
     )
-    server.serve_forever()
+    from worker_batch_scheduler import WorkerBatchScheduler
+
+    scheduler = WorkerBatchScheduler(worker_service)
+    scheduler.start()
+    try:
+        server.serve_forever()
+    finally:
+        scheduler.stop()
+        server.server_close()
 
 
 def build_parser() -> argparse.ArgumentParser:
