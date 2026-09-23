@@ -128,3 +128,85 @@ def test_bridge_transfers_large_image_response():
                     assert result["result"]["data"] == data
 
     asyncio.run(run())
+
+
+def test_frame_change_returns_new_image_without_replaying_click(tmp_path, monkeypatch):
+    monkeypatch.setattr("visual_browser.time.sleep", lambda _: None)
+    page = Page()
+    before = save_snapshot(page, tmp_path / "before.png", "alpha")
+    action = tmp_path / "action.json"
+    action.write_text(json.dumps({"action": "click", "x": 100, "y": 100, "intent": "open"}))
+
+    def changed(snapshot, action):
+        page.calls.append(action)
+        raise RuntimeError("VISUAL_FRAME_CHANGED: height")
+
+    page.visual_action = changed
+    result = act_on_snapshot(page, Path(before["snapshot_file"]), action,
+                             tmp_path / "fresh.png", "alpha")
+    assert result["status"] == "RELOCATE_REQUIRED"
+    assert result["dispatched"] is False
+    assert Path(result["image_path"]).exists()
+    assert len(page.calls) == 1
+    assert recovery_for(result, 0)["kind"] == "relocate"
+
+
+def test_dom_navigation_uses_observed_tab_and_current_target(tmp_path, monkeypatch):
+    monkeypatch.setattr("visual_browser.time.sleep", lambda _: None)
+    page = Page()
+    before = save_snapshot(page, tmp_path / "before.png", "alpha")
+    calls = []
+
+    def bridge(method, params):
+        calls.append((method, params))
+        return {"found": True}
+
+    page._call = bridge
+    action = tmp_path / "action.json"
+    action.write_text(json.dumps({"action": "click", "target_text": "草稿箱(1)",
+                                  "intent": "打开草稿"}))
+    result = act_on_snapshot(page, Path(before["snapshot_file"]), action,
+                             tmp_path / "after.png", "alpha")
+    assert result["status"] == "OBSERVATION_REQUIRED"
+    assert [c[0] for c in calls] == ["evaluate", "click_element"]
+    assert all(c[1]["_tab_id"] == 8 for c in calls)
+
+
+def test_unknown_click_is_never_relocated(tmp_path, monkeypatch):
+    monkeypatch.setattr("visual_browser.time.sleep", lambda _: None)
+    page = Page()
+    before = save_snapshot(page, tmp_path / "before.png", "alpha")
+    action = tmp_path / "action.json"
+    action.write_text(json.dumps({"action": "click", "x": 100, "y": 100, "intent": "open"}))
+
+    def unknown(snapshot, action):
+        raise RuntimeError("RESULT_UNKNOWN: VISUAL_FRAME_CHANGED")
+
+    page.visual_action = unknown
+    with pytest.raises(RuntimeError, match="RESULT_UNKNOWN"):
+        act_on_snapshot(page, Path(before["snapshot_file"]), action,
+                        tmp_path / "after.png", "alpha")
+
+
+@pytest.mark.parametrize("found,raises,expected", [
+    (False, False, "TARGET_NOT_FOUND"), (True, True, "RESULT_UNKNOWN"),
+])
+def test_dom_recovery_preserves_unresolved_results(found, raises, expected):
+    from visual_browser import _click_dom_target
+    page = Page()
+    calls = []
+
+    def bridge(method, params):
+        calls.append(method)
+        if method == "evaluate":
+            return {"found": found, "error": "目标有多个匹配"}
+        if raises:
+            raise RuntimeError("connection lost")
+        return {}
+
+    page._call = bridge
+    result = _click_dom_target(page, {"tab_id": 8, "frame": {"url": "https://example.test"}},
+                               "编辑")
+    assert result["status"] == expected
+    assert calls.count("click_element") == int(found)
+    assert result["dispatched"] == found

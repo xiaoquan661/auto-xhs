@@ -12,6 +12,40 @@ from typing import Any
 from xhs.errors import XHSError
 
 
+def _click_dom_target(page: Any, snapshot: dict, target_text: str) -> dict:
+    """Resolve one visible navigation target in the observed tab, then click it."""
+    if target_text.strip() in {"发布", "发送", "提交", "确认发布"}:
+        raise XHSError("业务提交请使用对应业务命令完成确认与回读")
+    expression = """(() => {
+        if (location.href !== URL) return {error: '页面地址已变化，请重新观察'};
+        const visible = el => {const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';};
+        const nodes = [...document.querySelectorAll('body *')].filter(el => visible(el)
+            && (el.innerText || '').trim() === TEXT
+            && ![...el.children].some(c => visible(c) && (c.innerText || '').trim() === TEXT));
+        if (nodes.length !== 1) return {error: '当前DOM未找到唯一目标', count: nodes.length};
+        document.querySelectorAll('[data-xhs-recovery-target]').forEach(el =>
+            el.removeAttribute('data-xhs-recovery-target'));
+        nodes[0].setAttribute('data-xhs-recovery-target', 'current');
+        return {found: true};
+    })()""".replace("URL", json.dumps(snapshot["frame"].get("url"))).replace(
+        "TEXT", json.dumps(target_text, ensure_ascii=False)
+    )
+    target = {"_tab_id": snapshot["tab_id"]}
+    found = page._call("evaluate", {**target, "expression": expression})
+    if not found.get("found"):
+        return {"success": False, "status": "TARGET_NOT_FOUND", "dispatched": False,
+                "error": found.get("error"), "next_action": "观察当前DOM和截图，明确唯一目标"}
+    try:
+        page._call("click_element", {
+            **target, "selector": '[data-xhs-recovery-target="current"]',
+        })
+    except Exception as exc:
+        return {"success": False, "status": "RESULT_UNKNOWN", "dispatched": True,
+                "error": str(exc), "next_action": "先截图核对本次点击结果，保持当前步骤"}
+    return {"dispatched": True, "target_text": target_text, "source": "current_dom"}
+
+
 def save_snapshot(page: Any, destination: Path, account: str, tab_id: int | None = None) -> dict:
     if not destination.is_absolute() or destination.suffix.lower() != ".png":
         raise XHSError("截图输出需要 PNG 绝对路径")
@@ -64,7 +98,7 @@ def act_on_snapshot(
     if action.get("action") not in {"click", "scroll", "type", "key"}:
         raise XHSError("视觉操作支持 click、scroll、type、key")
     # Agent coordinates refer to the original PNG pixels; CDP uses CSS viewport pixels.
-    if action["action"] in {"click", "scroll"}:
+    if action["action"] in {"click", "scroll"} and not action.get("target_text"):
         action = {
             **action,
             "x": float(action["x"]) * snapshot["frame"]["width"] / snapshot["image_width"],
@@ -72,7 +106,23 @@ def act_on_snapshot(
         }
     if action["action"] == "type":
         action["text"] = Path(action["text_file"]).read_text(encoding="utf-8")
-    result = page.visual_action(snapshot, action)
+    if action["action"] == "click" and action.get("target_text"):
+        result = _click_dom_target(page, snapshot, action["target_text"])
+        if result.get("success") is False:
+            return result
+    else:
+        try:
+            result = page.visual_action(snapshot, action)
+        except Exception as exc:
+            if "VISUAL_FRAME_CHANGED" not in str(exc) or "RESULT_UNKNOWN" in str(exc):
+                raise
+            after = save_snapshot(page, destination, account, snapshot["tab_id"])
+            return {
+                **after, "success": False, "status": "RELOCATE_REQUIRED",
+                "dispatched": False, "error_code": "VISUAL_FRAME_CHANGED",
+                "next_action": "使用view_image读取新截图，重新定位后用新步骤文件继续；"
+                "连续视口变化时，导航点击使用target_text精确匹配当前DOM；业务提交走专用命令",
+            }
     try:
         after = save_snapshot(page, destination, account, snapshot["tab_id"])
     except Exception as exc:

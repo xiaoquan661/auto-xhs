@@ -59,6 +59,10 @@ python scripts/cli.py --account brand-a fill-publish --title-file t.txt --conten
 
 ### 操作约束
 
+- 视觉点击前视口变化时，使用入口返回的新截图重新识别目标，以新步骤文件继续。
+  再次变化时，导航与草稿编辑使用 browser-action 的 target_text 匹配当前 DOM 唯一目标。
+  点击已发出或结果未知时先核对原动作；发布、评论等提交使用业务专用入口。
+
 - 主动评论以本次提交后平台明确的“评论成功”提示确认发送成功。
   `confirmation_source=platform_success_notice` 时保存 `platform_receipt` 和证据路径，
   逐项回执记录成功；无需再滚动评论区寻找原文或核对评论作者 UID。
