@@ -315,6 +315,7 @@ function checkFleetOverview() {
   for (const name of ["fleet-actions", "operational-tasks", "daily-report", "actual-summary", "alerts"]) {
     assert.ok(root.innerHTML.includes(`data-panel="${name}"`), name);
   }
+  assert.ok(root.innerHTML.includes('href="#workers"'));
   assert.ok(root.innerHTML.includes("当日总动作：2"));
   assert.ok(root.innerHTML.includes("今日计划复盘"));
   assert.ok(!root.innerHTML.includes("明日任务规划"));

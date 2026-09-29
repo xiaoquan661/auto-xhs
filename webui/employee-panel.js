@@ -407,7 +407,7 @@ window.AutoXhsEmployeePanel = function (services) {
       ${fleetActions()}${operationalTasks()}
       <section class="overview-node-panel" data-panel="accounts"><div class="overview-section-head"><div><strong>机器与账号 · 账号单元</strong>
         <span>状态颜色：绿色可调度，黄色阻塞，红色暂停或异常</span></div><span>${state.accounts.length} 个账号</span></div>
-        <div class="overview-register"><button type="button" data-manager-view-link="workers">＋ 登记员工机</button><small>进入员工机管理，使用现有机器配置入口。</small></div>
+        <div class="overview-register"><a href="#workers">＋ 登记员工机</a><small>进入员工机管理，使用现有机器配置入口。</small></div>
         <div class="overview-node-grid">${state.accounts.map(accountCard).join("") || '<p class="empty-state">等待员工机账号同步</p>'}</div></section>
       ${dailyReport()}
       <details class="history-details" data-expanded="overview-today"${open("overview-today")}>
