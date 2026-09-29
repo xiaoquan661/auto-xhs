@@ -2901,7 +2901,10 @@
     document.title = "小红书运营" + (pageTitles[next] ? ` · ${pageTitles[next]}` : "");
     $(".control-room").dataset.currentView = next;
     if (state.available) renderAll();
-    else renderMachineNavigation();
+    else {
+      renderMachineNavigation();
+      if (next === "employee-units") employeePanel?.render(selectedEmployeeAccount);
+    }
     if (["results", "settings"].includes(next)) void loadDashboardDetails();
     localStorage.setItem(VIEW_STORAGE_KEY, next);
     document.querySelectorAll("[data-manager-view]").forEach((view) => {
