@@ -22,6 +22,15 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
     if scheduled and now < datetime.fromisoformat(scheduled):
         return "WAITING", f"等待计划时间 {scheduled}"
     by_task = {e["task_id"]: e for e in state["executions"].values()}
+    predecessor = params.get("machine_predecessor_task_id")
+    if predecessor:
+        previous = by_task.get(predecessor)
+        if not previous or previous["state"] not in FINAL:
+            return "WAITING", "等待本机上一任务结束"
+        if previous.get("finished_at") and now < datetime.fromisoformat(
+            previous["finished_at"]
+        ) + timedelta(seconds=params.get("batch_interval_seconds", 300)):
+            return "WAITING", "等待本机任务间隔"
     for key in params.get("depends_on_task_ids", []):
         previous = by_task.get(key)
         if not previous or previous["state"] not in FINAL:
@@ -34,17 +43,43 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
         ):
             return "WAITING", "等待批间隔"
     slot = execution["task"].get("account_slot")
-    order = (scheduled or execution["accepted_at"], execution["accepted_at"])
+    order = tuple(datetime.fromisoformat(value) for value in (
+        scheduled or execution["accepted_at"], execution["accepted_at"],
+    ))
     for other in state["executions"].values():
         if other["remote_execution_id"] == execution["remote_execution_id"]:
             continue
-        if other["task"].get("account_slot") != slot or other["state"] in FINAL:
+        if other["state"] in FINAL:
+            continue
+        if other["task"].get("account_slot") != slot and not params.get("machine_serial"):
             continue
         other_params = other["task"].get("parameters") or {}
-        other_order = (
+        # Delivery order must not make a dependent batch block its own predecessor.
+        pending = [other["task_id"]]
+        seen = set()
+        depends_on_current = False
+        while pending:
+            task_id = pending.pop()
+            if task_id in seen:
+                continue
+            seen.add(task_id)
+            row = by_task.get(task_id)
+            if not row:
+                continue
+            links = row["task"].get("parameters") or {}
+            dependencies = list(links.get("depends_on_task_ids") or [])
+            if links.get("machine_predecessor_task_id"):
+                dependencies.append(links["machine_predecessor_task_id"])
+            if execution["task_id"] in dependencies:
+                depends_on_current = True
+                break
+            pending.extend(dependencies)
+        if depends_on_current and other["state"] != "RUNNING":
+            continue
+        other_order = tuple(datetime.fromisoformat(value) for value in (
             other_params.get("scheduled_at") or other["accepted_at"],
             other["accepted_at"],
-        )
+        ))
         if other["state"] == "RUNNING" or other_order < order:
             return "WAITING", "等待同账号任务完成"
     return "READY", "计划已到点，等待员工 Agent 领取"

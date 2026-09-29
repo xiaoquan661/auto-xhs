@@ -1167,6 +1167,9 @@ def test_status_revises_unknown_result_from_local_operation_event(monkeypatch, t
         service._append_result(state, execution)
 
     service._store.mutate(mark_unknown)
+    receipt = service._store.snapshot()["results"][-1]
+    assert receipt["account_slot"] == "alpha"
+    assert receipt["capability"] == "search-feeds"
 
     def local_request(method: str, path: str, _body=None, *, token: str = "") -> dict:
         if path == "/session":

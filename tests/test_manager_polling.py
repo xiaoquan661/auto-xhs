@@ -12,6 +12,23 @@ from service_errors import ServiceError
 from web_server import _dispatch_manager_api, _dispatch_manager_mutation
 
 
+def test_manager_initialization_reads_polling_without_state_lock(tmp_path, monkeypatch):
+    store = ManagerStore(tmp_path)
+    original_get = store.get
+    store.put("settings", "polling", {"intervals": {"health_accounts_seconds": 900}})
+
+    def busy_get(collection, item_id):
+        if collection == "settings" and item_id == "polling":
+            raise TimeoutError("经理机数据正在被其他进程使用")
+        return original_get(collection, item_id)
+
+    monkeypatch.setattr(store, "get", busy_get)
+
+    manager = ManagerService(store=store)
+
+    assert manager.polling_settings["health_accounts_seconds"] == 900
+
+
 def test_polling_defaults_persistence_api_and_runtime(tmp_path):
     store = ManagerStore(tmp_path)
     manager = ManagerService(store=store)

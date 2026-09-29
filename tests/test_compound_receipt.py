@@ -187,4 +187,4 @@ def test_interrupted_home_session_is_unresolved():
     assert metrics["browse"]["actual"] is None
     assert metrics["browse"]["status"] == "执行结果待核对"
     assert metrics["like"]["status"] == "执行结果待核对"
-    assert metrics["comment"]["status"] == "任务已结束 · 未提供逐项结果"
+    assert metrics["comment"]["status"] == "等待回执"

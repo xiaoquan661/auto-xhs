@@ -245,7 +245,8 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
 
     # Read the closed shadow button's layout and click it in one debugger session.
     click_result = page.click_publish_control()
-    if click_result.get("dispatched") is False:
+    if (click_result.get("dispatched") is False
+            and click_result.get("error_code") != "EXTENSION_RELOAD_REQUIRED"):
         logger.warning("发布尚未派发，重新定位按钮: %s", click_result)
         time.sleep(0.5)
         click_result = page.click_publish_control()
@@ -256,9 +257,12 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
         error.result_unknown = click_result.get("dispatched") is not False
         error.click_result = click_result
         if not error.result_unknown:
-            error.code = "PUBLISH_NOT_DISPATCHED"
+            error.code = click_result.get("error_code") or "PUBLISH_NOT_DISPATCHED"
         raise error
-    logger.info("已原生点击正式发布按钮: %s", click_result)
+    if (click_result.get("button_click") or {}).get("received"):
+        logger.info("正式发布按钮已收到原生点击: %s", click_result)
+    else:
+        logger.warning("发布鼠标事件已派发，按钮点击回执缺失，继续核对平台结果: %s", click_result)
 
     # 3) 轮询等待平台成功响应、成功提示或笔记管理页回读（15s 超时）。
     deadline = time.monotonic() + 15

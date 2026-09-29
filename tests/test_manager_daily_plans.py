@@ -135,6 +135,27 @@ def test_uncertain_account_action_is_not_retried(tmp_path: Path, monkeypatch) ->
     assert manager.store.get("accounts", "PC001:alpha") is not None
 
 
+def test_account_lifecycle_reads_machine_without_manager_write_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path)
+    original_get = manager.store.get
+
+    def busy_machine_get(collection: str, item_id: str) -> dict | None:
+        if collection == "machines":
+            raise TimeoutError("经理机数据正在被其他进程使用")
+        return original_get(collection, item_id)
+
+    monkeypatch.setattr(manager.store, "get", busy_machine_get)
+
+    result = manager.manage_remote_account("PC001", {"action": "profiles", "account": ""})
+
+    assert result["success"] is True
+    assert manager.transport.calls == [
+        ("PC001", "account-lifecycle", {"action": "profiles", "account": ""})
+    ]
+
+
 @pytest.mark.parametrize(
     "action,method,suffix",
     [

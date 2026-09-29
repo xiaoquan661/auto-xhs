@@ -518,6 +518,7 @@ def cmd_home_engagement(args: argparse.Namespace) -> None:
             duration_seconds=args.duration_minutes * 60,
             min_read_seconds=args.min_read_seconds,
             max_read_seconds=args.max_read_seconds,
+            excluded_feed_ids=getattr(args, "exclude_feed_id", None) or [],
             pacing_path=account_dir(args.account) / "engagement-pacing.json",
             checkpoint_path=(
                 Path(os.environ["XHS_EXECUTION_TRACE_FILE"]).with_suffix(".progress.json")
@@ -2249,6 +2250,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--duration-minutes", type=int, default=10, help="最长执行分钟数")
     sub.add_argument("--min-read-seconds", type=float, default=15, help="单篇最短阅读秒数")
     sub.add_argument("--max-read-seconds", type=float, default=45, help="单篇最长阅读秒数")
+    sub.add_argument("--exclude-feed-id", action="append", default=[],
+                     help="排除已浏览笔记ID，可重复传入")
     sub.set_defaults(func=cmd_home_engagement)
 
     # get-feed-detail

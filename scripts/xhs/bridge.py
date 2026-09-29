@@ -314,7 +314,20 @@ class BridgePage:
 
     def click_publish_control(self) -> dict:
         """Click the actual publish button through the browser's native input path."""
-        return self._call("click_publish_control")
+        manifest = Path(__file__).resolve().parents[2] / "extension" / "manifest.json"
+        expected_version = json.loads(manifest.read_text(encoding="utf-8"))["version"]
+        status = self.get_server_status() or {}
+        extension = status.get("extension") or {}
+        loaded_version = extension.get("extension_version")
+        if loaded_version != expected_version:
+            return {
+                "dispatched": False,
+                "error_code": "EXTENSION_RELOAD_REQUIRED",
+                "reason": "当前 Profile 的扩展版本与项目版本不一致，请重新加载扩展",
+                "loaded_version": loaded_version,
+                "expected_version": expected_version,
+            }
+        return self._call("click_publish_control", {})
 
     def visual_snapshot(self, tab_id: int | None = None) -> dict:
         return self._call("visual_snapshot", {"_tab_id": tab_id})

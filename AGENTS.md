@@ -69,6 +69,7 @@ python scripts/cli.py --account brand-a fill-publish --title-file t.txt --conten
   无明确成功提示时保留结果待核对，不重复发送。历史评论归属核对与本次发送结果分别记录。
 
 - 发布任务生成内容后直接正式发布，回读平台结果后记录成功。
+- 每次修改扩展可执行文件时同步递增 `extension/manifest.json` 的版本号；部署后以目标 Chrome Profile 的 Bridge 回报版本为准，重载并核对后才执行发布。经理机负责下发与回收，正式发布由员工机任务执行并写入 outbox。
 - 文件路径使用绝对路径。
 - 敏感内容通过文件传递，不内联到命令行参数。
 - 小红书操作统一使用本项目执行链。

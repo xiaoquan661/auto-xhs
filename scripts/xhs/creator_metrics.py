@@ -78,6 +78,18 @@ def collect_creator_metrics(
         if attempt < 19:
             time.sleep(1)
     if not notes:
+        empty_inventory = page.evaluate("""(() => {
+            const text = document.body.innerText;
+            return /全部\\s*0(?:\\s|$)/.test(text)
+                && text.includes('没有找到相关笔记');
+        })()""")
+        if empty_inventory and not targets:
+            return {
+                "captured_at": datetime.now(UTC).isoformat(), "source": "creator_manager",
+                "notes": [], "count": 0, "missing_note_ids": [],
+                "incomplete_note_ids": [], "partial": False,
+                "history_coverage": "visible_notes", "inventory_complete": True,
+            }
         raise XHSError("笔记管理未返回可读取的作品，运营数据保持待更新")
     selected = [note for key, note in notes.items() if not targets or key in targets][:max_notes]
     missing = sorted(targets - {note["entity_id"] for note in selected})

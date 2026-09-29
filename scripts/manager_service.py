@@ -844,7 +844,11 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
     def manage_remote_account(self, machine_id: str, request: dict) -> dict:
         """Forward account lifecycle controls to the selected worker's local service."""
-        machine = self._get_machine(machine_id)
+        machine = self.store.read_view(copy_on_read=False).get(
+            "machines", str(machine_id).strip().upper()
+        )
+        if machine is None:
+            raise ServiceError("MACHINE_NOT_FOUND", "执行机未注册", 404)
         try:
             response = self.transport.invoke(
                 machine, "account-lifecycle", request, timeout_seconds=90
@@ -5072,7 +5076,11 @@ class ManagerService(ManagerMemory, ManagerPolling):
                          or str(item.get("status") or "").upper() == "SUCCESS")
                 )
                 if (str(browse.get("status") or "").lower() == "success"
-                        or (flat_success and item.get("browsed") is True)):
+                        or (flat_success and (
+                            item.get("browsed") is True
+                            or item.get("browse_success") is True
+                            or str(item.get("browse_status") or "").lower() == "success"
+                        ))):
                     browsed += 1
                 like = item.get("like") if isinstance(item.get("like"), dict) else {}
                 if (
