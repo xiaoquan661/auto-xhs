@@ -16,7 +16,13 @@ function harness(disabled = false, text = '\u53d1\u5e03', scale = 1, moved = fal
   const context = vm.createContext({
     getOrOpenPlatformTab: async id => ({id: id ?? 57}),
     sleep: async () => {},
-    _dispatchRealClickAt: async (target, x, y) => calls.push(['native', target.tabId, x, y]),
+    _dispatchRealClickAt: async (target, x, y) => {
+      calls.push(['native', target.tabId, x, y]);
+      await context.chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
+        {type:'mousePressed', x, y, button:'left', buttons:1});
+      await context.chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
+        {type:'mouseReleased', x, y, button:'left', buttons:0});
+    },
     chrome: { debugger: {
       attach: async () => calls.push(['attach']), detach: async () => calls.push(['detach']),
       sendCommand: async (_, method, params) => {
@@ -30,6 +36,10 @@ function harness(disabled = false, text = '\u53d1\u5e03', scale = 1, moved = fal
           const n=calls.filter(c=>c[0]==='Runtime.callFunctionOn' && c[1].returnByValue).length;
           return {result:{value:{x:790,y:n===1?630:(moved && n>5?550:540),width:180,height:60,viewportHeight:585}}};
         }
+        if (method === 'Runtime.evaluate' && params.expression?.includes('NativeEvents'))
+          return {result:{value:[{type:'click',trusted:true}]}};
+        if (method === 'Runtime.evaluate' && params.expression?.includes('PageEvents'))
+          return {result:{value:[{type:'click',trusted:true,target:'BUTTON'}]}};
         if (method === 'Runtime.evaluate') return {result:{value:{received:true,trusted:true}}};
         return {};
       }
@@ -47,7 +57,9 @@ test('clicks the actual closed-shadow publish button after measuring its current
   const press = h.calls.find(c => c[0] === 'Input.dispatchMouseEvent' && c[1].type === 'mousePressed');
   assert.equal(press[1].x,790);
   assert.equal(press[1].y,540);
-  assert.equal(h.calls.some(c => c[0] === 'native'),false);
+  assert.equal(h.calls.some(c => c[0] === 'native'),true);
+  assert.equal(h.calls.some(c => c[0] === 'Page.bringToFront'),true);
+  assert.equal(r.page_events[0].type,'click');
   const lastMove = h.calls.findLastIndex(c => c[0] === 'Input.dispatchMouseEvent' && c[1].type === 'mouseMoved');
   assert.ok(h.calls.slice(lastMove + 1).some(c => c[0] === 'Runtime.callFunctionOn' && c[1].functionDeclaration.includes('isConnected')));
   assert.equal(h.calls.at(-1)[0], 'detach');

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "XHS / RedNote Bridge",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "小红书与 RedNote 多账号通用 Bridge - 每个 Chrome Profile 连接一个平台账号槽位",
   "permissions": [
     "tabs",
