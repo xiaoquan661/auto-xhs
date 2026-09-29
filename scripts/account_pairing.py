@@ -21,6 +21,8 @@ from account_manager import (
     revoke_extension_instance,
     validate_account_name,
 )
+from json_io import atomic_write_json as _atomic_write_json
+from json_io import read_optional_json as _read_optional_json
 
 PAIRING_SCHEMA_VERSION = 1
 PAIRING_BUNDLE_PREFIX = "xhs-pair-v1:"
@@ -212,23 +214,3 @@ def _parse_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
-
-
-def _read_optional_json(path: Path) -> dict | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    if not isinstance(data, dict):
-        raise ValueError(f"JSON 文件内容必须是对象: {path}")
-    return data
-
-
-def _atomic_write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)

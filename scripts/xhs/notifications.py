@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from collection_coverage import collection_window
 from metric_temporality import display_date, event_day
+from time_utils import epoch_to_iso as _epoch_to_iso
 
 from .human import sleep_random
 from .urls import NOTIFICATION_URL
@@ -577,10 +578,3 @@ def _wait_for_submission_ack(page, content: str, timeout: float = 8.0) -> str:
             return result
         time.sleep(0.25)
     return ""
-
-
-def _epoch_to_iso(value: int) -> str:
-    if not value:
-        return ""
-    seconds = value / 1000 if value > 10_000_000_000 else value
-    return datetime.fromtimestamp(seconds, UTC).isoformat()

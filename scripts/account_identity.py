@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 from account_manager import account_dir, load_account, validate_account_name
+from json_io import atomic_write_json as _atomic_write_json
+from json_io import read_optional_json as _read_optional_json
 from platforms import (
     DEFAULT_PLATFORM,
     get_platform_spec,
@@ -371,26 +372,6 @@ def _account_platform(account: str) -> str:
         return normalize_platform(load_account(account).platform)
     except FileNotFoundError:
         return DEFAULT_PLATFORM
-
-
-def _read_optional_json(path: Path) -> dict | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    if not isinstance(data, dict):
-        raise ValueError(f"JSON 文件内容必须是对象: {path}")
-    return data
-
-
-def _atomic_write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
 
 
 def _append_json_line(path: Path, payload: dict) -> None:
