@@ -22,6 +22,8 @@ window.AutoXhsEmployeePanel = function (services) {
   const expanded = new Map();
   let selected = "";
   let renderedSelection = null;
+  const overviewFilter = {range: "today", start: "", end: "", task: "all", machine: "", search: ""};
+  const fleetFields = metricFields.filter(([kind]) => !passiveKinds.includes(kind));
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g,
     (char) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[char]));
   const number = (value) => value === null || value === undefined ? "—" : esc(value);
@@ -398,22 +400,120 @@ window.AutoXhsEmployeePanel = function (services) {
     const metrics = state.accounts.flatMap((account) => workerDayMetrics(account.machine_id, account.account_slot, today));
     const actual = metrics.filter((item) => overviewKinds.includes(item.kind) && item.actual != null);
     return `<div class="workspace-overview"><div class="workspace-heading"><div><p class="eyebrow">经理机管理面板</p>
-      <h2>全部账号</h2><p class="plain-help">每个账号独立展示运营计划与执行结果，机器标明账号所属设备。</p></div>${badge("实时只读")}</div>
+      <h2>全部账号 · 运营总览</h2><p class="plain-help">汇总员工机动作、运营任务和账号状态，点击卡片查看账号详情。</p></div>${badge("实时只读")}</div>
       <div class="overview-summary">${facts([["账号单元", state.accounts.length, "每个账号一个运营单元"],
         ["今日已记录动作", actual.length ? actual.reduce((sum, r) => sum + r.actual, 0) : null, "来自员工机回执"],
         ["所属机器", state.machines.length, `${online} 台设备连接正常`], ["需要查看", alerts.length, "告警和待处理项"]])}</div>
-      <section class="overview-node-panel" data-panel="accounts"><div class="overview-section-head"><div><strong>账号单元</strong>
-        <span>状态颜色：绿色正常，黄色受限，红色需要人工处理</span></div><span>${state.accounts.length} 个账号</span></div>
+      ${fleetActions()}${operationalTasks()}
+      <section class="overview-node-panel" data-panel="accounts"><div class="overview-section-head"><div><strong>机器与账号 · 账号单元</strong>
+        <span>状态颜色：绿色可调度，黄色阻塞，红色暂停或异常</span></div><span>${state.accounts.length} 个账号</span></div>
+        <div class="overview-register"><button type="button" data-manager-view-link="workers">＋ 登记员工机</button><small>进入员工机管理，使用现有机器配置入口。</small></div>
         <div class="overview-node-grid">${state.accounts.map(accountCard).join("") || '<p class="empty-state">等待员工机账号同步</p>'}</div></section>
-      ${todayPlanning()}${dailyReport()}
+      ${dailyReport()}
+      <details class="history-details" data-expanded="overview-today"${open("overview-today")}>
+        <summary>今日计划复盘</summary>${todayPlanning()}</details>
       <div class="overview-lower-grid"><section class="panel plain-panel" data-panel="actual-summary">
         <div class="section-heading compact"><div><p class="eyebrow">今日进度</p><h2>实际动作汇总</h2></div><span>${state.accounts.length} 个账号</span></div>
-        <div class="result-grid">${facts([["物理员工机", state.machines.length, `${online} 台连接正常`],
-          ["需要人工查看", alerts.length, "员工机上报后仍未处理的异常"],
-          ["尚未绑定账号", state.machines.filter((machine) => !state.accounts.some((a) => a.machine_id === machine.machine_id)).length, "员工机账号绑定情况"]]).replaceAll("<div>", '<div class="result-item">')}</div></section>
+        <div class="result-grid">${facts(fleetFields.map(([kind, label]) => {
+          const values = state.accounts.map((account) => dailyMetrics(account, today).find((m) => m.kind === kind)?.actual);
+          return [label, sumObserved(values), "今日员工机回执"];
+        })).replaceAll("<div>", '<div class="result-item">')}</div></section>
       <section class="panel plain-panel" data-panel="alerts"><div class="section-heading compact"><div><p class="eyebrow">需要查看</p><h2>告警与提醒</h2></div><span>${alerts.length} 条</span></div>
         <div class="alert-list">${alerts.slice(0, 6).map((alert) => `<article class="alert-row"><span>${esc(labelFor(alert.state))}</span><div><strong>${esc(alert.title)}</strong><small>${esc(alert.object)} · ${esc(alert.message)}</small></div></article>`).join("")
           || '<p class="empty-state">现在没有未关闭告警</p>'}</div></section></div></div>`;
+  }
+
+  function sumObserved(values) {
+    const observed = values.filter((value) => value != null);
+    return observed.length ? observed.reduce((sum, value) => sum + Number(value), 0) : null;
+  }
+
+  function fleetDates() {
+    const today = localDateValue(new Date());
+    const offset = (days) => {
+      const date = new Date(`${today}T12:00:00+08:00`);
+      date.setDate(date.getDate() - days);
+      return localDateValue(date);
+    };
+    const start = overviewFilter.range === "custom" ? overviewFilter.start || today
+      : offset(overviewFilter.range === "week" ? 6 : overviewFilter.range === "yesterday" ? 1 : 0);
+    const end = overviewFilter.range === "custom" ? overviewFilter.end || today
+      : overviewFilter.range === "yesterday" ? offset(1) : today;
+    return {start, end, dates: [...new Set([today, start, end,
+      ...(state.employeeSummary?.daily_metrics || []).map((row) => row.date),
+      ...state.results.map(resultDate), ...state.tasks.map(workerTaskDate)])]
+      .filter((date) => date && date >= start && date <= end).sort()};
+  }
+
+  function fleetRows() {
+    const {dates} = fleetDates();
+    const accounts = new Map(state.accounts.map((account) => [key(account), account]));
+    (state.employeeSummary?.daily_metrics || []).forEach((row) => accounts.set(key(row), accounts.get(key(row)) || row));
+    state.results.forEach((row) => {
+      const account = {machine_id: row.machine_id, account_slot: resultAccount(row)};
+      if (account.machine_id && account.account_slot && !accounts.has(key(account))) accounts.set(key(account), account);
+    });
+    return [...accounts.values()].map((account) => {
+      const metrics = dates.flatMap((date) => dailyMetrics(account, date));
+      const values = fleetFields.map(([kind]) => sumObserved(metrics.filter((m) => m.kind === kind).map((m) => m.actual)));
+      const total = sumObserved(values.filter((_, i) => fleetFields[i][0] !== "browse"));
+      return {account, values, total};
+    });
+  }
+
+  function fleetActions() {
+    const rows = fleetRows();
+    const {start, end} = fleetDates();
+    const values = fleetFields.map((_, i) => sumObserved(rows.map((row) => row.values[i])));
+    const total = sumObserved(rows.map((row) => row.total));
+    const ranges = [["today", "当日"], ["yesterday", "昨日"], ["week", "过去一周"], ["custom", "自定义"]];
+    return `<section class="panel fleet-action-panel" data-panel="fleet-actions">
+      <div class="fleet-action-heading"><div><p class="eyebrow">全部机器动作</p>
+        <h2>${ranges.find(([id]) => id === overviewFilter.range)[1]}总动作：${number(total)}</h2>
+        <p>${esc(start)} 至 ${esc(end)} · ${new Set(rows.filter((row) => row.total > 0).map((row) => row.account.machine_id)).size} 台机器产生动作</p></div>
+        <div class="action-range-controls" aria-label="动作统计日期范围">${ranges.map(([id, label]) =>
+          `<button type="button" data-overview-range="${id}" class="${id === overviewFilter.range ? "is-active" : ""}" aria-pressed="${id === overviewFilter.range}">${label}</button>`).join("")}</div></div>
+      ${overviewFilter.range === "custom" ? `<div class="action-custom-range"><label>开始日期<input type="date" data-overview-start value="${esc(start)}"></label><label>结束日期<input type="date" data-overview-end value="${esc(end)}"></label></div>` : ""}
+      <div class="fleet-action-metrics"><div class="fleet-action-total"><span>总动作</span><strong>${number(total)}</strong><small>已回传的外部动作</small></div>
+        ${facts(fleetFields.map(([, label], i) => [label, values[i]]))}</div>
+      <div class="fleet-action-table-wrap"><table class="fleet-action-table"><thead><tr><th>机器 / 账号槽位</th><th>总动作</th>${fleetFields.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(({account, total: count, values: counts}) => `<tr><th><button type="button" data-employee-account-select="${esc(key(account))}">${esc(account.machine_id)} / ${esc(account.account_slot)}</button></th><td>${number(count)}</td>${counts.map((value) => `<td>${number(value)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${fleetFields.length + 2}">等待员工机回执</td></tr>`}</tbody></table></div>
+      <small class="fleet-action-footnote">汇总已回传数据；“—”表示尚无记录，部分回传时总数仍会更新。浏览单独展示，不计入外部动作总数。</small></section>`;
+  }
+
+  function taskGroup(task) {
+    const status = task.business_state || task.state || task.dispatch_state || "UNKNOWN";
+    if (["RUNNING", "EXECUTING"].includes(status)) return "running";
+    if (["PENDING", "PENDING_DISPATCH", "QUEUED", "DISPATCHED", "TASK_ACK", "ACCEPTED", "ACKNOWLEDGED"].includes(status)) return "waiting";
+    if (["BLOCKED", "PAUSED", "RESULT_UNKNOWN", "PENDING_MANUAL"].includes(status)) return "blocked";
+    if (["SUCCESS", "COMPLETED", "FAILED", "CANCELLED", "SKIPPED", "PARTIAL_SUCCESS"].includes(status)) return "finished";
+    return "unknown";
+  }
+
+  function operationalTasks() {
+    const tasks = state.tasks;
+    const groups = [["all", "全部"], ["running", "执行中"], ["waiting", "等待中"], ["blocked", "阻断"], ["finished", "已终态"]];
+    const filtered = tasks.filter((task) => (overviewFilter.task === "all" || taskGroup(task) === overviewFilter.task)
+      && (!overviewFilter.machine || task.machine_id === overviewFilter.machine)
+      && [task.task_id, task.machine_id, task.request?.account_slot, task.request?.title, task.request?.capability]
+        .join(" ").toLowerCase().includes(overviewFilter.search.toLowerCase()));
+    return `<section class="panel operational-task-panel" data-panel="operational-tasks"><div class="operational-task-heading">
+      <div><p class="eyebrow">运营任务</p><h2>任务、执行状态与动作结果总表</h2><p>展示经理端已同步任务与回执。</p></div><strong>${filtered.length} / ${tasks.length}</strong></div>
+      <div class="operational-task-controls"><div class="operational-task-tabs">${groups.map(([id, label]) => `<button type="button" data-overview-task="${id}" class="${id === overviewFilter.task ? "is-active" : ""}" aria-pressed="${id === overviewFilter.task}">${label} ${tasks.filter((task) => id === "all" || taskGroup(task) === id).length}</button>`).join("")}</div>
+      <div class="operational-task-search"><select data-overview-machine aria-label="按机器筛选">${options([["", "全部机器"], ...[...new Set([...state.machines.map((m) => m.machine_id), ...tasks.map((t) => t.machine_id)])].filter(Boolean).map((id) => [id, id])], overviewFilter.machine)}</select>
+        <input type="search" data-overview-search aria-label="搜索运营任务" placeholder="搜索任务 / 账号槽位" value="${esc(overviewFilter.search)}"></div></div>
+      <div class="operational-task-table-wrap"><table class="operational-task-table"><thead><tr><th>日期 / 机器</th><th>任务标识</th><th>执行状态</th><th>动作预算</th><th>实际结果</th><th>异常 / 短缺</th></tr></thead>
+      <tbody>${filtered.map((task) => {
+        const receipt = state.results.find((row) => row.task_id === task.task_id && row.machine_id === task.machine_id);
+        const status = task.business_state || task.state || task.dispatch_state || "UNKNOWN";
+        const target = task.request?.metrics || task.request?.payload?.metrics;
+        const budget = target ? fleetFields.filter(([kind]) => target[kind] != null).map(([kind, label]) => `${label} ${target[kind]}`).join(" · ") : "";
+        return `<tr><td>${esc(workerTaskDate(task) || "日期待回传")}<small>${esc(task.machine_id)} / ${esc(task.request?.account_slot || "—")}</small></td>
+          <td>${esc(task.request?.title || task.request?.capability || "运营任务")}<small>${esc(task.task_id)}</small></td>
+          <td>${badge(labelFor(status), tone(status))}</td><td>${esc(budget || "—")}</td>
+          <td>${esc(receipt?.summary || task.result_summary || (receipt ? labelFor(receipt.business_state || receipt.state || "UNKNOWN") : "等待回执"))}</td>
+          <td>${esc(task.blocked_reason || task.error?.message || "—")}</td></tr>`;
+      }).join("") || '<tr><td colspan="6" class="operational-task-empty">当前筛选条件下没有任务</td></tr>'}</tbody></table></div></section>`;
   }
 
   function planMetricStatus(metric) {
@@ -785,6 +885,14 @@ window.AutoXhsEmployeePanel = function (services) {
 
   function init() {
     host.addEventListener("click", (event) => {
+      const filter = event.target.closest?.("[data-overview-range], [data-overview-task]");
+      if (filter) {
+        if (filter.dataset.overviewRange) overviewFilter.range = filter.dataset.overviewRange;
+        if (filter.dataset.overviewTask) overviewFilter.task = filter.dataset.overviewTask;
+        renderedSelection = null;
+        render();
+        return;
+      }
       const button = event.target.closest?.("[data-passive-day]");
       if (!button) return;
       passiveDates.set(selected, button.dataset.passiveDay);
@@ -792,6 +900,14 @@ window.AutoXhsEmployeePanel = function (services) {
       render();
     });
     host.addEventListener("change", async (event) => {
+      for (const field of ["start", "end", "machine", "search"]) {
+        if (event.target.matches(`[data-overview-${field}]`)) {
+          overviewFilter[field] = event.target.value;
+          renderedSelection = null;
+          render();
+          return;
+        }
+      }
       if (event.target.matches("[data-passive-date]")) {
         passiveDates.set(selected, event.target.value);
         renderedSelection = null;

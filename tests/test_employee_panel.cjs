@@ -297,3 +297,42 @@ function checkPassivePresentation() {
   console.log("PASS: passive count/status separation, missing intervals, date switching, content escaping and account isolation");
 }
 checkPassivePresentation();
+
+function checkFleetOverview() {
+  const handlers = {};
+  root.addEventListener = (name, fn) => {handlers[name] = fn;};
+  const account = {machine_id: "QA-A", account_slot: "review"};
+  const fixture = {accounts: [account], machines: [], results: [], goals: [], dailyPlans: [],
+    tasks: [{task_id: "blocked-task", machine_id: "QA-A", request: {account_slot: "review"},
+      date: today, state: "BLOCKED", blocked_reason: "需要身份验证"},
+    {task_id: "waiting-task", machine_id: "QA-B", request: {account_slot: "other"},
+      date: today, state: "TASK_ACK"}]};
+  const view = context.window.AutoXhsEmployeePanel({...services, state: fixture,
+    workerDayMetrics: (machine, slot, date) => [
+      {kind: "comment", actual: date === today ? 2 : 3}, {kind: "browse", actual: 50},
+      {kind: "like", actual: 0}]});
+  view.init(); view.render("");
+  for (const name of ["fleet-actions", "operational-tasks", "daily-report", "actual-summary", "alerts"]) {
+    assert.ok(root.innerHTML.includes(`data-panel="${name}"`), name);
+  }
+  assert.ok(root.innerHTML.includes("当日总动作：2"));
+  assert.ok(root.innerHTML.includes("今日计划复盘"));
+  assert.ok(!root.innerHTML.includes("明日任务规划"));
+  const click = (dataset) => handlers.click({target: {closest: () => ({dataset})}});
+  click({overviewRange: "yesterday"});
+  assert.ok(root.innerHTML.includes("昨日总动作：3"));
+  click({overviewTask: "waiting"});
+  let table = root.innerHTML.split('data-panel="operational-tasks"')[1].split("</section>")[0];
+  assert.ok(table.includes("waiting-task"));
+  assert.ok(!table.includes("blocked-task"));
+  assert.ok(table.includes("等待回执"));
+  click({overviewTask: "blocked"});
+  table = root.innerHTML.split('data-panel="operational-tasks"')[1].split("</section>")[0];
+  assert.ok(table.includes("需要身份验证"));
+  assert.ok(!table.includes("waiting-task"));
+  view.render("QA-A:review"); view.render("");
+  assert.ok(root.innerHTML.includes("全部账号 · 运营总览"));
+  assert.ok(!root.innerHTML.includes('data-panel="employee-profile"'));
+  console.log("PASS: overview sections, external totals, date ranges, task filters and return navigation");
+}
+checkFleetOverview();
