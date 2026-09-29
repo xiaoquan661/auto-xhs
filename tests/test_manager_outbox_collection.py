@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-from manager_service import ManagerService
+from manager_service import OUTBOX_COLLECTION_BATCH_SIZE, ManagerService
 from manager_store import ManagerStore
 
 
@@ -162,3 +162,61 @@ def test_employee_local_progress_and_results_are_collected(tmp_path: Path) -> No
     assert collected["success"]
     assert collected["next_cursor"] == 2
     assert collected["outbox_collection"]["pending_records"] == 0
+
+
+def test_outbox_collection_resumes_after_bounded_batch(tmp_path: Path) -> None:
+    outbox = tmp_path / "outbox"
+    outbox.mkdir()
+    service = ManagerService(store=ManagerStore(tmp_path / "manager"), transport=FileTransport())
+    service.store.put(
+        "machines",
+        "PC057",
+        {
+            "machine_id": "PC057",
+            "task_outbox_root": str(outbox),
+            "task_inbox_root": str(tmp_path / "inbox"),
+        },
+    )
+    total = OUTBOX_COLLECTION_BATCH_SIZE + 3
+    records = []
+    for sequence in range(1, total + 1):
+        metadata = {
+            "sequence": sequence,
+            "task_id": f"task-{sequence}",
+            "record_type": "result",
+            "relative_path": f"result-{sequence}.json",
+        }
+        (outbox / metadata["relative_path"]).write_text(
+            json.dumps(
+                {
+                    **metadata,
+                    "payload": {
+                        "result": {
+                            "task_id": metadata["task_id"],
+                            "remote_execution_id": f"execution-{sequence}",
+                            "sequence": sequence,
+                            "result_revision": 1,
+                            "state": "SUCCESS",
+                            "business_result": {"account_slot": "3-2"},
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        records.append(metadata)
+    (outbox / "index.json").write_text(
+        json.dumps({"machine_id": "PC057", "high_watermark": total, "records": records}),
+        encoding="utf-8",
+    )
+
+    first = service.collect_results("PC057", download_evidence=False)
+    second = service.collect_results("PC057", download_evidence=False)
+
+    assert first["status"] == "PARTIAL_SUCCESS"
+    assert first["collected"] == OUTBOX_COLLECTION_BATCH_SIZE
+    assert first["next_cursor"] == OUTBOX_COLLECTION_BATCH_SIZE
+    assert second["status"] == "SUCCESS"
+    assert second["collected"] == 3
+    assert second["next_cursor"] == total
+    assert len(service.list_results()["current_results"]) == total

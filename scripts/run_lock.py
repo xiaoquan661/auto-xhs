@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_LOCK_FILE = os.path.join(os.path.expanduser("~"), ".xhs", "run.lock")
 _RELEASE_RETRY_ATTEMPTS = 20
 _RELEASE_RETRY_DELAY_SECONDS = 0.05
+_INCOMPLETE_LOCK_STALE_SECONDS = 2.0
 
 
 class RunLock:
@@ -88,8 +89,15 @@ class RunLock:
             return not process_is_running(pid)
         except FileNotFoundError:
             return True
-        except (ValueError, OSError):
-            # 创建者可能尚未写入 PID；无法读取并不证明持有者已经退出。
+        except ValueError:
+            # 进程中断可能留下空文件；给刚创建的锁留出写入 PID 的时间。
+            try:
+                return time.time() - os.path.getmtime(self.lock_file) > (
+                    _INCOMPLETE_LOCK_STALE_SECONDS
+                )
+            except OSError:
+                return False
+        except OSError:
             return False
 
     def _force_release(self) -> None:
