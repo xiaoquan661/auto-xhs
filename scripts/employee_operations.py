@@ -261,9 +261,12 @@ class EmployeeOperations:
     @staticmethod
     def result_date(result: dict) -> str:
         request = result.get("task_request") or {}
-        source = (request.get("parameters") or {}).get("daily_plan") or {}
-        if source.get("plan_date"):
-            return str(source["plan_date"])
+        parameters = request.get("parameters") or {}
+        source = parameters.get("daily_plan")
+        plan_date = source.get("plan_date") if isinstance(source, dict) else None
+        plan_date = plan_date or parameters.get("plan_date")
+        if plan_date:
+            return str(plan_date)
         return business_date(
             result.get("completed_at")
             or result.get("recorded_at")
@@ -509,6 +512,7 @@ class EmployeeOperations:
                         states.add(result.get("state"))
                 if (
                     not states
+                    and kind in {"browse", "like"}
                     and actual is None
                     and target != 0
                     and any(

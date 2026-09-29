@@ -72,7 +72,7 @@ def test_manager_account_directory_is_grouped_by_machine_and_slot() -> None:
     assert 'id="manager-account-filter-task"' in html
     assert "function renderAccountWorkspace()" in script
     assert 'localStorage.setItem("auto-xhs:manager-account-node"' in script
-    assert '["机器 / 槽位", `${account.machine_id} / ${account.account_slot}`]' in script
+    assert '["所属机器", account.machine_id]' in script
     assert 'const name = account.account_slot;' in script
     assert '["数据来源", account.source_label || "员工机回执"]' in script
     assert '["更新时间", formatTime(account.updated_at' in script

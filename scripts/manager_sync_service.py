@@ -41,6 +41,7 @@ class ManagerSyncService:
         self._monotonic = monotonic
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._result_thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
         store = getattr(manager, "store", None)
         self.log_path = store.root / "logs" / "manager-sync.log" if store else None
@@ -60,7 +61,8 @@ class ManagerSyncService:
     @property
     def running(self) -> bool:
         thread = self._thread
-        return bool(thread and thread.is_alive())
+        return bool(thread and thread.is_alive()
+                    and self._result_thread and self._result_thread.is_alive())
 
     def start(self) -> None:
         with self._lifecycle_lock:
@@ -72,7 +74,12 @@ class ManagerSyncService:
                 name="manager-background-sync",
                 daemon=True,
             )
+            self._result_thread = threading.Thread(
+                target=self._run_loop, args=("results",),
+                name="manager-result-sync", daemon=True,
+            )
             self._thread.start()
+            self._result_thread.start()
 
     def stop(self, *, timeout_seconds: float = 5.0) -> None:
         with self._lifecycle_lock:
@@ -81,6 +88,8 @@ class ManagerSyncService:
                 return
             self._stop_event.set()
         thread.join(timeout=max(0.0, timeout_seconds))
+        if self._result_thread is not None:
+            self._result_thread.join(timeout=max(0.0, timeout_seconds))
         with self._lifecycle_lock:
             if self._thread is thread and not thread.is_alive():
                 self._thread = None
@@ -100,23 +109,30 @@ class ManagerSyncService:
         )
 
     def _run(self) -> None:
-        last_health = None
-        last_results = None
+        self._run_loop("health_accounts")
+
+    def _run_loop(self, kind: str) -> None:
+        last_completed = None
+        retry_delay = None
         while not self._stop_event.is_set():
+            interval = (self.health_interval_seconds if kind == "health_accounts"
+                        else self.result_interval_seconds)
+            delay = retry_delay if retry_delay is not None else interval
             now = self._monotonic()
-            if last_health is None or now >= last_health + self.health_interval_seconds:
-                self.run_health_cycle()
-                last_health = self._monotonic()
-            if self._stop_event.is_set():
-                break
-            now = self._monotonic()
-            if last_results is None or now >= last_results + self.result_interval_seconds:
-                self.run_result_cycle()
-                last_results = self._monotonic()
-            next_health = last_health + self.health_interval_seconds
-            next_results = last_results + self.result_interval_seconds
-            delay = min(1.0, max(0.05, min(next_health, next_results) - self._monotonic()))
-            self._stop_event.wait(delay)
+            if last_completed is None or now >= last_completed + delay:
+                try:
+                    if kind == "health_accounts":
+                        self.run_health_cycle()
+                    else:
+                        self.run_result_cycle()
+                    retry_delay = None
+                except Exception as exc:
+                    retry_delay = min(30.0, interval)
+                    write_sync_log(self.log_path,
+                                   f"{kind} 同步异常：{exc}；{retry_delay:g}秒后重试")
+                last_completed = self._monotonic()
+            self._stop_event.wait(min(1.0, max(0.01,
+                last_completed + (retry_delay or interval) - self._monotonic())))
 
     def _run_cycle(
         self,
@@ -200,7 +216,7 @@ class ManagerSyncService:
         }
 
     def _sync_machine_results(self, machine_id: str) -> dict:
-        result = self.manager.collect_results(machine_id, download_evidence=True)
+        result = self.manager.collect_results(machine_id, download_evidence=False)
         machine = next((row for row in self.manager.list_machines()["machines"]
                         if row["machine_id"] == machine_id), {})
         business_data = None

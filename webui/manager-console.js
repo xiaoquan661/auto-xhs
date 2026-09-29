@@ -610,6 +610,50 @@
     return card;
   }
 
+  function accountCardSection(account, section, title) {
+    state.accountCardSections ||= new Set();
+    const key = `${employeeAccountKey(account)}:${section}`;
+    const panel = element("details", "manager-account-more");
+    panel.open = state.accountCardSections.has(key);
+    panel.appendChild(element("summary", "", title));
+    panel.addEventListener("toggle", () => {
+      if (!panel.isConnected) return;
+      if (panel.open) state.accountCardSections.add(key);
+      else state.accountCardSections.delete(key);
+    });
+    return panel;
+  }
+
+  async function updateAccountScheduling(account, enabled) {
+    const key = employeeAccountKey(account);
+    state.accountSchedulingUpdates ||= {};
+    if (state.accountSchedulingUpdates[key]?.pending) return;
+    const update = {pending: true, message: "正在保存调度设置…", tone: "info"};
+    state.accountSchedulingUpdates[key] = update;
+    renderAll();
+    try {
+      const path = `${managerApi}/machines/${encodeURIComponent(account.machine_id)}/accounts/${encodeURIComponent(account.account_slot)}/management`;
+      const payload = await mutateJson(path, "PATCH", {
+        account_note: account.account_note || "", scheduling_enabled: enabled,
+      });
+      if (payload.account) {
+        const index = state.accounts.findIndex((item) => employeeAccountKey(item) === key);
+        if (index >= 0) state.accounts[index] = accountDisplayState(payload.account);
+      }
+      update.message = payload.status === "SUCCESS"
+        ? `${enabled ? "已允许调度" : "已暂停调度"}，员工机已同步。`
+        : "调度设置已保存，员工机同步待确认。";
+      update.tone = payload.status === "SUCCESS" ? "success" : "warning";
+      await load();
+    } catch (error) {
+      update.message = `调度设置保存失败：${error.message}`;
+      update.tone = "danger";
+    } finally {
+      update.pending = false;
+      renderAll();
+    }
+  }
+
   function compactAccountCard(account, allowActions = true) {
     const persona = accountPersona(account);
     const activeTask = state.tasks.find((task) => {
@@ -630,7 +674,7 @@
       element(
         "small",
         "",
-        [account.account_slot, account.uid ? `UID ${account.uid}` : "UID 待读取"]
+        [account.machine_id, account.platform === "rednote" ? "RedNote" : "小红书"]
           .filter(Boolean)
           .join(" · "),
       ),
@@ -640,24 +684,26 @@
       card,
       head,
       factList([
-        ["机器 / 槽位", `${account.machine_id} / ${account.account_slot}`],
-        ["平台", account.platform || "xiaohongshu"],
-        ["登录状态", labelFor(account.login_status || account.health_state)],
-        ["Bridge", accountSignalLabel("bridge", account.bridge_status)],
-        ["扩展", accountSignalLabel("extension", account.extension_status)],
-        ["Profile", accountSignalLabel("profile", account.profile_status)],
-        ["绑定人设", persona?.display_name || "友好评论者（默认）"],
-        ["当前任务", activeTask?.request?.request_summary || labelFor(account.agent_task_status)],
-        ["现场处理", fieldRequest.request_id ? labelFor(fieldRequest.state) : "无待处理请求"],
-        ["账号备注", account.account_note || "尚未填写"],
         ["调度状态", account.scheduling_enabled === false ? "暂停调度" : "允许调度"],
-        ["身份检查", formatTime(account.last_check_at)],
-        ["数据来源", account.source_label || "员工机回执"],
-        ["管理来源", account.management_source_label || "经理机配置"],
-        ["配置同步", labelFor(account.management_sync_status || "UNKNOWN")],
-        ["更新时间", formatTime(account.updated_at || account.last_seen_at || account.last_check_at)],
+        ["登录状态", labelFor(account.login_status || account.health_state)],
+        ["当前任务", activeTask?.request?.request_summary || labelFor(account.agent_task_status)],
+        ["绑定人设", persona?.display_name || "友好评论者（默认）"],
       ]),
     );
+    const detail = accountCardSection(account, "details", "连接与同步详情");
+    detail.appendChild(factList([
+      ["UID", account.uid || "待读取"],
+      ["Bridge", accountSignalLabel("bridge", account.bridge_status)],
+      ["扩展", accountSignalLabel("extension", account.extension_status)],
+      ["Profile", accountSignalLabel("profile", account.profile_status)],
+      ["现场处理", fieldRequest.request_id ? labelFor(fieldRequest.state) : "无待处理请求"],
+      ["账号备注", account.account_note || "尚未填写"],
+      ["身份检查", formatTime(account.last_check_at)],
+      ["数据来源", account.source_label || "员工机回执"],
+      ["管理来源", account.management_source_label || "经理机配置"],
+      ["配置同步", labelFor(account.management_sync_status || "UNKNOWN")],
+      ["更新时间", formatTime(account.updated_at || account.last_seen_at || account.last_check_at)],
+    ]));
     if (account.abnormal_reason) {
       card.appendChild(element("p", "manager-inline-message", account.abnormal_reason));
     }
@@ -670,15 +716,30 @@
       const actions = element("div", "manager-card-actions");
       actions.append(
         accountActionButton("管理信息", "manage", account),
-        accountActionButton("运行诊断", "doctor", account),
-        accountActionButton("启动并连接账号", "profile-start", account, "primary"),
-        accountActionButton("重启 Bridge", "bridge-restart", account),
         accountActionButton("检查身份", "identity-check", account),
       );
+      const scheduling = element("label", "account-scheduling-toggle");
+      const checkbox = element("input"); checkbox.type = "checkbox";
+      checkbox.checked = account.scheduling_enabled !== false;
+      checkbox.setAttribute("aria-label", `${account.machine_id} / ${account.account_slot} 允许调度`);
+      const update = state.accountSchedulingUpdates?.[employeeAccountKey(account)];
+      checkbox.disabled = Boolean(update?.pending);
+      checkbox.addEventListener("change", () => updateAccountScheduling(account, checkbox.checked));
+      append(scheduling, checkbox, element("span", "", "允许调度"));
+      actions.appendChild(scheduling);
       card.appendChild(actions);
-      const more = element("details", "manager-account-more");
-      more.appendChild(element("summary", "", "更多账号管理"));
+      if (update?.message) {
+        const feedback = element("p", "account-scheduling-feedback", update.message);
+        feedback.setAttribute("role", "status"); feedback.dataset.tone = update.tone;
+        card.appendChild(feedback);
+      }
+      const more = accountCardSection(account, "actions", "更多操作");
       const tools = element("div", "manager-card-actions");
+      tools.append(
+        accountActionButton("启动并连接账号", "profile-start", account),
+        accountActionButton("运行诊断", "doctor", account),
+        accountActionButton("重启 Bridge", "bridge-restart", account),
+      );
       for (const [label, action] of [["扩展配对", "pair-begin"], ["切换账号", "switch-complete"], ["退出登录", "logout"],
         ["停止 Bridge", "bridge-stop"], ["删除账号槽位", "delete"]]) {
         const button = element("button", "secondary-button", label);
@@ -688,6 +749,7 @@
       }
       append(more, tools); card.appendChild(more);
     }
+    card.appendChild(detail);
     card.appendChild(accountPersonaPanel(account));
     return card;
   }
@@ -2167,7 +2229,9 @@
           && Array.isArray(value.notes)) {
         value.notes.filter((note) => (note.entity_id || note.note_id) === noteId)
           .forEach((note) => snapshots.push({captured_at: value.captured_at,
-            metrics: note.metrics || {}}));
+            metrics: Object.fromEntries(
+              ["views", "likes", "favorites", "comments", "shares"].map((key) =>
+                [key, note.metrics?.[key] ?? note[key] ?? null]))}));
       }
       Object.values(value).forEach(visit);
     }
@@ -2591,6 +2655,8 @@
       setText(`#manager-action-${kind}`, actionTargetActualText(results, kind));
     });
     resultView?.render({results, resultHistory: filteredResultHistory(),
+      collectionResults: state.results.filter(resultMatchesFilters),
+      inventoryResults: [...state.results, ...state.resultHistory],
       incremental: filteredIncrementalRecords(),
       reports: (state.employeeSummary?.daily_metrics || []).filter((row) =>
         resultMatchesFilters({...row, recorded_at: `${row.date}T12:00:00+08:00`}))});

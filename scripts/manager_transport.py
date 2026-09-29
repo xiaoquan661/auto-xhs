@@ -21,6 +21,36 @@ CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 ExecutableFinder = Callable[[str], str | None]
 
 
+def _run_command(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Bound OpenSSH and its Windows child process to the requested timeout."""
+    if os.name != "nt":
+        return subprocess.run(command, **kwargs)
+    timeout = kwargs.pop("timeout", None)
+    input_text = kwargs.pop("input", None)
+    kwargs.pop("capture_output", None)
+    kwargs.pop("check", None)
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **kwargs,
+    )
+    try:
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        process.communicate(timeout=10)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 @dataclass(frozen=True, slots=True)
 class ManagerMachineConfig:
     """SSH and runtime settings for one execution machine."""
@@ -103,7 +133,7 @@ class OpenSSHTransport:
         *,
         connect_timeout: int = 10,
         operation_timeout: float = 60.0,
-        runner: CommandRunner = subprocess.run,
+        runner: CommandRunner = _run_command,
         environ: Mapping[str, str] | None = None,
         which: ExecutableFinder = shutil.which,
         activity_log: Path | None = None,
@@ -163,8 +193,9 @@ class OpenSSHTransport:
             command.append("-r")
         command.extend([str(source), remote])
         with self._machine_lock(config):
-            self._run(command, action=f"{config.ssh_host} · 上传文件",
-                      timeout_seconds=timeout_seconds)
+            self._run(
+                command, action=f"{config.ssh_host} · 上传文件", timeout_seconds=timeout_seconds
+            )
         return {"success": True, "source": str(source), "remote_path": remote_path}
 
     def download(
@@ -180,8 +211,9 @@ class OpenSSHTransport:
         remote = f"{self._destination(config)}:{remote_path}"
         command = [*self._scp_command(config), "-r", remote, str(destination)]
         with self._machine_lock(config):
-            self._run(command, action=f"{config.ssh_host} · 下载文件",
-                      timeout_seconds=timeout_seconds)
+            self._run(
+                command, action=f"{config.ssh_host} · 下载文件", timeout_seconds=timeout_seconds
+            )
         return {"success": True, "remote_path": remote_path, "destination": str(destination)}
 
     def sftp_upload_atomic(
@@ -328,8 +360,10 @@ class OpenSSHTransport:
         """Read the employee SQLite snapshot through its fixed, read-only exporter."""
         config = self._machine_config(machine)
         script = ntpath.join(config.working_directory, "scripts", "worker_data_export.py")
-        command = [*self._ssh_command(config),
-                   subprocess.list2cmdline([config.python_executable, script])]
+        command = [
+            *self._ssh_command(config),
+            subprocess.list2cmdline([config.python_executable, script]),
+        ]
         with self._machine_lock(config):
             result = self._run(command, input_text="", action="运营数据回收", timeout_seconds=120)
         try:

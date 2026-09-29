@@ -43,7 +43,7 @@ class FakeManager:
         return {"success": True, "status": "READY", "accounts": []}
 
     def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
-        assert download_evidence is True
+        assert download_evidence is False
         self.result_calls.append(machine_id)
         if machine_id == "PC002":
             raise RuntimeError("模拟单机回收失败")
@@ -139,6 +139,41 @@ def test_background_results_repeat_every_five_minutes() -> None:
 
     sync._stop_event = ClockEvent()  # type: ignore[assignment]
     sync.run_result_cycle = result_cycle
-    sync._run()
+    sync._run_loop("results")
 
     assert result_times == [0.0, 300.0, 600.0]
+
+
+def test_slow_results_do_not_block_health_and_cycle_error_recovers() -> None:
+    manager = EmptyManager()
+    entered = threading.Event()
+    release = threading.Event()
+    refreshed = threading.Event()
+    sync = ManagerSyncService(manager, health_interval_seconds=0.02,
+                              result_interval_seconds=0.02)
+    calls = []
+
+    def health() -> dict:
+        calls.append(1)
+        if len(calls) == 1:
+            raise PermissionError("state file busy")
+        if entered.is_set():
+            refreshed.set()
+        return {}
+
+    def results() -> dict:
+        entered.set()
+        release.wait(2)
+        return {}
+
+    sync.run_health_cycle = health
+    sync.run_result_cycle = results
+    try:
+        sync.start()
+        assert entered.wait(1)
+        assert refreshed.wait(1)
+        assert sync.running
+    finally:
+        release.set()
+        sync.stop(timeout_seconds=1)
+    assert not sync.running

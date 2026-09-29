@@ -72,7 +72,11 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
                     and task.get("capability") != args[0]
                 ):
                     raise ValueError("普通任务复用绑定身份；身份检查请由用户单独发起")
-                sys.argv = ["cli", "--account", task["account_slot"], *args]
+                effective_args = list(args)
+                if args[0] == "home-engagement" and "--help" not in args:
+                    for feed_id in (task.get("parameters") or {}).get("excluded_feed_ids", []):
+                        effective_args.extend(["--exclude-feed-id", str(feed_id)])
+                sys.argv = ["cli", "--account", task["account_slot"], *effective_args]
                 start_step(root, request_file, args)
                 try:
                     cli_main()

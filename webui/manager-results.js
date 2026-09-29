@@ -174,14 +174,17 @@ window.AutoXhsResultView = function (services) {
         const header = el("div", "recovery-note-header");
         append(header, el("span", "recovery-note-kind", "已发布内容"), stateBadge(status(record)));
         append(card, header, el("h3", "", title), el("p", "recovery-note-time",
-          `发布于 ${formatTime(timestamp(record))}`));
+          `发布于 ${formatTime(item.published_at || business.published_at
+            || (record.work_source === "creator_manager" ? "" :
+              business.completed_at || record.completed_at || timestamp(record)))}`));
         const metrics = el("div", "recovery-note-metrics");
         Object.entries(metricFields).slice(0, 5).forEach(([key, label]) => {
           const metric = el("div");
           append(metric, el("strong", "", String(latest?.metrics[key] ?? "—")), el("span", "", label));
           metrics.appendChild(metric);
         });
-        append(card, metrics, el("p", "recovery-note-time", latest
+        const hasMetrics = latest && Object.values(latest.metrics).some((value) => value != null);
+        append(card, metrics, el("p", "recovery-note-time", hasMetrics
           ? `累计数据 · 更新于 ${formatTime(latest.captured_at)}` : "等待首次采集运营数据"));
         const actions = el("div", "recovery-note-actions");
         const scoped = {...record, item_results: [item]};
@@ -394,7 +397,82 @@ window.AutoXhsResultView = function (services) {
   }
 
   function render(values) {
-    data = {...values, audit: values.resultHistory, reports: values.reports || []};
+    const notes = new Map();
+    const inventories = new Map();
+    (values.inventoryResults || values.collectionResults || []).filter(complete).forEach((record) => {
+      function visit(value) {
+        if (!value || typeof value !== "object") return;
+        if (value.source === "creator_manager" && value.inventory_complete === true
+            && value.captured_at && Array.isArray(value.notes)) {
+          const key = JSON.stringify([record.machine_id, resultAccount(record)]);
+          const time = Date.parse(value.captured_at);
+          if (!inventories.has(key) || time > inventories.get(key).time) {
+            inventories.set(key, {time,
+              ids: new Set(value.notes.map((note) => note.note_id || note.entity_id))});
+          }
+        }
+        Object.values(value).forEach(visit);
+      }
+      visit(record.business_result);
+    });
+    newest(values.results).forEach((record) => {
+      const business = record.business_result || {};
+      const items = record.item_results?.length ? record.item_results : [business];
+      items.forEach((item, index) => {
+        const itemState = String(item.state || item.status || "").toUpperCase();
+        if (["FAILED", "BLOCKED", "RESULT_UNKNOWN"].includes(itemState)) return;
+        const confirmed = ["SUCCESS", "COMPLETED"].includes(itemState)
+          || item.published === true || Number(item.published_count) > 0
+          || (complete(record) && item.success !== false)
+          || (status(record) === "PARTIAL_SUCCESS" &&
+            (business.published === true || Number(business.metrics?.publish) > 0));
+        if (!confirmed) return;
+        const id = item.note_id || item.feed_id || business.note_id || business.feed_id
+          || item.note_url || business.note_url || `${record.task_id}:${index}`;
+        const key = JSON.stringify([record.machine_id, resultAccount(record), id]);
+        if (!notes.has(key)) notes.set(key, {...record, item_results: [item]});
+      });
+    });
+    newest([...(values.collectionResults || []), ...(values.resultHistory || [])])
+      .forEach((record) => {
+        function visit(value) {
+          if (!value || typeof value !== "object") return;
+          if (value.source === "creator_manager" && value.captured_at
+              && Array.isArray(value.notes)) {
+            value.notes.forEach((note) => {
+              const id = note.note_id || note.entity_id;
+              if (!id) return;
+              const key = JSON.stringify([record.machine_id, resultAccount(record), id]);
+              if (notes.has(key)) return;
+              const item = {...note, note_id: id,
+                published_at: note.published_at || note.extra?.published_at || ""};
+              notes.set(key, {...record, work_source: "creator_manager",
+                state: "SUCCESS", business_state: "SUCCESS", manual_action_required: false,
+                business_result: item, item_results: [item]});
+            });
+          }
+          Object.values(value).forEach(visit);
+        }
+        visit(record.business_result);
+      });
+    const currentWorks = [...notes.values()].filter((record) => {
+      const inventory = inventories.get(JSON.stringify([record.machine_id, resultAccount(record)]));
+      const item = record.item_results[0];
+      if (record.machine_id === "PC071" && resultAccount(record) === "3-3") {
+        const publishedAt = item.published_at || item.extra?.published_at
+          || record.business_result?.published_at || record.completed_at || timestamp(record);
+        const publishedTime = Date.parse(publishedAt);
+        if (!Number.isFinite(publishedTime)
+            || publishedTime < Date.parse("2026-09-22T00:00:00+08:00")) return false;
+      }
+      const id = item.note_id || item.feed_id || record.business_result?.note_id;
+      // A publication confirmed after the inventory will enter the next scan.
+      return !inventory || inventory.ids.has(id)
+        || (record.work_source !== "creator_manager"
+          && Date.parse(record.completed_at || timestamp(record)) > inventory.time);
+    });
+    data = {...values, results: currentWorks, audit: values.resultHistory,
+      reports: values.reports || []};
     renderNavigation();
     const saved = (state.operationReports || []).filter((report) => resultMatchesFilters({...report,
       machine_id: report.definition?.machine_id, account_slot: report.definition?.account_slot}));

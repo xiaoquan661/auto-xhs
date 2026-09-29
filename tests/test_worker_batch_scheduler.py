@@ -171,3 +171,49 @@ def test_claimed_dead_runner_is_not_replayed(tmp_path, monkeypatch):
     WorkerBatchScheduler(service).tick()
     assert len(starts) == 1
     assert service.task_status("task-1")["execution"]["state"] == "RESULT_UNKNOWN"
+
+
+def test_machine_serial_waits_other_account_and_continues_after_blocked(tmp_path):
+    service = make_service(tmp_path)
+    service.accept_task(task_request())
+    second = task_request(task_id="task-2", dispatch_id="dispatch-2")
+    second["task"]["account_slot"] = "other"
+    second["task"]["parameters"].update(machine_serial=True,
+        machine_predecessor_task_id="task-1", batch_interval_seconds=300)
+    service.accept_task(second)
+    state = service._store.snapshot()
+    rows = {e["task_id"]: e for e in state["executions"].values()}
+    now = datetime.now(UTC)
+    rows["task-1"]["state"] = "RUNNING"
+    assert queue_status(state, rows["task-2"], now)[0] == "WAITING"
+    rows["task-1"].update(state="BLOCKED", finished_at=now.isoformat())
+    assert queue_status(state, rows["task-2"], now + timedelta(seconds=299))[0] == "WAITING"
+    assert queue_status(state, rows["task-2"], now + timedelta(seconds=300))[0] == "READY"
+
+
+def test_queue_orders_mixed_offsets_by_instant():
+    now = datetime(2026, 9, 23, 10, tzinfo=UTC)
+    def row(key, scheduled):
+        return {"task_id": key, "remote_execution_id": key, "state": "ACCEPTED",
+                "accepted_at": "2026-09-23T08:00:00+00:00",
+                "task": {"account_slot": "same", "parameters": {"scheduled_at": scheduled}}}
+    first = row("first", "2026-09-23T17:07:50+08:00")
+    second = row("second", "2026-09-23T09:07:51+00:00")
+    state = {"machine": {}, "executions": {"first": first, "second": second}}
+    assert queue_status(state, first, now)[0] == "READY"
+    assert queue_status(state, second, now)[0] == "WAITING"
+
+def test_dependent_delivered_first_does_not_block_predecessor(tmp_path):
+    service = make_service(tmp_path)
+    second = task_request(task_id='task-2', dispatch_id='dispatch-2')
+    second['task']['parameters'].update(machine_serial=True, machine_predecessor_task_id='task-1')
+    service.accept_task(second)
+    first = task_request()
+    first['task']['parameters']['machine_serial'] = True
+    service.accept_task(first)
+    state = service._store.snapshot()
+    rows = {e['task_id']: e for e in state['executions'].values()}
+    assert queue_status(state, rows['task-1'])[0] == 'READY'
+    assert queue_status(state, rows['task-2'])[0] == 'WAITING'
+    rows['task-2']['state'] = 'RUNNING'
+    assert queue_status(state, rows['task-1'])[0] == 'WAITING'

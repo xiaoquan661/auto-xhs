@@ -99,7 +99,7 @@ cards()[0].children.at(-1).children.at(-1).emit("click");
 assert.equal(node("#recovery-detail-dialog").open,true);
 assert.ok(JSON.stringify(node("#recovery-detail-content").children).includes("每日数据"));
 node("#recovery-next").emit("click");
-assert.equal(node("#recovery-page-number").textContent,"2 / 3");
+assert.equal(node("#recovery-page-number").textContent,"2 / 2");
 node("#recovery-search").value="笔记 17";node("#recovery-search").emit("input");
 assert.equal(cards().length,1);
 node("#recovery-sync-details").emit("click");
@@ -115,3 +115,77 @@ assert.ok(!JSON.stringify(accounts).includes("城市生活"));
 assert.ok(JSON.stringify(accounts).includes(state.accounts[1].account_slot));
 assert.ok(!JSON.stringify(accounts).includes("山野日记"));
 console.log("PASS: machine/account hierarchy, account isolation, note cards, zero metrics, details, search and pagination");
+
+
+selection.machine = "PC-A"; selection.account = "same-slot";
+node("#recovery-search").value = ""; node("#recovery-search").emit("input");
+const recovered = {task_id:"recovered",machine_id:"PC-A",account_slot:"same-slot",
+  capability:"publish",state:"SUCCESS",created_at:"2026-09-23T10:32:00",
+  business_result:{title:"草稿恢复作品",note_id:"recovered-note",published:true}};
+const attempts = [recovered, {...recovered,task_id:"duplicate"},
+  {...recovered,task_id:"blocked",state:"BLOCKED",business_result:{title:"草稿恢复作品"}},
+  {...recovered,task_id:"unknown",state:"RESULT_UNKNOWN",business_result:{title:"草稿恢复作品"}}];
+view.render({results:attempts,incremental:[],reports:[],resultHistory:attempts});
+assert.equal(cards().length,1);
+assert.equal(cards()[0].children[1].textContent,"草稿恢复作品");
+node("#recovery-sync-details").emit("click");
+assert.ok(node("#recovery-audit-page").textContent.includes("4 条回执"));
+console.log("PASS: confirmed works deduplicate by note, recovery attempts retained in audit");
+const collected = {...recovered, task_id: 'collect', capability: 'collect-operations-metrics',
+  business_result: {snapshot: {source:'creator_manager',captured_at:'2026-09-24T10:00:00Z',notes:[
+    {entity_id:'recovered-note',title:'草稿恢复作品'},
+    {entity_id:'manual-note',title:'平台已发布作品',extra:{published_at:'2026-09-23 12:00'}}]}}};
+view.render({results:attempts,collectionResults:[collected],incremental:[],reports:[],resultHistory:[collected]});
+assert.equal(cards().length,2);
+assert.ok(JSON.stringify(cards()).includes('平台已发布作品'));
+assert.ok(JSON.stringify(cards()).includes('2026-09-23 12:00'));
+assert.equal(collected.capability,'collect-operations-metrics');
+console.log('PASS: collected creator works join published list and deduplicate without changing receipts');
+const source = fs.readFileSync(path.join(__dirname, '../webui/manager-console.js'), 'utf8');
+const metricFunction = source.slice(source.indexOf('  function publishedMetricHistory('),
+  source.indexOf('  function publishedNoteMetrics('));
+const metricState = {results:[],resultHistory:[]};
+const metricContext = vm.createContext({state:metricState,resultAccount:r=>r.account_slot,Intl,Date});
+vm.runInContext(metricFunction,metricContext);
+const base = {machine_id:'PC071',account_slot:'3-3'};
+metricState.results = [{...base,business_result:{source:'creator_manager',captured_at:'2026-09-23T16:31:05Z',
+  notes:[{note_id:'n',views:343,likes:22,favorites:8,comments:0,shares:2}]}},
+  {machine_id:'PC052',account_slot:'3-3',business_result:{source:'creator_manager',captured_at:'2026-09-24T02:00:00Z',
+    notes:[{note_id:'n',views:999}]}}];
+let history = metricContext.publishedMetricHistory(base,'n');
+assert.equal(history.length,1);
+assert.deepEqual(JSON.parse(JSON.stringify(history[0].metrics)),{views:343,likes:22,favorites:8,comments:0,shares:2});
+metricState.results[0].business_result.notes[0]={note_id:'n',metrics:{views:0,likes:0}};
+history=metricContext.publishedMetricHistory(base,'n');
+assert.equal(history[0].metrics.views,0);
+assert.equal(history[0].metrics.comments,null);
+console.log('PASS: flat and nested creator metrics, zero/null distinction and machine isolation');
+const inventory = {...collected,business_result:{source:'creator_manager',captured_at:'2026-09-24T12:00:00Z',
+  inventory_complete:true,notes:[{note_id:'manual-note',title:'当前作品'}]}};
+view.render({results:attempts,collectionResults:[collected],inventoryResults:[inventory],incremental:[],reports:[],resultHistory:attempts});
+assert.equal(cards().length,1);
+assert.ok(!JSON.stringify(cards()).includes('草稿恢复作品'));
+inventory.business_result.inventory_complete=false;
+view.render({results:attempts,collectionResults:[collected],inventoryResults:[inventory],incremental:[],reports:[],resultHistory:attempts});
+assert.equal(cards().length,2);
+inventory.business_result.inventory_complete=true;inventory.business_result.notes=[];
+view.render({results:attempts,collectionResults:[collected],inventoryResults:[inventory],incremental:[],reports:[],resultHistory:attempts});
+assert.equal(node('[data-recovery-count="results"]').textContent,0);
+console.log('PASS: complete inventory removes absent works, incomplete scan preserves works, confirmed empty clears list');
+const fresh = {...recovered,task_id:'fresh',created_at:'2026-09-24T13:00:00Z',
+  business_result:{published:true,note_id:'fresh-note',title:'清单采集后发布'}};
+view.render({results:[...attempts,fresh],collectionResults:[collected],inventoryResults:[inventory],incremental:[],reports:[],resultHistory:attempts});
+assert.equal(cards().length,1);
+assert.equal(cards()[0].children[1].textContent,'清单采集后发布');
+const older = {...inventory,business_result:{...inventory.business_result,captured_at:'2026-09-24T11:00:00Z',notes:[{note_id:'recovered-note'}]}};
+view.render({results:attempts,collectionResults:[collected],inventoryResults:[older,inventory],incremental:[],reports:[],resultHistory:attempts});
+assert.equal(node('[data-recovery-count="results"]').textContent,0);
+console.log('PASS: newest complete inventory wins and later publications stay visible');
+selection.machine='PC071';selection.account='3-3';
+const dated = ['2026-09-21T23:59:00+08:00','2026-09-22T00:00:00+08:00','2026-09-23T12:00:00+08:00'].map((day,i)=>({
+ ...recovered,machine_id:'PC071',account_slot:'3-3',task_id:'date-'+i,
+ business_result:{published:true,note_id:'date-'+i,title:'date-'+i,published_at:day}}));
+view.render({results:dated,incremental:[],reports:[],resultHistory:[]});
+assert.equal(cards().length,2);
+assert.ok(!JSON.stringify(cards()).includes('date-0'));
+console.log('PASS: PC071 3-3 includes September 22 boundary and excludes earlier works');

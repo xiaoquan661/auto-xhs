@@ -37,6 +37,21 @@ def view(manager: ManagerService) -> EmployeeOperations:
     )
 
 
+@pytest.mark.parametrize("parameters,expected", [
+    ({"daily_plan": True, "plan_date": "2026-09-07"}, "2026-09-07"),
+    ({"daily_plan": {"plan_date": "2026-09-06"}, "plan_date": "2026-09-07"},
+     "2026-09-06"),
+    ({"daily_plan": True}, "2026-09-08"),
+])
+def test_dashboard_accepts_daily_plan_marker(tmp_path, parameters, expected):
+    manager = manager_at(tmp_path)
+    result = receipt(manager, "daily", task_request={
+        "account_slot": "alpha", "parameters": parameters,
+    })
+    assert EmployeeOperations.result_date(result) == expected
+    assert manager.dashboard_snapshot()["fleet"]["account_total"] == 2
+
+
 def test_private_message_is_separate_from_reply_and_inbound(tmp_path):
     from manager_store import ManagerStore
 
@@ -67,6 +82,15 @@ def test_daily_metric_explains_terminal_execution(tmp_path, state, label):
     metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
     assert metrics["reply"]["status"] == label
     assert metrics["reply"]["incomplete"] is False
+
+
+def test_home_receipt_does_not_end_other_actions(tmp_path):
+    manager = manager_at(tmp_path)
+    receipt(manager, "home", capability="home-engagement", state="BLOCKED")
+    metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
+    for kind in ("comment", "private_message", "friend_request", "reply", "private_reply"):
+        assert "任务已结束" not in metrics[kind]["status"]
+    assert metrics["browse"]["status"] == "任务已结束 · 未提供逐项结果"
 
 
 def test_complete_worker_event_enriches_summary_with_account_isolation(tmp_path):
@@ -522,3 +546,15 @@ def test_recovery_collection_records_preserve_content_and_creator_snapshots(tmp_
     snapshot = next(r for r in records if r.get("entity_type") == "note")
     assert snapshot["metrics"]["views"] == 0
     assert snapshot["recorded_at"] == "2026-09-16T02:00:00Z"
+
+
+@pytest.mark.parametrize("browse_fields", [
+    {"browsed": True}, {"browse_success": True}, {"browse_status": "success"},
+])
+def test_home_browse_receipt_aliases_count_in_daily_metrics(tmp_path, browse_fields):
+    manager = manager_at(tmp_path)
+    receipt(manager, "home-alias", capability="home-engagement", item_results=[{
+        "status": "SUCCESS", "success": True, "feed_id": "note", **browse_fields,
+    }])
+    metrics = view(manager).day_metrics("PC001", "alpha", "2026-09-08")
+    assert metrics["browse"]["actual"] == 1

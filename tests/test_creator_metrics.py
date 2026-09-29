@@ -60,6 +60,19 @@ def test_unavailable_page_is_not_zero(monkeypatch) -> None:
         collect_creator_metrics(page)
 
 
+def test_confirmed_empty_creator_inventory(monkeypatch) -> None:
+    monkeypatch.setattr("xhs.creator_metrics.time.sleep", lambda _: None)
+    page = Mock(platform="xiaohongshu")
+    page.evaluate.side_effect = lambda script: (
+        "https://creator.xiaohongshu.com/new/note-manager" if script == "location.href"
+        else True if "没有找到相关笔记" in script else []
+    )
+    result = collect_creator_metrics(page)
+    assert result["notes"] == []
+    assert result["inventory_complete"] is True
+    assert result["partial"] is False
+
+
 @pytest.mark.parametrize("platform", ["xiaohongshu", "rednote"])
 def test_business_adapter_routes_creator_without_profile(monkeypatch, platform) -> None:
     import business_runner

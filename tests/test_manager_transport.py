@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +19,34 @@ from scripts.manager_transport import (
     OpenSSHTransport,
     RemoteFailedError,
     ResultUnknownError,
+    _run_command,
 )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows OpenSSH 子进程回收")
+def test_timed_out_command_releases_inherited_output_pipe() -> None:
+    command = [
+        sys.executable,
+        "-c",
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'], "
+        "stdout=sys.stdout,stderr=sys.stderr); time.sleep(20)",
+    ]
+    started = time.monotonic()
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_command(
+            command,
+            input="",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=0.5,
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+
+    assert time.monotonic() - started < 10
 
 
 class RecordingRunner:
