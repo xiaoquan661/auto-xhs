@@ -6,6 +6,7 @@ import copy
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -228,7 +229,14 @@ class ManagerStore:
             json.dumps(state, ensure_ascii=False, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
-        os.replace(temporary, self.path)
+        for attempt in range(12):
+            try:
+                os.replace(temporary, self.path)
+                break
+            except PermissionError:
+                if attempt == 11:
+                    raise
+                time.sleep(0.25)
 
     @staticmethod
     def _check_collection(collection: str) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Event, Thread
 
+import manager_store
 from manager_store import ManagerStore
 
 
@@ -51,3 +52,23 @@ def test_reads_use_committed_state_during_background_batch(tmp_path: Path) -> No
         release.set()
         worker.join(2)
     assert store.get("tasks", "task-1")["state"] == "SUCCESS"
+
+
+def test_state_commit_waits_for_temporary_file_access(tmp_path: Path, monkeypatch) -> None:
+    store = ManagerStore(tmp_path)
+    replace = manager_store.os.replace
+    attempts = 0
+
+    def temporarily_busy(source: Path, destination: Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError("state file is being read")
+        replace(source, destination)
+
+    monkeypatch.setattr(manager_store.os, "replace", temporarily_busy)
+    monkeypatch.setattr(manager_store.time, "sleep", lambda _: None)
+    store.put("tasks", "task-1", {"state": "ACCEPTED"})
+
+    assert attempts == 3
+    assert store.get("tasks", "task-1")["state"] == "ACCEPTED"
