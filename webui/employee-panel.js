@@ -884,6 +884,16 @@ window.AutoXhsEmployeePanel = function (services) {
   }
 
   function init() {
+    host.addEventListener("input", (event) => {
+      if (!event.target.matches("[data-overview-search]")) return;
+      const position = event.target.selectionStart;
+      overviewFilter.search = event.target.value;
+      renderedSelection = null;
+      render();
+      const search = host.querySelector("[data-overview-search]");
+      search.focus();
+      search.setSelectionRange(position, position);
+    });
     host.addEventListener("click", (event) => {
       const filter = event.target.closest?.("[data-overview-range], [data-overview-task]");
       if (filter) {
