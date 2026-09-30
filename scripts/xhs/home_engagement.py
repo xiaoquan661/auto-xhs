@@ -165,10 +165,10 @@ def home_engagement(
                 checkpoint(
                     {**item, "like": {"status": "result_unknown", "message": "点赞调用待回读"}}
                 )
-                attempted_like = True
-                item["next_like_interval_seconds"] = pacing.record_attempt()
                 try:
                     result = liker(page, feed.id)
+                    attempted_like = True
+                    item["next_like_interval_seconds"] = pacing.record_attempt()
                     changed = result.changed is not False
                     item["like"] = {
                         "status": "success"
@@ -184,16 +184,19 @@ def home_engagement(
                     if result.success and changed:
                         liked_count += 1
                 except Exception as exc:
-                    result_unknown = bool(getattr(exc, "result_unknown", True))
+                    like_unknown = bool(getattr(exc, "result_unknown", True))
+                    result_unknown = like_unknown
+                    if like_unknown:
+                        attempted_like = True
+                        item["next_like_interval_seconds"] = pacing.record_attempt()
                     item["like"] = {
-                        "status": "result_unknown" if result_unknown else "failed",
+                        "status": "result_unknown" if like_unknown else "failed",
                         "message": str(exc),
                         "success": False,
                         "platform_readback": False,
                     }
-                    stopped_by = (
-                        "like_result_unknown" if result_unknown else "like_state_unavailable"
-                    )
+                    if like_unknown:
+                        stopped_by = "like_result_unknown"
 
             checkpoint(item)
             try:

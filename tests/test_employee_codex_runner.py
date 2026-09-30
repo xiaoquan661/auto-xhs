@@ -7,7 +7,11 @@ from pathlib import Path
 import employee_codex_runner as runner_module
 import manager_worker_async
 import pytest
-from employee_codex_runner import PROBE_CAPABILITY, EmployeeCodexRunner
+from employee_codex_runner import (
+    PROBE_CAPABILITY,
+    EmployeeCodexRunner,
+    _reconcile_engagement_batch,
+)
 
 from tests.test_manager_worker import make_service, task_request
 
@@ -22,6 +26,21 @@ def task(**overrides: object) -> dict:
         "timeout_seconds": 10,
         **overrides,
     }
+
+
+def test_engagement_batch_cannot_report_prior_daily_progress_as_this_batch() -> None:
+    request = {
+        "capability": "home-engagement",
+        "parameters": {"browse_count": 15, "like_count": 2},
+    }
+    result = {"state": "SUCCESS", "message": "全天目标已完成"}
+    business = {"actual": {"browse": 0, "like": 0}, "daily_confirmed_before": {"browse": 15}}
+    _reconcile_engagement_batch(request, result, business)
+    assert result["state"] == "FAILED"
+
+    result = {"state": "SUCCESS", "message": "执行完毕"}
+    _reconcile_engagement_batch(request, result, {"counts": {"browsed": 6, "liked": 1}})
+    assert result["state"] == "PARTIAL_SUCCESS"
 
 
 def install_fake_codex(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: str) -> None:
@@ -158,19 +177,23 @@ def test_timeout_terminates_owned_process(tmp_path: Path, monkeypatch) -> None:
 
 @pytest.mark.parametrize("active", [True, False])
 def test_browser_checkpoint_controls_idle_timeout(
-    tmp_path: Path, monkeypatch, active: bool,
+    tmp_path: Path,
+    monkeypatch,
+    active: bool,
 ) -> None:
     body = (
         "for index in range(20):\n"
         "    (root / 'command.bridge.progress.json').write_text(json.dumps({'items': index}))\n"
         "    time.sleep(0.2)\n"
-        if active else
-        "(root / 'command.bridge.progress.json').write_text('{}')\ntime.sleep(20)\n"
+        if active
+        else "(root / 'command.bridge.progress.json').write_text('{}')\ntime.sleep(20)\n"
     )
     install_fake_codex(monkeypatch, tmp_path, body + FILE_RESULT_SCRIPT)
     result = EmployeeCodexRunner(tmp_path / "state")(
-        task(parameters={"agent_idle_seconds": 1.5, "probe_token": "local-round-trip"},
-             timeout_seconds=10)
+        task(
+            parameters={"agent_idle_seconds": 1.5, "probe_token": "local-round-trip"},
+            timeout_seconds=10,
+        )
     )
     assert result["state"] == ("SUCCESS" if active else "FAILED"), result
     if not active:
