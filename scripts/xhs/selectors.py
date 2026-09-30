@@ -35,6 +35,13 @@ REPLY_BUTTON = ".right .interactions .reply"
 
 # ========== 点赞 / 收藏 ==========
 LIKE_BUTTON = ".interact-container .left .like-lottie"
+LIKE_BUTTON_SELECTORS = (
+    LIKE_BUTTON,
+    ".interact-container .left .like-wrapper",
+    ".interact-container .left .like-icon",
+    '.interact-container .left [aria-label="点赞"]',
+    '.interact-container .left [title="点赞"]',
+)
 COLLECT_BUTTON = ".interact-container .left .reds-icon.collect-icon"
 
 # ========== 发布页 ==========
@@ -80,7 +87,7 @@ TEMPLATE_TITLE = ".template-card .template-title"
 LOGOUT_MORE_BUTTON = (
     'button[aria-label="更多"], [role="button"][aria-label="更多"], '
     '[title="更多"], li.more.side-bar-component, '
-    'li.side-bar-component.more'
+    "li.side-bar-component.more"
 )
 LOGOUT_MENU_ITEM = (
     '[role="menuitem"][data-name="退出登录"], '

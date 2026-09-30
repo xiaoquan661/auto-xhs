@@ -24,6 +24,30 @@ except ImportError:
 
 PROBE_CAPABILITY = "employee-agent-probe"
 RESULT_STATES = ["SUCCESS", "PARTIAL_SUCCESS", "FAILED", "BLOCKED", "RESULT_UNKNOWN"]
+
+
+def _reconcile_engagement_batch(task: dict, result: dict, business: dict) -> None:
+    """Do not accept a batch as complete when its own action counts are short."""
+    if task.get("capability") != "home-engagement" or result["state"] != "SUCCESS":
+        return
+    requested = task.get("parameters") or {}
+    actual = business.get("actual") or business.get("metrics") or business.get("counts") or {}
+    if not isinstance(actual, dict) or not actual:
+        result["state"] = "RESULT_UNKNOWN"
+        result["message"] = f"本批缺少实际数量回执：{result['message']}"
+        return
+    counts = {
+        metric: int(actual.get(metric, actual.get(fallback, 0)) or 0)
+        for metric, fallback in (("browse", "browsed"), ("like", "liked"))
+    }
+    for metric, parameter in (("browse", "browse_count"), ("like", "like_count")):
+        target = int(requested.get(parameter) or 0)
+        if counts[metric] < target:
+            result["state"] = "PARTIAL_SUCCESS" if any(counts.values()) else "FAILED"
+            result["message"] = f"本批指标未完成：{result['message']}"
+            return
+
+
 RESULT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -201,9 +225,7 @@ class EmployeeCodexRunner:
                     if time.time() - activity >= idle_limit:
                         self._stop(process)
                         event_reader.join(timeout=5)
-                        return self._resume_or_incomplete(
-                            task, "员工 Agent 无进展超时", run_root
-                        )
+                        return self._resume_or_incomplete(task, "员工 Agent 无进展超时", run_root)
                     time.sleep(1)
                 event_reader.join(timeout=5)
             if not result_path.exists() and not (run_root / "execution-result.json").exists():
@@ -274,6 +296,7 @@ class EmployeeCodexRunner:
                     result["state"] = "PARTIAL_SUCCESS"
                 elif result["state"] == "SUCCESS":
                     result["state"] = "FAILED"
+            _reconcile_engagement_batch(task, result, business)
             return {
                 "state": result["state"],
                 "message": result["message"],
@@ -401,10 +424,15 @@ class EmployeeCodexRunner:
         from employee_recovery import can_resume
 
         if not task.get("recovery_attempt") and can_resume(root):
-            write_json(root / "runner-recovery.json", {
-                "reason": message, "attempt": 1, "resume_scope": "remaining_steps",
-                "started_at": datetime.now(UTC).isoformat(),
-            })
+            write_json(
+                root / "runner-recovery.json",
+                {
+                    "reason": message,
+                    "attempt": 1,
+                    "resume_scope": "remaining_steps",
+                    "started_at": datetime.now(UTC).isoformat(),
+                },
+            )
             return self({**task, "recovery_attempt": 1})
         return self._incomplete(task, message + "，已保存步骤进度供断点恢复", root)
 
@@ -508,6 +536,10 @@ item_results=[]。不调用项目业务命令，不访问账号、浏览器或�
 复用当前已就绪页面；不为任务开始、步骤切换或普通异常刷新页面。
 身份不符、绑定缺失或换号未完成时返回 BLOCKED。
 仅执行任务 capability、parameters 与 authorization 授权的范围和数量。
+分批任务的 browse_count、like_count、count 和 batch_expected_metrics 表示本批需新增数量；
+前批已完成数量不能抵扣本批。daily_expected_metrics 是全天累计目标，仅用于总进度核对。
+前批记录只用于排除重复笔记和重复业务动作。本批未新增足额动作时如实报告部分完成，
+不得因全天已有完成量将本批写为 SUCCESS。
 账号人设来自 persona_snapshot 或 parameters.persona；未填写时使用默认“友好评论者”。
 阅读真实笔记和上下文后依据人设自主生成评论，不能用固定模板代替理解。
 主动评论任务（post-comment）的内容由你这个员工 Agent 生成：
