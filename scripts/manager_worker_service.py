@@ -1743,6 +1743,10 @@ class ManagerWorkerService(WorkerMemory):
             )
             if result is None:
                 raise WorkerServiceError("RESULT_NOT_READY", "员工Agent任务结果尚未生成")
+            task = execution["task"]
+            for field in ("account_slot", "platform", "capability"):
+                if not result.get(field):
+                    result[field] = str(task.get(field) or "")
             self._append_agent_message(
                 execution,
                 message_type="TASK_RESULT",

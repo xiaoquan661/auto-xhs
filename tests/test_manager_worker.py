@@ -730,6 +730,35 @@ def test_progress_and_result_are_written_to_sftp_outbox(tmp_path: Path) -> None:
     assert index["records"][-1]["record_id"].endswith("progress:outbox_written")
 
 
+def test_result_outbox_restores_account_identity_from_execution(tmp_path: Path) -> None:
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {"state": "SUCCESS", "business_result": {"notes": [1]}},
+    )
+    request = task_request()
+    request["task"].update(platform="xiaohongshu", capability="collect-operations-metrics")
+    execution_id = service.accept_task(request)["execution"]["remote_execution_id"]
+    service.run_task("task-1", remote_execution_id=execution_id)
+
+    def remove_identity(state: dict) -> None:
+        for field in ("account_slot", "platform", "capability"):
+            state["results"][-1].pop(field, None)
+
+    service._store.mutate(remove_identity)
+    service.push_task_result("task-1", remote_execution_id=execution_id)
+
+    saved = service._store.snapshot()["results"][-1]
+    index = json.loads((service.root / "task-outbox" / "index.json").read_text())
+    record = next(row for row in index["records"] if row["record_type"] == "result")
+    outbox = json.loads(
+        (service.root / "task-outbox" / record["relative_path"]).read_text(encoding="utf-8")
+    )
+    for result in (saved, outbox["payload"]["result"]):
+        assert result["account_slot"] == "alpha"
+        assert result["platform"] == "xiaohongshu"
+        assert result["capability"] == "collect-operations-metrics"
+
+
 def test_worker_records_capability_progress_before_final_result(tmp_path: Path) -> None:
     request = task_request()
     request["task"] = {
