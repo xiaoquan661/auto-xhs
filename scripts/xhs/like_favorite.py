@@ -86,6 +86,16 @@ def unlike_feed(page: Page, feed_id: str, xsec_token: str) -> ActionResult:
     return _toggle_like(page, feed_id, target_liked=False)
 
 
+def _find_like_button(page: Page) -> str | None:
+    for attempt in range(20):
+        selector = next((item for item in LIKE_BUTTON_SELECTORS if page.has_element(item)), None)
+        if selector is not None:
+            return selector
+        if attempt < 19:
+            time.sleep(0.25)
+    return None
+
+
 def _toggle_like(page: Page, feed_id: str, target_liked: bool) -> ActionResult:
     """执行点赞/取消点赞操作。"""
     action_name = "点赞" if target_liked else "取消点赞"
@@ -100,7 +110,7 @@ def _toggle_like(page: Page, feed_id: str, target_liked: bool) -> ActionResult:
         logger.info("feed %s 已%s，跳过", feed_id, action_name)
         return ActionResult(feed_id, True, f"已{action_name}", changed=False)
 
-    selector = next((item for item in LIKE_BUTTON_SELECTORS if page.has_element(item)), None)
+    selector = _find_like_button(page)
     if selector is None:
         raise InteractionStateError(f"{action_name}前未找到笔记操作按钮，请核对当前页面")
 
