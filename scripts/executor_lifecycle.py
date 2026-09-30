@@ -12,6 +12,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from process_utils import startup_log_excerpt as _startup_log_excerpt
+
 try:
     from .executor_server import DEFAULT_EXECUTOR_PORT
     from .product_store import product_root
@@ -55,14 +57,6 @@ def executor_listener_pid(host: str, port: int) -> int | None:
 
 def terminate_executor(pid: int) -> None:
     os.kill(pid, signal.SIGTERM)
-
-
-def _startup_log_excerpt(path: Path, *, limit: int = 1200) -> str:
-    try:
-        content = path.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
-        return ""
-    return content[-limit:]
 
 
 def start_executor_service(

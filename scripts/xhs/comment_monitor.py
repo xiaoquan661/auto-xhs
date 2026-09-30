@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+
+from time_utils import epoch_to_iso as _epoch_to_iso
 
 from .feed_detail import get_feed_detail
 from .user_profile import get_user_profile
@@ -119,10 +120,3 @@ def _flatten_comment(
             parent_content=comment.content,
             note_context=note_context,
         )
-
-
-def _epoch_to_iso(value: int) -> str:
-    if not value:
-        return ""
-    seconds = value / 1000 if value > 10_000_000_000 else value
-    return datetime.fromtimestamp(seconds, UTC).isoformat()

@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from process_utils import startup_log_excerpt as _startup_log_excerpt
 from product_store import product_root
 
 ACTIVE_RESTART_STATES = {"RUNNING", "CANCEL_REQUESTED"}
@@ -67,14 +68,6 @@ def listener_pid(host: str, port: int) -> int | None:
 
 def terminate_process(pid: int) -> None:
     os.kill(pid, signal.SIGTERM)
-
-
-def _startup_log_excerpt(path: Path, *, limit: int = 1200) -> str:
-    try:
-        content = path.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
-        return ""
-    return content[-limit:]
 
 
 def start_webui(
