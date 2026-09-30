@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from xhs.errors import ActionResultUnknownError, CDPError, InteractionStateError
@@ -61,9 +61,23 @@ def test_missing_like_control_is_pre_click_failure() -> None:
     page = Mock()
     page.evaluate.return_value = state(False)
     page.has_element.return_value = False
-    with pytest.raises(InteractionStateError):
+    with (
+        pytest.raises(InteractionStateError),
+        patch("xhs.like_favorite.time.sleep"),
+    ):
         like_current_feed(page, "note-1")
     page.click_element.assert_not_called()
+
+
+def test_like_control_appears_after_detail_load(monkeypatch) -> None:
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    page = Mock()
+    page.evaluate.side_effect = [state(False), state(True)]
+    checks = [False] * 5 + [True]
+    page.has_element.side_effect = lambda selector: checks.pop(0) if checks else True
+    result = like_current_feed(page, "note-1")
+    assert result.changed is True
+    page.click_element.assert_called_once()
 
 
 def test_control_disappearing_at_click_is_pre_click_failure() -> None:
