@@ -91,6 +91,26 @@ class FakePage:
         self.scrolls.append((x, y))
 
 
+def test_exhausted_feed_refreshes_once_before_stopping() -> None:
+    page = FakePage()
+    feed = _feed(1)
+    with patch(
+        "xhs.home_engagement._browse_candidates",
+        side_effect=lambda _page, seen: (
+            [feed] if len(page.navigate_calls) > 1 and feed.id not in seen else []
+        ),
+    ):
+        result = home_engagement(
+            page,
+            browse_count=1,
+            like_count=0,
+            duration_seconds=100,
+            reader=lambda *_args: 1.0,
+        )
+    assert len(page.navigate_calls) == 2
+    assert result["counts"]["browsed"] == 1
+
+
 def test_home_engagement_reuses_one_home_session_and_records_actions() -> None:
     from xhs.progress import record_progress_with
 

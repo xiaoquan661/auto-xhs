@@ -72,6 +72,7 @@ def home_engagement(
     result_unknown = False
     stopped_by = ""
     empty_scrolls = 0
+    home_refreshed = False
     pacing = EngagementPacing(pacing_path)
 
     def checkpoint(current: dict | None = None) -> None:
@@ -107,7 +108,13 @@ def home_engagement(
                 time.sleep(min(1.2, max(0.0, deadline - time.monotonic())))
                 empty_scrolls += 1
                 if empty_scrolls >= 8:
-                    break
+                    if home_refreshed:
+                        break
+                    page.navigate(HOME_URL)
+                    page.wait_for_load()
+                    page.wait_dom_stable()
+                    home_refreshed = True
+                    empty_scrolls = 0
                 continue
 
             empty_scrolls = 0

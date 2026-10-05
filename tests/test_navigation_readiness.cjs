@@ -154,7 +154,8 @@ for (const route of ['note', 'profile']) {
     const state = { note: { noteDetailMap: { note1: { note: { noteId: 'note1' } } } },
       user: { userPageData: { value: { basicInfo: { nickname: 'tester' } } } } };
     const path = route === 'note' ? '/explore/note1' : '/user/profile/u1';
-    const context = vm.createContext({ URL, window: { __INITIAL_STATE__: state },
+    const context = vm.createContext({ URL, setTimeout, clearTimeout,
+      window: { __INITIAL_STATE__: state },
       location: { href: 'https://www.xiaohongshu.com' + path, pathname: path },
       performance: { timeOrigin: 1 },
       document: { readyState: 'interactive', body: {}, querySelectorAll: () => [], querySelector: selector =>
@@ -169,6 +170,15 @@ for (const route of ['note', 'profile']) {
     assert.equal((await context.readNavigationState(1)).ready, false);
   });
 }
+
+test('stalled page-state injection returns control to the navigation loop', async () => {
+  const context = vm.createContext({
+    setTimeout: callback => { callback(); return 1; }, clearTimeout: () => {},
+    chrome: {scripting: {executeScript: () => new Promise(() => {})}},
+  });
+  vm.runInContext(navigation, context);
+  await assert.rejects(context.readNavigationState(1), /页面状态读取超时/);
+});
 
 test('ready home survives repeated business steps without navigation', async () => {
   const url = 'https://www.xiaohongshu.com/explore';

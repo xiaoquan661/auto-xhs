@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,16 @@ def task(**overrides: object) -> dict:
         "timeout_seconds": 10,
         **overrides,
     }
+
+
+def test_runner_applies_local_codex_network_settings(tmp_path: Path) -> None:
+    runner = EmployeeCodexRunner(tmp_path)
+    (tmp_path / "codex-network.json").write_text(
+        json.dumps({"proxy_url": "http://127.0.0.1:10808"}), encoding="utf-8"
+    )
+    env = runner._codex_env()
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:10808"
+    assert "127.0.0.1" in env["NO_PROXY"]
 
 
 def test_engagement_batch_cannot_report_prior_daily_progress_as_this_batch() -> None:

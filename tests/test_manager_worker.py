@@ -501,13 +501,23 @@ def test_worker_forwards_identity_confirmation_with_expected_uid(tmp_path) -> No
 
     service._local_api_request = local_api
     values = {"confirmed": True, "expected_user_id": "red-user"}
-    result = service.account_lifecycle({
-        "account": "red account", "action": "identity-record", "values": values,
-    })
+    result = service.account_lifecycle(
+        {
+            "account": "red account",
+            "action": "identity-record",
+            "values": values,
+        }
+    )
     assert result["identity"]["current"]["user_id"] == "red-user"
-    assert calls == [(
-        "POST", "/accounts/red%20account/identity/record", values, "test-session", 90,
-    )]
+    assert calls == [
+        (
+            "POST",
+            "/accounts/red%20account/identity/record",
+            values,
+            "test-session",
+            90,
+        )
+    ]
 
 
 def test_account_field_request_is_visible_and_completed_after_identity_readback(
@@ -1030,6 +1040,26 @@ def test_explicit_failed_business_result_status_is_preserved(tmp_path) -> None:
     assert completed["business_result_missing_reason"] == "页面没有返回业务数据"
     assert collected["business_result_status"] == "failed"
     assert collected["business_result"] == {}
+
+
+def test_executor_crash_keeps_agent_progress_for_reconciliation(tmp_path) -> None:
+    def interrupted(payload: dict) -> dict:
+        run = tmp_path / "worker" / "agent-runs" / payload["remote_execution_id"]
+        run.mkdir(parents=True)
+        (run / "step-progress.json").write_text('{"completed_steps": 1}', encoding="utf-8")
+        (run / "engagement.bridge.progress.json").write_text('{"browsed": 2}', encoding="utf-8")
+        raise ConnectionError("员工 Agent 连接中断")
+
+    service = make_service(tmp_path / "worker", executor=interrupted)
+    request = task_request()
+    request["task"]["write_intent"] = True
+    service.accept_task(request)
+    execution = service.run_task(task_id="task-1")["execution"]
+
+    assert execution["state"] == "RESULT_UNKNOWN"
+    assert execution["business_result"]["step_checkpoint"]["completed_steps"] == 1
+    assert len(execution["evidence_index"]["bridge_progress"]) == 1
+    assert "ConnectionError" in execution["message"]
 
 
 @pytest.mark.parametrize(
