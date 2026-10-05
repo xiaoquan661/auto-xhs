@@ -5401,6 +5401,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     else "任务包已到达，员工机尚未确认领取"
                 ),
             )
+            if exc.result_unknown:
+                return self.reconcile_task(task_id)
             return {"success": False, "status": updated["dispatch_state"], "task": updated}
 
         remote_error = self._remote_error(acknowledgement)
