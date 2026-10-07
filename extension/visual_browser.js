@@ -25,7 +25,7 @@ chrome.debugger.onDetach?.addListener(source => {
 // Browser observations and actions share the same tab and viewport.
 async function visualFrame(tabId) {
   try {
-    const [result] = await chrome.scripting.executeScript({
+    const [result] = await visualStep("页面视口注入", chrome.scripting.executeScript({
       target: { tabId }, world: "ISOLATED", injectImmediately: true,
       func: () => {
         window.__xhsVisualDocument ||= crypto.randomUUID();
@@ -33,18 +33,20 @@ async function visualFrame(tabId) {
           width: innerWidth, height: innerHeight, scroll_x: scrollX, scroll_y: scrollY,
           device_pixel_ratio: devicePixelRatio };
       },
-    });
+    }), 5000);
     return result.result;
   } catch (error) {
-    if (!/Cannot access contents of the page/i.test(String(error?.message || error))) throw error;
+    if (!/Cannot access contents of the page|截图步骤超时：页面视口注入/i
+      .test(String(error?.message || error))) throw error;
     const target = { tabId };
-    const response = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+    const response = await visualStep("调试视口读取",
+      chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: `window.__xhsVisualDocument ||= crypto.randomUUID();
         ({document_id: window.__xhsVisualDocument, url: location.href,
           width: innerWidth, height: innerHeight, scroll_x: scrollX, scroll_y: scrollY,
           device_pixel_ratio: devicePixelRatio})`,
       returnByValue: true,
-    });
+      }), 12000);
     const frame = response.result?.value;
     if (!frame || platformForUrl(frame.url) !== normalizePlatform(binding?.platform)) {
       throw new Error(`页面暂不可截图：${frame?.url || "页面未加载"}`);
@@ -72,24 +74,29 @@ async function cmdVisualSnapshot(params = {}) {
   let snapshot;
   let captureWindowState = windowBefore.state;
   try {
-    if (restoreWindow) {
+    if (restoreWindow || !tab.active) {
       [previousActiveTab] = await chrome.tabs.query({ windowId: tab.windowId, active: true });
+    }
+    if (restoreWindow) {
       const restored = await chrome.windows.update(tab.windowId, { state: "normal", focused: true });
       captureWindowState = restored.state;
+    }
+    if (!tab.active || restoreWindow) {
       await chrome.tabs.update(tab.id, { active: true });
     }
     await acquireVisualDebugger(target);
     attached = true;
+    await chrome.debugger.sendCommand(target, "Page.bringToFront");
     const adjustments = [];
     // Window restoration and the debugger banner can resize the viewport.
     // Keep the same attachment while taking a fresh image of the settled layout.
     for (let attempt = 1; attempt <= 3; attempt++) {
-      const frame = await visualStep("读取截图前视口", visualFrame(tab.id));
+      const frame = await visualStep("读取截图前视口", visualFrame(tab.id), 20000);
       const { data } = await visualStep("获取页面图像",
         chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
           format: "png", fromSurface: true, captureBeyondViewport: false,
         }), 30000);
-      const after = await visualStep("读取截图后视口", visualFrame(tab.id));
+      const after = await visualStep("读取截图后视口", visualFrame(tab.id), 20000);
       if (sameVisualFrame(frame, after)) {
         snapshot = { data, tab_id: tab.id, frame, captured_at: new Date().toISOString(),
           capture_attempts: attempt, frame_adjustments: adjustments, visual_protocol_version: 2 };
@@ -144,19 +151,24 @@ async function cmdVisualAction(params) {
   let attached = false;
   let attempted = false;
   try {
-    if (restoreWindow) {
+    if (restoreWindow || !tab.active) {
       [previousActiveTab] = await chrome.tabs.query({ windowId: tab.windowId, active: true });
+    }
+    if (restoreWindow) {
       await chrome.windows.update(tab.windowId, { state: "normal", focused: true });
+    }
+    if (!tab.active || restoreWindow) {
       await chrome.tabs.update(tab.id, { active: true });
     }
     await acquireVisualDebugger(target);
     attached = true;
+    await chrome.debugger.sendCommand(target, "Page.bringToFront");
     // Compare under the same debugger banner and restored-window state as the image.
     let stable = 0;
     let current;
     for (let attempt = 0; attempt < 20 && stable < 3; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 100));
-      current = await visualStep("读取操作视口", visualFrame(tab.id));
+      current = await visualStep("读取操作视口", visualFrame(tab.id), 20000);
       stable = sameVisualFrame(frame, current) ? stable + 1 : 0;
     }
     if (stable < 3) {
