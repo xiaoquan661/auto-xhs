@@ -67,6 +67,14 @@ test('browser error page recovers with one tab navigation', async () => {
   await h.context.cmdNavigate({ url: note });
   assert.equal(h.navigations(), 1);
 });
+test('inaccessible platform page recovers with one tab navigation', async () => {
+  const h = harness([{ ...ready(), ready: false }, ready(note, 2)]);
+  h.context.chrome.scripting.executeScript = async () => {
+    throw new Error('Cannot access contents of the page. Extension manifest must request permission');
+  };
+  await h.context.cmdNavigate({ url: note });
+  assert.equal(h.navigations(), 1);
+});
 
 test('unrelated navigation errors remain visible', async () => {
   const h = harness([{ ...ready(), ready: false }]);

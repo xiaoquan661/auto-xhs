@@ -9,6 +9,7 @@ for (const name of ['cmdEvaluateInMainWorld', 'cmdDomInMainWorld', 'readNavigati
     let idleRequested = false;
     const code = source.match(new RegExp(`async function ${name}\\([^]*?\\n}`))[0];
     const context = vm.createContext({
+      setTimeout, clearTimeout,
       getOrOpenPlatformTab: async () => ({ id: 57, status: 'loading' }),
       mainWorldExecutor: () => {}, domExecutor: () => {},
       chrome: { scripting: { executeScript: async options => {

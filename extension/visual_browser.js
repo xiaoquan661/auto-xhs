@@ -24,16 +24,33 @@ chrome.debugger.onDetach?.addListener(source => {
 
 // Browser observations and actions share the same tab and viewport.
 async function visualFrame(tabId) {
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId }, world: "ISOLATED", injectImmediately: true,
-    func: () => {
-      window.__xhsVisualDocument ||= crypto.randomUUID();
-      return { document_id: window.__xhsVisualDocument, url: location.href,
-        width: innerWidth, height: innerHeight, scroll_x: scrollX, scroll_y: scrollY,
-        device_pixel_ratio: devicePixelRatio };
-    },
-  });
-  return result.result;
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId }, world: "ISOLATED", injectImmediately: true,
+      func: () => {
+        window.__xhsVisualDocument ||= crypto.randomUUID();
+        return { document_id: window.__xhsVisualDocument, url: location.href,
+          width: innerWidth, height: innerHeight, scroll_x: scrollX, scroll_y: scrollY,
+          device_pixel_ratio: devicePixelRatio };
+      },
+    });
+    return result.result;
+  } catch (error) {
+    if (!/Cannot access contents of the page/i.test(String(error?.message || error))) throw error;
+    const target = { tabId };
+    const response = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: `window.__xhsVisualDocument ||= crypto.randomUUID();
+        ({document_id: window.__xhsVisualDocument, url: location.href,
+          width: innerWidth, height: innerHeight, scroll_x: scrollX, scroll_y: scrollY,
+          device_pixel_ratio: devicePixelRatio})`,
+      returnByValue: true,
+    });
+    const frame = response.result?.value;
+    if (!frame || platformForUrl(frame.url) !== normalizePlatform(binding?.platform)) {
+      throw new Error(`页面暂不可截图：${frame?.url || "页面未加载"}`);
+    }
+    return frame;
+  }
 }
 
 async function visualStep(label, operation, timeout = 10000) {
@@ -71,7 +88,7 @@ async function cmdVisualSnapshot(params = {}) {
       const { data } = await visualStep("获取页面图像",
         chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
           format: "png", fromSurface: true, captureBeyondViewport: false,
-        }));
+        }), 30000);
       const after = await visualStep("读取截图后视口", visualFrame(tab.id));
       if (sameVisualFrame(frame, after)) {
         snapshot = { data, tab_id: tab.id, frame, captured_at: new Date().toISOString(),

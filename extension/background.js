@@ -833,7 +833,8 @@ async function cmdNavigate({ url, _retried = false, _tab_id = null }) {
         args: [url],
       });
     } catch (error) {
-      if (!/showing error page/i.test(String(error?.message || error))) throw error;
+      if (!/showing error page|Cannot access contents of the page/i
+        .test(String(error?.message || error))) throw error;
       // Chrome 错误页不能注入脚本，通过标签导航恢复目标页面。
       await chrome.tabs.update(tab.id, { url });
     }
