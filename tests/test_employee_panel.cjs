@@ -243,8 +243,9 @@ function checkOverviewMetricScope() {
     assert.ok(planning.includes(`<span>${label}</span>`), label);
   }
   scoped.render("QA-A:same-slot");
-  for (const label of passive) assert.ok(root.innerHTML.includes(label), label);
-  console.log("PASS: overview shows active metrics while account details retain passive metrics");
+  assert.ok(root.innerHTML.includes("收到的互动"));
+  assert.ok(!root.innerHTML.includes("收获点赞"));
+  console.log("PASS: account interactions show notifications and messages separately");
 }
 checkOverviewMetricScope();
 

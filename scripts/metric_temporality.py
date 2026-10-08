@@ -8,7 +8,8 @@ from typing import Any
 
 ZONE = timezone(timedelta(hours=8))
 GROWTH_ACTION = re.compile(
-    r"开始关注了?你|关注了你|赞了你的|点赞了你的|收藏了你的|followed you|liked your", re.I
+    r"(?:开始)?关注(?:了你|你了)|赞了你的|点赞了你的|收藏了你的|followed you|liked your",
+    re.I,
 )
 
 

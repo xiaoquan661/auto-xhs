@@ -8,7 +8,6 @@ import time
 from .errors import XHSError
 from .feeds import extract_current_feeds
 from .like_favorite import like_current_feed
-from .selectors import LIKE_BUTTON
 from .types import Feed
 from .urls import HOME_URL
 
@@ -36,7 +35,13 @@ def _wait_until(page, predicate, timeout: float = 10.0, interval: float = 0.25) 
 
 def _detail_is_open(page, feed_id: str) -> bool:
     current_url = str(page.evaluate("window.location.href") or "")
-    return feed_id in current_url and page.has_element(LIKE_BUTTON)
+    matches_url = any(
+        marker in current_url for marker in (f"/explore/{feed_id}", f"/discovery/item/{feed_id}")
+    )
+    return matches_url and any(
+        page.has_element(selector)
+        for selector in (".note-container", "#noteContainer", ".note-detail-mask", ".close-circle")
+    )
 
 
 def _open_from_feed(page, feed: Feed) -> None:

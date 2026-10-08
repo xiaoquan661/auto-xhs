@@ -20,10 +20,11 @@ from manager_memory import ManagerMemory
 from manager_polling import ManagerPolling
 from manager_store import ManagerStore
 from manager_transport import ManagerTransportError, OpenSSHTransport
-from operations_policy import check_operations_policy
+from operations_policy import PUBLISH_ACTIONS, check_operations_policy
 from service_errors import ServiceError
 
 EXPECTED_EXECUTOR_ROLE = "executor"
+OUTBOX_COLLECTION_BATCH_SIZE = 20
 REMOTE_TERMINAL_STATES = {
     "SUCCESS",
     "PARTIAL_SUCCESS",
@@ -1143,9 +1144,12 @@ class ManagerService(ManagerMemory, ManagerPolling):
         normalized_state = str(state or "").strip().upper()
         if normalized_state and normalized_state not in OPERATION_TASK_STATES:
             raise ServiceError("INVALID_OPERATION_TASK_STATE", "未知运营任务状态")
+        view = copy.copy(self)
+        view.store = self.store.read_view(copy_on_read=False)
+        view._progress_collections = {}
         tasks = [
-            self._with_operation_task_progress(item)
-            for item in self.store.list("operation_tasks")
+            view._with_operation_task_progress(item)
+            for item in view.store.list("operation_tasks")
             if not normalized_state or item.get("state") == normalized_state
         ]
         tasks.sort(key=lambda item: item.get("created_at") or "", reverse=True)
@@ -1565,12 +1569,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 check_operations_policy(
                     config,
                     normalized["capability"],
-                    [
-                        r
-                        for r in self.list_results()["current_results"]
-                        if r.get("machine_id") == machine["machine_id"]
-                        and self._result_account(r) == normalized["account_slot"]
-                    ],
+                    self._publish_policy_results(
+                        machine["machine_id"], normalized["account_slot"]
+                    ) if normalized["capability"] in PUBLISH_ACTIONS else [],
                     account_state=str(
                         (managed_account or {}).get("error_code")
                         or (managed_account or {}).get("raw_status")
@@ -2069,8 +2070,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
         }
 
     def list_results(self, machine_id: str | None = None) -> dict:
-        results = self.store.list("results")
-        incremental_records = self.store.list("incremental_records")
+        view = self.store.read_view(copy_on_read=False)
+        results = view.list("results")
+        incremental_records = view.list("incremental_records")
         if machine_id:
             machine_id = self._get_machine(machine_id)["machine_id"]
             results = [item for item in results if item.get("machine_id") == machine_id]
@@ -2104,7 +2106,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         ]
         attributions = {
             f"{row['record_id']}:{row['item_index']}": row
-            for row in self.store.list("action_attributions")
+            for row in view.list("action_attributions")
         }
         return {
             "success": True,
@@ -2117,6 +2119,24 @@ class ManagerService(ManagerMemory, ManagerPolling):
             "summary": self._summarize_results(current_results),
             "incremental_unique_count": len(incremental_records),
         }
+
+    def _publish_policy_results(self, machine_id: str, account_slot: str) -> list[dict]:
+        """Read the current publish revisions needed for one account's dispatch policy."""
+        rows = self.store.read_view(copy_on_read=False).list("results")
+        latest: dict[str, dict] = {}
+        for row in rows:
+            if row.get("machine_id") != machine_id or self._result_account(row) != account_slot:
+                continue
+            request = row.get("task_request") or row.get("request") or {}
+            if (row.get("capability") or request.get("capability")) not in PUBLISH_ACTIONS:
+                continue
+            key = self._result_execution_key(row)
+            previous = latest.get(key)
+            if previous is None or self._result_revision_key(row) > self._result_revision_key(
+                previous
+            ):
+                latest[key] = row
+        return list(latest.values())
 
     def _with_action_attributions(self, result: dict, attributions: dict) -> dict:
         record = copy.deepcopy(result)
@@ -2443,17 +2463,95 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
         machine = self._get_machine(machine_id)
         database = ManagerDatabase(self.store.root)
-        self.store._transaction(lambda state: database.sync(state), write=False)
+        database.sync(self.store.read_view(copy_on_read=False).snapshot())
         snapshot = self.transport.export_business_data(machine)
         return database.import_worker(machine["machine_id"], snapshot)
 
-    def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
+    def collect_creator_now(self, machine_id: str, account_slot: str = "") -> dict:
+        """Run the employee's fixed creator CLI and import its returned receipt."""
+        return self._collect_fixed_now(machine_id, account_slot, "collect-creator-now")
+
+    def collect_notifications_now(self, machine_id: str, account_slot: str = "") -> dict:
+        """Run fixed comment/@ and follower CLI calls and import their receipt."""
+        return self._collect_fixed_now(machine_id, account_slot, "collect-notifications-now")
+
+    def _collect_fixed_now(self, machine_id: str, account_slot: str, action: str) -> dict:
         machine = self._get_machine(machine_id)
+        accounts = self.list_accounts(machine_id)["accounts"]
+        selected = [
+            account for account in accounts
+            if not account_slot or account["account_slot"] == account_slot
+        ]
+        if not selected:
+            raise ServiceError("ACCOUNT_NOT_FOUND", "该员工机没有选定的账号槽位", 404)
+        entries = []
+        imported = 0
+        for account in selected:
+            slot = account["account_slot"]
+            try:
+                response = self.transport.invoke(
+                    machine, action, {"account_slot": slot},
+                    timeout_seconds=1500 if action == "collect-notifications-now" else 1200,
+                )
+            except ManagerTransportError as exc:
+                entries.append({
+                    "account_slot": slot,
+                    "status": "RESULT_UNKNOWN" if exc.result_unknown else "OFFLINE",
+                    "message": str(exc),
+                })
+                continue
+            remote_error = self._remote_error(response)
+            if remote_error:
+                entries.append({"account_slot": slot, "status": response.get("status") or "BLOCKED",
+                                "message": remote_error[1]})
+                continue
+            receipt = response.get("result")
+            if not isinstance(receipt, dict):
+                entries.append({"account_slot": slot, "status": response.get("status") or "BLOCKED",
+                                "message": response.get("message") or "员工机未返回采集回执"})
+                continue
+            ingested = self._ingest_results(machine, [receipt], download_evidence=False)
+            imported += ingested["collected"]
+            business = receipt.get("business_result") or {}
+            count = (
+                sum(int(row.get("observed_count") or 0) for row in business.get("channels") or [])
+                if action == "collect-notifications-now"
+                else len(business.get("notes") or [])
+            )
+            entries.append({"account_slot": slot, "status": receipt.get("state") or "UNKNOWN",
+                            "count": count,
+                            "captured_at": business.get("captured_at"),
+                            "message": receipt.get("message") or ""})
+        database_status = "PENDING"
+        if imported:
+            try:
+                self.collect_business_data(machine_id)
+                database_status = "SYNCED"
+            except ManagerTransportError:
+                pass
+        complete = bool(entries) and all(item["status"] == "SUCCESS" for item in entries)
+        return {
+            "success": complete,
+            "status": "SUCCESS" if complete else "PARTIAL_SUCCESS",
+            "machine_id": machine_id,
+            "collected": imported,
+            "database_status": database_status,
+            "accounts": entries,
+            "message": f"{machine_id} 已回收 {imported} 个账号采集回执",
+        }
+
+    def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
+        collection_view = self.store.read_view(copy_on_read=False)
+        machine = collection_view.get("machines", machine_id.strip().upper())
+        if not machine:
+            raise ServiceError("MACHINE_NOT_FOUND", "执行机未注册", 404)
         machine_id = machine["machine_id"]
         if self._uses_sftp_task_exchange(machine) and callable(
             getattr(self.transport, "sftp_download", None)
         ):
-            return self._collect_sftp_outbox(machine, download_evidence=download_evidence)
+            return self._collect_sftp_outbox(
+                machine, download_evidence=download_evidence, collection_view=collection_view
+            )
         sync_at = utc_now()
         cursor = self.store.get_collection_cursor(machine_id)
         evidence_errors = self._retry_pending_evidence(machine) if download_evidence else []
@@ -2556,11 +2654,13 @@ class ManagerService(ManagerMemory, ManagerPolling):
             "results": normalized_results,
         }
 
-    def _collect_sftp_outbox(self, machine: dict, *, download_evidence: bool) -> dict:
+    def _collect_sftp_outbox(
+        self, machine: dict, *, download_evidence: bool, collection_view: ManagerStore | None = None
+    ) -> dict:
         machine_id = str(machine["machine_id"])
         sync_at = utc_now()
         cursor_key = f"{machine_id}:sftp_outbox"
-        cursor = self.store.get_collection_cursor(cursor_key)
+        cursor = (collection_view or self.store).get_collection_cursor(cursor_key)
         outbox_root = str(
             machine.get("task_outbox_root") or machine.get("observed_task_outbox_root") or ""
         )
@@ -2670,7 +2770,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         batch_download = getattr(self.transport, "sftp_download_many", None)
         if callable(batch_download):
             files = []
-            for metadata in records[:1000]:
+            for metadata in records[:OUTBOX_COLLECTION_BATCH_SIZE]:
                 if not metadata.get("relative_path") or metadata.get("record_type") not in {
                     "acknowledgement",
                     "event",
@@ -2687,9 +2787,10 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     )
                 )
             # Completed immutable files remain available; the cursor advances in order.
-            with suppress(ManagerTransportError):
-                batch_download(machine, files, timeout_seconds=60)
-        for metadata in records[:1000]:
+            if files:
+                with suppress(ManagerTransportError):
+                    batch_download(machine, files, timeout_seconds=60)
+        for metadata in records[:OUTBOX_COLLECTION_BATCH_SIZE]:
             sequence = int(metadata.get("sequence") or 0)
             relative_path = str(metadata.get("relative_path") or "")
             record_type = str(metadata.get("record_type") or "")
@@ -2760,53 +2861,57 @@ class ManagerService(ManagerMemory, ManagerPolling):
                             collection_mode="sftp_outbox",
                         )
             elif record_type == "event":
-                message = payload.get("agent_message")
-                if isinstance(message, dict):
-                    self.record_agent_message(message)
-                execution = payload.get("execution")
-                task_id = str(metadata.get("task_id") or "")
-                manager_task = self.store.get("tasks", task_id) if task_id else None
-                if isinstance(execution, dict) and manager_task:
-                    self._update_task_from_execution(
-                        task_id,
-                        execution,
-                        connectivity="ONLINE",
-                    )
-                if (
-                    manager_task
-                    and isinstance(message, dict)
-                    and str(message.get("status") or "") == "RUNNING"
-                ):
-                    self._update_task(
-                        str(metadata["task_id"]),
-                        dispatch_state="RUNNING",
-                        last_known_remote_state="RUNNING",
-                        connectivity="ONLINE",
-                        message=str(message.get("summary") or "员工 Agent 正在执行任务"),
-                    )
-                event_count += 1
-            else:
-                for message in payload.get("agent_messages") or []:
+                with self.store.batch():
+                    message = payload.get("agent_message")
                     if isinstance(message, dict):
                         self.record_agent_message(message)
-                task_id = str(payload.get("task_id") or metadata.get("task_id") or "")
-                if task_id and self.store.get("tasks", task_id):
-                    self._update_task(
-                        task_id,
-                        dispatch_state="ACKNOWLEDGED",
-                        remote_execution_id=str(
-                            payload.get("remote_execution_id")
-                            or metadata.get("remote_execution_id")
-                            or ""
-                        ),
-                        last_known_remote_state="ACCEPTED",
-                        connectivity="ONLINE",
-                        reconciliation_required=False,
-                        error_code="",
-                        message="已从员工机 outbox 回收到任务 ACK",
-                    )
+                    execution = payload.get("execution")
+                    task_id = str(metadata.get("task_id") or "")
+                    manager_task = self.store.get("tasks", task_id) if task_id else None
+                    if isinstance(execution, dict) and manager_task:
+                        self._update_task_from_execution(
+                            task_id,
+                            execution,
+                            connectivity="ONLINE",
+                        )
+                    if (
+                        manager_task
+                        and isinstance(message, dict)
+                        and str(message.get("status") or "") == "RUNNING"
+                    ):
+                        self._update_task(
+                            str(metadata["task_id"]),
+                            dispatch_state="RUNNING",
+                            last_known_remote_state="RUNNING",
+                            connectivity="ONLINE",
+                            message=str(message.get("summary") or "员工 Agent 正在执行任务"),
+                        )
+                event_count += 1
+            else:
+                with self.store.batch():
+                    for message in payload.get("agent_messages") or []:
+                        if isinstance(message, dict):
+                            self.record_agent_message(message)
+                    task_id = str(payload.get("task_id") or metadata.get("task_id") or "")
+                    if task_id and self.store.get("tasks", task_id):
+                        self._update_task(
+                            task_id,
+                            dispatch_state="ACKNOWLEDGED",
+                            remote_execution_id=str(
+                                payload.get("remote_execution_id")
+                                or metadata.get("remote_execution_id")
+                                or ""
+                            ),
+                            last_known_remote_state="ACCEPTED",
+                            connectivity="ONLINE",
+                            reconciliation_required=False,
+                            error_code="",
+                            message="已从员工机 outbox 回收到任务 ACK",
+                        )
                 acknowledgement_count += 1
             next_cursor = sequence
+
+        if next_cursor > cursor:
             self.store.set_collection_cursor(cursor_key, next_cursor)
 
         status = (
@@ -2885,7 +2990,15 @@ class ManagerService(ManagerMemory, ManagerPolling):
             "state_counts": summary["task_state_counts"],
             "summary": summary,
             "evidence_errors": evidence_errors,
-            "pending_evidence": self._pending_evidence_count(machine_id),
+            "pending_evidence": (
+                sum(
+                    1
+                    for item in collection_view.list("evidence_downloads")
+                    if item.get("machine_id") == machine_id and item.get("state") != "SUCCESS"
+                )
+                if collection_view is not None and not records and not download_evidence
+                else self._pending_evidence_count(machine_id)
+            ),
             "results": normalized_results,
         }
 
@@ -3051,24 +3164,25 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     "missing_reason": "",
                 }
             )
-            _, created = self.store.record_result(result_key, result)
-            from debug_common import incident_from_result
-            from manager_debug import ManagerDebugService
+            with self.store.batch():
+                _, created = self.store.record_result(result_key, result)
+                from debug_common import incident_from_result
+                from manager_debug import ManagerDebugService
 
-            incident = incident_from_result(machine_id, result)
-            if incident:
-                ManagerDebugService(self).ingest_incident(machine_id, incident)
+                incident = incident_from_result(machine_id, result)
+                if incident:
+                    ManagerDebugService(self).ingest_incident(machine_id, incident)
+                new_records, replayed_records = self._record_incremental_data(machine_id, result)
+                self._apply_collected_result(result)
+                self._record_operation_result(result)
+                self.ingest_memory(result)
+                for message in result.get("agent_messages") or []:
+                    if isinstance(message, dict):
+                        self.record_agent_message(message)
             inserted += int(created)
             duplicates += int(not created)
-            new_records, replayed_records = self._record_incremental_data(machine_id, result)
             incremental_inserted += new_records
             incremental_duplicates += replayed_records
-            self._apply_collected_result(result)
-            self._record_operation_result(result)
-            self.ingest_memory(result)
-            for message in result.get("agent_messages") or []:
-                if isinstance(message, dict):
-                    self.record_agent_message(message)
             if download_evidence:
                 recorded_evidence_errors.extend(self._download_evidence(machine, result))
             normalized_results.append(result)
@@ -5401,6 +5515,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     else "任务包已到达，员工机尚未确认领取"
                 ),
             )
+            if exc.result_unknown:
+                return self.reconcile_task(task_id)
             return {"success": False, "status": updated["dispatch_state"], "task": updated}
 
         remote_error = self._remote_error(acknowledgement)

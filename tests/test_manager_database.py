@@ -7,6 +7,29 @@ from service_errors import ServiceError
 from worker_data_export import export_business_data
 
 
+def test_dashboard_reads_committed_metrics_while_import_is_writing(tmp_path):
+    import json
+    import sqlite3
+
+    database = ManagerDatabase(tmp_path)
+    database.sync({})
+    metric = {"entity_type": "note", "entity_id": "n1", "views": 12}
+    with sqlite3.connect(database.path) as seed:
+        seed.execute("INSERT INTO worker_records VALUES (?,?,?,?,?)",
+                     ("PC071", "metric_snapshots", "1", "3-3", json.dumps(metric)))
+    writer = sqlite3.connect(database.path)
+    try:
+        writer.execute("BEGIN EXCLUSIVE")
+        writer.execute("DELETE FROM worker_records")
+        observed = database.employee_observations()
+        assert len(observed) == 1
+        assert observed[0]["data"]["views"] == 12
+        writer.commit()
+        assert database.employee_observations() == []
+    finally:
+        writer.close()
+
+
 def test_worker_snapshot_all_tables_and_account_isolation(tmp_path):
     import sqlite3
 

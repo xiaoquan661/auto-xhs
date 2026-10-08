@@ -1,4 +1,4 @@
-"""Detached employee Agent runner for one accepted manager task."""
+"""Detached employee runner for one accepted manager task."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 try:
+    from .direct_creator_metrics import DirectCreatorMetricsRunner, is_direct_creator_task
     from .employee_codex_runner import EmployeeCodexRunner
     from .manager_worker_service import ManagerWorkerService
     from .run_lock import RunLock
 except ImportError:
+    from direct_creator_metrics import DirectCreatorMetricsRunner, is_direct_creator_task
     from employee_codex_runner import EmployeeCodexRunner
     from manager_worker_service import ManagerWorkerService
     from run_lock import RunLock
@@ -40,11 +42,12 @@ def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
             break
         time.sleep(2)
     try:
+        direct_creator = is_direct_creator_task(execution["task"])
         service.send_task_progress(
             task_id,
             remote_execution_id=remote_execution_id,
             stage="starting",
-            summary="员工Agent开始执行任务",
+            summary="本机 CLI 开始采集作品数据" if direct_creator else "员工Agent开始执行任务",
         )
 
         def claimed(receipt: dict) -> None:
@@ -73,11 +76,17 @@ def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
                     if row["task_id"]
                     in (execution["task"].get("parameters") or {}).get("depends_on_task_ids", [])
                 )
-                else EmployeeCodexRunner(
-                    service.root,
-                    on_claim=claimed,
-                    should_stop=should_stop,
-                    on_bug=lambda payload: service.debug_action("report", payload),
+                else (
+                    DirectCreatorMetricsRunner(
+                        service.root, worker_snapshot=service._store.snapshot
+                    )
+                    if direct_creator
+                    else EmployeeCodexRunner(
+                        service.root,
+                        on_claim=claimed,
+                        should_stop=should_stop,
+                        on_bug=lambda payload: service.debug_action("report", payload),
+                    )
                 )
             ),
         )
@@ -89,7 +98,7 @@ def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="执行一条员工Agent异步任务")
+    parser = argparse.ArgumentParser(description="执行一条员工异步任务")
     parser.add_argument("--state-root", required=True)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--remote-execution-id", required=True)

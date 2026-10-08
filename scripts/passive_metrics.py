@@ -10,9 +10,10 @@ def passive_view(metric: dict, events: list[dict], receipts: list[dict], day: st
     complete = progress["complete"]
     observed = metric["observed_new"]
     capabilities = {
-        "new_followers": {"collect-operations-metrics"},
+        "new_followers": {"collect-operations-metrics", "collect-notifications"},
         "received_likes": {"collect-operations-metrics"},
-        "received_comments": {"collect-note-comments", "reply-inbox-collect"},
+        "received_comments": {"collect-note-comments", "collect-notifications",
+                              "reply-inbox-collect"},
         "received_private_messages": {"collect-private-messages", "reply-inbox-collect"},
     }
     attempts = []

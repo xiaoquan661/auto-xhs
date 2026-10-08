@@ -1242,6 +1242,8 @@ async function cmdClickPublishControl({ _tab_id = null, dry_run = false } = {}) 
   const target = { tabId: tab.id };
   await chrome.debugger.attach(target, "1.3");
   try {
+    // Native mouse input targets the visible page; bring this tab forward before measuring it.
+    await chrome.debugger.sendCommand(target, "Page.bringToFront");
     const { root } = await chrome.debugger.sendCommand(target, "DOM.getDocument", {
       depth: -1, pierce: true,
     });
@@ -1306,6 +1308,15 @@ async function cmdClickPublishControl({ _tab_id = null, dry_run = false } = {}) 
         }, {once: true, capture: true});
       }`,
     });
+    await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: `window.__xhsPublishPageEvents = [];
+        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+          document.addEventListener(type, event => {
+            window.__xhsPublishPageEvents.push({type, trusted: event.isTrusted,
+              target: event.target?.tagName || '', x: event.clientX, y: event.clientY});
+          }, {once: true, capture: true});
+        }`,
+    });
     // Measure how native input coordinates map to page client coordinates at this zoom.
     await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: `window.__xhsPointer = null;
@@ -1349,23 +1360,20 @@ async function cmdClickPublishControl({ _tab_id = null, dry_run = false } = {}) 
       return {dispatched: false, reason: "正式按下前发布按钮已变化或未命中", point};
     }
     if (dry_run) return {dispatched: false, ready: true, point, tab_id: tab.id,
-      diagnostic_version: 2, viewport_height: finalPos.viewportHeight};
-    const input = {x: point.x, y: point.y, button: "left", clickCount: 1, modifiers: 0};
-    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
-      ...input, type: "mousePressed", buttons: 1,
-    });
-    await sleep(30);
-    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
-      ...input, type: "mouseReleased", buttons: 0,
-    });
+      diagnostic_version: 3, viewport_height: finalPos.viewportHeight};
+    await _dispatchRealClickAt(target, point.x, point.y);
     const receipt = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: "window.__xhsPublishNativeClick || null", returnByValue: true,
     }).catch(() => null);
     const events = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: "window.__xhsPublishNativeEvents || []", returnByValue: true,
     }).catch(() => null);
+    const pageEvents = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression: "window.__xhsPublishPageEvents || []", returnByValue: true,
+    }).catch(() => null);
     return { dispatched: true, method: "native_mouse", button_text: "发布",
-      diagnostic_version: 2, button_events: events?.result?.value || [],
+      diagnostic_version: 3, button_events: events?.result?.value || [],
+      page_events: pageEvents?.result?.value || [],
       x: pos.x, y: pos.y, viewport_height: pos.viewportHeight,
       button_click: receipt?.result?.value || null, tab_id: tab.id };
 

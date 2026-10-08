@@ -191,6 +191,33 @@ def test_machine_serial_waits_other_account_and_continues_after_blocked(tmp_path
     assert queue_status(state, rows["task-2"], now + timedelta(seconds=300))[0] == "READY"
 
 
+def test_advanced_publish_releases_paused_batch_successor(tmp_path):
+    service = make_service(tmp_path)
+    original = task_request()
+    original["task"]["parameters"]["machine_serial"] = True
+    service.accept_task(original)
+    advanced = task_request(task_id="task-early", dispatch_id="dispatch-early")
+    advanced["task"]["parameters"].update(
+        machine_serial=True, advances_task_id="task-1"
+    )
+    service.accept_task(advanced)
+    successor = task_request(task_id="task-2", dispatch_id="dispatch-2")
+    successor["task"]["parameters"].update(
+        machine_serial=True, machine_predecessor_task_id="task-1",
+        batch_interval_seconds=300,
+    )
+    service.accept_task(successor)
+    state = service._store.snapshot()
+    rows = {e["task_id"]: e for e in state["executions"].values()}
+    now = datetime.now(UTC)
+    rows["task-1"]["state"] = "PAUSED"
+    rows["task-early"].update(state="SUCCESS", finished_at=now.isoformat())
+    assert queue_status(state, rows["task-2"], now + timedelta(seconds=299))[0] == "WAITING"
+    assert queue_status(state, rows["task-2"], now + timedelta(seconds=300))[0] == "READY"
+    rows["task-early"]["state"] = "FAILED"
+    assert queue_status(state, rows["task-2"], now + timedelta(hours=1))[0] == "WAITING"
+
+
 def test_queue_orders_mixed_offsets_by_instant():
     now = datetime(2026, 9, 23, 10, tzinfo=UTC)
     def row(key, scheduled):

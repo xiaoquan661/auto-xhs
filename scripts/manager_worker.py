@@ -128,6 +128,14 @@ def dispatch_request(
             int(payload.get("since_sequence", payload.get("after_sequence", 0))),
             limit=int(payload.get("limit", 100)),
         )
+    if action == "collect-creator-now":
+        from direct_creator_metrics import collect_creator_now
+
+        return collect_creator_now(service, str(payload.get("account_slot") or ""))
+    if action == "collect-notifications-now":
+        from direct_notification_collection import collect_notifications_now
+
+        return collect_notifications_now(service, str(payload.get("account_slot") or ""))
     raise WorkerServiceError("UNKNOWN_ACTION", f"未知执行机动作：{action}")
 
 

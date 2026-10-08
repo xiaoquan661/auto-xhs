@@ -222,6 +222,67 @@ def service(
     )
 
 
+def test_immediate_creator_collection_imports_direct_receipt(tmp_path: Path, monkeypatch) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    manager.store.put("accounts", "PC001:brand-a", {
+        "machine_id": "PC001", "account_slot": "brand-a", "platform": "xiaohongshu",
+    })
+    transport.queue("collect-creator-now", {
+        "success": True, "status": "SUCCESS",
+        "result": {
+            "task_id": "creator-ui-1", "remote_execution_id": "creator-ui-1",
+            "result_revision": 1, "machine_id": "PC001", "account_slot": "brand-a",
+            "platform": "xiaohongshu", "capability": "collect-operations-metrics",
+            "state": "SUCCESS", "business_result": {
+                "source": "creator_manager", "captured_at": "2026-09-29T06:00:00Z",
+                "notes": [{"note_id": "note-1", "metrics": {"views": 0}}],
+            },
+        },
+    })
+    monkeypatch.setattr(manager, "collect_business_data", lambda machine_id: {"success": True})
+
+    result = manager.collect_creator_now("PC001", "brand-a")
+
+    assert result["status"] == "SUCCESS"
+    assert result["collected"] == 1
+    assert result["database_status"] == "SYNCED"
+    assert transport.calls[-1] == ("collect-creator-now", {"account_slot": "brand-a"})
+    assert any(item.get("task_id") == "creator-ui-1" for item in manager.store.list("results"))
+
+
+def test_immediate_notification_collection_imports_events(tmp_path: Path, monkeypatch) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    manager.store.put("accounts", "PC001:brand-a", {
+        "machine_id": "PC001", "account_slot": "brand-a", "platform": "xiaohongshu",
+    })
+    transport.queue("collect-notifications-now", {
+        "success": True, "status": "SUCCESS",
+        "result": {
+            "task_id": "notification-ui-1", "remote_execution_id": "notification-ui-1",
+            "result_revision": 1, "machine_id": "PC001", "account_slot": "brand-a",
+            "platform": "xiaohongshu", "capability": "collect-notifications",
+            "state": "SUCCESS", "incremental_data": [{
+                "event_type": "new_follower", "platform_event_id": "follow-1",
+                "occurred_at": "2026-09-29T06:00:00Z",
+            }],
+            "business_result": {"source": "notification_history", "channels": [
+                {"metric": "received_comments", "observed_count": 0},
+                {"metric": "new_followers", "observed_count": 1},
+            ]},
+        },
+    })
+    monkeypatch.setattr(manager, "collect_business_data", lambda machine_id: {"success": True})
+
+    result = manager.collect_notifications_now("PC001", "brand-a")
+
+    assert result["status"] == "SUCCESS"
+    assert result["accounts"][0]["count"] == 1
+    assert transport.calls[-1] == ("collect-notifications-now", {"account_slot": "brand-a"})
+    assert len(manager.store.list("incremental_records")) == 1
+
+
 def register_ready(manager: ManagerService) -> None:
     manager.register_machine(machine_values())
     checked = manager.check_machine("PC001")
@@ -2168,3 +2229,26 @@ def test_dashboard_reads_state_once_and_refreshes_next_request(tmp_path, monkeyp
     assert len(reads) == 1
     assert second["machines"][0]["status"] == "READY"
     assert transport.calls == []
+
+
+def test_operation_poll_uses_one_snapshot_and_refreshes_next_poll(tmp_path, monkeypatch) -> None:
+    manager, _ = service(tmp_path)
+    for identifier in ("op1", "op2"):
+        manager.store.put("operation_tasks", identifier, {
+            "operation_task_id": identifier, "state": "WAITING_AGENT", "targets": [],
+        })
+    reads = []
+    original = manager.store._read_state
+
+    def read():
+        reads.append(True)
+        return original()
+
+    monkeypatch.setattr(manager.store, "_read_state", read)
+    assert manager.list_operation_tasks()["summary"]["total"] == 2
+    assert len(reads) == 1
+    manager.store.update("operation_tasks", "op1", lambda row: {**row, "state": "COMPLETED"})
+    reads.clear()
+    result = manager.list_operation_tasks()
+    assert result["summary"]["COMPLETED"] == 1
+    assert len(reads) == 1

@@ -79,7 +79,10 @@ def prepare_batches(runner: Any, task: dict, now: datetime, remaining: dict) -> 
         action.update(**identity, action_id=f"batch-{index + 1}")
         action["parameters"].update(
             daily_plan=spec,
-            daily_expected_metrics=action["expected_metrics"],
+            daily_expected_metrics={
+                metric: int(spec["budgets"].get(metric) or 0) for metric in HARD_METRICS
+            },
+            batch_expected_metrics=action["expected_metrics"],
             scheduled_at=scheduled.isoformat(),
             expires_at=end.isoformat(),
             batch_index=index + 1,
@@ -92,7 +95,12 @@ def prepare_batches(runner: Any, task: dict, now: datetime, remaining: dict) -> 
                 **spec.get("operations_config", {}),
                 "publish_rules": spec["publish_rules"],
             },
-            instructions="批间隔用于两个批次之间，不是每篇阅读或点赞间隔。复用本账号前批记录去重。",
+            instructions=(
+                "本批数量为本次需新增的动作数，前批完成量不能抵扣本批。"
+                "daily_expected_metrics 是全天累计目标，batch_expected_metrics 是本批新增目标。"
+                "批间隔用于两个批次之间，不是每篇阅读或点赞间隔。"
+                "复用本账号前批记录仅用于排除重复目标。"
+            ),
         )
         request = runner.agent._task_request(task, action)
         request["timeout_seconds"] = max(600, request["timeout_seconds"])

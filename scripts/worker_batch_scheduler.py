@@ -22,9 +22,25 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
     if scheduled and now < datetime.fromisoformat(scheduled):
         return "WAITING", f"等待计划时间 {scheduled}"
     by_task = {e["task_id"]: e for e in state["executions"].values()}
+
+    def effective_execution(row: dict | None) -> dict | None:
+        if not row or row["state"] != "PAUSED":
+            return row
+        return next(
+            (
+                candidate
+                for candidate in by_task.values()
+                if candidate["state"] == "SUCCESS"
+                and (candidate["task"].get("parameters") or {}).get("advances_task_id")
+                == row["task_id"]
+                and candidate["task"].get("account_slot") == row["task"].get("account_slot")
+            ),
+            row,
+        )
+
     predecessor = params.get("machine_predecessor_task_id")
     if predecessor:
-        previous = by_task.get(predecessor)
+        previous = effective_execution(by_task.get(predecessor))
         if not previous or previous["state"] not in FINAL:
             return "WAITING", "等待本机上一任务结束"
         if previous.get("finished_at") and now < datetime.fromisoformat(
@@ -32,7 +48,7 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
         ) + timedelta(seconds=params.get("batch_interval_seconds", 300)):
             return "WAITING", "等待本机任务间隔"
     for key in params.get("depends_on_task_ids", []):
-        previous = by_task.get(key)
+        previous = effective_execution(by_task.get(key))
         if not previous or previous["state"] not in FINAL:
             return "WAITING", "等待上一批完成"
         if previous["state"] not in {"SUCCESS", "PARTIAL_SUCCESS"}:
@@ -50,6 +66,8 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
         if other["remote_execution_id"] == execution["remote_execution_id"]:
             continue
         if other["state"] in FINAL:
+            continue
+        if effective_execution(other) is not other:
             continue
         if other["task"].get("account_slot") != slot and not params.get("machine_serial"):
             continue

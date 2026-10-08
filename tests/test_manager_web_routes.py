@@ -181,6 +181,12 @@ class FakeManagerService:
     def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
         return self._result("collect_results", machine_id, download_evidence)
 
+    def collect_creator_now(self, machine_id: str, account_slot: str = "") -> dict:
+        return self._result("collect_creator_now", machine_id, account_slot)
+
+    def collect_notifications_now(self, machine_id: str, account_slot: str = "") -> dict:
+        return self._result("collect_notifications_now", machine_id, account_slot)
+
     def dispatch_task(self, body: dict) -> dict:
         return self._result("dispatch_task", body)
 
@@ -275,6 +281,16 @@ def test_manager_get_routes(path: str, expected_call: tuple) -> None:
 @pytest.mark.parametrize(
     ("path", "body", "expected_call"),
     [
+        (
+            "/api/v1/manager/creator-metrics/collect-now",
+            {"machine_id": "PC071", "account_slot": "3-3"},
+            ("collect_creator_now", "PC071", "3-3"),
+        ),
+        (
+            "/api/v1/manager/notifications/collect-now",
+            {"machine_id": "PC071", "account_slot": "3-3"},
+            ("collect_notifications_now", "PC071", "3-3"),
+        ),
         (
             "/api/v1/manager/machines",
             {"machine_id": "EXECUTOR-01"},

@@ -7,8 +7,14 @@ import logging
 import time
 
 from .cdp import Page
-from .errors import ActionResultUnknownError, InteractionStateError, NoFeedDetailError
-from .selectors import COLLECT_BUTTON, LIKE_BUTTON
+from .errors import (
+    ActionResultUnknownError,
+    CDPError,
+    ElementNotFoundError,
+    InteractionStateError,
+    NoFeedDetailError,
+)
+from .selectors import COLLECT_BUTTON, LIKE_BUTTON_SELECTORS
 from .types import ActionResult
 from .urls import make_feed_detail_url
 
@@ -80,6 +86,16 @@ def unlike_feed(page: Page, feed_id: str, xsec_token: str) -> ActionResult:
     return _toggle_like(page, feed_id, target_liked=False)
 
 
+def _find_like_button(page: Page) -> str | None:
+    for attempt in range(20):
+        selector = next((item for item in LIKE_BUTTON_SELECTORS if page.has_element(item)), None)
+        if selector is not None:
+            return selector
+        if attempt < 19:
+            time.sleep(0.25)
+    return None
+
+
 def _toggle_like(page: Page, feed_id: str, target_liked: bool) -> ActionResult:
     """执行点赞/取消点赞操作。"""
     action_name = "点赞" if target_liked else "取消点赞"
@@ -94,9 +110,21 @@ def _toggle_like(page: Page, feed_id: str, target_liked: bool) -> ActionResult:
         logger.info("feed %s 已%s，跳过", feed_id, action_name)
         return ActionResult(feed_id, True, f"已{action_name}", changed=False)
 
+    selector = _find_like_button(page)
+    if selector is None:
+        raise InteractionStateError(f"{action_name}前未找到笔记操作按钮，请核对当前页面")
+
+    try:
+        page.click_element(selector)
+    except ElementNotFoundError as exc:
+        raise InteractionStateError(f"{action_name}前按钮已消失，请核对当前页面") from exc
+    except CDPError as exc:
+        if "元素不存在" in str(exc):
+            raise InteractionStateError(f"{action_name}前按钮已消失，请核对当前页面") from exc
+        raise ActionResultUnknownError(f"{action_name}结果待核对：{exc}") from exc
+
     # 单次点击后只读取平台状态，等待异步页面更新。
     try:
-        page.click_element(LIKE_BUTTON)
         for _ in range(10):
             time.sleep(0.3)
             try:

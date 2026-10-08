@@ -6,7 +6,9 @@ import copy
 import json
 import os
 import threading
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeVar
 
@@ -59,12 +61,42 @@ class ManagerStore:
         self.root = Path(root).expanduser().resolve() if root else manager_root()
         self.path = self.root / "manager-state.json"
         self.lock_path = self.root / "manager-state.lock"
+        self._batch = threading.local()
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Commit related local updates with one state-file write."""
+        if getattr(self._batch, "state", None) is not None:
+            yield
+            return
+        self.root.mkdir(parents=True, exist_ok=True)
+        with _PROCESS_LOCK:
+            lock = RunLock(str(self.lock_path))
+            if not lock.acquire(timeout=10):
+                raise TimeoutError("经理机数据正在被其他进程使用")
+            try:
+                self._batch.state = self._read_state()
+                self._batch.dirty = False
+                try:
+                    yield
+                finally:
+                    try:
+                        if self._batch.dirty:
+                            self._write_state(self._batch.state)
+                    finally:
+                        del self._batch.state
+                        del self._batch.dirty
+            finally:
+                lock.release()
 
     def snapshot(self) -> dict:
-        return self._transaction(lambda state: copy.deepcopy(state), write=False)
+        return copy.deepcopy(self._read_current_state())
 
     def read_view(
-        self, *, excluded_fields: frozenset[str] = frozenset(), copy_on_read: bool = True,
+        self,
+        *,
+        excluded_fields: frozenset[str] = frozenset(),
+        copy_on_read: bool = True,
     ) -> ManagerStore:
         """Read the atomically replaced file without waiting for background writers."""
         state = self._read_state()
@@ -78,17 +110,11 @@ class ManagerStore:
 
     def get(self, collection: str, item_id: str) -> dict | None:
         self._check_collection(collection)
-        return self._transaction(
-            lambda state: copy.deepcopy(state[collection].get(item_id)),
-            write=False,
-        )
+        return copy.deepcopy(self._read_current_state()[collection].get(item_id))
 
     def list(self, collection: str) -> list[dict]:
         self._check_collection(collection)
-        return self._transaction(
-            lambda state: [copy.deepcopy(item) for item in state[collection].values()],
-            write=False,
-        )
+        return [copy.deepcopy(item) for item in self._read_current_state()[collection].values()]
 
     def put(self, collection: str, item_id: str, item: dict) -> dict:
         self._check_collection(collection)
@@ -122,10 +148,7 @@ class ManagerStore:
         return self._transaction(mutate, write=True)
 
     def get_collection_cursor(self, machine_id: str) -> int:
-        return self._transaction(
-            lambda state: int(state["collection_cursors"].get(machine_id, 0)),
-            write=False,
-        )
+        return int(self._read_current_state()["collection_cursors"].get(machine_id, 0))
 
     def set_collection_cursor(self, machine_id: str, sequence: int) -> int:
         def mutate(state: dict) -> int:
@@ -160,6 +183,12 @@ class ManagerStore:
         return self._transaction(mutate, write=True)
 
     def _transaction(self, callback: Callable[[dict], T], *, write: bool) -> T:
+        state = getattr(self._batch, "state", None)
+        if state is not None:
+            result = callback(state)
+            if write:
+                self._batch.dirty = True
+            return result
         self.root.mkdir(parents=True, exist_ok=True)
         with _PROCESS_LOCK:
             lock = RunLock(str(self.lock_path))
@@ -173,6 +202,11 @@ class ManagerStore:
                 return result
             finally:
                 lock.release()
+
+    def _read_current_state(self) -> dict:
+        """Read a consistent atomic file without waiting for background writers."""
+        state = getattr(self._batch, "state", None)
+        return state if state is not None else self._read_state()
 
     def _read_state(self) -> dict:
         if not self.path.exists():
@@ -192,10 +226,17 @@ class ManagerStore:
     def _write_state(self, state: dict) -> None:
         temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
         temporary.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(state, ensure_ascii=False, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
-        os.replace(temporary, self.path)
+        for attempt in range(12):
+            try:
+                os.replace(temporary, self.path)
+                break
+            except PermissionError:
+                if attempt == 11:
+                    raise
+                time.sleep(0.25)
 
     @staticmethod
     def _check_collection(collection: str) -> None:
