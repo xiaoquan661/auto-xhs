@@ -202,7 +202,12 @@ class BusinessRunner:
             if parameters.get("source") == "notification_history":
                 from xhs.growth_notifications import collect_growth_notifications
 
-                growth = collect_growth_notifications(page)
+                growth = collect_growth_notifications(
+                    page,
+                    metrics=("new_followers",)
+                    if parameters.get("notification_kind") == "new_followers"
+                    else ("received_likes", "new_followers"),
+                )
                 return {
                     "source": "notification_history",
                     "captured_at": growth["captured_at"],

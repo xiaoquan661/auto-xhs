@@ -21,13 +21,13 @@ _READ_GROWTH_JS = r"""
     let card = link.parentElement;
     for (let depth = 0; card && depth < 5; depth++, card = card.parentElement) {
       const text = card.innerText || '';
-      const kind = /开始关注了你|关注了你|followed you/i.test(text) ? 'new_follower'
+      const kind = /(?:开始)?关注(?:了你|你了)|followed you/i.test(text) ? 'new_follower'
         : /赞了你的|点赞了你的|liked your/i.test(text) ? 'received_like' : '';
       if (!kind || text.length > 1500) continue;
       const actors = new Set([...card.querySelectorAll('a[href*="/user/profile/"]')]
         .map(a => new URL(a.href).pathname));
       const actionPattern = new RegExp(
-        '开始关注了?你|关注了你|赞了你的|点赞了你的|收藏了你的|followed you|liked your', 'gi');
+        '(?:开始)?关注(?:了你|你了)|赞了你的|点赞了你的|收藏了你的|followed you|liked your', 'gi');
       const actions = text.match(actionPattern) || [];
       if (actors.size !== 1 || actions.length !== 1 || text.includes('沪ICP备')) break;
       if (kind === 'received_like' && /收藏了你的/.test(text)) break;
@@ -113,7 +113,12 @@ def _display_date(text: str, captured_at: str) -> str:
     return display_date(text, captured_at)
 
 
-def collect_growth_notifications(page: Any, *, max_items: int = 100) -> dict:
+def collect_growth_notifications(
+    page: Any,
+    *,
+    max_items: int = 100,
+    metrics: tuple[str, ...] = ("received_likes", "new_followers"),
+) -> dict:
     page.navigate(NOTIFICATION_URL)
     page.wait_for_load()
     page.wait_dom_stable()
@@ -127,6 +132,8 @@ def collect_growth_notifications(page: Any, *, max_items: int = 100) -> dict:
         ("received_likes", ("赞和收藏", "赞与收藏", "Likes and saves")),
         ("new_followers", ("新增关注", "关注", "New followers")),
     ):
+        if metric not in metrics:
+            continue
         import json
 
         select_script = """(() => {

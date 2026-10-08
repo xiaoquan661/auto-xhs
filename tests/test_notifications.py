@@ -108,6 +108,20 @@ def test_collects_comment_notifications_from_observed_mentions_response(monkeypa
     assert comment["classification"] == "comment/item"
 
 
+def test_collects_post_mention_from_notification_history() -> None:
+    from xhs.notifications import _parse_mentions_response
+
+    rows = _parse_mentions_response({"data": {"message_list": [{
+        "id": "mention-1", "type": "mention/item", "time": 1_755_600_000,
+        "user_info": {"userid": "user-1", "nickname": "读者"},
+        "comment_info": {}, "item_info": {"id": "note-1", "content": "@我 的笔记"},
+    }]}}, max_items=10)
+
+    assert len(rows) == 1
+    assert rows[0]["classification"] == "mention/item"
+    assert rows[0]["content"] == "@我 的笔记"
+
+
 def test_replies_inside_the_uniquely_matched_notification_card(monkeypatch) -> None:
     monkeypatch.setattr("scripts.xhs.notifications.sleep_random", lambda *_args: None)
     page = NotificationPage()

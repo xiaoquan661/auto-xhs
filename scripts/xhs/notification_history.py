@@ -26,6 +26,14 @@ _SCROLL_HISTORY = r"""(() => {
   }
   window.scrollTo(0, document.documentElement.scrollHeight);
 })()"""
+_LOAD_MORE = r"""(() => {
+  const button = [...document.querySelectorAll('.load-more-button, .load-more button')]
+    .find(el => el.getClientRects().length &&
+      /查看更多历史消息|加载更多|load more/i.test(el.innerText || ''));
+  if (!button) return false;
+  button.click();
+  return true;
+})()"""
 
 
 def read_notification_history(
@@ -53,5 +61,6 @@ def read_notification_history(
         unchanged = unchanged + 1 if len(rows) == before else 0
         if unchanged >= 2:
             return list(rows.values()), False, "页面未继续加载，尚未到历史末尾"
-        page.evaluate(_SCROLL_HISTORY)
+        if page.evaluate(_LOAD_MORE) is not True:
+            page.evaluate(_SCROLL_HISTORY)
     return list(rows.values()), False, "达到本轮翻页上限"

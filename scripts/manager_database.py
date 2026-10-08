@@ -20,6 +20,8 @@ class ManagerDatabase:
     def sync(self, state: dict) -> dict:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.path, timeout=30) as db:
+            # Dashboard readers keep seeing the committed snapshot during imports.
+            db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS records (
                     collection TEXT NOT NULL,

@@ -279,3 +279,32 @@ def test_async_runner_records_model_claim_and_outbox(tmp_path: Path, monkeypatch
     assert final["business_result"]["probe_token"] == "local-round-trip"
     outbox = list((tmp_path / "worker").rglob("index.json"))
     assert outbox
+
+
+def test_async_creator_metrics_uses_local_cli_runner(tmp_path: Path, monkeypatch) -> None:
+    service = make_service(tmp_path / "worker")
+    request = task_request()
+    request["task"]["capability"] = "collect-operations-metrics"
+    request["task"]["parameters"] = {"source": "creator_manager", "max_notes": 100}
+    execution = service.accept_task(request)["execution"]
+    monkeypatch.setattr(manager_worker_async, "ManagerWorkerService", lambda **kwargs: service)
+    monkeypatch.setattr(
+        manager_worker_async,
+        "EmployeeCodexRunner",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Codex started")),
+    )
+    monkeypatch.setattr(
+        manager_worker_async,
+        "DirectCreatorMetricsRunner",
+        lambda *args, **kwargs: (
+            lambda task: {
+                "state": "SUCCESS",
+                "business_result": {"source": "creator_manager", "notes": []},
+            }
+        ),
+    )
+    assert (
+        manager_worker_async.run(str(service.root), "task-1", execution["remote_execution_id"]) == 0
+    )
+    assert service.task_status("task-1")["execution"]["state"] == "SUCCESS"
+    assert (tmp_path / "worker" / "task-outbox" / "index.json").exists()

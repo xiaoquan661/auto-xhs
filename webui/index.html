@@ -182,7 +182,7 @@
               <label><span>开始日期</span><input id="manager-result-start" type="date" /></label>
               <label><span>结束日期</span><input id="manager-result-end" type="date" /></label>
               <button class="secondary-button" id="manager-result-reset" type="button">重置日期</button>
-              <div class="recovery-collect"><label><input id="manager-collect-evidence" type="checkbox" checked /> 同步证据</label><button class="secondary-button" id="manager-collect-results" type="button">立即回收</button></div>
+              <div class="recovery-collect"><button class="secondary-button" id="manager-collect-results" type="button">立即采集作品</button><button class="secondary-button" id="manager-collect-notifications" type="button">立即采集通知</button><button class="secondary-button" id="manager-sync-outbox" type="button">回收已有回执</button><label><input id="manager-collect-evidence" type="checkbox" checked /> 同步回执证据</label></div>
             </div>
             <p class="action-message" id="manager-collect-message" role="status"></p>
             <div class="recovery-list-tools" id="recovery-list-tools">
@@ -190,7 +190,7 @@
               <input id="recovery-search" type="search" aria-label="搜索发布内容" placeholder="搜索笔记标题或发布内容" />
             </div>
             <section id="recovery-pane-results" role="tabpanel" aria-labelledby="recovery-tab-results" data-recovery-pane="results"><div id="manager-result-list"></div></section>
-            <div id="recovery-collection-tools" class="recovery-list-tools" hidden><label>数据类型 <select id="recovery-collection-type"><option value="all">全部类型</option><option value="comment">评论</option><option value="message">私信</option><option value="follower">新增粉丝</option><option value="like">收获点赞</option><option value="metrics">指标快照</option><option value="collection">采集与回复记录</option><option value="other">其他数据</option></select></label><input id="recovery-collection-search" type="search" aria-label="搜索采集数据" placeholder="搜索内容、用户或笔记" /></div>
+            <div id="recovery-collection-tools" class="recovery-list-tools" hidden><label>数据类型 <select id="recovery-collection-type"><option value="all">全部类型</option><option value="comment">评论和 @</option><option value="message">私信</option><option value="follower">新增关注</option><option value="metrics">指标快照</option><option value="collection">采集与回复记录</option><option value="other">其他数据</option></select></label><input id="recovery-collection-search" type="search" aria-label="搜索采集数据" placeholder="搜索内容、用户或笔记" /></div>
             <p id="recovery-view-help" class="recovery-help"></p>
             <section id="recovery-pane-incremental" role="tabpanel" aria-labelledby="recovery-tab-incremental" data-recovery-pane="incremental" hidden><div id="manager-incremental-list"></div></section>
             <section id="recovery-pane-reports" role="tabpanel" aria-labelledby="recovery-tab-reports" data-recovery-pane="reports" hidden><div id="manager-operation-report-list"></div><details class="recovery-saved-reports"><summary>已保存的报告快照</summary><p>报告保留生成时的数据；当前运营情况请查看上方按日汇总。</p><div id="recovery-saved-report-list"></div></details></section>
@@ -395,10 +395,10 @@
     <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
     <script src="/manager-debug.js?v=20260910" defer></script>
     <script src="/manager-account-tools.js?v=20260908-account-identity-1" defer></script>
-    <script src="/employee-panel.js?v=20260929-overview-1" defer></script>
-    <script src="/manager-results.js?v=20260924-publish-date" defer></script>
+    <script src="/employee-panel.js?v=20260929-notifications-1" defer></script>
+    <script src="/manager-results.js?v=20260929-notifications-1" defer></script>
     <script src="/manager-memory.js?v=20260909" defer></script>
     <script src="/manager-polling.js?v=20260909-polling-1" defer></script>
-    <script src="/manager-console.js?v=20260929-overview-1" defer></script>
+    <script src="/manager-console.js?v=20261008-collection-refresh" defer></script>
   </body>
 </html>

@@ -20,13 +20,11 @@ from run_lock import RunLock
 
 
 def commands(platform: str) -> list[list[str]]:
-    result = [
-        ["collect-operations-metrics", "--source", "notification_history"],
+    return [
+        ["collect-operations-metrics", "--source", "notification_history",
+         "--notification-kind", "new_followers"],
         ["collect-note-comments", "--max-notes", "100"],
     ]
-    if platform != "rednote":
-        result.append(["collect-private-messages", "--max-conversations", "50"])
-    return result
 
 
 def eligibility(worker: dict, product: dict, slot: str, config: dict) -> str:
@@ -91,7 +89,6 @@ class DailyCollector:
                     "platform": a.platform,
                     "status": eligibility(worker, product, a.name, self.config),
                     "channels": [c[0] for c in commands(a.platform)],
-                    "private_messages": "unsupported" if a.platform == "rednote" else "supported",
                 }
                 for a in list_accounts()
             ],
@@ -134,9 +131,6 @@ class DailyCollector:
                 "statistical_date": record["day"],
                 "timezone": "Asia/Shanghai",
                 "channels": record["channels"],
-                "private_messages": "unsupported"
-                if record["platform"] == "rednote"
-                else "supported",
             },
             "evidence_index": {"daily_collection": str(path)},
         }
@@ -226,7 +220,7 @@ class DailyCollector:
                     if states and all(s == "SUCCESS" for s in states)
                     else ("PARTIAL_SUCCESS" if incremental_present(record) else "FAILED")
                 )
-                self.finish(record, path, state, "每日收到的互动采集完成")
+                self.finish(record, path, state, "每日通知采集完成")
                 outcomes.append({"account": account.name, "state": state})
             finally:
                 account_lock.release()

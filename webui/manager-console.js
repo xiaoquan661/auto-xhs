@@ -3098,7 +3098,8 @@
     refreshTimer = window.setTimeout(() => load(), delay);
   }
 
-  function load() {
+  async function load({ fresh = false } = {}) {
+    if (fresh && refreshPromise) await refreshPromise;
     if (refreshPromise) return refreshPromise;
     window.clearTimeout(refreshTimer);
     refreshPromise = performLoad().finally(() => {
@@ -3133,7 +3134,7 @@
         requestError = error;
       }
     }
-    await load();
+    const refreshed = await load({ fresh: true });
     if (pendingKey) {
       pendingActions.delete(pendingKey);
       renderAll();
@@ -3145,7 +3146,9 @@
     }
     const status = payload?.status ? labelFor(payload.status) : "操作已完成";
     const message = payload?.message || payload?.machine?.last_error || status;
-    setMessage(messageSelector, message, payload?.success === false ? "warning" : "success");
+    setMessage(messageSelector,
+      refreshed ? message : `${message}；页面数据刷新失败，请重试刷新。`,
+      !refreshed || payload?.success === false ? "warning" : "success");
     button.disabled = false;
     button.removeAttribute("aria-busy");
     return payload;
@@ -3307,22 +3310,56 @@
     const button = event.currentTarget;
     const machineId = $("#manager-result-machine").value;
     if (!machineId) {
-      setMessage("#manager-collect-message", "请先选择需要回收结果的执行机。", "error");
+      setMessage("#manager-collect-message", "请先选择需要采集的员工机。", "error");
       return;
     }
-    if (!window.confirm(`确认立即连接 ${machineId} 并回收结果？`)) return;
     try {
       await runMutation(
         button,
-        `${managerApi}/machines/${encodeURIComponent(machineId)}/collect`,
-        { download_evidence: $("#manager-collect-evidence").checked },
+        `${managerApi}/creator-metrics/collect-now`,
+        {machine_id: machineId, account_slot: $("#manager-result-account").value},
         "#manager-collect-message",
-        "正在回收结果…",
+        "正在从员工机创作中心采集并回收…",
       );
       renderResults();
     } catch (_error) {
       // runMutation has rendered the user-facing error.
     }
+  }
+
+  async function collectSelectedNotifications(event) {
+    const button = event.currentTarget;
+    const machineId = $("#manager-result-machine").value;
+    if (!machineId) {
+      setMessage("#manager-collect-message", "请先选择需要采集的员工机。", "error");
+      return;
+    }
+    try {
+      await runMutation(
+        button,
+        `${managerApi}/notifications/collect-now`,
+        {machine_id: machineId, account_slot: $("#manager-result-account").value},
+        "#manager-collect-message",
+        "正在采集评论和 @、新增关注…",
+      );
+      renderResults();
+    } catch (_error) {
+      // runMutation has rendered the user-facing error.
+    }
+  }
+
+  async function syncSelectedMachine(event) {
+    const button = event.currentTarget;
+    const machineId = $("#manager-result-machine").value;
+    if (!machineId) {
+      setMessage("#manager-collect-message", "请先选择需要同步回执的员工机。", "error");
+      return;
+    }
+    await runMutation(button,
+      `${managerApi}/machines/${encodeURIComponent(machineId)}/collect`,
+      {download_evidence: $("#manager-collect-evidence").checked},
+      "#manager-collect-message", "正在回收已有回执…");
+    renderResults();
   }
 
   function setResultDateRange() {
@@ -3392,6 +3429,8 @@
       button.removeAttribute("aria-busy");
     });
     $("#manager-collect-results")?.addEventListener("click", collectSelectedMachine);
+    $("#manager-collect-notifications")?.addEventListener("click", collectSelectedNotifications);
+    $("#manager-sync-outbox")?.addEventListener("click", syncSelectedMachine);
     [
       "#manager-result-machine",
       "#manager-result-account",

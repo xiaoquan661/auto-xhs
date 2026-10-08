@@ -29,13 +29,14 @@ def test_missing_counters_stay_unknown() -> None:
     assert parse_creator_card(card("1.2万\n0\n7\n0\n—"))["metrics"]["shares"] is None
 
 
-def test_targeted_collection_reuses_creator_page_without_audit_wait() -> None:
+def test_targeted_collection_refreshes_creator_page() -> None:
     page = Mock(platform="rednote")
     page.evaluate.side_effect = ["https://creator.rednote.com/new/note-manager", [card()]]
     result = collect_creator_metrics(page, note_ids=[NOTE_ID])
     assert result["count"] == 1
     assert not result["partial"]
-    page.navigate.assert_not_called()
+    page.navigate.assert_called_once_with("https://creator.rednote.com/new/note-manager")
+    page.wait_for_load.assert_called_once_with()
     assert "account" not in result
 
 

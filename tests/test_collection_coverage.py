@@ -153,6 +153,33 @@ def test_notification_paging_merges_pages_and_limit_remains_partial():
     assert not complete and len(rows) == 2 and "上限" in reason
 
 
+def test_notification_paging_clicks_visible_history_button():
+    from xhs.notification_history import read_notification_history
+
+    class Page:
+        page_number = 0
+        clicks = 0
+
+        def wait_dom_stable(self):
+            pass
+
+        def evaluate(self, script):
+            if "markers" in script:
+                return self.page_number == 1
+            if "load-more-button" in script:
+                self.clicks += 1
+                self.page_number = 1
+                return True
+            return None
+
+    page = Page()
+    rows, complete, _ = read_notification_history(
+        page, lambda: [{"notification_id": str(page.page_number)}], max_items=5,
+    )
+
+    assert complete and len(rows) == 2 and page.clicks == 1
+
+
 def test_history_collection_retains_latest_reply_context(monkeypatch):
     import importlib.util
     from pathlib import Path

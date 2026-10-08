@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlparse
 try:
     from .application_service import ApplicationService, ServiceError
     from .manager_agent_service import ManagerAgentService
+    from .manager_dashboard_reader import ManagerDashboardReader
     from .manager_service import ManagerService
     from .manager_sync_service import ManagerSyncService
     from .web_lifecycle import schedule_webui_restart
@@ -22,6 +23,7 @@ try:
 except ImportError:  # Direct execution: python scripts/web_server.py
     from application_service import ApplicationService, ServiceError
     from manager_agent_service import ManagerAgentService
+    from manager_dashboard_reader import ManagerDashboardReader
     from manager_service import ManagerService
     from manager_sync_service import ManagerSyncService
     from web_lifecycle import schedule_webui_restart
@@ -53,6 +55,7 @@ def make_handler(
     web_root: Path = WEB_ROOT,
     session_token: str | None = None,
     manager_service: ManagerService | None = None,
+    dashboard_reader: ManagerDashboardReader | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     token = session_token or create_session_token()
 
@@ -80,11 +83,14 @@ def make_handler(
 
         def _handle_api(self, path: str) -> None:
             try:
-                payload = (
-                    {"success": True, "session_token": token}
-                    if path == f"{API_PREFIX}/session"
-                    else _dispatch_api(service, path, manager_service)
-                )
+                if path == f"{API_PREFIX}/manager/dashboard-snapshot" and dashboard_reader:
+                    payload = dashboard_reader.snapshot()
+                else:
+                    payload = (
+                        {"success": True, "session_token": token}
+                        if path == f"{API_PREFIX}/session"
+                        else _dispatch_api(service, path, manager_service)
+                    )
             except ServiceError as exc:
                 self._send_json(exc.http_status, exc.to_dict())
                 return
@@ -577,6 +583,14 @@ def _dispatch_manager_mutation(
         return manager.register_machine(body)
     if method == "POST" and path == f"{prefix}/tasks":
         return manager.dispatch_task(body)
+    if method == "POST" and path == f"{prefix}/creator-metrics/collect-now":
+        return manager.collect_creator_now(
+            str(body.get("machine_id") or ""), str(body.get("account_slot") or "")
+        )
+    if method == "POST" and path == f"{prefix}/notifications/collect-now":
+        return manager.collect_notifications_now(
+            str(body.get("machine_id") or ""), str(body.get("account_slot") or "")
+        )
     if method in {"POST", "PATCH"} and path == f"{prefix}/personas":
         return manager.save_persona(body)
     if method == "POST" and path.startswith(f"{prefix}/daily-plans/") and path.endswith("/prepare"):
@@ -754,9 +768,10 @@ def serve(host: str = "0.0.0.0", port: int = 8765) -> None:
         )
     )
     manager_service = ManagerService()
+    dashboard_reader = ManagerDashboardReader(manager_service.store.root)
     server = LocalThreadingHTTPServer(
         (host, port),
-        make_handler(service, manager_service=manager_service),
+        make_handler(service, manager_service=manager_service, dashboard_reader=dashboard_reader),
     )
     manager_sync = ManagerSyncService(manager_service)
     if manager_service.store.list("machines"):
@@ -776,6 +791,7 @@ def serve(host: str = "0.0.0.0", port: int = 8765) -> None:
     finally:
         manager_agent.stop()
         manager_sync.stop()
+        dashboard_reader.close()
         server.server_close()
 
 

@@ -28,6 +28,26 @@ def test_notifications_collect_without_profile_and_preserve_batches(monkeypatch,
     assert result["source"] == "notification_history"
 
 
+def test_follower_notification_source_selects_only_followers(monkeypatch):
+    import business_runner
+    from xhs import growth_notifications
+
+    monkeypatch.setattr(business_runner, "load_account", lambda *a, **kw: Mock(
+        platform="xiaohongshu", name="a", bridge_url="local", account_id="a",
+        bridge_token=""))
+    monkeypatch.setattr(business_runner, "BridgePage", Mock())
+    collect = Mock(return_value={"captured_at": "2026-09-29T00:00:00Z", "events": [],
+                                 "partial": False})
+    monkeypatch.setattr(growth_notifications, "collect_growth_notifications", collect)
+
+    business_runner.BusinessRunner._execute_existing_adapter(
+        "a", "collect-operations-metrics",
+        {"source": "notification_history", "notification_kind": "new_followers"},
+    )
+
+    collect.assert_called_once_with(collect.call_args.args[0], metrics=("new_followers",))
+
+
 def test_rednote_private_collection_uses_read_adapter(monkeypatch):
     import business_runner
     from xhs import private_inbox
@@ -61,6 +81,32 @@ def test_growth_waits_for_notification_tabs(monkeypatch):
     result = growth_notifications.collect_growth_notifications(page)
     assert attempts == 4
     assert all(b["coverage"] == "complete" for b in result["collection_batches"])
+
+
+def test_follower_collection_reads_only_follow_tab(monkeypatch):
+    from xhs import growth_notifications, notification_history
+
+    page = Mock()
+    clicked = []
+
+    def evaluate(script):
+        if "const labels =" in script:
+            clicked.append(script)
+            return True
+        return {}
+
+    page.evaluate.side_effect = evaluate
+    monkeypatch.setattr(growth_notifications.time, "sleep", lambda _: None)
+    monkeypatch.setattr(notification_history, "read_notification_history",
+                        lambda *a, **kw: ([], True, "历史末尾"))
+
+    result = growth_notifications.collect_growth_notifications(
+        page, metrics=("new_followers",),
+    )
+
+    assert len(clicked) == 1
+    assert len(result["collection_batches"]) == 1
+    assert result["collection_batches"][0]["metric"] == "new_followers"
 
 
 def test_growth_reads_history_after_async_response(monkeypatch):

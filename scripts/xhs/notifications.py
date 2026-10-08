@@ -14,7 +14,7 @@ from time_utils import epoch_to_iso as _epoch_to_iso
 from .human import sleep_random
 from .urls import NOTIFICATION_URL
 
-_SUPPORTED_TYPES = {"comment/item", "comment/comment", "mention/comment"}
+_SUPPORTED_TYPES = {"comment/item", "comment/comment", "mention/comment", "mention/item"}
 _CARD_MARK = "data-auto-xhs-comment-notification"
 _REPLY_MARK = "data-auto-xhs-comment-notification-reply"
 _EDITOR_MARK = "data-auto-xhs-comment-notification-editor"
@@ -35,6 +35,14 @@ def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
 
     page.navigate(NOTIFICATION_URL)
     page.wait_for_load()
+    page.wait_dom_stable()
+    page.evaluate("""(() => {
+      const tab = [...document.querySelectorAll('[role="tab"], .tab-item, .tab')]
+        .find(el => (el.innerText || '').replace(/\\s+/g, '') === '评论和@');
+      if (!tab) return false;
+      tab.click();
+      return true;
+    })()""")
     page.wait_dom_stable()
     _reset_notification_scroll(page)
     page.wait_dom_stable()
@@ -210,7 +218,8 @@ def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> l
             continue
         comment_id = str(comment_info.get("id") or comment_info.get("comment_id") or "").strip()
         content = str(
-            comment_info.get("content") or comment_info.get("comment_content") or ""
+            comment_info.get("content") or comment_info.get("comment_content")
+            or (item_info.get("content") if event_type == "mention/item" else "") or ""
         ).strip()
         if not content:
             continue

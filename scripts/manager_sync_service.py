@@ -220,7 +220,7 @@ class ManagerSyncService:
         machine = next((row for row in self.manager.list_machines()["machines"]
                         if row["machine_id"] == machine_id), {})
         business_data = None
-        if machine.get("business_data_sync_enabled"):
+        if machine.get("business_data_sync_enabled", True):
             try:
                 business_data = self.manager.collect_business_data(machine_id)
             except Exception as exc:

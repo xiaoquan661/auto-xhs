@@ -7,9 +7,10 @@ window.AutoXhsEmployeePanel = function (services) {
   const metricFields = [["browse", "浏览"], ["publish", "发帖"], ["like", "点赞"],
     ["comment", "评论"], ["private_message", "私信发送"], ["friend_request", "关注博主"],
     ["reply", "评论回复"], ["private_reply", "私信回复"], ["new_followers", "新增粉丝"],
-    ["received_likes", "收获点赞"], ["received_comments", "收到新评论"],
+    ["received_likes", "收获点赞"], ["received_comments", "收到评论和 @"],
     ["received_private_messages", "收到私信"]];
-  const passiveKinds = ["new_followers", "received_likes", "received_comments", "received_private_messages"];
+  const passiveKinds = ["new_followers", "received_likes", "received_comments",
+    "received_private_messages"];
   const passiveDates = new Map();
   const overviewKinds = ["browse", "publish", "like", "comment", "private_message", "friend_request"];
   const overviewFields = metricFields.filter(([kind]) => overviewKinds.includes(kind));
@@ -268,8 +269,8 @@ window.AutoXhsEmployeePanel = function (services) {
     comment: "发表评论", friend_request: "关注博主", reply: "回复评论",
     private_reply: "回复私信", private_message: "发送私信", publish: "发布笔记",
     collection: "巡检采集", search: "搜索笔记", other: "其他任务"};
-  const collectionMetrics = [["new_followers", "新增粉丝"], ["received_likes", "收获点赞"],
-    ["received_comments", "收到评论"], ["received_private_messages", "收到私信"]];
+  const collectionMetrics = [["new_followers", "新增关注"], ["received_likes", "收获点赞"],
+    ["received_comments", "评论和 @"], ["received_private_messages", "收到私信"]];
   function behaviorKind(value) {
     const aliases = {follow: "friend_request", "follow-user": "friend_request",
       "inbound-comment-reply": "reply", "private-message-reply": "private_reply",
@@ -691,7 +692,7 @@ window.AutoXhsEmployeePanel = function (services) {
       ${dates.slice(1).map((day) => `<tr><th><button type="button" data-passive-day="${day}">${day}</button></th>${dailyMetrics(account, day).filter((m) => passiveKinds.includes(m.kind)).map((m) => {
         const v = passivePresentation(m);
         return `<td><strong>${esc(v.count_display)}</strong><small>${esc(v.status)}</small></td>`;
-      }).join("")}</tr>`).join("") || '<tr><td colspan="5">暂无历史互动数据</td></tr>'}</tbody></table></div></details></section>`;
+      }).join("")}</tr>`).join("") || `<tr><td colspan="${metrics.length + 1}">暂无历史互动数据</td></tr>`}</tbody></table></div></details></section>`;
   }
 
   function todayTable(account, date) {
