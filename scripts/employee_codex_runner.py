@@ -90,6 +90,22 @@ class EmployeeCodexRunner:
         self.should_stop = should_stop
         self.on_bug = on_bug
 
+    def _codex_env(self) -> dict[str, str]:
+        env = {**os.environ, "PYTHONUTF8": "1"}
+        config_path = self.root / "codex-network.json"
+        if not config_path.exists():
+            return env
+        config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        proxy_url = str(config.get("proxy_url") or "").strip()
+        if proxy_url:
+            env.update(
+                HTTP_PROXY=proxy_url,
+                HTTPS_PROXY=proxy_url,
+                ALL_PROXY=proxy_url,
+                NO_PROXY="localhost,127.0.0.1,::1",
+            )
+        return env
+
     def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
         if not (task.get("persona_snapshot") or (task.get("parameters") or {}).get("persona")):
             task = {
@@ -183,7 +199,7 @@ class EmployeeCodexRunner:
                     text=True,
                     encoding="utf-8",
                     cwd=run_root,
-                    env={**os.environ, "PYTHONUTF8": "1"},
+                    env=self._codex_env(),
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
                 event_reader = threading.Thread(

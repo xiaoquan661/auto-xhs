@@ -9,8 +9,12 @@ function harness() {
   const frame = {document_id:'a',url:'https://www.xiaohongshu.com/explore',width:1000,
     height:600,scroll_x:0,scroll_y:0,device_pixel_ratio:2};
   const context = vm.createContext({ console, setTimeout, clearTimeout, Date, Number,
-    getOrOpenPlatformTab: async id => ({id:id || 5,windowId:2}),
+    getOrOpenPlatformTab: async id => ({id:id || 5,windowId:2,active:!id || id===5}),
     platformSpec: () => ({tabUrls:['https://www.xiaohongshu.com/*']}),
+    binding: {platform:'xiaohongshu'},
+    normalizePlatform: value => value,
+    platformForUrl: url => new URL(url).hostname.endsWith('xiaohongshu.com')
+      ? 'xiaohongshu' : null,
     _dispatchRealClickAt: async (target,x,y) => calls.push({target,x,y}),
     chrome: {
       windows: {get:async()=>({state:windowState}),
@@ -65,6 +69,59 @@ test('snapshot reads the frame immediately while page resources are loading',asy
   };
   assert.equal((await h.context.cmdVisualSnapshot()).data,'PNG');
 });
+test('snapshot reads the same platform frame through debugger when page injection is refused',async()=>{
+  const h=harness();
+  h.context.chrome.scripting.executeScript=async()=>{
+    throw Error('Cannot access contents of the page. Extension manifest must request permission');
+  };
+  h.context.chrome.debugger.sendCommand=async(target,method,params)=>{
+    h.calls.push({target,method,params});
+    if (method==='Runtime.evaluate') return {result:{value:h.frame}};
+    return {data:'PNG'};
+  };
+  const shot=await h.context.cmdVisualSnapshot();
+  assert.equal(shot.data,'PNG');
+  assert.equal(shot.frame.url,h.frame.url);
+  assert.equal(h.calls.filter(x=>x.method==='Runtime.evaluate').length,2);
+  await h.context.cmdVisualAction({frame:shot.frame,action:'click',x:20,y:30});
+  assert.ok(h.calls.some(x=>x.x===20 && x.y===30));
+});
+test('stalled viewport injection switches to debugger and still returns an image',async()=>{
+  const h=harness();
+  h.context.setTimeout=(fn,ms)=>setTimeout(fn,ms===5000?1:ms);
+  h.context.chrome.scripting.executeScript=()=>new Promise(()=>{});
+  h.context.chrome.debugger.sendCommand=async(target,method)=>{
+    h.calls.push({target,method});
+    return method==='Runtime.evaluate' ? {result:{value:h.frame}} : {data:'PNG'};
+  };
+  assert.equal((await h.context.cmdVisualSnapshot()).data,'PNG');
+  assert.equal(h.calls.filter(x=>x.method==='Runtime.evaluate').length,2);
+});
+test('Chrome error page cannot become a visual action frame',async()=>{
+  const h=harness();
+  h.context.chrome.scripting.executeScript=async()=>{
+    throw Error('Cannot access contents of the page');
+  };
+  h.context.chrome.debugger.sendCommand=async(target,method)=>{
+    if (method==='Runtime.evaluate') return {result:{value:{...h.frame,
+      url:'chrome-error://chromewebdata/'}}};
+    return {data:'PNG'};
+  };
+  await assert.rejects(h.context.cmdVisualSnapshot(),/页面暂不可截图/);
+  assert.ok(h.calls.some(x=>x.detach===5));
+});
+test('slow image capture can finish after the short viewport deadline',async()=>{
+  const h=harness();
+  h.context.setTimeout=(fn,ms)=>setTimeout(fn,ms===10000?1:ms===30000?50:ms);
+  h.context.chrome.debugger.sendCommand=async(target,method)=>{
+    if (method==='Page.captureScreenshot') {
+      await new Promise(resolve=>setTimeout(resolve,10));
+      return {data:'PNG'};
+    }
+    return {};
+  };
+  assert.equal((await h.context.cmdVisualSnapshot()).data,'PNG');
+});
 test('normal-window screenshot keeps the existing window state',async()=>{
   const h=harness();
   h.context.chrome.windows.get=async()=>({state:'normal'});
@@ -74,6 +131,15 @@ test('normal-window screenshot keeps the existing window state',async()=>{
   assert.equal(params.captureBeyondViewport,false);
   assert.equal(params.clip,undefined);
   assert.equal(h.calls.some(x=>'window' in x),false);
+});
+test('inactive target tab is brought forward for capture and previous tab is restored',async()=>{
+  const h=harness();
+  h.context.chrome.windows.get=async()=>({state:'normal'});
+  await h.context.cmdVisualSnapshot({_tab_id:9});
+  assert.equal(h.calls.find(x=>x.tab===9).active,true);
+  assert.ok(h.calls.findIndex(x=>x.method==='Page.bringToFront') <
+    h.calls.findIndex(x=>x.method==='Page.captureScreenshot'));
+  assert.equal(h.calls.at(-1).tab,5);
 });
 test('debugger attachment failure still returns the window to minimized',async()=>{
   const h=harness();

@@ -1000,9 +1000,11 @@ def test_dispatch_accepts_starts_and_records_fast_ack(tmp_path: Path) -> None:
     assert result["task"]["request"]["operation"] is None
 
 
-@pytest.mark.parametrize("internal_error", [False, True])
+@pytest.mark.parametrize(
+    ("internal_error", "wake_timeout"), [(False, False), (True, False), (False, True)]
+)
 def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
-    tmp_path: Path, internal_error: bool
+    tmp_path: Path, internal_error: bool, wake_timeout: bool
 ) -> None:
     class ExchangeTransport(FakeTransport):
         def sftp_upload_atomic(
@@ -1064,9 +1066,15 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
         }
     )
     manager.check_machine("PC001")
-    if internal_error:
-        transport.queue("wake-task", {"success": False, "error": {
-            "code": "INTERNAL_ERROR", "message": "唤醒确认异常"}})
+    if internal_error or wake_timeout:
+        if internal_error:
+            transport.queue("wake-task", {"success": False, "error": {
+                "code": "INTERNAL_ERROR", "message": "唤醒确认异常"}})
+        else:
+            transport.queue(
+                "wake-task",
+                ManagerTransportError("RESULT_UNKNOWN", "唤醒确认超时", result_unknown=True),
+            )
         transport.queue("task-status", {"success": True, "execution": {
             "remote_execution_id": "execution-1", "state": "RUNNING",
             "project_version": "0.1.0"}})
@@ -1074,7 +1082,7 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
         transport.queue("wake-task", ManagerTransportError("OFFLINE", "员工机暂时离线"))
 
     first = manager.dispatch_task(task_request())
-    if internal_error:
+    if internal_error or wake_timeout:
         assert first["status"] == "RUNNING"
         assert first["task"]["remote_execution_id"] == "execution-1"
         assert [a for a, _ in transport.calls].count("wake-task") == 1

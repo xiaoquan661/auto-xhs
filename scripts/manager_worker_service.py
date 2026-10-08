@@ -525,9 +525,7 @@ class ManagerWorkerService(WorkerMemory):
         pending_inbox = len(list((Path(config["task_inbox_root"]) / "pending").glob("*.json")))
         collected = sum(item["delivery_state"] == "COLLECTED" for item in outbox_records)
         outbox_summaries = self._summarize_outbox_records(outbox_records, executions)
-        collected_tasks = sum(
-            item["delivery_state"] == "COLLECTED" for item in outbox_summaries
-        )
+        collected_tasks = sum(item["delivery_state"] == "COLLECTED" for item in outbox_summaries)
         callback_states = [str(item.get("callback_status") or "") for item in executions]
         manager_connection = (
             "CONNECTED"
@@ -605,13 +603,9 @@ class ManagerWorkerService(WorkerMemory):
         }
 
     @staticmethod
-    def _summarize_outbox_records(
-        records: list[dict], executions: list[dict]
-    ) -> list[dict]:
+    def _summarize_outbox_records(records: list[dict], executions: list[dict]) -> list[dict]:
         """Group immutable transport records into one operator-facing row per run."""
-        execution_by_id = {
-            str(item.get("remote_execution_id") or ""): item for item in executions
-        }
+        execution_by_id = {str(item.get("remote_execution_id") or ""): item for item in executions}
         grouped: dict[str, dict] = {}
         for record in records:
             execution_id = str(record.get("remote_execution_id") or "")
@@ -1566,17 +1560,19 @@ class ManagerWorkerService(WorkerMemory):
                 return copy.deepcopy(execution), False
             if execution.get("runner_started_at"):
                 pid = execution.get("runner_pid")
-                age = (datetime.now(UTC) - datetime.fromisoformat(
-                    execution["runner_started_at"]
-                )).total_seconds()
+                age = (
+                    datetime.now(UTC) - datetime.fromisoformat(execution["runner_started_at"])
+                ).total_seconds()
                 if (pid and process_is_running(int(pid))) or age < 60:
                     return copy.deepcopy(execution), False
                 run_root = self.root / "agent-runs" / execution["remote_execution_id"]
                 if execution.get("started_at") or (run_root / "claimed.json").exists():
                     execution.update(
-                        state="RESULT_UNKNOWN", reconciliation_required=True,
+                        state="RESULT_UNKNOWN",
+                        reconciliation_required=True,
                         message="员工已领取但进程退出，先核对原执行结果",
-                        finished_at=utc_now(), updated_at=utc_now(),
+                        finished_at=utc_now(),
+                        updated_at=utc_now(),
                     )
                     self._append_result(state, execution)
                     return copy.deepcopy(execution), False
@@ -1848,12 +1844,20 @@ class ManagerWorkerService(WorkerMemory):
         execution, message = self._store.mutate(prepare)
         if self.execution_identity(execution).get("uid"):
             message["payload"]["memory_session_id"] = execution["remote_execution_id"]
-            message["payload"].setdefault("memory_records", [{
-                "layer": "runtime_fact", "event_id": message["message_id"],
-                "content": json.dumps({"status": status, "summary": summary,
-                                       "details": payload or {}}, ensure_ascii=False),
-                "occurred_at": message["created_at"],
-            }])
+            message["payload"].setdefault(
+                "memory_records",
+                [
+                    {
+                        "layer": "runtime_fact",
+                        "event_id": message["message_id"],
+                        "content": json.dumps(
+                            {"status": status, "summary": summary, "details": payload or {}},
+                            ensure_ascii=False,
+                        ),
+                        "occurred_at": message["created_at"],
+                    }
+                ],
+            )
         self._publish_outbox_record(
             "event",
             str(execution["task_id"]),
@@ -1948,7 +1952,8 @@ class ManagerWorkerService(WorkerMemory):
             context = self.load_memory(execution)
             if context:
                 execution["task"]["parameters"] = {
-                    **(execution["task"].get("parameters") or {}), "memory_context": context,
+                    **(execution["task"].get("parameters") or {}),
+                    "memory_context": context,
                 }
             return copy.deepcopy(execution), True
 
@@ -1963,11 +1968,14 @@ class ManagerWorkerService(WorkerMemory):
         if (payload.get("parameters") or {}).get("scheduled_at"):
             excluded = set(payload["parameters"].get("excluded_feed_ids") or [])
             for prior in self._store.snapshot()["executions"].values():
-                if (prior["task"].get("account_slot") == payload.get("account_slot")
-                        and prior["task"].get("operation_task_id")
-                        == payload.get("operation_task_id")):
-                    excluded.update(str(item["feed_id"]) for item in prior.get("item_results", [])
-                                    if item.get("feed_id"))
+                if prior["task"].get("account_slot") == payload.get("account_slot") and prior[
+                    "task"
+                ].get("operation_task_id") == payload.get("operation_task_id"):
+                    excluded.update(
+                        str(item["feed_id"])
+                        for item in prior.get("item_results", [])
+                        if item.get("feed_id")
+                    )
             payload["parameters"]["excluded_feed_ids"] = sorted(excluded)
         payload.setdefault("task_id", execution["task_id"])
         payload.setdefault("dispatch_id", execution["dispatch_id"])
@@ -1982,38 +1990,57 @@ class ManagerWorkerService(WorkerMemory):
                 raise TypeError("executor必须返回JSON对象")
             outcome = self._normalize_outcome(raw_outcome)
         except Exception as exc:
+            agent_run = self.root / "agent-runs" / execution["remote_execution_id"]
+            checkpoint_path = agent_run / "step-progress.json"
+            try:
+                checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError):
+                checkpoint = {}
+            progress_paths = sorted(agent_run.glob("*.bridge.progress.json"))
+            result_unknown = bool(payload.get("write_intent")) or bool(
+                getattr(exc, "result_unknown", False)
+            )
+            error_detail = str(exc) or type(exc).__name__
             outcome = {
-                "state": "RESULT_UNKNOWN" if getattr(exc, "result_unknown", False) else "FAILED",
-                "business_result": {},
+                "state": "RESULT_UNKNOWN" if result_unknown else "FAILED",
+                "business_result": {
+                    "step_checkpoint": checkpoint,
+                    "resume_scope": "remaining_steps",
+                },
                 "business_result_status": "failed",
                 "business_result_missing_reason": "任务执行异常，未取得业务结果",
                 "item_results": [],
                 "item_results_status": "failed",
                 "item_results_missing_reason": "任务执行异常，未取得逐项结果",
-                "evidence_index": {},
+                "evidence_index": {
+                    "agent_run": str(agent_run),
+                    "step_checkpoint": str(checkpoint_path) if checkpoint_path.exists() else "",
+                    "bridge_progress": [str(path) for path in progress_paths],
+                },
                 "incremental_data": [],
                 "incremental_data_status": "failed",
                 "incremental_data_missing_reason": "任务执行异常，未取得增量数据",
                 "error_code": getattr(exc, "code", "EXECUTION_ERROR"),
                 "error_classification": (
-                    "RESULT_UNKNOWN"
-                    if getattr(exc, "result_unknown", False)
-                    else "EXECUTION_FAILED"
+                    "RESULT_UNKNOWN" if result_unknown else "EXECUTION_FAILED"
                 ),
                 "manual_action_required": True,
                 "recommended_action": "检查执行机任务记录并完成只读对账",
                 "risk_level": "",
-                "message": str(exc) or "任务执行失败",
+                "message": f"任务执行异常（{type(exc).__name__}）：{error_detail}",
                 "raw_result": {},
             }
 
         receipt_root = self.root / "pending-outcomes"
         receipt_root.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(receipt_root / f"{execution['remote_execution_id']}.json", {
-            "task_id": execution["task_id"],
-            "remote_execution_id": execution["remote_execution_id"],
-            "outcome": outcome,
-        })
+        _write_json_atomic(
+            receipt_root / f"{execution['remote_execution_id']}.json",
+            {
+                "task_id": execution["task_id"],
+                "remote_execution_id": execution["remote_execution_id"],
+                "outcome": outcome,
+            },
+        )
 
         def finalize(state: dict[str, Any]) -> dict[str, Any]:
             current = self._find_execution(
@@ -2591,9 +2618,12 @@ class ManagerWorkerService(WorkerMemory):
                     execution["state"] == "RESULT_UNKNOWN"
                     and execution.get("error_code") == "AGENT_PROCESS_EXITED"
                 ):
-                    execution = self._reconcile_execution_status({
-                        **execution, "observed_executor_outcome": receipt["outcome"],
-                    })
+                    execution = self._reconcile_execution_status(
+                        {
+                            **execution,
+                            "observed_executor_outcome": receipt["outcome"],
+                        }
+                    )
                 if execution["state"] not in TASK_FINAL_STATES:
                     continue
                 self.push_task_result(remote_execution_id=execution["remote_execution_id"])
@@ -2605,13 +2635,16 @@ class ManagerWorkerService(WorkerMemory):
         """A missing final receipt remains unknown after runner and Agent have exited."""
         runner_pid = execution.get("runner_pid")
         if not runner_pid or execution.get("state") not in {
-            "RUNNING", "PAUSE_REQUESTED", "RECONCILIATION_REQUIRED"
+            "RUNNING",
+            "PAUSE_REQUESTED",
+            "RECONCILIATION_REQUIRED",
         }:
             return None
         started = execution.get("runner_started_at") or execution.get("started_at")
-        if not started or (
-            datetime.now(UTC) - datetime.fromisoformat(started)
-        ).total_seconds() < 30:
+        if (
+            not started
+            or (datetime.now(UTC) - datetime.fromisoformat(started)).total_seconds() < 30
+        ):
             return None
         run_root = self.root / "agent-runs" / execution["remote_execution_id"]
         pids = [int(runner_pid)]
@@ -2636,8 +2669,8 @@ class ManagerWorkerService(WorkerMemory):
     def _reconcile_execution_status(self, execution: dict[str, Any]) -> dict[str, Any]:
         """用已观察结果或本地任务终态收敛 SSH 中断留下的在途状态。"""
 
-        raw_outcome = (
-            execution.get("observed_executor_outcome") or self._agent_exit_outcome(execution)
+        raw_outcome = execution.get("observed_executor_outcome") or self._agent_exit_outcome(
+            execution
         )
         observed_outcome = isinstance(raw_outcome, dict)
         if not observed_outcome:
@@ -2733,17 +2766,14 @@ class ManagerWorkerService(WorkerMemory):
             )
         return updated
 
-    def revise_publish_link(
-        self, task_id: str, *, account: str, title: str, link: dict
-    ) -> dict:
+    def revise_publish_link(self, task_id: str, *, account: str, title: str, link: dict) -> dict:
         """Append a link-only revision to the existing successful worker receipt."""
         from xhs.publish_links import note_link
 
         fields = note_link(link.get("note_id"), link.get("note_url"))
         if not fields or link.get("link_status") != "resolved":
             raise WorkerServiceError("PUBLISH_LINK_REQUIRED", "尚未取得作品链接")
-        fields.update(link_status="resolved", link_reason="",
-                      link_source=link.get("link_source"))
+        fields.update(link_status="resolved", link_reason="", link_source=link.get("link_source"))
 
         def mutate(state: dict) -> tuple[dict, dict | None]:
             current = self._find_execution(state, task_id, None)
@@ -2770,11 +2800,13 @@ class ManagerWorkerService(WorkerMemory):
         if receipt:
             revision = receipt.get("result_revision") or receipt["sequence"]
             self._publish_outbox_record(
-                "result", current["task_id"], current["remote_execution_id"],
-                {"result": receipt}, record_id=f"{current['dispatch_id']}:result:{revision}",
+                "result",
+                current["task_id"],
+                current["remote_execution_id"],
+                {"result": receipt},
+                record_id=f"{current['dispatch_id']}:result:{revision}",
             )
-        return {"success": True, "task_id": task_id, "revised": receipt is not None,
-                **fields}
+        return {"success": True, "task_id": task_id, "revised": receipt is not None, **fields}
 
     def _read_local_task_outcome(self, local_task_id: str) -> dict[str, Any]:
         """Read a local terminal task and attach its persisted operation result."""
