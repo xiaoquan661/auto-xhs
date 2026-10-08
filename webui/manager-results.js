@@ -37,7 +37,7 @@ window.AutoXhsResultView = function (services) {
   };
   const labels = {...metricLabels, new_followers: "新增粉丝", received_likes: "收获点赞",
     received_comments: "收到评论", received_private_messages: "收到私信"};
-  const growth = ["new_followers", "received_likes", "received_comments", "received_private_messages"];
+  const growth = ["new_followers", "received_comments", "received_private_messages"];
   const body = (record) => record.payload || record.data || record;
   const kind = (record) => record.event_type || record.entity_type || record.record_type;
   const category = (record) => ({note_comment: "comment", comment_reply: "comment", comment: "comment",
@@ -105,7 +105,9 @@ window.AutoXhsResultView = function (services) {
   }
   function visibleCollections() {
     return newest(data.incremental).filter((record) =>
-      (collectionType === "all" || category(record) === collectionType)
+      kind(record) !== "received_like"
+      && !(kind(record) === "collection_observation" && body(record).metric === "received_likes")
+      && (collectionType === "all" || category(record) === collectionType)
       && (!collectionQuery || [collectionText(record), accountName(record), record.actor_name,
         body(record).nickname, collectionTitle(record), body(record).title, record.entity_id]
         .join(" ").toLowerCase().includes(collectionQuery)));

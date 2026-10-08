@@ -762,6 +762,7 @@ def cmd_collect_operations_metrics(args: argparse.Namespace) -> None:
             "max_notes": args.max_notes,
             "source": args.source,
             "note_ids": args.note_id,
+            "notification_kind": args.notification_kind,
         },
     )["task"]
     _output(service.execute_task(task["task_id"]))
@@ -2400,6 +2401,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="运营数据来源，默认创作中心笔记管理",
     )
     sub.add_argument("--note-id", action="append", default=[], help="指定已发布笔记，可重复")
+    sub.add_argument(
+        "--notification-kind", choices=["new_followers"],
+        help="通知采集类别；新增关注采集时使用",
+    )
     sub.add_argument("--owner-user-id", help="当前账号 UID；省略时从已核验身份读取")
     sub.add_argument("--max-notes", type=int, default=50, help="最多采集的最近笔记数")
     sub.set_defaults(func=cmd_collect_operations_metrics, requires_account_lock=False)

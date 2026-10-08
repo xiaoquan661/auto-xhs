@@ -22,6 +22,16 @@ def test_growth_relative_date_and_identity():
     assert event_day(second) == ""
 
 
+def test_growth_accepts_current_follower_notification_wording():
+    rows = [{"event_type": "new_follower", "user_id": "u", "display_time": "2天前",
+             "content": "读者开始关注你了2天前"}]
+
+    events = normalize_growth_notifications(rows, "2026-09-29T06:00:00Z")
+
+    assert len(events) == 1
+    assert events[0]["event_type"] == "new_follower"
+
+
 def test_conversation_has_observation_time_separate_from_event_time():
     row = {"event_type": "private_message", "occurred_at": "2026-09-10T08:00:00Z",
            "payload": {"source": "chat_inbox", "message_count": 4}}

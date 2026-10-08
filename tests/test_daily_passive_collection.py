@@ -6,18 +6,18 @@ from types import SimpleNamespace
 import daily_passive_collection as daily
 
 
-def test_channels_are_read_only_and_rednote_skips_private_messages():
+def test_daily_channels_collect_followers_and_comments():
     from application_service import ApplicationService
 
     for command in daily.commands("xiaohongshu"):
         parameters = {command[1][2:].replace("-", "_"): command[2]}
         ApplicationService._validate_task_parameters(command[0], parameters)
-    assert [c[0] for c in daily.commands("rednote")] == [
+    assert [c[0] for c in daily.commands("xiaohongshu")] == [
         "collect-operations-metrics",
         "collect-note-comments",
     ]
-    assert daily.commands("xiaohongshu")[-1][0] == "collect-private-messages"
-    assert daily.commands("rednote")[0][-1] == "notification_history"
+    assert daily.commands("rednote") == daily.commands("xiaohongshu")
+    assert daily.commands("rednote")[0][-1] == "new_followers"
 
 
 def test_pause_and_live_work_respected_but_old_unknown_is_retained():
@@ -82,7 +82,7 @@ def test_one_round_per_account_day_and_real_observations_in_outbox(tmp_path, mon
     assert len(published) == 1
     receipt = published[0][0][3]["result"]
     assert len(receipt["incremental_data"]) == 2
-    assert receipt["business_result"]["private_messages"] == "unsupported"
+    assert len(receipt["business_result"]["channels"]) == 2
 
 
 def test_outbox_retry_does_not_repeat_collection(tmp_path, monkeypatch):

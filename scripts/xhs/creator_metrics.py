@@ -51,9 +51,9 @@ def collect_creator_metrics(
     page: object, *, note_ids: list[str] | None = None, max_notes: int = 50,
 ) -> dict:
     targets = set(note_ids or [])
-    if "/new/note-manager" not in str(page.evaluate("location.href")):
-        page.navigate(MANAGER_URL)
-        page.wait_for_load()
+    current_url = str(page.evaluate("location.href"))
+    page.navigate(current_url if "/new/note-manager" in current_url else MANAGER_URL)
+    page.wait_for_load()
     notes: dict[str, dict] = {}
     unchanged = 0
     for attempt in range(20):

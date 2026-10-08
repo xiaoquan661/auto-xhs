@@ -1144,9 +1144,12 @@ class ManagerService(ManagerMemory, ManagerPolling):
         normalized_state = str(state or "").strip().upper()
         if normalized_state and normalized_state not in OPERATION_TASK_STATES:
             raise ServiceError("INVALID_OPERATION_TASK_STATE", "未知运营任务状态")
+        view = copy.copy(self)
+        view.store = self.store.read_view(copy_on_read=False)
+        view._progress_collections = {}
         tasks = [
-            self._with_operation_task_progress(item)
-            for item in self.store.list("operation_tasks")
+            view._with_operation_task_progress(item)
+            for item in view.store.list("operation_tasks")
             if not normalized_state or item.get("state") == normalized_state
         ]
         tasks.sort(key=lambda item: item.get("created_at") or "", reverse=True)
@@ -2460,9 +2463,82 @@ class ManagerService(ManagerMemory, ManagerPolling):
 
         machine = self._get_machine(machine_id)
         database = ManagerDatabase(self.store.root)
-        self.store._transaction(lambda state: database.sync(state), write=False)
+        database.sync(self.store.read_view(copy_on_read=False).snapshot())
         snapshot = self.transport.export_business_data(machine)
         return database.import_worker(machine["machine_id"], snapshot)
+
+    def collect_creator_now(self, machine_id: str, account_slot: str = "") -> dict:
+        """Run the employee's fixed creator CLI and import its returned receipt."""
+        return self._collect_fixed_now(machine_id, account_slot, "collect-creator-now")
+
+    def collect_notifications_now(self, machine_id: str, account_slot: str = "") -> dict:
+        """Run fixed comment/@ and follower CLI calls and import their receipt."""
+        return self._collect_fixed_now(machine_id, account_slot, "collect-notifications-now")
+
+    def _collect_fixed_now(self, machine_id: str, account_slot: str, action: str) -> dict:
+        machine = self._get_machine(machine_id)
+        accounts = self.list_accounts(machine_id)["accounts"]
+        selected = [
+            account for account in accounts
+            if not account_slot or account["account_slot"] == account_slot
+        ]
+        if not selected:
+            raise ServiceError("ACCOUNT_NOT_FOUND", "该员工机没有选定的账号槽位", 404)
+        entries = []
+        imported = 0
+        for account in selected:
+            slot = account["account_slot"]
+            try:
+                response = self.transport.invoke(
+                    machine, action, {"account_slot": slot},
+                    timeout_seconds=1500 if action == "collect-notifications-now" else 1200,
+                )
+            except ManagerTransportError as exc:
+                entries.append({
+                    "account_slot": slot,
+                    "status": "RESULT_UNKNOWN" if exc.result_unknown else "OFFLINE",
+                    "message": str(exc),
+                })
+                continue
+            remote_error = self._remote_error(response)
+            if remote_error:
+                entries.append({"account_slot": slot, "status": response.get("status") or "BLOCKED",
+                                "message": remote_error[1]})
+                continue
+            receipt = response.get("result")
+            if not isinstance(receipt, dict):
+                entries.append({"account_slot": slot, "status": response.get("status") or "BLOCKED",
+                                "message": response.get("message") or "员工机未返回采集回执"})
+                continue
+            ingested = self._ingest_results(machine, [receipt], download_evidence=False)
+            imported += ingested["collected"]
+            business = receipt.get("business_result") or {}
+            count = (
+                sum(int(row.get("observed_count") or 0) for row in business.get("channels") or [])
+                if action == "collect-notifications-now"
+                else len(business.get("notes") or [])
+            )
+            entries.append({"account_slot": slot, "status": receipt.get("state") or "UNKNOWN",
+                            "count": count,
+                            "captured_at": business.get("captured_at"),
+                            "message": receipt.get("message") or ""})
+        database_status = "PENDING"
+        if imported:
+            try:
+                self.collect_business_data(machine_id)
+                database_status = "SYNCED"
+            except ManagerTransportError:
+                pass
+        complete = bool(entries) and all(item["status"] == "SUCCESS" for item in entries)
+        return {
+            "success": complete,
+            "status": "SUCCESS" if complete else "PARTIAL_SUCCESS",
+            "machine_id": machine_id,
+            "collected": imported,
+            "database_status": database_status,
+            "accounts": entries,
+            "message": f"{machine_id} 已回收 {imported} 个账号采集回执",
+        }
 
     def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
         collection_view = self.store.read_view(copy_on_read=False)

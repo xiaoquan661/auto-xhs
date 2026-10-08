@@ -1,4 +1,4 @@
-"""Queue daily creator metrics on the employee, using its existing Agent and Outbox."""
+"""Queue daily creator metrics for the employee's local CLI and Outbox."""
 
 from __future__ import annotations
 
@@ -15,6 +15,32 @@ from product_store import ProductStore
 from run_lock import RunLock
 
 
+def local_published_note_ids(results: list[dict[str, Any]], slot: str) -> list[str]:
+    ids: set[str] = set()
+    for result in results:
+        task = result.get("task") or {}
+        if (result.get("account_slot") or task.get("account_slot")) != slot:
+            continue
+        if result.get("state") != "SUCCESS":
+            continue
+        if (result.get("capability") or task.get("capability")) not in {"publish", "click-publish"}:
+            continue
+        business = result.get("business_result") or {}
+        items = result.get("item_results") or [business]
+        for item in items:
+            confirmed = (
+                item.get("success") is True
+                or item.get("status") == "SUCCESS"
+                or int(item.get("published") or 0) > 0
+                or int(business.get("published") or 0) > 0
+            )
+            if confirmed:
+                note_id = item.get("note_id") or business.get("note_id")
+                if note_id:
+                    ids.add(str(note_id))
+    return sorted(ids)
+
+
 def envelope(
     machine: str,
     slot: str,
@@ -22,6 +48,7 @@ def envelope(
     day: str,
     *,
     published_since: str = "",
+    local_note_ids: list[str] | None = None,
     run_id: str = "",
 ) -> dict[str, Any]:
     task_id = f"daily-creator-{day}-{machine.lower()}-{slot}"
@@ -63,6 +90,19 @@ def envelope(
             "不采集此前作品。notes仅回传范围内作品；完整核对该日期范围后"
             "写inventory_complete=true和published_since，范围内无作品可回传空清单。"
         )
+    if local_note_ids is not None:
+        parameters = result["task"]["parameters"]
+        parameters["note_ids"] = local_note_ids
+        parameters["local_published_only"] = True
+        parameters["instructions"] = (
+            "每日仅采集本机本槽位成功发布回执所对应作品的累计指标。"
+            f"本轮目标作品ID为{','.join(local_note_ids) or '空清单'}。"
+            "使用collect-operations-metrics --source creator_manager，逐个添加--note-id。"
+            "仅回传目标作品的notes；目标为空时回传完整0篇。"
+            "缺失目标ID时记录missing_note_ids，不把其他已发布作品补入结果。"
+            "复用绑定浏览器和UID，不检查身份、不进入我的主页；只读采集，"
+            "保留真实0、captured_at和完整性，经finish写outbox供经理回收。"
+        )
     return result
 
 
@@ -89,6 +129,7 @@ def run(check: bool = False, *, run_id: str = "", include_all: bool = False) -> 
         machine = worker["config"]["machine_id"]
         results = []
         for account in list_accounts():
+            slot_config = config.get("accounts", {}).get(account.name, {})
             account_config = config
             if include_all:
                 account_config = {
@@ -110,6 +151,13 @@ def run(check: bool = False, *, run_id: str = "", include_all: bool = False) -> 
                 published_since=config.get("accounts", {})
                 .get(account.name, {})
                 .get("published_since", ""),
+                local_note_ids=(
+                    local_published_note_ids(
+                        list(worker.get("executions", {}).values()), account.name
+                    )
+                    if slot_config.get("local_published_only")
+                    else None
+                ),
                 run_id=run_id,
             )
             task_id = request["task_id"]

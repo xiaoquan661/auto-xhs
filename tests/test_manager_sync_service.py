@@ -12,6 +12,7 @@ class FakeManager:
         self.health_calls: list[str] = []
         self.account_calls: list[str] = []
         self.result_calls: list[str] = []
+        self.business_calls: list[str] = []
         self.sync_records: dict[str, dict] = {}
         self.recorded = threading.Event()
 
@@ -60,10 +61,31 @@ class FakeManager:
         self.recorded.set()
         return values
 
+    def collect_business_data(self, machine_id: str) -> dict:
+        self.business_calls.append(machine_id)
+        return {"success": True}
+
 
 class EmptyManager(FakeManager):
     def list_machines(self) -> dict:
         return {"success": True, "machines": []}
+
+
+def test_results_import_employee_database_by_default() -> None:
+    manager = FakeManager()
+    outcome = ManagerSyncService(manager)._sync_machine_results("PC001")
+    assert outcome["business_data"]["success"] is True
+    assert manager.business_calls == ["PC001"]
+
+
+def test_explicit_business_sync_disabled_is_preserved() -> None:
+    manager = FakeManager()
+    manager.list_machines = lambda: {
+        "machines": [{"machine_id": "PC001", "business_data_sync_enabled": False}]
+    }
+    outcome = ManagerSyncService(manager)._sync_machine_results("PC001")
+    assert outcome["business_data"] is None
+    assert manager.business_calls == []
 
 
 def test_health_cycle_isolates_offline_machine_and_skips_second_ssh_read() -> None:
