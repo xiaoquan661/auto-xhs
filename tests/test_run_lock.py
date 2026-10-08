@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from scripts import run_lock
@@ -34,3 +35,17 @@ def test_release_retries_transient_file_sharing_conflict(
     assert remove_attempts == 2
     assert sleep_calls == [run_lock._RELEASE_RETRY_DELAY_SECONDS]
     assert not lock_path.exists()
+
+
+def test_acquire_recovers_old_empty_lock(tmp_path: Path) -> None:
+    lock_path = tmp_path / "product-state.lock"
+    lock_path.touch()
+    old = time.time() - run_lock._INCOMPLETE_LOCK_STALE_SECONDS - 1
+    os.utime(lock_path, (old, old))
+
+    lock = RunLock(str(lock_path))
+    assert lock.acquire(timeout=1)
+    try:
+        assert lock_path.read_text(encoding="utf-8") == str(os.getpid())
+    finally:
+        lock.release()
