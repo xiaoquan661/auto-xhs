@@ -66,6 +66,8 @@ test('clicks the actual closed-shadow publish button after measuring its current
   assert.equal(press[1].x,790);
   assert.equal(press[1].y,540);
   assert.equal(h.calls.some(c => c[0] === 'native'),true);
+  assert.equal(h.calls.some(c => c[0] === 'Page.bringToFront'),true);
+  assert.equal(r.page_events[0].type,'click');
   assert.equal(h.calls.some(c => c[0] === 'Input.dispatchKeyEvent'), false);
   const lastMove = h.calls.findLastIndex(c => c[0] === 'Input.dispatchMouseEvent' && c[1].type === 'mouseMoved');
   assert.ok(h.calls.slice(lastMove + 1).some(c => c[0] === 'Runtime.callFunctionOn' && c[1].functionDeclaration.includes('isConnected')));
