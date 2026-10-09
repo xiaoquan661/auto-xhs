@@ -1239,6 +1239,55 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
     assert [action for action, _payload in transport.calls].count("wake-task") == 2
 
 
+def test_sftp_dispatch_commits_receipt_and_task_state_together(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class ExchangeTransport(FakeTransport):
+        def sftp_upload_atomic(self, *_args, **_kwargs) -> dict:
+            return {"success": True}
+
+        def invoke(self, machine: dict, action: str, payload: dict, **kwargs) -> dict:
+            if action != "wake-task":
+                return super().invoke(machine, action, payload, **kwargs)
+            return {
+                "success": True,
+                "status": "TASK_ACK",
+                "execution": {"remote_execution_id": "execution-1", "state": "ACCEPTED"},
+                "agent_messages": [{
+                    "message_id": "message-1",
+                    "task_id": "task-1",
+                    "from_agent": "PC001-AGENT",
+                    "to_agent": "MANAGER-AGENT",
+                    "message_type": "TASK_ACK",
+                    "payload": {},
+                }],
+            }
+
+    store = ManagerStore(tmp_path / "manager")
+    manager = ManagerService(store=store, transport=ExchangeTransport())  # type: ignore[arg-type]
+    manager.register_machine({
+        **machine_values(),
+        "task_inbox_root": r"C:\auto-xhs\manager-task-inbox",
+        "task_outbox_root": r"C:\auto-xhs\manager-task-outbox",
+    })
+    manager.check_machine("PC001")
+    writes = 0
+    original_write = store._write_state
+
+    def count_write(state: dict) -> None:
+        nonlocal writes
+        writes += 1
+        original_write(state)
+
+    monkeypatch.setattr(store, "_write_state", count_write)
+    response = manager.dispatch_task(task_request())
+
+    assert response["status"] == "TASK_ACK"
+    assert writes == 3  # pending task, transferred package, acknowledged receipt
+    assert store.get("tasks", "task-1")["dispatch_state"] == "ACKNOWLEDGED"
+    assert store.get("agent_messages", "message-1")["message_type"] == "TASK_ACK"
+
+
 def test_dispatch_sends_manager_scope_and_records_pinned_function_version(
     tmp_path: Path,
 ) -> None:
