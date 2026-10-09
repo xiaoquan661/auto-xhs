@@ -762,6 +762,43 @@ def test_progress_and_result_are_written_to_sftp_outbox(tmp_path: Path) -> None:
     assert index["records"][-1]["record_id"].endswith("progress:outbox_written")
 
 
+def test_completed_result_uses_outbox_for_recovery_without_growing_worker_state(
+    tmp_path: Path,
+) -> None:
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {
+            "state": "SUCCESS",
+            "business_result": {"notes": ["note-1"] * 300},
+        },
+    )
+    execution_id = service.accept_task(task_request())["execution"]["remote_execution_id"]
+    service.run_task("task-1", remote_execution_id=execution_id)
+    original = service.collect_results(0)["results"][0]
+
+    service.push_task_result("task-1", remote_execution_id=execution_id)
+    stored = service._store.snapshot()["results"][0]
+    assert "business_result" not in stored
+    assert stored["outbox_relative_path"].startswith("results/")
+    assert (
+        service.collect_results(0)["results"][0]["business_result"] == original["business_result"]
+    )
+    assert (
+        service.push_task_result("task-1", remote_execution_id=execution_id)["status"]
+        == "RESULT_READY"
+    )
+
+    def restore_legacy_result(state: dict) -> None:
+        state["results"][0] = service._store.load_result(state, state["results"][0])
+
+    service._store.mutate(restore_legacy_result)
+    assert service._store.compact_results() == 1
+    assert service._store.compact_results() == 0
+    assert (
+        service.collect_results(0)["results"][0]["business_result"] == original["business_result"]
+    )
+
+
 def test_result_outbox_restores_account_identity_from_execution(tmp_path: Path) -> None:
     service = make_service(
         tmp_path / "worker",

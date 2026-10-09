@@ -142,6 +142,66 @@ class _JsonWorkerStore:
     def mutate(self, callback: Callable[[dict[str, Any]], T]) -> T:
         return self._transaction(callback, write=True)
 
+    def compact_results(self) -> int:
+        """Keep result indexes in state after their complete outbox records exist."""
+
+        def compact(state: dict[str, Any]) -> int:
+            records = {
+                item["record_id"]: item
+                for item in state["outbox_records"].values()
+                if item.get("record_type") == "result"
+            }
+            count = 0
+            for position, result in enumerate(state["results"]):
+                if "outbox_relative_path" in result:
+                    continue
+                record_id = f"{result['dispatch_id']}:result:{result['result_revision']}"
+                record = records.get(record_id)
+                if record is None:
+                    continue
+                outbox_path = Path(state["config"]["task_outbox_root"]) / record["relative_path"]
+                if not outbox_path.is_file():
+                    continue
+                execution = state["executions"].get(result["remote_execution_id"], {})
+                state["results"][position] = self.result_index(
+                    result, record["relative_path"], execution.get("task", {})
+                )
+                count += 1
+            return count
+
+        return self.mutate(compact)
+
+    @staticmethod
+    def result_index(
+        result: dict[str, Any], relative_path: str, task: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        index = {
+            key: result[key]
+            for key in (
+                "sequence",
+                "result_revision",
+                "remote_execution_id",
+                "task_id",
+                "dispatch_id",
+                "state",
+            )
+        } | {"outbox_relative_path": relative_path}
+        for field in ("account_slot", "platform", "capability"):
+            index[field] = str(result.get(field) or (task or {}).get(field) or "")
+        return index
+
+    @staticmethod
+    def load_result(state: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+        relative_path = result.get("outbox_relative_path")
+        if not relative_path:
+            return copy.deepcopy(result)
+        path = Path(state["config"]["task_outbox_root"]) / relative_path
+        try:
+            body = json.loads(path.read_text(encoding="utf-8"))
+            return body["payload"]["result"]
+        except (OSError, KeyError, json.JSONDecodeError) as exc:
+            raise WorkerServiceError("RESULT_UNREADABLE", "员工机历史回执无法读取") from exc
+
     def _transaction(self, callback: Callable[[dict[str, Any]], T], *, write: bool) -> T:
         self.root.mkdir(parents=True, exist_ok=True)
         with _PROCESS_LOCK:
@@ -1723,7 +1783,7 @@ class ManagerWorkerService(WorkerMemory):
     ) -> dict[str, Any]:
         def prepare(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
             execution = self._find_execution(state, task_id, remote_execution_id)
-            result = next(
+            stored_result = next(
                 (
                     item
                     for item in reversed(state["results"])
@@ -1731,8 +1791,9 @@ class ManagerWorkerService(WorkerMemory):
                 ),
                 None,
             )
-            if result is None:
+            if stored_result is None:
                 raise WorkerServiceError("RESULT_NOT_READY", "员工Agent任务结果尚未生成")
+            result = self._store.load_result(state, stored_result)
             task = execution["task"]
             for field in ("account_slot", "platform", "capability"):
                 if not result.get(field):
@@ -2565,11 +2626,11 @@ class ManagerWorkerService(WorkerMemory):
             raise WorkerServiceError("INVALID_LIMIT", "limit必须是正整数")
         state = self._store.snapshot()
         candidates = [
-            copy.deepcopy(item)
+            item
             for item in state["results"]
             if int(item["sequence"]) > after_sequence and item.get("state") in TASK_FINAL_STATES
         ]
-        results = candidates[: min(limit, 1000)]
+        results = [self._store.load_result(state, item) for item in candidates[: min(limit, 1000)]]
         high_watermark = int(state["next_sequence"]) - 1
         next_sequence = (
             int(results[-1]["sequence"])
@@ -3320,6 +3381,8 @@ class ManagerWorkerService(WorkerMemory):
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
             existing = state["outbox_records"].get(record_id)
             if isinstance(existing, dict):
+                if record_type == "result":
+                    self._compact_published_result(state, existing)
                 return copy.deepcopy(existing)
             config = state["config"]
             self._ensure_exchange_directories(config)
@@ -3355,9 +3418,24 @@ class ManagerWorkerService(WorkerMemory):
                 ),
             }
             _write_json_atomic(outbox_root / "index.json", index)
+            if record_type == "result":
+                self._compact_published_result(state, metadata)
             return copy.deepcopy(metadata)
 
         return self._store.mutate(mutate)
+
+    def _compact_published_result(self, state: dict[str, Any], record: dict[str, Any]) -> None:
+        for position in range(len(state["results"]) - 1, -1, -1):
+            result = state["results"][position]
+            if result.get("outbox_relative_path"):
+                continue
+            record_id = f"{result['dispatch_id']}:result:{result['result_revision']}"
+            if record_id == record["record_id"]:
+                execution = state["executions"].get(result["remote_execution_id"], {})
+                state["results"][position] = self._store.result_index(
+                    result, record["relative_path"], execution.get("task", {})
+                )
+                return
 
     @staticmethod
     def _find_execution(
