@@ -23,6 +23,7 @@
 | [需求追踪矩阵](PRD-TRACEABILITY.md) | 区分规格、实现、自动化测试和实机验收 | 现行 |
 | [经理机 SSH 调度](MANAGER-SSH-OPERATIONS.md) | MANAGER-01 至 MANAGER-04 的三机部署、调度、传输、对账和结果回收 | 自动化测试通过；三机实机待验收 |
 | [第二套经理机与员工机部署](SECOND-SYSTEM-DEPLOYMENT.md) | 从 GitHub 安装独立经理机、接入新员工机并完成 SSH、账号和回执闭环验收 | 现行部署手册 |
+| [GitHub 双人协作开发](GITHUB-COLLABORATION-GUIDE.md) | 邀请后的任务分配、分支开发、测试、PR 审核与部署交接 | 现行协作手册 |
 | [用户指南](USER-GUIDE.md) | 安装、账号、WebUI、任务和确认流程 | 现行 |
 | [故障恢复](TROUBLESHOOTING.md) | 常见启动、账号、任务、发布和模型问题 | 现行 |
 | [闭环与数据回收架构](AUTO-XHS-CLOSED-LOOP-ARCHITECTURE.md) | 私信、主加、被动回复、指标和 WebUI 闭环 | 已批准，进度更新至 2026-08-21 |
