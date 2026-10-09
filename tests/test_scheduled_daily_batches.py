@@ -53,6 +53,14 @@ def test_entire_timetable_persists_and_failed_delivery_reuses_request(tmp_path, 
     assert not result["success"]
     assert len(calls) == 3  # All three are delivered before the first start time.
     assert [r["parameters"]["browse_count"] for r in calls] == [10, 10, 10]
+    assert [r["parameters"]["batch_expected_metrics"] for r in calls] == [
+        {"browse": 10, "like": 2}
+    ] * 3
+    assert all(
+        r["parameters"]["daily_expected_metrics"]["browse"] == 30
+        and r["parameters"]["daily_expected_metrics"]["like"] == 6
+        for r in calls
+    )
     assert [r["parameters"]["scheduled_at"][11:16] for r in calls] == ["15:00", "16:00", "17:00"]
     assert calls[2]["parameters"]["depends_on_task_ids"] == [calls[1]["task_id"]]
     persisted = manager.store.get("operation_tasks", task["operation_task_id"])
@@ -74,13 +82,20 @@ def test_predelivery_policy_uses_scheduled_execution_time(tmp_path, monkeypatch)
 
     manager, _ = service(tmp_path)
     register_ready(manager)
-    manager.store.put("accounts", "PC001:brand-a", {
-        "machine_id": "PC001", "account_slot": "brand-a",
-        "operations_config": {"time_windows": [{"start": "15:00", "end": "17:00"}]},
-    })
+    manager.store.put(
+        "accounts",
+        "PC001:brand-a",
+        {
+            "machine_id": "PC001",
+            "account_slot": "brand-a",
+            "operations_config": {"time_windows": [{"start": "15:00", "end": "17:00"}]},
+        },
+    )
     observed = []
-    monkeypatch.setattr("manager_service.check_operations_policy",
-                        lambda *args, **kwargs: observed.append(kwargs["now"]))
+    monkeypatch.setattr(
+        "manager_service.check_operations_policy",
+        lambda *args, **kwargs: observed.append(kwargs["now"]),
+    )
     request = task_request()
     request["parameters"]["scheduled_at"] = "2026-09-23T15:00:00+08:00"
     manager.dispatch_task(request)

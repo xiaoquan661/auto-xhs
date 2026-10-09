@@ -35,6 +35,21 @@ def test_rednote_discovery_cards_are_browse_candidates() -> None:
     assert page.navigate_calls == []
 
 
+def test_open_detail_uses_note_url_when_like_control_has_changed() -> None:
+    from xhs.browse_like import _open_from_feed
+
+    class ChangedLikePage(FakePage):
+        def has_element(self, selector: str) -> bool:
+            if selector == ".interact-container .left .like-lottie":
+                return False
+            return super().has_element(selector)
+
+    page = ChangedLikePage()
+    with patch("xhs.browse_like.time.sleep"):
+        _open_from_feed(page, _feed(1))
+    assert page.current_feed == "feed-1"
+
+
 def _feed(index: int) -> Feed:
     return Feed(
         id=f"feed-{index}",

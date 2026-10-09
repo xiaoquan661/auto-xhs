@@ -7,9 +7,10 @@ window.AutoXhsEmployeePanel = function (services) {
   const metricFields = [["browse", "浏览"], ["publish", "发帖"], ["like", "点赞"],
     ["comment", "评论"], ["private_message", "私信发送"], ["friend_request", "关注博主"],
     ["reply", "评论回复"], ["private_reply", "私信回复"], ["new_followers", "新增粉丝"],
-    ["received_comments", "收到评论和 @"],
+    ["received_likes", "收获点赞"], ["received_comments", "收到评论和 @"],
     ["received_private_messages", "收到私信"]];
-  const passiveKinds = ["new_followers", "received_comments", "received_private_messages"];
+  const passiveKinds = ["new_followers", "received_likes", "received_comments",
+    "received_private_messages"];
   const passiveDates = new Map();
   const overviewKinds = ["browse", "publish", "like", "comment", "private_message", "friend_request"];
   const overviewFields = metricFields.filter(([kind]) => overviewKinds.includes(kind));
@@ -268,7 +269,7 @@ window.AutoXhsEmployeePanel = function (services) {
     comment: "发表评论", friend_request: "关注博主", reply: "回复评论",
     private_reply: "回复私信", private_message: "发送私信", publish: "发布笔记",
     collection: "巡检采集", search: "搜索笔记", other: "其他任务"};
-  const collectionMetrics = [["new_followers", "新增关注"],
+  const collectionMetrics = [["new_followers", "新增关注"], ["received_likes", "收获点赞"],
     ["received_comments", "评论和 @"], ["received_private_messages", "收到私信"]];
   function behaviorKind(value) {
     const aliases = {follow: "friend_request", "follow-user": "friend_request",
@@ -844,7 +845,7 @@ window.AutoXhsEmployeePanel = function (services) {
       data-expanded="profile:${esc(key(account))}"${open(`profile:${key(account)}`, true)}><summary class="machine-card-summary">
       <div class="machine-card-head"><div class="machine-identity"><span class="worker-icon">EMP</span><div><p>EMPLOYEE / PROFILE</p>
         <h3>${esc(account.account_slot)}</h3><small>${esc(machine.machine_id)} · ${esc(account.account_slot)} · Profile ${esc(uid)}</small></div></div>
-      <div class="machine-live"><i class="signal tone-${tone(machine.status)}"></i><strong>${machine.ssh_state === "ONLINE" ? "设备连接正常" : esc(labelFor(machine.ssh_state || "UNKNOWN"))}</strong>
+      <div class="machine-live"><i class="signal tone-${tone(account.health_state)}"></i><strong>${machine.ssh_state === "ONLINE" ? "设备连接正常" : esc(labelFor(machine.ssh_state || "UNKNOWN"))}</strong>
       <small>${stamp(machine.updated_at)}</small><span class="account-status-inline">${esc(labelFor(account.health_state))}</span>
       <small class="machine-summary-activity">运营 ${number(account.operating_days)} 天 · 最后 ${last ? `${esc(last.label)} ${stamp(last.at)}` : "暂无动作"}</small></div></div></summary>
       <div class="machine-card-body"><div class="account-status-editor"><div><strong>账号状态</strong><small>员工机回执 · ${stamp(account.updated_at)}</small></div>

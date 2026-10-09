@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote
 
@@ -26,6 +27,28 @@ def queue_ready(state: dict, execution: dict) -> bool:
     from worker_batch_scheduler import queue_status
 
     return queue_status(state, execution)[0] == "READY"
+
+
+def task_stop_checker(
+    service: ManagerWorkerService, task_id: str, remote_execution_id: str
+) -> Callable[[], bool]:
+    """Read the large worker state at most once per 30 seconds during an Agent turn."""
+    last_status_check = float("-inf")
+    stop_requested = False
+
+    def should_stop() -> bool:
+        nonlocal last_status_check, stop_requested
+        now = time.monotonic()
+        if now - last_status_check < 30:
+            return stop_requested
+        last_status_check = now
+        execution = service.task_status(task_id, remote_execution_id=remote_execution_id)[
+            "execution"
+        ]
+        stop_requested = execution["state"] != "RUNNING"
+        return stop_requested
+
+    return should_stop
 
 
 def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
@@ -59,11 +82,7 @@ def run(state_root: str, task_id: str, remote_execution_id: str) -> int:
                 details=receipt,
             )
 
-        def should_stop() -> bool:
-            execution = service.task_status(task_id, remote_execution_id=remote_execution_id)[
-                "execution"
-            ]
-            return execution["state"] != "RUNNING"
+        should_stop = task_stop_checker(service, task_id, remote_execution_id)
 
         service.run_task(
             task_id,

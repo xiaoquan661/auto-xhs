@@ -833,7 +833,8 @@ async function cmdNavigate({ url, _retried = false, _tab_id = null }) {
         args: [url],
       });
     } catch (error) {
-      if (!/showing error page/i.test(String(error?.message || error))) throw error;
+      if (!/showing error page|Cannot access contents of the page/i
+        .test(String(error?.message || error))) throw error;
       // Chrome 错误页不能注入脚本，通过标签导航恢复目标页面。
       await chrome.tabs.update(tab.id, { url });
     }
@@ -962,7 +963,8 @@ function sameNavigationTarget(current, target) {
 }
 
 async function readNavigationState(tabId) {
-  const results = await chrome.scripting.executeScript({
+  let timer;
+  const results = await Promise.race([chrome.scripting.executeScript({
     injectImmediately: true,
     target: { tabId }, world: "MAIN",
     func: () => {
@@ -991,7 +993,9 @@ async function readNavigationState(tabId) {
         ready: blocked || ready, reason: blocked ? "blocked" : reason,
         readyState: document.readyState };
     },
-  });
+  }), new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("页面状态读取超时")), 5000);
+  })]).finally(() => clearTimeout(timer));
   return results?.[0]?.result || null;
 }
 
@@ -1362,20 +1366,50 @@ async function cmdClickPublishControl({ _tab_id = null, dry_run = false } = {}) 
     if (dry_run) return {dispatched: false, ready: true, point, tab_id: tab.id,
       diagnostic_version: 3, viewport_height: finalPos.viewportHeight};
     await _dispatchRealClickAt(target, point.x, point.y);
-    const receipt = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
-      expression: "window.__xhsPublishNativeClick || null", returnByValue: true,
-    }).catch(() => null);
-    const events = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
-      expression: "window.__xhsPublishNativeEvents || []", returnByValue: true,
-    }).catch(() => null);
-    const pageEvents = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
-      expression: "window.__xhsPublishPageEvents || []", returnByValue: true,
-    }).catch(() => null);
-    return { dispatched: true, method: "native_mouse", button_text: "发布",
-      diagnostic_version: 3, button_events: events?.result?.value || [],
-      page_events: pageEvents?.result?.value || [],
+    await sleep(350);
+    const readReceipt = async () => {
+      const [receipt, events, pageEvents] = await Promise.all([
+        chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+          expression: "window.__xhsPublishNativeClick || null", returnByValue: true,
+        }).catch(() => null),
+        chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+          expression: "window.__xhsPublishNativeEvents || []", returnByValue: true,
+        }).catch(() => null),
+        chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+          expression: "window.__xhsPublishPageEvents || []", returnByValue: true,
+        }).catch(() => null),
+      ]);
+      return {button_click: receipt?.result?.value || null,
+        button_events: events?.result?.value || [],
+        page_events: pageEvents?.result?.value || []};
+    };
+    let observed = await readReceipt();
+    let method = "native_mouse";
+    if (!observed.button_click && !observed.button_events.length &&
+        !observed.page_events.length) {
+      const stillReady = await chrome.debugger.sendCommand(target, "Runtime.callFunctionOn", {
+        objectId, returnByValue: true,
+        functionDeclaration: "function() { return this.isConnected && !this.disabled; }",
+      }).catch(() => null);
+      if (stillReady?.result?.value) {
+        await chrome.debugger.sendCommand(target, "DOM.focus", {nodeId: button.nodeId});
+        const enter = {key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
+          nativeVirtualKeyCode: 13, modifiers: 0};
+        await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+          ...enter, type: "keyDown",
+        });
+        await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
+          ...enter, type: "keyUp",
+        });
+        method = "native_mouse_then_keyboard";
+        await sleep(350);
+        observed = await readReceipt();
+      }
+    }
+    return { dispatched: true, method, button_text: "发布",
+      diagnostic_version: 4, ...observed,
       x: pos.x, y: pos.y, viewport_height: pos.viewportHeight,
-      button_click: receipt?.result?.value || null, tab_id: tab.id };
+      tab_id: tab.id };
 
   } finally {
     await chrome.debugger.detach(target).catch(() => {});

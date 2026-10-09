@@ -90,6 +90,22 @@ class EmployeeCodexRunner:
         self.should_stop = should_stop
         self.on_bug = on_bug
 
+    def _codex_env(self) -> dict[str, str]:
+        env = {**os.environ, "PYTHONUTF8": "1"}
+        config_path = self.root / "codex-network.json"
+        if not config_path.exists():
+            return env
+        config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        proxy_url = str(config.get("proxy_url") or "").strip()
+        if proxy_url:
+            env.update(
+                HTTP_PROXY=proxy_url,
+                HTTPS_PROXY=proxy_url,
+                ALL_PROXY=proxy_url,
+                NO_PROXY="localhost,127.0.0.1,::1",
+            )
+        return env
+
     def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
         if not (task.get("persona_snapshot") or (task.get("parameters") or {}).get("persona")):
             task = {
@@ -183,7 +199,7 @@ class EmployeeCodexRunner:
                     text=True,
                     encoding="utf-8",
                     cwd=run_root,
-                    env={**os.environ, "PYTHONUTF8": "1"},
+                    env=self._codex_env(),
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
                 event_reader = threading.Thread(
@@ -228,6 +244,13 @@ class EmployeeCodexRunner:
                         return self._resume_or_incomplete(task, "员工 Agent 无进展超时", run_root)
                     time.sleep(1)
                 event_reader.join(timeout=5)
+            if not result_path.exists() and not (run_root / "execution-result.json").exists():
+                self._wait_for_active_step(
+                    run_root,
+                    deadline=deadline,
+                    idle_limit=idle_limit,
+                    started_at=last_activity,
+                )
             if not result_path.exists() and not (run_root / "execution-result.json").exists():
                 return self._resume_or_incomplete(
                     task, "员工 Agent 未返回完整的领取回执和结果", run_root
@@ -395,6 +418,23 @@ class EmployeeCodexRunner:
         paths = [root / "events.jsonl", root / "step-progress.json"]
         paths.extend(root.glob("*.bridge.progress.json"))
         return max([started_at] + [path.stat().st_mtime for path in paths if path.exists()])
+
+    def _wait_for_active_step(
+        self, root: Path, *, deadline: float, idle_limit: float, started_at: float
+    ) -> None:
+        """Keep the task active while a business command outlives the Agent process."""
+        progress_path = root / "step-progress.json"
+        while time.monotonic() < deadline:
+            if not progress_path.exists():
+                return
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            if not any(row.get("state") == "RUNNING" for row in progress.values()):
+                return
+            if self._poll_stop(root) or (
+                time.time() - self._last_activity(root, started_at) >= idle_limit
+            ):
+                return
+            time.sleep(1)
 
     @staticmethod
     def _stop(process: subprocess.Popen[str]) -> None:
