@@ -442,6 +442,88 @@ def test_machine_health_automatically_caches_detailed_account_alerts(tmp_path: P
     assert alerts["alerts"][0]["account_key"] == "PC001:brand-a"
 
 
+def test_healthy_machine_readback_clears_old_account_sync_error(tmp_path: Path) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    transport.queue(
+        "list-accounts",
+        {"success": True, "accounts": [remote_account()]},
+        ManagerTransportError("OFFLINE", "SSH 握手超时"),
+    )
+    manager.list_machine_accounts("PC001")
+    manager.list_machine_accounts("PC001")
+    assert manager.list_machines()["machines"][0]["account_sync_status"] == "UNKNOWN"
+
+    transport.queue(
+        "health",
+        {
+            "success": True,
+            "health": {
+                "machine_id": "PC001",
+                "role": "executor",
+                "project_version": "0.1.0",
+                "healthy": True,
+                "paused": False,
+                "account_slots": {"count": 1, "items": [remote_account()], "error": ""},
+            },
+        },
+    )
+    checked = manager.check_machine("PC001")
+    machine = manager.list_machines()["machines"][0]
+
+    assert checked["success"] is True
+    assert machine["ssh_state"] == "ONLINE"
+    assert machine["account_sync_status"] == "SUCCESS"
+    assert machine["account_sync_error_code"] == ""
+    assert manager.list_accounts("PC001")["accounts"][0]["health_state"] == "READY"
+
+
+def test_machine_and_account_refresh_each_commit_one_manager_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    writes = 0
+    original = manager.store._write_state
+
+    def count_write(state: dict) -> None:
+        nonlocal writes
+        writes += 1
+        original(state)
+
+    monkeypatch.setattr(manager.store, "_write_state", count_write)
+    transport.queue(
+        "list-accounts",
+        {
+            "success": True,
+            "accounts": [remote_account("brand-a"), remote_account("brand-b")],
+        },
+    )
+    manager.list_machine_accounts("PC001")
+    assert writes == 1
+
+    transport.queue(
+        "health",
+        {
+            "success": True,
+            "health": {
+                "machine_id": "PC001",
+                "role": "executor",
+                "project_version": "0.1.0",
+                "healthy": True,
+                "paused": False,
+                "account_slots": {
+                    "count": 2,
+                    "items": [remote_account("brand-a"), remote_account("brand-b")],
+                    "error": "",
+                },
+            },
+        },
+    )
+    manager.check_machine("PC001")
+    assert writes == 2
+
+
 def test_account_status_doctor_and_recovery_actions_refresh_cached_snapshot(
     tmp_path: Path,
 ) -> None:
