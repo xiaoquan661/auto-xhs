@@ -54,6 +54,28 @@ def test_reads_use_committed_state_during_background_batch(tmp_path: Path) -> No
     assert store.get("tasks", "task-1")["state"] == "SUCCESS"
 
 
+def test_read_cache_refreshes_after_another_store_commits(tmp_path: Path, monkeypatch) -> None:
+    writer = ManagerStore(tmp_path)
+    reader = ManagerStore(tmp_path)
+    writer.put("tasks", "task-1", {"state": "ACCEPTED"})
+    decodes = 0
+    original_loads = manager_store.orjson.loads
+
+    def count_loads(value: bytes) -> dict:
+        nonlocal decodes
+        decodes += 1
+        return original_loads(value)
+
+    monkeypatch.setattr(manager_store.orjson, "loads", count_loads)
+    assert reader.get("tasks", "task-1")["state"] == "ACCEPTED"
+    assert reader.get("tasks", "task-1")["state"] == "ACCEPTED"
+    assert decodes == 1
+
+    writer.put("tasks", "task-1", {"state": "SUCCESS"})
+    assert reader.get("tasks", "task-1")["state"] == "SUCCESS"
+    assert decodes == 3  # writer's fresh transaction read and reader's refreshed read
+
+
 def test_state_commit_waits_for_temporary_file_access(tmp_path: Path, monkeypatch) -> None:
     store = ManagerStore(tmp_path)
     replace = manager_store.os.replace

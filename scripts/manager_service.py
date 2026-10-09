@@ -1732,9 +1732,10 @@ class ManagerService(ManagerMemory, ManagerPolling):
             )
             return {"success": False, "status": "BLOCKED", "task": record}
 
-        self._record_remote_agent_messages(accepted)
         execution = self._extract_execution(accepted)
-        record = self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
+        with self.store.batch():
+            self._record_remote_agent_messages(accepted)
+            record = self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
         if execution.get("state") in REMOTE_TERMINAL_STATES:
             return {"success": True, "status": execution["state"], "task": record}
 
@@ -5556,18 +5557,19 @@ class ManagerService(ManagerMemory, ManagerPolling):
             )
             return {"success": False, "status": "BLOCKED", "task": updated}
 
-        self._record_remote_agent_messages(acknowledgement)
         execution = self._extract_execution(acknowledgement)
-        updated = self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
-        updated = self._update_task(
-            task_id,
-            dispatch_state="ACKNOWLEDGED",
-            business_state="",
-            reconciliation_required=False,
-            error_code="",
-            message="员工机已领取任务并启动后台执行",
-            acknowledged_at=utc_now(),
-        )
+        with self.store.batch():
+            self._record_remote_agent_messages(acknowledgement)
+            self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
+            updated = self._update_task(
+                task_id,
+                dispatch_state="ACKNOWLEDGED",
+                business_state="",
+                reconciliation_required=False,
+                error_code="",
+                message="员工机已领取任务并启动后台执行",
+                acknowledged_at=utc_now(),
+            )
         return {
             "success": True,
             "status": "TASK_ACK",
