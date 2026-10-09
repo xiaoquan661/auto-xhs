@@ -33,6 +33,8 @@ class ManagerDatabase:
                 );
                 CREATE INDEX IF NOT EXISTS records_account
                     ON records(machine_id, account_slot, collection);
+                CREATE TABLE IF NOT EXISTS live_task_ids (task_id TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS live_result_keys (result_key TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS daily_metric_facts (
                     machine_id TEXT NOT NULL, account_slot TEXT NOT NULL,
@@ -107,8 +109,21 @@ class ManagerDatabase:
                             json.dumps(value, ensure_ascii=False, separators=(",", ":")),
                         )
                     )
-            # Replace one complete snapshot in one transaction, including removed records.
-            db.execute("DELETE FROM records")
+            # Preserve task and result rows written directly by the live store.
+            live_tasks = {row[0] for row in db.execute("SELECT task_id FROM live_task_ids")}
+            live_results = {row[0] for row in db.execute("SELECT result_key FROM live_result_keys")}
+            rows = [
+                row for row in rows
+                if not (row[0] == "tasks" and row[1] in live_tasks)
+                and not (row[0] == "results" and row[1] in live_results)
+            ]
+            db.execute(
+                "DELETE FROM records WHERE NOT EXISTS "
+                "(SELECT 1 FROM live_task_ids WHERE task_id=records.record_key "
+                "AND records.collection='tasks') AND NOT EXISTS "
+                "(SELECT 1 FROM live_result_keys WHERE result_key=records.record_key "
+                "AND records.collection='results')"
+            )
             db.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?)", rows)
             synced_at = datetime.now(UTC).isoformat()
             db.execute("INSERT OR REPLACE INTO metadata VALUES ('synced_at', ?)", (synced_at,))
@@ -116,7 +131,7 @@ class ManagerDatabase:
         return {
             "success": True,
             "database": str(self.path),
-            "records": len(rows),
+            "records": len(rows) + len(live_tasks) + len(live_results),
             "synced_at": synced_at,
         }
 

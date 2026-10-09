@@ -1283,9 +1283,15 @@ def test_sftp_dispatch_commits_receipt_and_task_state_together(
     response = manager.dispatch_task(task_request())
 
     assert response["status"] == "TASK_ACK"
-    assert writes == 3  # pending task, transferred package, acknowledged receipt
+    assert writes == 1  # agent message; task transitions are committed to SQLite
     assert store.get("tasks", "task-1")["dispatch_state"] == "ACKNOWLEDGED"
     assert store.get("agent_messages", "message-1")["message_type"] == "TASK_ACK"
+    from manager_database import ManagerDatabase
+
+    assert ManagerDatabase(store.root).query(
+        "SELECT json_extract(payload,'$.dispatch_state') AS state FROM records "
+        "WHERE collection='tasks' AND record_key='task-1'"
+    )["rows"] == [{"state": "ACKNOWLEDGED"}]
 
 
 def test_dispatch_sends_manager_scope_and_records_pinned_function_version(

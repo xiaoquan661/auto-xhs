@@ -57,7 +57,7 @@ def test_reads_use_committed_state_during_background_batch(tmp_path: Path) -> No
 def test_read_cache_refreshes_after_another_store_commits(tmp_path: Path, monkeypatch) -> None:
     writer = ManagerStore(tmp_path)
     reader = ManagerStore(tmp_path)
-    writer.put("tasks", "task-1", {"state": "ACCEPTED"})
+    writer.put("machines", "PC001", {"state": "READY"})
     decodes = 0
     original_loads = manager_store.orjson.loads
 
@@ -67,12 +67,12 @@ def test_read_cache_refreshes_after_another_store_commits(tmp_path: Path, monkey
         return original_loads(value)
 
     monkeypatch.setattr(manager_store.orjson, "loads", count_loads)
-    assert reader.get("tasks", "task-1")["state"] == "ACCEPTED"
-    assert reader.get("tasks", "task-1")["state"] == "ACCEPTED"
+    assert reader.get("machines", "PC001")["state"] == "READY"
+    assert reader.get("machines", "PC001")["state"] == "READY"
     assert decodes == 1
 
-    writer.put("tasks", "task-1", {"state": "SUCCESS"})
-    assert reader.get("tasks", "task-1")["state"] == "SUCCESS"
+    writer.put("machines", "PC001", {"state": "PAUSED"})
+    assert reader.get("machines", "PC001")["state"] == "PAUSED"
     assert decodes == 3  # writer's fresh transaction read and reader's refreshed read
 
 
@@ -90,7 +90,7 @@ def test_state_commit_waits_for_temporary_file_access(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(manager_store.os, "replace", temporarily_busy)
     monkeypatch.setattr(manager_store.time, "sleep", lambda _: None)
-    store.put("tasks", "task-1", {"state": "ACCEPTED"})
+    store.put("machines", "PC001", {"state": "READY"})
 
     assert attempts == 3
-    assert store.get("tasks", "task-1")["state"] == "ACCEPTED"
+    assert store.get("machines", "PC001")["state"] == "READY"

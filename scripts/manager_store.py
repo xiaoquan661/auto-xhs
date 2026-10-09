@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TypeVar
 
 import orjson
+from manager_live_records import ManagerLiveRecords
 from run_lock import RunLock
 
 MANAGER_STORE_SCHEMA_VERSION = 1
@@ -62,6 +63,7 @@ class ManagerStore:
         self.path = self.root / "manager-state.json"
         self.lock_path = self.root / "manager-state.lock"
         self._batch = threading.local()
+        self.live = ManagerLiveRecords(self.root)
         self._cache_signature: tuple[int, int] | None = None
         self._cache_state: dict | None = None
 
@@ -78,16 +80,66 @@ class ManagerStore:
                 raise TimeoutError("经理机数据正在被其他进程使用")
             try:
                 self._batch.state = self._read_state_fresh()
+                original_result_keys = set(self._batch.state["results"])
+                live_tasks, live_results = self.live.load()
+                self._batch.state["tasks"].update(live_tasks)
+                self._batch.state["results"].update(live_results)
+                self._batch.original_live_tasks = copy.deepcopy(live_tasks)
+                self._batch.original_live_results = copy.deepcopy(live_results)
+                self._batch.original_result_keys = original_result_keys
                 self._batch.dirty = False
+                self._batch.live_tasks = set()
+                self._batch.live_results = set()
                 try:
                     yield
                 finally:
                     try:
+                        state = self._batch.state
+                        self._batch.live_tasks.update(
+                            key
+                            for key, old in self._batch.original_live_tasks.items()
+                            if state["tasks"].get(key) != old
+                        )
+                        self._batch.live_results.update(
+                            key
+                            for key, old in self._batch.original_live_results.items()
+                            if state["results"].get(key) != old
+                        )
+                        live_task_ids = (
+                            set(self._batch.original_live_tasks) | self._batch.live_tasks
+                        )
+                        self._batch.live_results.update(
+                            key
+                            for key, row in state["results"].items()
+                            if key not in self._batch.original_result_keys
+                            and key not in self._batch.original_live_results
+                            and str(row.get("task_id") or "") in live_task_ids
+                        )
+                        self.live.commit(
+                            {key: state["tasks"][key] for key in self._batch.live_tasks},
+                            {key: state["results"][key] for key in self._batch.live_results},
+                        )
                         if self._batch.dirty:
-                            self._write_state(self._batch.state)
+                            live_tasks, live_results = self.live.load()
+                            state["tasks"] = {
+                                key: row
+                                for key, row in state["tasks"].items()
+                                if key not in live_tasks
+                            }
+                            state["results"] = {
+                                key: row
+                                for key, row in state["results"].items()
+                                if key not in live_results
+                            }
+                            self._write_state(state)
                     finally:
                         del self._batch.state
                         del self._batch.dirty
+                        del self._batch.live_tasks
+                        del self._batch.live_results
+                        del self._batch.original_live_tasks
+                        del self._batch.original_live_results
+                        del self._batch.original_result_keys
             finally:
                 lock.release()
 
@@ -101,7 +153,7 @@ class ManagerStore:
         copy_on_read: bool = True,
     ) -> ManagerStore:
         """Read the atomically replaced file without waiting for background writers."""
-        state = self._read_state()
+        state = self._with_live(self._read_state())
         if excluded_fields:
             state = _project_fields(state, excluded_fields)
         return _ManagerReadView(self.root, state, copy_on_read=copy_on_read)
@@ -120,6 +172,15 @@ class ManagerStore:
 
     def put(self, collection: str, item_id: str, item: dict) -> dict:
         self._check_collection(collection)
+        if collection == "tasks" and item_id not in self._read_state()["tasks"]:
+            record = copy.deepcopy(item)
+            state = getattr(self._batch, "state", None)
+            if state is not None:
+                state["tasks"][item_id] = record
+                self._batch.live_tasks.add(item_id)
+            else:
+                self._commit_live({item_id: record}, {})
+            return copy.deepcopy(record)
 
         def mutate(state: dict) -> dict:
             state[collection][item_id] = copy.deepcopy(item)
@@ -138,6 +199,31 @@ class ManagerStore:
         mutator: Callable[[dict], dict],
     ) -> dict | None:
         self._check_collection(collection)
+        if collection == "tasks" and (
+            item_id in getattr(self._batch, "live_tasks", set()) or self.live.has_task(item_id)
+        ):
+            state = getattr(self._batch, "state", None)
+            if state is not None:
+                current = self.get("tasks", item_id)
+                if current is None:
+                    return None
+                updated = copy.deepcopy(mutator(current))
+                state["tasks"][item_id] = updated
+                self._batch.live_tasks.add(item_id)
+            else:
+                with _PROCESS_LOCK:
+                    lock = RunLock(str(self.lock_path))
+                    if not lock.acquire(timeout=10):
+                        raise TimeoutError("经理机数据正在被其他进程使用")
+                    try:
+                        current = self.get("tasks", item_id)
+                        if current is None:
+                            return None
+                        updated = copy.deepcopy(mutator(current))
+                        self.live.commit({item_id: updated}, {})
+                    finally:
+                        lock.release()
+            return copy.deepcopy(updated)
 
         def mutate(state: dict) -> dict | None:
             current = state[collection].get(item_id)
@@ -162,6 +248,28 @@ class ManagerStore:
 
     def record_result(self, result_key: str, result: dict) -> tuple[dict, bool]:
         """Insert one immutable remote result and report whether it was new."""
+
+        task_id = str(result.get("task_id") or "")
+        if (
+            task_id
+            and (
+                task_id in getattr(self._batch, "live_tasks", set()) or self.live.has_task(task_id)
+            )
+        ) or self.live.has_execution(
+            str(result.get("machine_id") or ""),
+            str(result.get("remote_execution_id") or ""),
+        ):
+            existing = self.get("results", result_key)
+            if existing is not None:
+                return existing, False
+            record = copy.deepcopy(result)
+            state = getattr(self._batch, "state", None)
+            if state is not None:
+                state["results"][result_key] = record
+                self._batch.live_results.add(result_key)
+            else:
+                self._commit_live({}, {result_key: record})
+            return copy.deepcopy(record), True
 
         def mutate(state: dict) -> tuple[dict, bool]:
             existing = state["results"].get(result_key)
@@ -191,6 +299,11 @@ class ManagerStore:
             if write:
                 self._batch.dirty = True
             return result
+        if write:
+            with self.batch():
+                result = callback(self._batch.state)
+                self._batch.dirty = True
+                return result
         self.root.mkdir(parents=True, exist_ok=True)
         with _PROCESS_LOCK:
             lock = RunLock(str(self.lock_path))
@@ -208,7 +321,25 @@ class ManagerStore:
     def _read_current_state(self) -> dict:
         """Read a consistent atomic file without waiting for background writers."""
         state = getattr(self._batch, "state", None)
-        return state if state is not None else self._read_state()
+        return state if state is not None else self._with_live(self._read_state())
+
+    def _with_live(self, state: dict) -> dict:
+        tasks, results = self.live.load()
+        return {
+            **state,
+            "tasks": {**state["tasks"], **tasks},
+            "results": {**state["results"], **results},
+        }
+
+    def _commit_live(self, tasks: dict[str, dict], results: dict[str, dict]) -> None:
+        with _PROCESS_LOCK:
+            lock = RunLock(str(self.lock_path))
+            if not lock.acquire(timeout=10):
+                raise TimeoutError("经理机数据正在被其他进程使用")
+            try:
+                self.live.commit(tasks, results)
+            finally:
+                lock.release()
 
     def _read_state(self) -> dict:
         if not self.path.exists():
@@ -304,6 +435,9 @@ class _ManagerReadView(ManagerStore):
         return super().snapshot() if self._copy_on_read else dict(self._state)
 
     def _read_state(self) -> dict:
+        return self._state
+
+    def _read_current_state(self) -> dict:
         return self._state
 
     def list(self, collection: str) -> list[dict]:
