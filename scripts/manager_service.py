@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -1274,17 +1275,18 @@ class ManagerService(ManagerMemory, ManagerPolling):
         try:
             response = self.transport.invoke(machine, "list-accounts", {}, timeout_seconds=60)
         except ManagerTransportError as exc:
-            self._mark_machine_accounts_unknown(
-                machine["machine_id"], exc.code, str(exc), checked_at
-            )
-            self._update_machine(
-                machine["machine_id"],
-                last_account_sync_at=checked_at,
-                account_sync_status="UNKNOWN",
-                account_sync_error_code=exc.code,
-                account_sync_error=str(exc),
-            )
-            cached = self.list_accounts(machine["machine_id"])
+            with self.store.batch():
+                self._mark_machine_accounts_unknown(
+                    machine["machine_id"], exc.code, str(exc), checked_at
+                )
+                self._update_machine(
+                    machine["machine_id"],
+                    last_account_sync_at=checked_at,
+                    account_sync_status="UNKNOWN",
+                    account_sync_error_code=exc.code,
+                    account_sync_error=str(exc),
+                )
+                cached = self.list_accounts(machine["machine_id"])
             return {
                 **cached,
                 "success": False,
@@ -1294,17 +1296,18 @@ class ManagerService(ManagerMemory, ManagerPolling):
         remote_error = self._remote_error(response)
         if remote_error:
             error_code, message = remote_error
-            self._mark_machine_accounts_unknown(
-                machine["machine_id"], error_code, message, checked_at
-            )
-            self._update_machine(
-                machine["machine_id"],
-                last_account_sync_at=checked_at,
-                account_sync_status="UNKNOWN",
-                account_sync_error_code=error_code,
-                account_sync_error=message,
-            )
-            cached = self.list_accounts(machine["machine_id"])
+            with self.store.batch():
+                self._mark_machine_accounts_unknown(
+                    machine["machine_id"], error_code, message, checked_at
+                )
+                self._update_machine(
+                    machine["machine_id"],
+                    last_account_sync_at=checked_at,
+                    account_sync_status="UNKNOWN",
+                    account_sync_error_code=error_code,
+                    account_sync_error=message,
+                )
+                cached = self.list_accounts(machine["machine_id"])
             return {
                 **cached,
                 "success": False,
@@ -1321,27 +1324,28 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 account_sync_error="执行机账号清单返回格式无效",
             )
             raise ServiceError("INVALID_REMOTE_RESPONSE", "执行机账号清单返回格式无效")
-        seen: set[str] = set()
-        for item in remote_accounts:
-            if not isinstance(item, dict):
-                continue
-            record = self._save_account_snapshot(
+        with self.store.batch():
+            seen: set[str] = set()
+            for item in remote_accounts:
+                if not isinstance(item, dict):
+                    continue
+                record = self._save_account_snapshot(
+                    machine["machine_id"],
+                    item,
+                    checked_at=str(response.get("checked_at") or checked_at),
+                )
+                seen.add(record["account_key"])
+            self._mark_unreturned_accounts_unknown(machine["machine_id"], seen, checked_at)
+            cached = self.list_accounts(machine["machine_id"])
+            self._update_machine(
                 machine["machine_id"],
-                item,
-                checked_at=str(response.get("checked_at") or checked_at),
+                last_account_sync_at=checked_at,
+                last_account_check_at=checked_at,
+                account_summary=cached["summary"],
+                account_sync_status="SUCCESS",
+                account_sync_error_code="",
+                account_sync_error="",
             )
-            seen.add(record["account_key"])
-        self._mark_unreturned_accounts_unknown(machine["machine_id"], seen, checked_at)
-        cached = self.list_accounts(machine["machine_id"])
-        self._update_machine(
-            machine["machine_id"],
-            last_account_sync_at=checked_at,
-            last_account_check_at=checked_at,
-            account_summary=cached["summary"],
-            account_sync_status="SUCCESS",
-            account_sync_error_code="",
-            account_sync_error="",
-        )
         return {"success": True, "status": "READY", **cached}
 
     def get_machine_account_status(self, machine_id: str, account: str) -> dict:
@@ -1395,17 +1399,18 @@ class ManagerService(ManagerMemory, ManagerPolling):
             response = self.transport.invoke(machine, "health", {}, timeout_seconds=20)
         except ManagerTransportError as exc:
             status = "CHECK_UNKNOWN" if exc.result_unknown else "OFFLINE"
-            self._mark_machine_accounts_unknown(
-                machine["machine_id"], exc.code, str(exc), checked_at
-            )
-            updated = self._update_machine(
-                machine["machine_id"],
-                status=status,
-                last_check_at=checked_at,
-                ssh_state="CHECK_UNKNOWN" if exc.result_unknown else "OFFLINE",
-                last_error_code=exc.code,
-                last_error=str(exc),
-            )
+            with self.store.batch():
+                self._mark_machine_accounts_unknown(
+                    machine["machine_id"], exc.code, str(exc), checked_at
+                )
+                updated = self._update_machine(
+                    machine["machine_id"],
+                    status=status,
+                    last_check_at=checked_at,
+                    ssh_state="CHECK_UNKNOWN" if exc.result_unknown else "OFFLINE",
+                    last_error_code=exc.code,
+                    last_error=str(exc),
+                )
             return {"success": False, "status": status, "machine": updated}
         return self._record_machine_health(machine, response, checked_at=checked_at)
 
@@ -1524,8 +1529,18 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 values["task_outbox_root"] = outbox_root
         if status in {"READY", "PAUSED"}:
             values["last_seen_at"] = checked_at
-        updated = self._update_machine(machine_id, **values)
-        self._record_health_account_slots(machine_id, health, checked_at)
+            slots = health.get("account_slots")
+            if isinstance(slots, dict) and isinstance(slots.get("items"), list):
+                values.update(
+                    last_account_sync_at=checked_at,
+                    last_account_check_at=checked_at,
+                    account_sync_status="SUCCESS",
+                    account_sync_error_code="",
+                    account_sync_error="",
+                )
+        with self.store.batch():
+            self._record_health_account_slots(machine_id, health, checked_at)
+            updated = self._update_machine(machine_id, **values)
         return {
             "success": status in {"READY", "PAUSED"},
             "status": status,
@@ -1718,9 +1733,10 @@ class ManagerService(ManagerMemory, ManagerPolling):
             )
             return {"success": False, "status": "BLOCKED", "task": record}
 
-        self._record_remote_agent_messages(accepted)
         execution = self._extract_execution(accepted)
-        record = self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
+        with self.store.batch():
+            self._record_remote_agent_messages(accepted)
+            record = self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
         if execution.get("state") in REMOTE_TERMINAL_STATES:
             return {"success": True, "status": execution["state"], "task": record}
 
@@ -2444,7 +2460,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         from manager_database import ManagerDatabase
 
         database = ManagerDatabase(self.store.root)
-        self.store._transaction(lambda state: database.sync(state), write=False)
+        database.sync_store(self.store)
         if payload is None:
             return database.schema()
         return database.query(str(payload.get("sql") or ""), payload.get("parameters"),
@@ -2457,13 +2473,15 @@ class ManagerService(ManagerMemory, ManagerPolling):
         return acceptance_report(self.store.snapshot(), day=str(payload.get("date") or ""),
                                  accounts=payload.get("accounts"))
 
-    def collect_business_data(self, machine_id: str) -> dict:
+    def collect_business_data(
+        self, machine_id: str, *, collection_results: list[dict] | None = None,
+    ) -> dict:
         """Import complete employee business tables into the manager query database."""
         from manager_database import ManagerDatabase
 
         machine = self._get_machine(machine_id)
         database = ManagerDatabase(self.store.root)
-        database.sync(self.store.read_view(copy_on_read=False).snapshot())
+        database.sync_collection_results(collection_results or [])
         snapshot = self.transport.export_business_data(machine)
         return database.import_worker(machine["machine_id"], snapshot)
 
@@ -2476,8 +2494,13 @@ class ManagerService(ManagerMemory, ManagerPolling):
         return self._collect_fixed_now(machine_id, account_slot, "collect-notifications-now")
 
     def _collect_fixed_now(self, machine_id: str, account_slot: str, action: str) -> dict:
-        machine = self._get_machine(machine_id)
-        accounts = self.list_accounts(machine_id)["accounts"]
+        view = self.store.read_view(copy_on_read=False)
+        machine = view.get("machines", machine_id.strip().upper())
+        if not machine:
+            raise ServiceError("MACHINE_NOT_FOUND", "执行机未注册", 404)
+        machine_id = machine["machine_id"]
+        accounts = [row for row in view.list("accounts") if row["machine_id"] == machine_id]
+        del view
         selected = [
             account for account in accounts
             if not account_slot or account["account_slot"] == account_slot
@@ -2486,6 +2509,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
             raise ServiceError("ACCOUNT_NOT_FOUND", "该员工机没有选定的账号槽位", 404)
         entries = []
         imported = 0
+        received = 0
+        collection_results = []
         for account in selected:
             slot = account["account_slot"]
             try:
@@ -2511,6 +2536,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
                                 "message": response.get("message") or "员工机未返回采集回执"})
                 continue
             ingested = self._ingest_results(machine, [receipt], download_evidence=False)
+            received += 1
+            collection_results.extend(ingested["results"])
             imported += ingested["collected"]
             business = receipt.get("business_result") or {}
             count = (
@@ -2523,21 +2550,29 @@ class ManagerService(ManagerMemory, ManagerPolling):
                             "captured_at": business.get("captured_at"),
                             "message": receipt.get("message") or ""})
         database_status = "PENDING"
-        if imported:
+        database_error = ""
+        if received:
             try:
-                self.collect_business_data(machine_id)
+                self.collect_business_data(machine_id, collection_results=collection_results)
                 database_status = "SYNCED"
-            except ManagerTransportError:
-                pass
-        complete = bool(entries) and all(item["status"] == "SUCCESS" for item in entries)
+            except Exception as exc:
+                logging.getLogger(__name__).exception(
+                    "员工采集回执已保存，数据库同步失败：%s", machine_id,
+                )
+                database_error = str(exc)
+        complete = (bool(entries) and database_status == "SYNCED"
+                    and all(item["status"] == "SUCCESS" for item in entries))
         return {
             "success": complete,
             "status": "SUCCESS" if complete else "PARTIAL_SUCCESS",
             "machine_id": machine_id,
             "collected": imported,
+            "received": received,
             "database_status": database_status,
+            "database_error": database_error,
             "accounts": entries,
-            "message": f"{machine_id} 已回收 {imported} 个账号采集回执",
+            "message": f"{machine_id} 已回收 {received} 个账号采集回执"
+            + (f"；业务数据库待同步：{database_error}" if database_error else ""),
         }
 
     def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
@@ -5542,18 +5577,19 @@ class ManagerService(ManagerMemory, ManagerPolling):
             )
             return {"success": False, "status": "BLOCKED", "task": updated}
 
-        self._record_remote_agent_messages(acknowledgement)
         execution = self._extract_execution(acknowledgement)
-        updated = self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
-        updated = self._update_task(
-            task_id,
-            dispatch_state="ACKNOWLEDGED",
-            business_state="",
-            reconciliation_required=False,
-            error_code="",
-            message="员工机已领取任务并启动后台执行",
-            acknowledged_at=utc_now(),
-        )
+        with self.store.batch():
+            self._record_remote_agent_messages(acknowledgement)
+            self._update_task_from_execution(task_id, execution, connectivity="ONLINE")
+            updated = self._update_task(
+                task_id,
+                dispatch_state="ACKNOWLEDGED",
+                business_state="",
+                reconciliation_required=False,
+                error_code="",
+                message="员工机已领取任务并启动后台执行",
+                acknowledged_at=utc_now(),
+            )
         return {
             "success": True,
             "status": "TASK_ACK",

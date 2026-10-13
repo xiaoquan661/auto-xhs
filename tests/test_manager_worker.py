@@ -9,6 +9,7 @@ import sys
 import threading
 from pathlib import Path
 
+import manager_worker_service as worker_module
 import pytest
 from manager_service import ManagerService
 from manager_store import ManagerStore
@@ -207,6 +208,27 @@ def test_config_health_and_state_are_json_runlock_backed(tmp_path) -> None:
     assert not (service.root / "worker-state.lock").exists()
     stored = json.loads(before)
     assert Path(stored["config"]["package_root"]).is_absolute()
+
+
+def test_outbox_index_write_retries_transient_access_denied(tmp_path, monkeypatch) -> None:
+    original_replace = worker_module.os.replace
+    index_attempts = 0
+
+    def replace_with_busy_index(source: str | Path, destination: str | Path) -> None:
+        nonlocal index_attempts
+        if Path(destination).name == "index.json":
+            index_attempts += 1
+            if index_attempts == 1:
+                raise PermissionError("index temporarily busy")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(worker_module.os, "replace", replace_with_busy_index)
+    index_path = tmp_path / "index.json"
+    worker_module._write_json_atomic(index_path, {"records": [{"record_type": "result"}]})
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+
+    assert index_attempts == 2
+    assert [record["record_type"] for record in index["records"]] == ["result"]
 
 
 def test_worker_dashboard_snapshot_is_local_and_read_only(tmp_path) -> None:

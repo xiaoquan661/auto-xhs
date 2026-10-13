@@ -7,6 +7,57 @@ from service_errors import ServiceError
 from worker_data_export import export_business_data
 
 
+def test_projection_allows_state_writes_during_database_sync(tmp_path, monkeypatch):
+    from manager_store import ManagerStore
+
+    store = ManagerStore(tmp_path)
+    store.put("settings", "sample", {"version": 1})
+    database = ManagerDatabase(tmp_path)
+
+    def sync(snapshot):
+        # A different store instance represents a concurrent manager writer.
+        ManagerStore(tmp_path).put("settings", "sample", {"version": 2})
+        assert snapshot["settings"]["sample"]["version"] == 1
+        return {"success": True}
+
+    monkeypatch.setattr(database, "sync", sync)
+    assert database.sync_store(store)["success"] is True
+    assert store.get("settings", "sample")["version"] == 2
+
+
+def test_collection_updates_current_receipts_preserving_history(tmp_path, monkeypatch):
+    database = ManagerDatabase(tmp_path)
+    database.sync({"results": {"historical": {"state": "SUCCESS"}}})
+
+    def full_projection(*args):
+        pytest.fail("即时采集应直接更新本次回执")
+
+    monkeypatch.setattr(database, "sync", full_projection)
+    receipt = {"record_id": "result:PC071:creator-ui-1:1", "machine_id": "PC071",
+               "account_slot": "3-3", "state": "SUCCESS"}
+    database.sync_collection_results([receipt])
+    database.sync_collection_results([receipt])
+    records = database.query("SELECT record_key FROM records WHERE collection='results'")
+    assert {r["record_key"] for r in records["rows"]} == {"historical", "PC071:creator-ui-1:1"}
+
+
+def test_projection_updates_only_changed_records(tmp_path):
+    import sqlite3
+
+    database = ManagerDatabase(tmp_path)
+    database.sync({"results": {"one": {"state": "SUCCESS"}, "two": {"state": "FAILED"}}})
+    with sqlite3.connect(database.path) as db:
+        db.executescript("""
+            CREATE TABLE changed_records (record_key TEXT);
+            CREATE TRIGGER track_record_update AFTER UPDATE ON records
+            BEGIN INSERT INTO changed_records VALUES (new.record_key); END;
+        """)
+    database.sync({"results": {"one": {"state": "SUCCESS"}, "two": {"state": "SUCCESS"}}})
+    assert database.query("SELECT record_key FROM changed_records")["rows"] == [
+        {"record_key": "two"},
+    ]
+
+
 def test_dashboard_reads_committed_metrics_while_import_is_writing(tmp_path):
     import json
     import sqlite3

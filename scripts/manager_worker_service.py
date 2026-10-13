@@ -188,19 +188,7 @@ class _JsonWorkerStore:
         return state
 
     def _write_state(self, state: dict[str, Any]) -> None:
-        temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
-        temporary.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        for attempt in range(100):
-            try:
-                os.replace(temporary, self.path)
-                break
-            except PermissionError:
-                if attempt == 99:
-                    raise
-                time.sleep(0.05)
+        _write_json_atomic(self.path, state)
 
 
 def _default_account_summary() -> list[dict[str, Any]]:
@@ -228,11 +216,17 @@ def _default_account_summary() -> list[dict[str, Any]]:
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
+    with temporary.open("w", encoding="utf-8") as output:
+        json.dump(value, output, ensure_ascii=False, separators=(",", ":"))
+        output.write("\n")
+    for attempt in range(100):
+        try:
+            os.replace(temporary, path)
+            break
+        except PermissionError:
+            if attempt == 99:
+                raise
+            time.sleep(0.05)
 
 
 def _request_values(

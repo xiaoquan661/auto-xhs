@@ -240,7 +240,9 @@ def test_immediate_creator_collection_imports_direct_receipt(tmp_path: Path, mon
             },
         },
     })
-    monkeypatch.setattr(manager, "collect_business_data", lambda machine_id: {"success": True})
+    monkeypatch.setattr(
+        manager, "collect_business_data", lambda machine_id, **kwargs: {"success": True},
+    )
 
     result = manager.collect_creator_now("PC001", "brand-a")
 
@@ -273,7 +275,9 @@ def test_immediate_notification_collection_imports_events(tmp_path: Path, monkey
             ]},
         },
     })
-    monkeypatch.setattr(manager, "collect_business_data", lambda machine_id: {"success": True})
+    monkeypatch.setattr(
+        manager, "collect_business_data", lambda machine_id, **kwargs: {"success": True},
+    )
 
     result = manager.collect_notifications_now("PC001", "brand-a")
 
@@ -281,6 +285,77 @@ def test_immediate_notification_collection_imports_events(tmp_path: Path, monkey
     assert result["accounts"][0]["count"] == 1
     assert transport.calls[-1] == ("collect-notifications-now", {"account_slot": "brand-a"})
     assert len(manager.store.list("incremental_records")) == 1
+
+
+def test_immediate_collection_keeps_receipt_when_database_sync_fails(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import sqlite3
+
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    manager.store.put("accounts", "PC001:brand-a", {
+        "machine_id": "PC001", "account_slot": "brand-a", "platform": "xiaohongshu",
+    })
+    response = {"success": True, "result": {
+        "task_id": "creator-ui-retry", "remote_execution_id": "creator-ui-retry",
+        "result_revision": 1, "account_slot": "brand-a", "state": "SUCCESS",
+        "capability": "collect-operations-metrics",
+        "business_result": {"notes": [{"note_id": "one"}]},
+    }}
+    transport.queue("collect-creator-now", response)
+
+    def unavailable(machine_id: str, **kwargs) -> dict:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(manager, "collect_business_data", unavailable)
+    result = manager.collect_creator_now("PC001", "brand-a")
+    assert result["success"] is False
+    assert result["status"] == "PARTIAL_SUCCESS"
+    assert result["accounts"][0]["status"] == "SUCCESS"
+    assert result["accounts"][0]["count"] == 1
+    assert result["database_status"] == "PENDING"
+    assert result["database_error"] == "database is locked"
+    assert len(manager.store.list("results")) == 1
+
+    # Replaying the saved receipt must still synchronize the employee database.
+    calls = []
+    monkeypatch.setattr(
+        manager, "collect_business_data", lambda machine, **kwargs: calls.append(machine),
+    )
+    transport.queue("collect-creator-now", response)
+    retried = manager.collect_creator_now("PC001", "brand-a")
+    assert retried["collected"] == 0
+    assert retried["received"] == 1
+    assert retried["database_status"] == "SYNCED"
+    assert retried["success"] is True
+    assert calls == ["PC001"]
+    assert len(manager.store.list("results")) == 1
+
+
+def test_worker_import_preserves_manager_history_without_full_projection(tmp_path, monkeypatch):
+    from manager_database import ManagerDatabase
+
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    database = ManagerDatabase(manager.store.root)
+    database.sync({"results": {"history": {"state": "SUCCESS"}}})
+
+    def full_projection(*args):
+        pytest.fail("员工业务表回收应独立于经理全量汇总")
+
+    monkeypatch.setattr(ManagerDatabase, "sync", full_projection)
+    transport.export_business_data = lambda machine: {
+        "success": True, "tables": {"metric_snapshots": [{"account_slot": "brand-a"}]},
+        "schema": {}, "exported_at": "2026-10-08T09:00:00Z", "source": "operations.db",
+    }
+    result = manager.collect_business_data("PC001")
+    assert result["success"] is True
+    assert database.query("SELECT count(*) AS n FROM records")["rows"] == [{"n": 1}]
+    assert database.query("SELECT account_slot FROM worker_records "
+                          "WHERE collection='metric_snapshots'")["rows"] == [
+        {"account_slot": "brand-a"},
+    ]
 
 
 def register_ready(manager: ManagerService) -> None:

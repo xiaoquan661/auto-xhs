@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import logging
 import mimetypes
 import sys
 from http import HTTPStatus
@@ -95,6 +96,7 @@ def make_handler(
                 self._send_json(exc.http_status, exc.to_dict())
                 return
             except Exception:
+                logging.getLogger(__name__).exception("WebUI GET 处理失败：%s", path)
                 self._send_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
@@ -135,6 +137,7 @@ def make_handler(
                 self._send_json(exc.http_status, exc.to_dict())
                 return
             except Exception:
+                logging.getLogger(__name__).exception("WebUI %s 处理失败：%s", method, path)
                 self._send_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     ServiceError(

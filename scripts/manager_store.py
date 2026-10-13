@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
 import threading
 import time
@@ -12,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeVar
 
+import orjson
 from run_lock import RunLock
 
 MANAGER_STORE_SCHEMA_VERSION = 1
@@ -62,6 +62,8 @@ class ManagerStore:
         self.path = self.root / "manager-state.json"
         self.lock_path = self.root / "manager-state.lock"
         self._batch = threading.local()
+        self._cache_signature: tuple[int, int] | None = None
+        self._cache_state: dict | None = None
 
     @contextmanager
     def batch(self) -> Iterator[None]:
@@ -75,7 +77,7 @@ class ManagerStore:
             if not lock.acquire(timeout=10):
                 raise TimeoutError("经理机数据正在被其他进程使用")
             try:
-                self._batch.state = self._read_state()
+                self._batch.state = self._read_state_fresh()
                 self._batch.dirty = False
                 try:
                     yield
@@ -195,7 +197,7 @@ class ManagerStore:
             if not lock.acquire(timeout=10):
                 raise TimeoutError("经理机数据正在被其他进程使用")
             try:
-                state = self._read_state()
+                state = self._read_state_fresh()
                 result = callback(state)
                 if write:
                     self._write_state(state)
@@ -212,8 +214,23 @@ class ManagerStore:
         if not self.path.exists():
             return _default_state()
         try:
-            state = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            info = self.path.stat()
+            signature = (info.st_mtime_ns, info.st_size)
+            if signature == self._cache_signature and self._cache_state is not None:
+                return self._cache_state
+            state = self._read_state_fresh()
+        except OSError as exc:
+            raise RuntimeError("经理机数据无法读取") from exc
+        self._cache_signature = signature
+        self._cache_state = state
+        return state
+
+    def _read_state_fresh(self) -> dict:
+        if not self.path.exists():
+            return _default_state()
+        try:
+            state = orjson.loads(self.path.read_bytes())
+        except (OSError, orjson.JSONDecodeError) as exc:
             raise RuntimeError("经理机数据无法读取") from exc
         if state.get("schema_version") != MANAGER_STORE_SCHEMA_VERSION:
             raise RuntimeError("经理机数据版本暂不兼容")
@@ -225,13 +242,13 @@ class ManagerStore:
 
     def _write_state(self, state: dict) -> None:
         temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
-        temporary.write_text(
-            json.dumps(state, ensure_ascii=False, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
+        temporary.write_bytes(orjson.dumps(state, option=orjson.OPT_APPEND_NEWLINE))
         for attempt in range(12):
             try:
                 os.replace(temporary, self.path)
+                info = self.path.stat()
+                self._cache_signature = (info.st_mtime_ns, info.st_size)
+                self._cache_state = state
                 break
             except PermissionError:
                 if attempt == 11:
