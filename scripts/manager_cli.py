@@ -28,7 +28,7 @@ def _database_action(args: argparse.Namespace, service: ManagerService) -> dict:
     from manager_database import ManagerDatabase
 
     database = ManagerDatabase(service.store.root)
-    synced = service.store._transaction(lambda state: database.sync(state), write=False)
+    synced = database.sync_store(service.store)
     if args.action == "collect":
         return service.collect_business_data(args.machine_id)
     if args.action == "sync":

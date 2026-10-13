@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="/workspace.css?v=20260907-worker-progress-1" />
     <link rel="stylesheet" href="/control-room.css?v=20260909-polling-1" />
     <link rel="stylesheet" href="/employee-panel.css?v=20260929-overview-1" />
-    <link rel="stylesheet" href="/manager-results.css?v=20260916-recovery-account-2" />
+    <link rel="stylesheet" href="/manager-results.css?v=20261008-all-accounts" />
     <link rel="stylesheet" href="/manager-acceptance.css?v=20260910" />
     <link rel="stylesheet" href="/manager-debug.css?v=20260910" />
     <link rel="stylesheet" href="/console-layout.css?v=20260923-1" />
@@ -147,6 +147,18 @@
         <section class="workspace-view" id="results" data-manager-view="results" hidden>
           <header class="page-topbar recovery-heading"><div><h1>数据回收</h1><p>选择员工机和账号，查看已发布内容的运营数据。</p></div></header>
           <div class="recovery-sync" id="recovery-sync-bar"><strong id="recovery-sync-label">正在同步员工机数据</strong><span id="recovery-sync-time">等待首次回收</span><button id="recovery-sync-details" type="button">同步状态与历史 →</button></div>
+          <section class="recovery-bulk" aria-label="全部账号操作">
+            <div class="recovery-bulk-heading"><div><strong>全部账号</strong><p id="recovery-bulk-scope">读取账号列表后可执行</p></div>
+              <div class="recovery-bulk-actions">
+                <button class="primary-button" type="button" data-recovery-bulk="creator">全部采集作品</button>
+                <button class="secondary-button" type="button" data-recovery-bulk="notifications">全部采集通知</button>
+                <button class="secondary-button" type="button" data-recovery-bulk="outbox">全部回收回执</button>
+              </div>
+            </div>
+            <label class="recovery-bulk-evidence"><input id="recovery-bulk-evidence" type="checkbox" checked /> 同步回执证据</label>
+            <p id="recovery-bulk-message" role="status"></p>
+            <details id="recovery-bulk-details" hidden><summary>本轮执行明细</summary><ul id="recovery-bulk-progress"></ul></details>
+          </section>
           <section id="recovery-navigation" class="recovery-navigation" aria-label="员工机与账号选择"></section>
           <div class="recovery-overview">
             <article><span>已回收结果</span><strong id="manager-result-total">—</strong></article>
@@ -392,13 +404,14 @@
         <p id="manager-debug-message" role="status"></p>
       </form>
     </dialog>
-    <script src="/api-client.js?v=20260904-manager-console-1" defer></script>
+    <script src="/api-client.js?v=20261008-all-accounts"></script>
     <script src="/manager-debug.js?v=20260910" defer></script>
     <script src="/manager-account-tools.js?v=20260908-account-identity-1" defer></script>
     <script src="/employee-panel.js?v=20260929-notifications-1" defer></script>
     <script src="/manager-results.js?v=20260929-notifications-1" defer></script>
     <script src="/manager-memory.js?v=20260909" defer></script>
     <script src="/manager-polling.js?v=20260909-polling-1" defer></script>
-    <script src="/manager-console.js?v=20261008-collection-refresh" defer></script>
+    <script src="/manager-bulk-collection.js?v=20261008-collection-status" defer></script>
+    <script src="/manager-console.js?v=20261008-all-accounts" defer></script>
   </body>
 </html>

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from manager_store import ManagerStore
 from service_errors import ServiceError
+
+_PROJECTION_LOCK = threading.Lock()
 
 
 class ManagerDatabase:
@@ -16,6 +20,11 @@ class ManagerDatabase:
 
     def __init__(self, root: Path) -> None:
         self.path = root / "manager-operations.db"
+
+    def sync_store(self, store: ManagerStore) -> dict:
+        """Queue full projections and read the snapshot without holding the state lock."""
+        with _PROJECTION_LOCK:
+            return self.sync(store.read_view(copy_on_read=False).snapshot())
 
     def sync(self, state: dict) -> dict:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +118,7 @@ class ManagerDatabase:
                             json.dumps(value, ensure_ascii=False, separators=(",", ":")),
                         )
                     )
-            # Preserve task and result rows written directly by the live store.
+            # Keep live task and result rows, and update only changed snapshot records.
             live_tasks = {row[0] for row in db.execute("SELECT task_id FROM live_task_ids")}
             live_results = {row[0] for row in db.execute("SELECT result_key FROM live_result_keys")}
             rows = [
@@ -117,14 +126,26 @@ class ManagerDatabase:
                 if not (row[0] == "tasks" and row[1] in live_tasks)
                 and not (row[0] == "results" and row[1] in live_results)
             ]
+            db.execute("CREATE TEMP TABLE snapshot_keys (collection TEXT, record_key TEXT, "
+                       "PRIMARY KEY(collection, record_key))")
+            db.executemany("INSERT INTO snapshot_keys VALUES (?,?)",
+                           [(row[0], row[1]) for row in rows])
             db.execute(
-                "DELETE FROM records WHERE NOT EXISTS "
-                "(SELECT 1 FROM live_task_ids WHERE task_id=records.record_key "
-                "AND records.collection='tasks') AND NOT EXISTS "
-                "(SELECT 1 FROM live_result_keys WHERE result_key=records.record_key "
+                "DELETE FROM records WHERE NOT EXISTS (SELECT 1 FROM snapshot_keys k "
+                "WHERE k.collection=records.collection AND k.record_key=records.record_key) "
+                "AND NOT EXISTS (SELECT 1 FROM live_task_ids WHERE task_id=records.record_key "
+                "AND records.collection='tasks') "
+                "AND NOT EXISTS (SELECT 1 FROM live_result_keys "
+                "WHERE result_key=records.record_key "
                 "AND records.collection='results')"
             )
-            db.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?)", rows)
+            db.executemany(
+                "INSERT INTO records VALUES (?,?,?,?,?) ON CONFLICT(collection,record_key) "
+                "DO UPDATE SET machine_id=excluded.machine_id, account_slot=excluded.account_slot, "
+                "payload=excluded.payload WHERE records.payload != excluded.payload "
+                "OR records.machine_id != excluded.machine_id "
+                "OR records.account_slot != excluded.account_slot", rows,
+            )
             synced_at = datetime.now(UTC).isoformat()
             db.execute("INSERT OR REPLACE INTO metadata VALUES ('synced_at', ?)", (synced_at,))
         self.sync_daily_metrics(state)
@@ -193,6 +214,29 @@ class ManagerDatabase:
             "tables": len(snapshot["tables"]),
             "exported_at": snapshot["exported_at"],
         }
+
+    def sync_collection_results(self, results: list[dict]) -> None:
+        """Persist an immediate collection without rebuilding historical projections."""
+        with _PROJECTION_LOCK:
+            self._sync_collection_results(results)
+
+    def _sync_collection_results(self, results: list[dict]) -> None:
+        if not self.path.exists():
+            self.sync({})
+        if not results:
+            return
+        rows = [
+            ("results", result["record_id"].removeprefix("result:"),
+             result["machine_id"], result.get("account_slot", ""),
+             json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+            for result in results
+        ]
+        with sqlite3.connect(self.path, timeout=30) as db:
+            db.executemany("INSERT OR REPLACE INTO records VALUES (?,?,?,?,?)", rows)
+            db.execute(
+                "INSERT OR REPLACE INTO metadata VALUES ('collection_synced_at', ?)",
+                (datetime.now(UTC).isoformat(),),
+            )
 
     def query(self, sql: str, parameters: list[Any] | None = None, limit: int = 200) -> dict:
         if not sql.strip() or not 1 <= limit <= 10000:

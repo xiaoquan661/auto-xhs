@@ -46,6 +46,15 @@ def test_new_task_and_receipt_share_database_and_dashboard_source(tmp_path) -> N
     )["rows"] == [{"record_key": "existing"}, {"record_key": "new"}]
     assert store.get("tasks", "existing") == old_task
 
+    store.delete("tasks", "existing")
+    database.sync(store.snapshot())
+    assert database.query(
+        "SELECT record_key FROM records WHERE collection='tasks'"
+    )["rows"] == [{"record_key": "new"}]
+    assert database.query(
+        "SELECT record_key FROM records WHERE collection='results'"
+    )["rows"] == [{"record_key": "receipt-1"}]
+
 
 def test_live_task_update_is_visible_after_store_reopen(tmp_path) -> None:
     first = ManagerStore(tmp_path)

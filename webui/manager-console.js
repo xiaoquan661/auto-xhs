@@ -45,6 +45,7 @@
   let editingPersona = null;
   let employeePanel = null;
   let resultView = null;
+  let bulkCollection = null;
   let pollingView = null;
   let debugView = null;
   let selectedEmployeeAccount = localStorage.getItem("auto-xhs:employee-account") || "";
@@ -2623,6 +2624,7 @@
   }
 
   function renderResults() {
+    bulkCollection?.renderScope();
     const acceptanceRows = $("#manager-acceptance-rows");
     if (acceptanceRows) {
       acceptanceRows.replaceChildren(...(state.acceptance?.actions || []).map((action) => {
@@ -3373,6 +3375,8 @@
   }
 
   function bindEvents() {
+    bulkCollection = window.AutoXhsBulkCollection({state, mutateJson, managerApi, load});
+    bulkCollection.init();
     pollingView = window.AutoXhsPolling({state, mutateJson, managerApi, load, formatTime});
     debugView = window.AutoXhsDebug?.({state, mutateJson, managerApi, load});
     accountTools = window.AutoXhsAccountTools({state, mutateJson, fetchJson, managerApi, load});

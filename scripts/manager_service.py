@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -2459,7 +2460,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         from manager_database import ManagerDatabase
 
         database = ManagerDatabase(self.store.root)
-        self.store._transaction(lambda state: database.sync(state), write=False)
+        database.sync_store(self.store)
         if payload is None:
             return database.schema()
         return database.query(str(payload.get("sql") or ""), payload.get("parameters"),
@@ -2472,13 +2473,15 @@ class ManagerService(ManagerMemory, ManagerPolling):
         return acceptance_report(self.store.snapshot(), day=str(payload.get("date") or ""),
                                  accounts=payload.get("accounts"))
 
-    def collect_business_data(self, machine_id: str) -> dict:
+    def collect_business_data(
+        self, machine_id: str, *, collection_results: list[dict] | None = None,
+    ) -> dict:
         """Import complete employee business tables into the manager query database."""
         from manager_database import ManagerDatabase
 
         machine = self._get_machine(machine_id)
         database = ManagerDatabase(self.store.root)
-        database.sync(self.store.read_view(copy_on_read=False).snapshot())
+        database.sync_collection_results(collection_results or [])
         snapshot = self.transport.export_business_data(machine)
         return database.import_worker(machine["machine_id"], snapshot)
 
@@ -2491,8 +2494,13 @@ class ManagerService(ManagerMemory, ManagerPolling):
         return self._collect_fixed_now(machine_id, account_slot, "collect-notifications-now")
 
     def _collect_fixed_now(self, machine_id: str, account_slot: str, action: str) -> dict:
-        machine = self._get_machine(machine_id)
-        accounts = self.list_accounts(machine_id)["accounts"]
+        view = self.store.read_view(copy_on_read=False)
+        machine = view.get("machines", machine_id.strip().upper())
+        if not machine:
+            raise ServiceError("MACHINE_NOT_FOUND", "执行机未注册", 404)
+        machine_id = machine["machine_id"]
+        accounts = [row for row in view.list("accounts") if row["machine_id"] == machine_id]
+        del view
         selected = [
             account for account in accounts
             if not account_slot or account["account_slot"] == account_slot
@@ -2501,6 +2509,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
             raise ServiceError("ACCOUNT_NOT_FOUND", "该员工机没有选定的账号槽位", 404)
         entries = []
         imported = 0
+        received = 0
+        collection_results = []
         for account in selected:
             slot = account["account_slot"]
             try:
@@ -2526,6 +2536,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
                                 "message": response.get("message") or "员工机未返回采集回执"})
                 continue
             ingested = self._ingest_results(machine, [receipt], download_evidence=False)
+            received += 1
+            collection_results.extend(ingested["results"])
             imported += ingested["collected"]
             business = receipt.get("business_result") or {}
             count = (
@@ -2538,21 +2550,29 @@ class ManagerService(ManagerMemory, ManagerPolling):
                             "captured_at": business.get("captured_at"),
                             "message": receipt.get("message") or ""})
         database_status = "PENDING"
-        if imported:
+        database_error = ""
+        if received:
             try:
-                self.collect_business_data(machine_id)
+                self.collect_business_data(machine_id, collection_results=collection_results)
                 database_status = "SYNCED"
-            except ManagerTransportError:
-                pass
-        complete = bool(entries) and all(item["status"] == "SUCCESS" for item in entries)
+            except Exception as exc:
+                logging.getLogger(__name__).exception(
+                    "员工采集回执已保存，数据库同步失败：%s", machine_id,
+                )
+                database_error = str(exc)
+        complete = (bool(entries) and database_status == "SYNCED"
+                    and all(item["status"] == "SUCCESS" for item in entries))
         return {
             "success": complete,
             "status": "SUCCESS" if complete else "PARTIAL_SUCCESS",
             "machine_id": machine_id,
             "collected": imported,
+            "received": received,
             "database_status": database_status,
+            "database_error": database_error,
             "accounts": entries,
-            "message": f"{machine_id} 已回收 {imported} 个账号采集回执",
+            "message": f"{machine_id} 已回收 {received} 个账号采集回执"
+            + (f"；业务数据库待同步：{database_error}" if database_error else ""),
         }
 
     def collect_results(self, machine_id: str, *, download_evidence: bool = True) -> dict:
