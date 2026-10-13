@@ -56,6 +56,10 @@ for (const section of ["全部账号", "所属机器", "账号单元",
 assert.equal((root.innerHTML.match(/class="overview-node-card /g) || []).length, 2);
 assert.ok(!root.innerHTML.includes('data-panel="employee-profile"'));
 panel.render("QA-A:same-slot");
+state.machines[0].status = "PAUSED";
+panel.render("QA-A:same-slot");
+assert.ok(root.innerHTML.includes('<div class="machine-live"><i class="signal tone-good"></i>'));
+state.machines[0].status = "READY";
 for (const section of ["EMPLOYEE / PROFILE", "今日目标 / 实际", "往日目标 / 实际",
   "执行记录", "收到的评论与回复", "新增关注明细", "收到的私信与回复"]) {
   assert.ok(root.innerHTML.includes(section), section);
@@ -244,7 +248,7 @@ function checkOverviewMetricScope() {
   }
   scoped.render("QA-A:same-slot");
   assert.ok(root.innerHTML.includes("收到的互动"));
-  assert.ok(!root.innerHTML.includes("收获点赞"));
+  assert.ok(root.innerHTML.includes("收获点赞"));
   console.log("PASS: account interactions show notifications and messages separately");
 }
 checkOverviewMetricScope();

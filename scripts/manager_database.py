@@ -42,6 +42,8 @@ class ManagerDatabase:
                 );
                 CREATE INDEX IF NOT EXISTS records_account
                     ON records(machine_id, account_slot, collection);
+                CREATE TABLE IF NOT EXISTS live_task_ids (task_id TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS live_result_keys (result_key TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS daily_metric_facts (
                     machine_id TEXT NOT NULL, account_slot TEXT NOT NULL,
@@ -116,13 +118,27 @@ class ManagerDatabase:
                             json.dumps(value, ensure_ascii=False, separators=(",", ":")),
                         )
                     )
-            # Preserve unchanged history so collection does not rewrite large evidence blobs.
+            # Keep live task and result rows, and update only changed snapshot records.
+            live_tasks = {row[0] for row in db.execute("SELECT task_id FROM live_task_ids")}
+            live_results = {row[0] for row in db.execute("SELECT result_key FROM live_result_keys")}
+            rows = [
+                row for row in rows
+                if not (row[0] == "tasks" and row[1] in live_tasks)
+                and not (row[0] == "results" and row[1] in live_results)
+            ]
             db.execute("CREATE TEMP TABLE snapshot_keys (collection TEXT, record_key TEXT, "
                        "PRIMARY KEY(collection, record_key))")
             db.executemany("INSERT INTO snapshot_keys VALUES (?,?)",
                            [(row[0], row[1]) for row in rows])
-            db.execute("DELETE FROM records WHERE NOT EXISTS (SELECT 1 FROM snapshot_keys k "
-                       "WHERE k.collection=records.collection AND k.record_key=records.record_key)")
+            db.execute(
+                "DELETE FROM records WHERE NOT EXISTS (SELECT 1 FROM snapshot_keys k "
+                "WHERE k.collection=records.collection AND k.record_key=records.record_key) "
+                "AND NOT EXISTS (SELECT 1 FROM live_task_ids WHERE task_id=records.record_key "
+                "AND records.collection='tasks') "
+                "AND NOT EXISTS (SELECT 1 FROM live_result_keys "
+                "WHERE result_key=records.record_key "
+                "AND records.collection='results')"
+            )
             db.executemany(
                 "INSERT INTO records VALUES (?,?,?,?,?) ON CONFLICT(collection,record_key) "
                 "DO UPDATE SET machine_id=excluded.machine_id, account_slot=excluded.account_slot, "
@@ -136,7 +152,7 @@ class ManagerDatabase:
         return {
             "success": True,
             "database": str(self.path),
-            "records": len(rows),
+            "records": len(rows) + len(live_tasks) + len(live_results),
             "synced_at": synced_at,
         }
 

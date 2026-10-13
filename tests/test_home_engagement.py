@@ -4,7 +4,7 @@ from itertools import pairwise
 from unittest.mock import patch
 
 import pytest
-from xhs.errors import ActionResultUnknownError, XHSError
+from xhs.errors import ActionResultUnknownError, InteractionStateError, XHSError
 from xhs.home_engagement import home_engagement
 from xhs.types import ActionResult, Feed, InteractInfo, NoteCard, User
 from xhs.urls import HOME_URL
@@ -91,12 +91,33 @@ class FakePage:
         self.scrolls.append((x, y))
 
 
+def test_exhausted_feed_refreshes_once_before_stopping() -> None:
+    page = FakePage()
+    feed = _feed(1)
+    with patch(
+        "xhs.home_engagement._browse_candidates",
+        side_effect=lambda _page, seen: (
+            [feed] if len(page.navigate_calls) > 1 and feed.id not in seen else []
+        ),
+    ):
+        result = home_engagement(
+            page,
+            browse_count=1,
+            like_count=0,
+            duration_seconds=100,
+            reader=lambda *_args: 1.0,
+        )
+    assert len(page.navigate_calls) == 2
+    assert result["counts"]["browsed"] == 1
+
+
 def test_home_engagement_reuses_one_home_session_and_records_actions() -> None:
     from xhs.progress import record_progress_with
 
     page = FakePage()
     feeds = [_feed(index) for index in range(8)]
     progress: list[dict] = []
+
     def read_with_progress_check(_page, _seconds, _deadline):
         assert sum(event["stage"] == "browsing" for event in progress) == int(
             page.current_feed.split("-")[-1]
@@ -250,6 +271,34 @@ def test_unknown_like_stops_batch_and_keeps_item_result() -> None:
     assert result["items"][0]["like"]["status"] == "result_unknown"
 
 
+def test_missing_pre_click_control_continues_to_next_note() -> None:
+    feeds = [_feed(index) for index in range(3)]
+    calls = []
+
+    def like(_page, feed_id):
+        calls.append(feed_id)
+        if len(calls) == 1:
+            raise InteractionStateError("点赞前未找到笔记操作按钮")
+        return ActionResult(feed_id, True, "点赞成功", changed=True)
+
+    with patch(
+        "xhs.home_engagement._browse_candidates",
+        side_effect=lambda _page, seen: [feed for feed in feeds if feed.id not in seen],
+    ):
+        result = home_engagement(
+            FakePage(),
+            browse_count=2,
+            like_count=1,
+            reader=lambda *_: 15,
+            liker=like,
+            chooser=lambda candidates: candidates[0],
+        )
+    assert result["counts"]["browsed"] == 2
+    assert result["counts"]["liked"] == 1
+    assert result["items"][0]["like"]["status"] == "failed"
+    assert result["items"][1]["like"]["status"] == "success"
+
+
 def test_deadline_preserves_partial_counts(clock) -> None:
     feeds = [_feed(index) for index in range(4)]
     calls = []
@@ -397,6 +446,7 @@ def test_deadline_during_like_wait_returns_partial_without_extra_like(monkeypatc
 
 def test_reading_error_returns_completed_items_and_checkpoint(tmp_path):
     import json
+
     page = FakePage()
     feeds = [_feed(i) for i in range(3)]
     calls = [0]
@@ -408,10 +458,18 @@ def test_reading_error_returns_completed_items_and_checkpoint(tmp_path):
         return 20.0
 
     checkpoint = tmp_path / "progress.json"
-    with patch("xhs.home_engagement._browse_candidates",
-               side_effect=lambda page, seen: [f for f in feeds if f.id not in seen]):
-        result = home_engagement(page, browse_count=3, like_count=0, reader=reader,
-                                 chooser=lambda choices: choices[0], checkpoint_path=checkpoint)
+    with patch(
+        "xhs.home_engagement._browse_candidates",
+        side_effect=lambda page, seen: [f for f in feeds if f.id not in seen],
+    ):
+        result = home_engagement(
+            page,
+            browse_count=3,
+            like_count=0,
+            reader=reader,
+            chooser=lambda choices: choices[0],
+            checkpoint_path=checkpoint,
+        )
     assert result["partial"] is True
     assert result["counts"]["browsed"] == 1
     assert result["stop_reason"] == "reading_interrupted"
@@ -429,8 +487,13 @@ def test_frame_replacement_retries_only_reading_on_same_note(tmp_path):
         return 20.0
 
     with patch("xhs.home_engagement._browse_candidates", return_value=[_feed(1)]):
-        result = home_engagement(page, browse_count=1, like_count=0, reader=reader,
-                                 checkpoint_path=tmp_path / "progress.json")
+        result = home_engagement(
+            page,
+            browse_count=1,
+            like_count=0,
+            reader=reader,
+            checkpoint_path=tmp_path / "progress.json",
+        )
     assert result["success"] is True
     assert calls[0] == 2
     assert result["counts"]["liked"] == 0

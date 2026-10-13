@@ -89,9 +89,10 @@ def test_worker_revision_preserves_history_and_counts(tmp_path):
     assert result["revised"] is False
     state = service._store.snapshot()
     assert len(state["results"]) == 2
-    assert "note_id" not in state["results"][0]["item_results"][0]
-    assert state["results"][1]["item_results"][0]["note_id"] == "abc"
-    assert state["results"][1]["business_result"]["publish"] == 1
+    receipts = [service._store.load_result(state, item) for item in state["results"]]
+    assert "note_id" not in receipts[0]["item_results"][0]
+    assert receipts[1]["item_results"][0]["note_id"] == "abc"
+    assert receipts[1]["business_result"]["publish"] == 1
     assert len(state["outbox_records"]) >= 1
 
 

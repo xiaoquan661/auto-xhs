@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import employee_codex_runner as runner_module
 import manager_worker_async
 import pytest
-from employee_codex_runner import PROBE_CAPABILITY, EmployeeCodexRunner
+from employee_codex_runner import (
+    PROBE_CAPABILITY,
+    EmployeeCodexRunner,
+    _reconcile_engagement_batch,
+)
 
 from tests.test_manager_worker import make_service, task_request
 
@@ -22,6 +29,55 @@ def task(**overrides: object) -> dict:
         "timeout_seconds": 10,
         **overrides,
     }
+
+
+def test_runner_applies_local_codex_network_settings(tmp_path: Path) -> None:
+    runner = EmployeeCodexRunner(tmp_path)
+    (tmp_path / "codex-network.json").write_text(
+        json.dumps({"proxy_url": "http://127.0.0.1:10808"}), encoding="utf-8"
+    )
+    env = runner._codex_env()
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:10808"
+    assert "127.0.0.1" in env["NO_PROXY"]
+
+
+def test_worker_stop_check_reuses_recent_status(monkeypatch) -> None:
+    class Service:
+        calls = 0
+        state = "RUNNING"
+
+        def task_status(self, _task_id: str, *, remote_execution_id: str) -> dict:
+            assert remote_execution_id == "execution-1"
+            self.calls += 1
+            return {"execution": {"state": self.state}}
+
+    service = Service()
+    clock = [0.0]
+    monkeypatch.setattr(manager_worker_async.time, "monotonic", lambda: clock[0])
+    check = manager_worker_async.task_stop_checker(service, "task-1", "execution-1")
+
+    assert check() is False
+    service.state = "PAUSE_REQUESTED"
+    clock[0] = 10.0
+    assert check() is False
+    clock[0] = 30.0
+    assert check() is True
+    assert service.calls == 2
+
+
+def test_engagement_batch_cannot_report_prior_daily_progress_as_this_batch() -> None:
+    request = {
+        "capability": "home-engagement",
+        "parameters": {"browse_count": 15, "like_count": 2},
+    }
+    result = {"state": "SUCCESS", "message": "全天目标已完成"}
+    business = {"actual": {"browse": 0, "like": 0}, "daily_confirmed_before": {"browse": 15}}
+    _reconcile_engagement_batch(request, result, business)
+    assert result["state"] == "FAILED"
+
+    result = {"state": "SUCCESS", "message": "执行完毕"}
+    _reconcile_engagement_batch(request, result, {"counts": {"browsed": 6, "liked": 1}})
+    assert result["state"] == "PARTIAL_SUCCESS"
 
 
 def install_fake_codex(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: str) -> None:
@@ -132,6 +188,44 @@ def test_real_child_process_claim_and_structured_result(tmp_path: Path, monkeypa
     assert len(receipts) == 1
     assert receipts[0]["task_id"] == "probe-1"
     assert Path(receipts[0]["evidence_path"]).exists()
+
+
+def test_agent_exit_waits_for_business_command_before_resuming(tmp_path: Path, monkeypatch) -> None:
+    body = """
+(root / 'claimed.json').write_text(json.dumps({'task_id': task['task_id']}))
+if task.get('recovery_attempt'):
+    result = {'state': 'SUCCESS', 'message': '完成',
+              'business_result_json': json.dumps({'probe_token': 'local-round-trip'}),
+              'item_results_json': '[]', 'evidence_paths': []}
+    (root / 'result.json').write_text(json.dumps(result), encoding='utf-8')
+else:
+    (root / 'step-progress.json').write_text(json.dumps({
+        'home.json': {'command': 'home-engagement', 'state': 'RUNNING'}
+    }), encoding='utf-8')
+"""
+    install_fake_codex(monkeypatch, tmp_path, body)
+    state_root = tmp_path / "state"
+    run_root = state_root / "agent-runs" / "execution-1"
+
+    def finish_business_command() -> None:
+        progress_path = run_root / "step-progress.json"
+        for _ in range(100):
+            if progress_path.exists():
+                break
+            time.sleep(0.01)
+        time.sleep(0.2)
+        progress_path.write_text(
+            json.dumps({"home.json": {"command": "home-engagement", "state": "COMPLETED"}}),
+            encoding="utf-8",
+        )
+
+    thread = threading.Thread(target=finish_business_command)
+    thread.start()
+    result = EmployeeCodexRunner(state_root)(task(timeout_seconds=5))
+    thread.join(timeout=2)
+
+    assert result["state"] == "SUCCESS"
+    assert (run_root / "runner-recovery.json").exists()
 
 
 @pytest.mark.parametrize(

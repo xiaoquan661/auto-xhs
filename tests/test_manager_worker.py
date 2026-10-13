@@ -523,13 +523,23 @@ def test_worker_forwards_identity_confirmation_with_expected_uid(tmp_path) -> No
 
     service._local_api_request = local_api
     values = {"confirmed": True, "expected_user_id": "red-user"}
-    result = service.account_lifecycle({
-        "account": "red account", "action": "identity-record", "values": values,
-    })
+    result = service.account_lifecycle(
+        {
+            "account": "red account",
+            "action": "identity-record",
+            "values": values,
+        }
+    )
     assert result["identity"]["current"]["user_id"] == "red-user"
-    assert calls == [(
-        "POST", "/accounts/red%20account/identity/record", values, "test-session", 90,
-    )]
+    assert calls == [
+        (
+            "POST",
+            "/accounts/red%20account/identity/record",
+            values,
+            "test-session",
+            90,
+        )
+    ]
 
 
 def test_account_field_request_is_visible_and_completed_after_identity_readback(
@@ -750,6 +760,72 @@ def test_progress_and_result_are_written_to_sftp_outbox(tmp_path: Path) -> None:
         "event",
     ]
     assert index["records"][-1]["record_id"].endswith("progress:outbox_written")
+
+
+def test_completed_result_uses_outbox_for_recovery_without_growing_worker_state(
+    tmp_path: Path,
+) -> None:
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {
+            "state": "SUCCESS",
+            "business_result": {"notes": ["note-1"] * 300},
+        },
+    )
+    execution_id = service.accept_task(task_request())["execution"]["remote_execution_id"]
+    service.run_task("task-1", remote_execution_id=execution_id)
+    original = service.collect_results(0)["results"][0]
+
+    service.push_task_result("task-1", remote_execution_id=execution_id)
+    stored = service._store.snapshot()["results"][0]
+    assert "business_result" not in stored
+    assert stored["outbox_relative_path"].startswith("results/")
+    assert (
+        service.collect_results(0)["results"][0]["business_result"] == original["business_result"]
+    )
+    assert (
+        service.push_task_result("task-1", remote_execution_id=execution_id)["status"]
+        == "RESULT_READY"
+    )
+
+    def restore_legacy_result(state: dict) -> None:
+        state["results"][0] = service._store.load_result(state, state["results"][0])
+
+    service._store.mutate(restore_legacy_result)
+    assert service._store.compact_results() == 1
+    assert service._store.compact_results() == 0
+    assert (
+        service.collect_results(0)["results"][0]["business_result"] == original["business_result"]
+    )
+
+
+def test_result_outbox_restores_account_identity_from_execution(tmp_path: Path) -> None:
+    service = make_service(
+        tmp_path / "worker",
+        executor=lambda _payload: {"state": "SUCCESS", "business_result": {"notes": [1]}},
+    )
+    request = task_request()
+    request["task"].update(platform="xiaohongshu", capability="collect-operations-metrics")
+    execution_id = service.accept_task(request)["execution"]["remote_execution_id"]
+    service.run_task("task-1", remote_execution_id=execution_id)
+
+    def remove_identity(state: dict) -> None:
+        for field in ("account_slot", "platform", "capability"):
+            state["results"][-1].pop(field, None)
+
+    service._store.mutate(remove_identity)
+    service.push_task_result("task-1", remote_execution_id=execution_id)
+
+    saved = service._store.snapshot()["results"][-1]
+    index = json.loads((service.root / "task-outbox" / "index.json").read_text())
+    record = next(row for row in index["records"] if row["record_type"] == "result")
+    outbox = json.loads(
+        (service.root / "task-outbox" / record["relative_path"]).read_text(encoding="utf-8")
+    )
+    for result in (saved, outbox["payload"]["result"]):
+        assert result["account_slot"] == "alpha"
+        assert result["platform"] == "xiaohongshu"
+        assert result["capability"] == "collect-operations-metrics"
 
 
 def test_worker_records_capability_progress_before_final_result(tmp_path: Path) -> None:
@@ -1052,6 +1128,26 @@ def test_explicit_failed_business_result_status_is_preserved(tmp_path) -> None:
     assert completed["business_result_missing_reason"] == "页面没有返回业务数据"
     assert collected["business_result_status"] == "failed"
     assert collected["business_result"] == {}
+
+
+def test_executor_crash_keeps_agent_progress_for_reconciliation(tmp_path) -> None:
+    def interrupted(payload: dict) -> dict:
+        run = tmp_path / "worker" / "agent-runs" / payload["remote_execution_id"]
+        run.mkdir(parents=True)
+        (run / "step-progress.json").write_text('{"completed_steps": 1}', encoding="utf-8")
+        (run / "engagement.bridge.progress.json").write_text('{"browsed": 2}', encoding="utf-8")
+        raise ConnectionError("员工 Agent 连接中断")
+
+    service = make_service(tmp_path / "worker", executor=interrupted)
+    request = task_request()
+    request["task"]["write_intent"] = True
+    service.accept_task(request)
+    execution = service.run_task(task_id="task-1")["execution"]
+
+    assert execution["state"] == "RESULT_UNKNOWN"
+    assert execution["business_result"]["step_checkpoint"]["completed_steps"] == 1
+    assert len(execution["evidence_index"]["bridge_progress"]) == 1
+    assert "ConnectionError" in execution["message"]
 
 
 @pytest.mark.parametrize(

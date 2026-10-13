@@ -517,6 +517,88 @@ def test_machine_health_automatically_caches_detailed_account_alerts(tmp_path: P
     assert alerts["alerts"][0]["account_key"] == "PC001:brand-a"
 
 
+def test_healthy_machine_readback_clears_old_account_sync_error(tmp_path: Path) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    transport.queue(
+        "list-accounts",
+        {"success": True, "accounts": [remote_account()]},
+        ManagerTransportError("OFFLINE", "SSH 握手超时"),
+    )
+    manager.list_machine_accounts("PC001")
+    manager.list_machine_accounts("PC001")
+    assert manager.list_machines()["machines"][0]["account_sync_status"] == "UNKNOWN"
+
+    transport.queue(
+        "health",
+        {
+            "success": True,
+            "health": {
+                "machine_id": "PC001",
+                "role": "executor",
+                "project_version": "0.1.0",
+                "healthy": True,
+                "paused": False,
+                "account_slots": {"count": 1, "items": [remote_account()], "error": ""},
+            },
+        },
+    )
+    checked = manager.check_machine("PC001")
+    machine = manager.list_machines()["machines"][0]
+
+    assert checked["success"] is True
+    assert machine["ssh_state"] == "ONLINE"
+    assert machine["account_sync_status"] == "SUCCESS"
+    assert machine["account_sync_error_code"] == ""
+    assert manager.list_accounts("PC001")["accounts"][0]["health_state"] == "READY"
+
+
+def test_machine_and_account_refresh_each_commit_one_manager_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, transport = service(tmp_path)
+    manager.register_machine(machine_values())
+    writes = 0
+    original = manager.store._write_state
+
+    def count_write(state: dict) -> None:
+        nonlocal writes
+        writes += 1
+        original(state)
+
+    monkeypatch.setattr(manager.store, "_write_state", count_write)
+    transport.queue(
+        "list-accounts",
+        {
+            "success": True,
+            "accounts": [remote_account("brand-a"), remote_account("brand-b")],
+        },
+    )
+    manager.list_machine_accounts("PC001")
+    assert writes == 1
+
+    transport.queue(
+        "health",
+        {
+            "success": True,
+            "health": {
+                "machine_id": "PC001",
+                "role": "executor",
+                "project_version": "0.1.0",
+                "healthy": True,
+                "paused": False,
+                "account_slots": {
+                    "count": 2,
+                    "items": [remote_account("brand-a"), remote_account("brand-b")],
+                    "error": "",
+                },
+            },
+        },
+    )
+    manager.check_machine("PC001")
+    assert writes == 2
+
+
 def test_account_status_doctor_and_recovery_actions_refresh_cached_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -1136,9 +1218,11 @@ def test_dispatch_accepts_starts_and_records_fast_ack(tmp_path: Path) -> None:
     assert result["task"]["request"]["operation"] is None
 
 
-@pytest.mark.parametrize("internal_error", [False, True])
+@pytest.mark.parametrize(
+    ("internal_error", "wake_timeout"), [(False, False), (True, False), (False, True)]
+)
 def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
-    tmp_path: Path, internal_error: bool
+    tmp_path: Path, internal_error: bool, wake_timeout: bool
 ) -> None:
     class ExchangeTransport(FakeTransport):
         def sftp_upload_atomic(
@@ -1200,9 +1284,15 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
         }
     )
     manager.check_machine("PC001")
-    if internal_error:
-        transport.queue("wake-task", {"success": False, "error": {
-            "code": "INTERNAL_ERROR", "message": "唤醒确认异常"}})
+    if internal_error or wake_timeout:
+        if internal_error:
+            transport.queue("wake-task", {"success": False, "error": {
+                "code": "INTERNAL_ERROR", "message": "唤醒确认异常"}})
+        else:
+            transport.queue(
+                "wake-task",
+                ManagerTransportError("RESULT_UNKNOWN", "唤醒确认超时", result_unknown=True),
+            )
         transport.queue("task-status", {"success": True, "execution": {
             "remote_execution_id": "execution-1", "state": "RUNNING",
             "project_version": "0.1.0"}})
@@ -1210,7 +1300,7 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
         transport.queue("wake-task", ManagerTransportError("OFFLINE", "员工机暂时离线"))
 
     first = manager.dispatch_task(task_request())
-    if internal_error:
+    if internal_error or wake_timeout:
         assert first["status"] == "RUNNING"
         assert first["task"]["remote_execution_id"] == "execution-1"
         assert [a for a, _ in transport.calls].count("wake-task") == 1
@@ -1222,6 +1312,61 @@ def test_sftp_dispatch_retries_only_ssh_wake_after_task_was_transferred(
     assert second["task"]["dispatch_state"] == "ACKNOWLEDGED"
     assert len(transport.uploads) == 1
     assert [action for action, _payload in transport.calls].count("wake-task") == 2
+
+
+def test_sftp_dispatch_commits_receipt_and_task_state_together(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class ExchangeTransport(FakeTransport):
+        def sftp_upload_atomic(self, *_args, **_kwargs) -> dict:
+            return {"success": True}
+
+        def invoke(self, machine: dict, action: str, payload: dict, **kwargs) -> dict:
+            if action != "wake-task":
+                return super().invoke(machine, action, payload, **kwargs)
+            return {
+                "success": True,
+                "status": "TASK_ACK",
+                "execution": {"remote_execution_id": "execution-1", "state": "ACCEPTED"},
+                "agent_messages": [{
+                    "message_id": "message-1",
+                    "task_id": "task-1",
+                    "from_agent": "PC001-AGENT",
+                    "to_agent": "MANAGER-AGENT",
+                    "message_type": "TASK_ACK",
+                    "payload": {},
+                }],
+            }
+
+    store = ManagerStore(tmp_path / "manager")
+    manager = ManagerService(store=store, transport=ExchangeTransport())  # type: ignore[arg-type]
+    manager.register_machine({
+        **machine_values(),
+        "task_inbox_root": r"C:\auto-xhs\manager-task-inbox",
+        "task_outbox_root": r"C:\auto-xhs\manager-task-outbox",
+    })
+    manager.check_machine("PC001")
+    writes = 0
+    original_write = store._write_state
+
+    def count_write(state: dict) -> None:
+        nonlocal writes
+        writes += 1
+        original_write(state)
+
+    monkeypatch.setattr(store, "_write_state", count_write)
+    response = manager.dispatch_task(task_request())
+
+    assert response["status"] == "TASK_ACK"
+    assert writes == 1  # agent message; task transitions are committed to SQLite
+    assert store.get("tasks", "task-1")["dispatch_state"] == "ACKNOWLEDGED"
+    assert store.get("agent_messages", "message-1")["message_type"] == "TASK_ACK"
+    from manager_database import ManagerDatabase
+
+    assert ManagerDatabase(store.root).query(
+        "SELECT json_extract(payload,'$.dispatch_state') AS state FROM records "
+        "WHERE collection='tasks' AND record_key='task-1'"
+    )["rows"] == [{"state": "ACKNOWLEDGED"}]
 
 
 def test_dispatch_sends_manager_scope_and_records_pinned_function_version(
