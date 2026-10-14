@@ -1,0 +1,122 @@
+{
+  "recorded_at": "2026-10-14T18:24:58.142089+08:00",
+  "status": "APPLIED",
+  "project_root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills",
+  "module_count": 147,
+  "manager_module": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+  "worker_module": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+  "http_checks": [
+    {
+      "url": "http://127.0.0.1:8765/api/v1/health",
+      "status": 200,
+      "seconds": 0.469,
+      "runtime_instance_id": "f491e41d3be341e1a66e46405a52fa11",
+      "service_status": "ok",
+      "success": true
+    },
+    {
+      "url": "http://127.0.0.1:8765/",
+      "status": 200,
+      "seconds": 1.297,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://127.0.0.1:8765/manager-console.js",
+      "status": 200,
+      "seconds": 1.172,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://127.0.0.1:8765/employee-panel.js",
+      "status": 200,
+      "seconds": 1.109,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://127.0.0.1:8765/workspace.css",
+      "status": 200,
+      "seconds": 0.891,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://127.0.0.1:8765/favicon.svg",
+      "status": 200,
+      "seconds": 0.344,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://192.168.110.165:8765/api/v1/health",
+      "status": 200,
+      "seconds": 0.172,
+      "runtime_instance_id": "f491e41d3be341e1a66e46405a52fa11",
+      "service_status": "ok",
+      "success": true
+    },
+    {
+      "url": "http://192.168.110.165:8765/",
+      "status": 200,
+      "seconds": 0.156,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://192.168.110.165:8765/manager-console.js",
+      "status": 200,
+      "seconds": 0.156,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://192.168.110.165:8765/employee-panel.js",
+      "status": 200,
+      "seconds": 0.218,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://192.168.110.165:8765/workspace.css",
+      "status": 200,
+      "seconds": 0.125,
+      "canonical_bytes_match": true
+    },
+    {
+      "url": "http://192.168.110.165:8765/favicon.svg",
+      "status": 200,
+      "seconds": 0.093,
+      "canonical_bytes_match": true
+    }
+  ],
+  "dashboard_check": {
+    "status": 200,
+    "success": true,
+    "keys": [
+      "success",
+      "generated_at",
+      "fleet",
+      "overall",
+      "collection",
+      "polling",
+      "machines",
+      "tasks",
+      "schedules",
+      "operation_reports",
+      "transfers",
+      "details_deferred",
+      "results",
+      "result_history",
+      "incremental_records",
+      "result_summary",
+      "accounts",
+      "alerts",
+      "personas",
+      "goals",
+      "daily_plans",
+      "employee_summary",
+      "acceptance",
+      "operation_tasks",
+      "agent_messages",
+      "versions",
+      "data_sources"
+    ]
+  },
+  "preserved_documents": 4,
+  "source_pr": 57,
+  "upstream_reply_pr": 56
+}
