@@ -41,7 +41,14 @@ def send_projection(state: str, readback: dict) -> tuple[str, str | None]:
         comment = {}
     reply_id = readback.get("reply_id") or comment.get("id") or readback.get("message_id")
     confirmed = any(
-        readback.get(key) is True for key in ("reply_found", "reply_present", "verified", "matched")
+        readback.get(key) is True
+        for key in (
+            "reply_found",
+            "reply_present",
+            "verified",
+            "matched",
+            "outgoing_message_present",
+        )
     )
     if state == "SUCCESS" and (confirmed or reply_id):
         return "CONFIRMED", str(reply_id) if reply_id else None

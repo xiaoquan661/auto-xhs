@@ -1,0 +1,58 @@
+{
+  "available": true,
+  "owner_uid": "fixture-owner",
+  "complete": true,
+  "conversations": [
+    "peer-1"
+  ],
+  "messages": [
+    {
+      "role": "peer",
+      "content_type": 1,
+      "occurred_at": 1791968052431,
+      "store_id": 3,
+      "user_id": "peer-1",
+      "platform_message_id": "message-3",
+      "content": "本轮收到文本"
+    },
+    {
+      "role": "self",
+      "content_type": 1,
+      "occurred_at": 1791965570597,
+      "store_id": 2,
+      "user_id": "peer-1",
+      "platform_message_id": "message-2",
+      "content": "此前已回复文本"
+    },
+    {
+      "role": "peer",
+      "content_type": 1,
+      "occurred_at": 1791963088764,
+      "store_id": 1,
+      "user_id": "peer-1",
+      "platform_message_id": "message-1",
+      "content": "此前收到文本"
+    }
+  ],
+  "batches": [
+    {
+      "channel": "conversations",
+      "page": 0,
+      "count": 1,
+      "success": true,
+      "code": 0,
+      "total": 1,
+      "nextTs": -1
+    },
+    {
+      "channel": "messages",
+      "user_id": "peer-1",
+      "page": 0,
+      "cursor": 3,
+      "count": 3,
+      "success": true,
+      "code": 0
+    }
+  ],
+  "reason": ""
+}

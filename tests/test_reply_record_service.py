@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.operations_db import OperationsDatabase
 from scripts.reply_record_service import ReplyRecordService
 
@@ -122,3 +124,74 @@ def test_private_message_reply_is_idempotent_by_task(tmp_path) -> None:
     assert first["reply_record_id"] == second["reply_record_id"]
     assert first["channel"] == "PRIVATE_MESSAGE_REPLY"
     assert len(service.list()) == 1
+
+
+@pytest.mark.parametrize(
+    ("result_state", "outgoing_present", "send_state"),
+    [
+        ("SUCCESS", True, "CONFIRMED"),
+        ("SUCCESS", False, "AWAITING_RECONCILIATION"),
+        ("RESULT_UNKNOWN", True, "AWAITING_RECONCILIATION"),
+    ],
+)
+def test_private_message_readback_projects_written_record(
+    tmp_path,
+    result_state,
+    outgoing_present,
+    send_state,
+) -> None:
+    service = ReplyRecordService(OperationsDatabase(path=tmp_path / "operations.db"))
+    record = service.record(
+        {
+            "task_id": "private-reply",
+            "account_slot": "alpha",
+            "platform": "xiaohongshu",
+            "state": result_state,
+            "parameters": {"user_id": "peer", "rule_version": 4},
+        },
+        draft={"verified_uid": "owner", "content": "收到你的消息。"},
+        source_event={"event_id": "inbound", "event_type": "private_message", "object_id": "peer"},
+        result={
+            "readback": {
+                "user_id": "peer",
+                "content": "收到你的消息。",
+                "outgoing_message_present": outgoing_present,
+            }
+        },
+    )
+    written = service.get(record["reply_record_id"])
+    assert written["result_state"] == result_state
+    assert written["send_state"] == send_state
+    assert bool(written["confirmed_at"]) == (send_state == "CONFIRMED")
+    assert written["readback"]["outgoing_message_present"] is outgoing_present
+    assert written["rule_version"] == 4
+
+
+def test_successful_private_reply_reprojects_one_stored_readback(tmp_path) -> None:
+    database = OperationsDatabase(path=tmp_path / "operations.db")
+    service = ReplyRecordService(database)
+    record = service.record(
+        {"task_id": "private-reply", "state": "SUCCESS", "account_slot": "alpha"},
+        draft={"verified_uid": "owner", "content": "收到你的消息。"},
+        source_event={"event_id": "inbound", "event_type": "private_message"},
+        result={"readback": {"outgoing_message_present": True}},
+    )
+    other = service.record(
+        {"task_id": "other", "state": "RESULT_UNKNOWN", "account_slot": "alpha"},
+        draft={},
+        source_event={"event_id": "other-inbound", "event_type": "private_message"},
+    )
+    with database.transaction() as connection:
+        connection.execute(
+            "UPDATE reply_records SET send_state='AWAITING_RECONCILIATION',confirmed_at=NULL "
+            "WHERE reply_task_id='private-reply'"
+        )
+
+    corrected = service.reconcile_result_unknown("private-reply", readback={})
+    assert corrected["reply_record_id"] == record["reply_record_id"]
+    assert corrected["result_state"] == "SUCCESS"
+    assert corrected["send_state"] == "CONFIRMED"
+    assert corrected["confirmed_at"] == record["updated_at"]
+    assert corrected["updated_at"] == record["updated_at"]
+    assert corrected["readback"] == record["readback"]
+    assert service.get(other["reply_record_id"])["send_state"] == "AWAITING_RECONCILIATION"

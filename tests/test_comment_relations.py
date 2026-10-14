@@ -80,8 +80,11 @@ def test_batches_enrich_without_reopening_and_manager_join(tmp_path) -> None:
     ("state", "readback", "expected"),
     [
         ("SUCCESS", {"reply_found": True}, "CONFIRMED"),
+        ("SUCCESS", {"outgoing_message_present": True}, "CONFIRMED"),
+        ("SUCCESS", {"outgoing_message_present": False}, "AWAITING_RECONCILIATION"),
         ("SUCCESS", {"acknowledgement": "editor-closed"}, "AWAITING_RECONCILIATION"),
         ("RESULT_UNKNOWN", {"reply_found": True}, "AWAITING_RECONCILIATION"),
+        ("RESULT_UNKNOWN", {"outgoing_message_present": True}, "AWAITING_RECONCILIATION"),
         ("BLOCKED", {}, "NOT_SENT"),
         ("FAILED", {}, "FAILED"),
     ],

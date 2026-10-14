@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import UTC, datetime
+from typing import Any
 
 from collection_coverage import collection_window
 from metric_temporality import display_date, event_day
@@ -18,6 +19,7 @@ class PrivateHistoryOwnerMismatchError(XHSError):
 
     code = "PRIVATE_HISTORY_OWNER_MISMATCH"
     result_unknown = False
+
 
 _READ_CONVERSATIONS_JS = r"""
 (() => Array.from(document.querySelectorAll('.xhs-im-conv-item'))
@@ -46,7 +48,7 @@ _PLATFORM_NOTICES = {
 
 
 def collect_private_messages(
-    page,
+    page: Any,
     *,
     max_conversations: int = 20,
     context_limit: int = 10,
@@ -167,6 +169,13 @@ def collect_private_messages(
             native_events.extend(events)
             native_missing += missing
         message_events = native_events
+        messages, conversation_snapshots, skipped = _native_reply_candidates(
+            native_history,
+            events=native_events,
+            observed_at=observed_at,
+            context_limit=context_limit,
+            known_snapshots=conversation_snapshots,
+        )
 
     cursor = messages[0]["message_id"] if messages else ""
     start, end = collection_window(observed_at)
@@ -177,7 +186,7 @@ def collect_private_messages(
         and not any(row["reason"] == "conversation_unavailable" for row in skipped)
     )
     coverage_reason = "部分消息缺少独立标识或发生日期" if undated else "会话历史尚未完整采集"
-    page_unknown = not conversations and not list_complete
+    page_unknown = not conversations and not list_complete and not native_history.get("available")
     if page_unknown:
         coverage_reason = "未识别到会话或明确空态，无法确认私信数量"
     if isinstance(native_history, dict) and native_history.get("available"):
@@ -191,14 +200,20 @@ def collect_private_messages(
         "messages": messages,
         "conversation_snapshots": conversation_snapshots,
         "count": None if page_unknown else len(messages),
-        "conversation_count": None if page_unknown else len(conversations),
+        "conversation_count": (
+            None
+            if page_unknown
+            else len(conversation_snapshots)
+            if native_history.get("available")
+            else len(conversations)
+        ),
         "status": "SUCCESS" if complete else "UNKNOWN" if page_unknown else "PARTIAL",
         "reason": coverage_reason if not complete else "",
         "skipped": skipped,
         "cursor": cursor,
-        "last_seen_time": observed_at if conversations else None,
+        "last_seen_time": observed_at if conversation_snapshots or conversations else None,
         "partial": not complete,
-        "source": "chat_inbox_dom",
+        "source": "chat_message_history" if native_history.get("available") else "chat_inbox_dom",
         "message_events": message_events,
         "collection_batches": [
             {
@@ -209,7 +224,8 @@ def collect_private_messages(
                 "coverage": "complete" if complete else "unknown" if page_unknown else "partial",
                 "undated_count": undated,
                 "observed_count": (
-                    None if page_unknown and not native_history.get("available")
+                    None
+                    if page_unknown and not native_history.get("available")
                     else len(message_events)
                 ),
                 "source": "chat_message_history",
@@ -225,6 +241,75 @@ def collect_private_messages(
             }
         ],
     }
+
+
+def _native_reply_candidates(
+    history: dict,
+    *,
+    events: list[dict],
+    observed_at: str,
+    context_limit: int,
+    known_snapshots: list[dict],
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Build one current peer turn per conversation from observed IM history."""
+    metadata = {row["user_id"]: row for row in known_snapshots}
+    incoming = {row["platform_event_id"]: row for row in events}
+    candidates: list[dict] = []
+    snapshots: list[dict] = []
+    skipped: list[dict] = []
+    for user_id in history["conversations"]:
+        rows = sorted(
+            [row for row in history["messages"] if row["user_id"] == user_id],
+            key=lambda row: int(row.get("store_id") or 0),
+        )
+        recent = rows[-context_limit:]
+        snapshot = {
+            **metadata.get(user_id, {}),
+            "user_id": user_id,
+            "observed_at": observed_at,
+            "message_count": len(rows),
+            "thread_url": (metadata.get(user_id) or {}).get("thread_url")
+            or f"{CHAT_URL}/{user_id}",
+            "context": recent,
+            "latest_role": str((recent[-1] if recent else {}).get("role") or ""),
+        }
+        snapshots.append(snapshot)
+        if not recent or recent[-1].get("role") != "peer":
+            skipped.append({"user_id": user_id, "reason": "latest_message_not_peer"})
+            continue
+        turn = []
+        for row in reversed(recent):
+            if row.get("role") != "peer":
+                break
+            turn.append(str(row.get("content") or "").strip())
+        turn.reverse()
+        if any(content in _PLATFORM_NOTICES for content in turn):
+            skipped.append({"user_id": user_id, "reason": "latest_message_platform_notice"})
+            continue
+        if not turn or any(
+            not text or (text.startswith("[") and text.endswith("]")) for text in turn
+        ):
+            skipped.append({"user_id": user_id, "reason": "latest_message_not_text"})
+            continue
+        identifier = f"{user_id}:{recent[-1].get('platform_message_id') or ''}"
+        latest = incoming.get(identifier)
+        if latest is None:
+            skipped.append({"user_id": user_id, "reason": "latest_message_not_identified"})
+            continue
+        candidates.append(
+            {
+                **snapshot,
+                "message_id": identifier,
+                "platform_message_id": recent[-1]["platform_message_id"],
+                "content": "\n".join(turn),
+                "peer_turn": turn,
+                "occurred_at": latest["occurred_at"],
+                "event_occurred_at": latest["occurred_at"],
+                "time_scope": "platform",
+                "source": "chat_message_history",
+            }
+        )
+    return candidates, snapshots, skipped
 
 
 def _wait_for_chat(
