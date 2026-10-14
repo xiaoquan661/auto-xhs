@@ -309,7 +309,14 @@ def send_private_message(
             str(item).strip() for item in expected_peer_turn if str(item).strip()
         ]
         if latest_peer_turn != normalized_expected:
-            raise PrivateMessageContextChangedError()
+            deadline = time.monotonic() + 5.0
+            while latest_peer_turn != normalized_expected:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise PrivateMessageContextChangedError()
+                time.sleep(min(0.2, remaining))
+                before = _read_chat(page)
+                latest_peer_turn = _latest_peer_turn(before["messages"])
     before_self = _matching_count(before["messages"], content, role="self")
     # 页面点击处理会初始化会话；仅 focus 不会触发该处理。
     trusted_click = getattr(page, "click_element_trusted", None)

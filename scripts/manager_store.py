@@ -82,79 +82,91 @@ class ManagerStore:
                 lock = RunLock(
                     str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS
                 )
-                if not lock.acquire(timeout=10):
-                    raise TimeoutError("经理机数据正在被其他进程使用")
-                try:
-                    self._batch.state = self._read_state_fresh()
-                    original_result_keys = set(self._batch.state["results"])
-                    live_tasks, live_results = self.live.load() if include_live else ({}, {})
-                    self._batch.state["tasks"].update(live_tasks)
-                    self._batch.state["results"].update(live_results)
-                    self._batch.original_live_tasks = copy.deepcopy(live_tasks)
-                    self._batch.original_live_results = copy.deepcopy(live_results)
-                    self._batch.original_result_keys = original_result_keys
-                    self._batch.dirty = False
-                    self._batch.live_tasks = set()
-                    self._batch.live_results = set()
-                    self._batch.after_batch = after_batch
+                deadline: float | None = None
+                while True:
+                    signature = self._state_signature()
+                    prepared = self._read_state_fresh()
+                    if deadline is None:
+                        deadline = time.monotonic() + 10
+                    if not lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+                        raise TimeoutError("经理机数据正在被其他进程使用")
                     try:
-                        yield
-                    finally:
+                        if self._state_signature() != signature:
+                            continue
+                        self._batch.state = prepared
+                        original_result_keys = set(self._batch.state["results"])
+                        live_tasks, live_results = self.live.load() if include_live else ({}, {})
+                        self._batch.state["tasks"].update(live_tasks)
+                        self._batch.state["results"].update(live_results)
+                        self._batch.original_live_tasks = copy.deepcopy(live_tasks)
+                        self._batch.original_live_results = copy.deepcopy(live_results)
+                        self._batch.original_result_keys = original_result_keys
+                        self._batch.dirty = False
+                        self._batch.live_tasks = set()
+                        self._batch.live_results = set()
+                        self._batch.after_batch = after_batch
                         try:
-                            state = self._batch.state
-                            self._batch.live_tasks.update(
-                                key
-                                for key, old in self._batch.original_live_tasks.items()
-                                if state["tasks"].get(key) != old
-                            )
-                            self._batch.live_results.update(
-                                key
-                                for key, old in self._batch.original_live_results.items()
-                                if state["results"].get(key) != old
-                            )
-                            live_task_ids = (
-                                set(self._batch.original_live_tasks) | self._batch.live_tasks
-                            )
-                            self._batch.live_results.update(
-                                key
-                                for key, row in state["results"].items()
-                                if key not in self._batch.original_result_keys
-                                and key not in self._batch.original_live_results
-                                and str(row.get("task_id") or "") in live_task_ids
-                            )
-                            pending = (
-                                {key: state["tasks"][key] for key in self._batch.live_tasks},
-                                {key: state["results"][key] for key in self._batch.live_results},
-                                self._batch.original_live_tasks,
-                                self._batch.original_live_results,
-                            )
-                            if self._batch.dirty:
-                                live_result_keys = (
-                                    set(self._batch.original_live_results)
-                                    | self._batch.live_results
-                                )
-                                state["tasks"] = {
-                                    key: row
-                                    for key, row in state["tasks"].items()
-                                    if key not in live_task_ids
-                                }
-                                state["results"] = {
-                                    key: row
-                                    for key, row in state["results"].items()
-                                    if key not in live_result_keys
-                                }
-                                self._write_state(state)
+                            yield
                         finally:
-                            del self._batch.state
-                            del self._batch.dirty
-                            del self._batch.live_tasks
-                            del self._batch.live_results
-                            del self._batch.original_live_tasks
-                            del self._batch.original_live_results
-                            del self._batch.original_result_keys
-                            del self._batch.after_batch
-                finally:
-                    lock.release()
+                            try:
+                                state = self._batch.state
+                                self._batch.live_tasks.update(
+                                    key
+                                    for key, old in self._batch.original_live_tasks.items()
+                                    if state["tasks"].get(key) != old
+                                )
+                                self._batch.live_results.update(
+                                    key
+                                    for key, old in self._batch.original_live_results.items()
+                                    if state["results"].get(key) != old
+                                )
+                                live_task_ids = (
+                                    set(self._batch.original_live_tasks) | self._batch.live_tasks
+                                )
+                                self._batch.live_results.update(
+                                    key
+                                    for key, row in state["results"].items()
+                                    if key not in self._batch.original_result_keys
+                                    and key not in self._batch.original_live_results
+                                    and str(row.get("task_id") or "") in live_task_ids
+                                )
+                                pending = (
+                                    {key: state["tasks"][key] for key in self._batch.live_tasks},
+                                    {
+                                        key: state["results"][key]
+                                        for key in self._batch.live_results
+                                    },
+                                    self._batch.original_live_tasks,
+                                    self._batch.original_live_results,
+                                )
+                                if self._batch.dirty:
+                                    live_result_keys = (
+                                        set(self._batch.original_live_results)
+                                        | self._batch.live_results
+                                    )
+                                    state["tasks"] = {
+                                        key: row
+                                        for key, row in state["tasks"].items()
+                                        if key not in live_task_ids
+                                    }
+                                    state["results"] = {
+                                        key: row
+                                        for key, row in state["results"].items()
+                                        if key not in live_result_keys
+                                    }
+                                    self._write_state(state)
+                            finally:
+                                del self._batch.state
+                                del self._batch.dirty
+                                del self._batch.live_tasks
+                                del self._batch.live_results
+                                del self._batch.original_live_tasks
+                                del self._batch.original_live_results
+                                del self._batch.original_result_keys
+                                del self._batch.after_batch
+                        break
+                    finally:
+                        lock.release()
         finally:
             # SQLite writers can wait for a database projection without holding the JSON lock.
             if pending is not None:
@@ -377,6 +389,13 @@ class ManagerStore:
 
     def _commit_live(self, tasks: dict[str, dict], results: dict[str, dict]) -> None:
         self.live.commit(tasks, results)
+
+    def _state_signature(self) -> tuple[int, int] | None:
+        try:
+            info = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return info.st_mtime_ns, info.st_size
 
     def _read_state(self) -> dict:
         if not self.path.exists():
