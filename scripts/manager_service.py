@@ -164,7 +164,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
         machines.sort(key=lambda item: item["machine_id"])
         return {"success": True, "machines": machines}
 
-    def list_accounts(self, machine_id: str | None = None) -> dict:
+    def list_accounts(
+        self, machine_id: str | None = None, *, execution_tasks: list[dict] | None = None,
+    ) -> dict:
         """Return manager-cached account snapshots without contacting executors."""
 
         normalized_machine_id = ""
@@ -176,7 +178,9 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 item for item in accounts if item.get("machine_id") == normalized_machine_id
             ]
         accounts = [
-            self._with_account_task(self._with_account_freshness(item)) for item in accounts
+            self._with_account_task(
+                self._with_account_freshness(item), execution_tasks=execution_tasks
+            ) for item in accounts
         ]
         accounts.sort(key=lambda item: (item["machine_id"], item["account_slot"].casefold()))
         counts = Counter(str(item.get("health_state") or "UNKNOWN") for item in accounts)
@@ -503,12 +507,13 @@ class ManagerService(ManagerMemory, ManagerPolling):
         if payload.get("memory_records") and record["task_id"]:
             task = self.store.get("tasks", record["task_id"]) or {}
             if task.get("machine_id"):
-                self.ingest_memory({
+                memory_result = {
                     "task_id": record["task_id"], "machine_id": task["machine_id"],
                     "remote_execution_id": payload.get("memory_session_id")
                     or task.get("remote_execution_id") or record["task_id"],
                     "memory_records": payload["memory_records"],
-                })
+                }
+                self.store.after_batch(lambda: self.ingest_memory(memory_result))
         return {"success": True, "agent_message": saved}
 
     def list_daily_plans(self) -> dict:
@@ -1275,7 +1280,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
         try:
             response = self.transport.invoke(machine, "list-accounts", {}, timeout_seconds=60)
         except ManagerTransportError as exc:
-            with self.store.batch():
+            execution_tasks = self.store.list("tasks")
+            with self.store.batch(include_live=False):
                 self._mark_machine_accounts_unknown(
                     machine["machine_id"], exc.code, str(exc), checked_at
                 )
@@ -1286,7 +1292,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     account_sync_error_code=exc.code,
                     account_sync_error=str(exc),
                 )
-                cached = self.list_accounts(machine["machine_id"])
+                cached = self.list_accounts(machine["machine_id"], execution_tasks=execution_tasks)
             return {
                 **cached,
                 "success": False,
@@ -1296,7 +1302,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
         remote_error = self._remote_error(response)
         if remote_error:
             error_code, message = remote_error
-            with self.store.batch():
+            execution_tasks = self.store.list("tasks")
+            with self.store.batch(include_live=False):
                 self._mark_machine_accounts_unknown(
                     machine["machine_id"], error_code, message, checked_at
                 )
@@ -1307,7 +1314,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     account_sync_error_code=error_code,
                     account_sync_error=message,
                 )
-                cached = self.list_accounts(machine["machine_id"])
+                cached = self.list_accounts(machine["machine_id"], execution_tasks=execution_tasks)
             return {
                 **cached,
                 "success": False,
@@ -1324,7 +1331,8 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 account_sync_error="执行机账号清单返回格式无效",
             )
             raise ServiceError("INVALID_REMOTE_RESPONSE", "执行机账号清单返回格式无效")
-        with self.store.batch():
+        execution_tasks = self.store.list("tasks")
+        with self.store.batch(include_live=False):
             seen: set[str] = set()
             for item in remote_accounts:
                 if not isinstance(item, dict):
@@ -1336,7 +1344,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 )
                 seen.add(record["account_key"])
             self._mark_unreturned_accounts_unknown(machine["machine_id"], seen, checked_at)
-            cached = self.list_accounts(machine["machine_id"])
+            cached = self.list_accounts(machine["machine_id"], execution_tasks=execution_tasks)
             self._update_machine(
                 machine["machine_id"],
                 last_account_sync_at=checked_at,
@@ -1399,7 +1407,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
             response = self.transport.invoke(machine, "health", {}, timeout_seconds=20)
         except ManagerTransportError as exc:
             status = "CHECK_UNKNOWN" if exc.result_unknown else "OFFLINE"
-            with self.store.batch():
+            with self.store.batch(include_live=False):
                 self._mark_machine_accounts_unknown(
                     machine["machine_id"], exc.code, str(exc), checked_at
                 )
@@ -1538,7 +1546,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
                     account_sync_error_code="",
                     account_sync_error="",
                 )
-        with self.store.batch():
+        with self.store.batch(include_live=False):
             self._record_health_account_slots(machine_id, health, checked_at)
             updated = self._update_machine(machine_id, **values)
         return {
@@ -2490,7 +2498,7 @@ class ManagerService(ManagerMemory, ManagerPolling):
         return self._collect_fixed_now(machine_id, account_slot, "collect-creator-now")
 
     def collect_notifications_now(self, machine_id: str, account_slot: str = "") -> dict:
-        """Run fixed comment/@ and follower CLI calls and import their receipt."""
+        """Collect received comments and followers, then import the employee receipt."""
         return self._collect_fixed_now(machine_id, account_slot, "collect-notifications-now")
 
     def _collect_fixed_now(self, machine_id: str, account_slot: str, action: str) -> dict:
@@ -2657,21 +2665,22 @@ class ManagerService(ManagerMemory, ManagerPolling):
             int(response.get("next_sequence") or 0),
             *(int(item.get("sequence") or 0) for item in results),
         )
-        self.store.set_collection_cursor(machine_id, next_sequence)
         summary = self._summarize_results(normalized_results)
         status = "PARTIAL_SUCCESS" if evidence_errors else "SUCCESS"
-        self._update_machine(
-            machine_id,
-            last_result_sync_at=sync_at,
-            last_result_success_at=utc_now(),
-            result_sync_status=status,
-            result_sync_error_code=(
-                str(evidence_errors[0].get("error_code") or "") if evidence_errors else ""
-            ),
-            result_sync_error=(
-                str(evidence_errors[0].get("message") or "") if evidence_errors else ""
-            ),
-        )
+        with self.store.batch(include_live=False):
+            self.store.set_collection_cursor(machine_id, next_sequence)
+            self._update_machine(
+                machine_id,
+                last_result_sync_at=sync_at,
+                last_result_success_at=utc_now(),
+                result_sync_status=status,
+                result_sync_error_code=(
+                    str(evidence_errors[0].get("error_code") or "") if evidence_errors else ""
+                ),
+                result_sync_error=(
+                    str(evidence_errors[0].get("message") or "") if evidence_errors else ""
+                ),
+            )
         return {
             "success": True,
             "status": status,
@@ -2946,9 +2955,6 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 acknowledgement_count += 1
             next_cursor = sequence
 
-        if next_cursor > cursor:
-            self.store.set_collection_cursor(cursor_key, next_cursor)
-
         status = (
             "PARTIAL_SUCCESS" if next_cursor < int(index.get("high_watermark") or 0) else "SUCCESS"
         )
@@ -2993,18 +2999,21 @@ class ManagerService(ManagerMemory, ManagerPolling):
             "batch_acknowledgements": acknowledgement_count,
             "archive_root": str(archive_root),
         }
-        self._update_machine(
-            machine_id,
-            last_result_sync_at=sync_at,
-            last_result_success_at=(
-                machine.get("last_result_success_at") if collection_error else utc_now()
-            ),
-            result_sync_status=status,
-            result_sync_error_code="OUTBOX_COLLECTION_FAILED" if collection_error else "",
-            result_sync_error=collection_error,
-            outbox_collection=outbox_collection,
-            outbox_archive_initialized=not collection_error,
-        )
+        with self.store.batch(include_live=False):
+            if next_cursor > cursor:
+                self.store.set_collection_cursor(cursor_key, next_cursor)
+            self._update_machine(
+                machine_id,
+                last_result_sync_at=sync_at,
+                last_result_success_at=(
+                    machine.get("last_result_success_at") if collection_error else utc_now()
+                ),
+                result_sync_status=status,
+                result_sync_error_code="OUTBOX_COLLECTION_FAILED" if collection_error else "",
+                result_sync_error=collection_error,
+                outbox_collection=outbox_collection,
+                outbox_archive_initialized=not collection_error,
+            )
         summary = self._summarize_results(normalized_results)
         return {
             "success": not collection_error,
@@ -3210,10 +3219,10 @@ class ManagerService(ManagerMemory, ManagerPolling):
                 new_records, replayed_records = self._record_incremental_data(machine_id, result)
                 self._apply_collected_result(result)
                 self._record_operation_result(result)
-                self.ingest_memory(result)
                 for message in result.get("agent_messages") or []:
                     if isinstance(message, dict):
                         self.record_agent_message(message)
+            self.ingest_memory(result)
             inserted += int(created)
             duplicates += int(not created)
             incremental_inserted += new_records
@@ -4119,10 +4128,14 @@ class ManagerService(ManagerMemory, ManagerPolling):
             return false_state
         return "UNKNOWN"
 
-    def _with_account_task(self, account: dict) -> dict:
+    def _with_account_task(
+        self, account: dict, *, execution_tasks: list[dict] | None = None,
+    ) -> dict:
         tasks = [
             item
-            for item in self.store.list("tasks")
+            for item in (
+                self.store.list("tasks") if execution_tasks is None else execution_tasks
+            )
             if item.get("machine_id") == account.get("machine_id")
             and (item.get("request") or {}).get("account_slot") == account.get("account_slot")
         ]

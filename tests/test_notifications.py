@@ -36,6 +36,8 @@ class NotificationPage:
 
     def evaluate(self, expression: str):
         self.expressions.append(expression)
+        if "const labels =" in expression:
+            return True
         if "window.__AUTO_XHS_MENTIONS__" in expression:
             return json.dumps(self.captured, ensure_ascii=False) if self.captured else None
         if "data-auto-xhs-comment-notification-send" in expression and "actual !==" in expression:
@@ -108,18 +110,36 @@ def test_collects_comment_notifications_from_observed_mentions_response(monkeypa
     assert comment["classification"] == "comment/item"
 
 
-def test_collects_post_mention_from_notification_history() -> None:
+def test_received_comment_event_scope() -> None:
     from xhs.notifications import _parse_mentions_response
 
-    rows = _parse_mentions_response({"data": {"message_list": [{
-        "id": "mention-1", "type": "mention/item", "time": 1_755_600_000,
-        "user_info": {"userid": "user-1", "nickname": "读者"},
-        "comment_info": {}, "item_info": {"id": "note-1", "content": "@我 的笔记"},
-    }]}}, max_items=10)
+    rows = _parse_mentions_response(
+        {
+            "data": {
+                "message_list": [
+                    {
+                        "id": kind,
+                        "type": kind,
+                        "time": 1_755_600_000,
+                        "user_info": {"userid": "user-1", "nickname": "读者"},
+                        "comment_info": {"id": kind, "content": "真实通知文本"},
+                        "item_info": {"id": "note-1"},
+                    }
+                    for kind in [
+                        "comment/item",
+                        "comment/comment",
+                        "mention/item",
+                        "mention/comment",
+                        "liked/item",
+                        "follow/you",
+                    ]
+                ]
+            }
+        },
+        max_items=10,
+    )
 
-    assert len(rows) == 1
-    assert rows[0]["classification"] == "mention/item"
-    assert rows[0]["content"] == "@我 的笔记"
+    assert [row["classification"] for row in rows] == ["comment/item", "comment/comment"]
 
 
 def test_replies_inside_the_uniquely_matched_notification_card(monkeypatch) -> None:

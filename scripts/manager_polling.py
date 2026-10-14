@@ -23,9 +23,7 @@ class ManagerPolling:
 
     def _init_polling(self) -> None:
         self._polling_lock = threading.Lock()
-        self._polling_record = (
-            self.store.read_view(copy_on_read=False).get("settings", "polling") or {}
-        )
+        self._polling_record = self.store.get("settings", "polling") or {}
 
     @property
     def polling_settings(self) -> dict:

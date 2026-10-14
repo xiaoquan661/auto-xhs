@@ -6,15 +6,22 @@ import json
 import re
 import time
 from datetime import UTC, datetime
+from typing import Any
 
 from collection_coverage import collection_window
 from metric_temporality import display_date, event_day
 from time_utils import epoch_to_iso as _epoch_to_iso
 
+from .errors import XHSError
 from .human import sleep_random
+from .notification_history import (
+    notification_api_complete,
+    read_notification_history,
+    select_notification_tab,
+)
 from .urls import NOTIFICATION_URL
 
-_SUPPORTED_TYPES = {"comment/item", "comment/comment", "mention/comment", "mention/item"}
+_SUPPORTED_TYPES = {"comment/item", "comment/comment"}
 _CARD_MARK = "data-auto-xhs-comment-notification"
 _REPLY_MARK = "data-auto-xhs-comment-notification-reply"
 _EDITOR_MARK = "data-auto-xhs-comment-notification-editor"
@@ -30,39 +37,50 @@ class NotificationReplyError(RuntimeError):
         self.result_unknown = result_unknown
 
 
-def collect_comment_notifications(page, *, max_items: int = 50) -> dict:
-    """Collect comment/@ notifications from the signed-in web notification page."""
+def collect_comment_notifications(page: Any, *, max_items: int = 50) -> dict:
+    """Collect received comments from the signed-in web notification page."""
 
     page.navigate(NOTIFICATION_URL)
     page.wait_for_load()
     page.wait_dom_stable()
-    page.evaluate("""(() => {
-      const tab = [...document.querySelectorAll('[role="tab"], .tab-item, .tab')]
-        .find(el => (el.innerText || '').replace(/\\s+/g, '') === '评论和@');
-      if (!tab) return false;
-      tab.click();
-      return true;
-    })()""")
+    if not select_notification_tab(page, ("评论和@", "Comments and mentions")):
+        raise XHSError("通知页的评论标签尚未就绪")
     page.wait_dom_stable()
     _reset_notification_scroll(page)
     page.wait_dom_stable()
     sleep_random(500, 900)
 
     captured_at = datetime.now(UTC).isoformat()
-    captured = _wait_for_captured_mentions(page)
-    comments = _parse_mentions_response(captured, max_items=max_items)
-    source = "notification_api_observation" if comments else "notification_dom"
-    from .notification_history import read_notification_history
+    pages: dict[str, dict] = {}
 
-    def read_page():
+    def read_page() -> list[dict]:
         raw = page.evaluate("JSON.stringify(window.__AUTO_XHS_MENTIONS__ || null)")
         observed = json.loads(raw) if isinstance(raw, str) and raw else None
-        parsed = _parse_mentions_response(observed, max_items=max_items)
-        return parsed or _extract_notifications_from_dom(page, max_items=max_items)
+        payload = (observed or {}).get("payload") or observed or {}
+        data = payload.get("data") or {}
+        if isinstance(data.get("message_list"), list):
+            pages[str(observed.get("url") or "")] = {**observed, "payload": payload}
+            return _parse_mentions_response(observed, max_items=max_items)
+        return _extract_notifications_from_dom(page, max_items=max_items)
 
-    history, exhausted, reason = read_notification_history(page, read_page, max_items=max_items)
-    unique = {r["notification_id"]: r for r in [*comments, *history]}
-    comments = list(unique.values())
+    def api_exhausted() -> bool | None:
+        return notification_api_complete(list(pages.values())) if pages else None
+
+    comments, exhausted, reason = read_notification_history(
+        page,
+        read_page,
+        max_items=max_items,
+        api_exhausted=api_exhausted,
+        page_progress=lambda: len(pages),
+    )
+    if pages:
+        unique = {
+            row["notification_id"]: row
+            for captured in pages.values()
+            for row in _parse_mentions_response(captured, max_items=max_items)
+        }
+        comments = list(unique.values())[:max_items]
+    source = "notification_api_observation" if pages else "notification_dom"
     start, end = collection_window(captured_at)
     undated = sum(not event_day({**r, "event_type": "note_comment"}) for r in comments)
     unidentified = sum(
@@ -181,21 +199,6 @@ def reply_to_comment_notification(
     }
 
 
-def _wait_for_captured_mentions(page, timeout: float = 8.0) -> dict | None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        raw = page.evaluate("JSON.stringify(window.__AUTO_XHS_MENTIONS__ || null)")
-        if raw:
-            try:
-                value = json.loads(raw)
-            except (TypeError, json.JSONDecodeError):
-                value = None
-            if isinstance(value, dict):
-                return value
-        time.sleep(0.25)
-    return None
-
-
 def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> list[dict]:
     if not captured:
         return []
@@ -218,8 +221,7 @@ def _parse_mentions_response(captured: dict | None, *, max_items: int = 50) -> l
             continue
         comment_id = str(comment_info.get("id") or comment_info.get("comment_id") or "").strip()
         content = str(
-            comment_info.get("content") or comment_info.get("comment_content")
-            or (item_info.get("content") if event_type == "mention/item" else "") or ""
+            comment_info.get("content") or comment_info.get("comment_content") or ""
         ).strip()
         if not content:
             continue
@@ -273,14 +275,18 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
       }};
       const text = (el) => String(el?.innerText || el?.textContent || '').trim();
-        const relationPhrases = ['评论了你的笔记', '回复了你的评论', '在评论中提到了你'];
-      const replyNodes = Array.from(document.querySelectorAll(
+      const relationPhrases = ['评论了你的笔记', '回复了你的评论'];
+      const cards = [...document.querySelectorAll(
+          '.notification-page .tabs-content-container > .container')];
+      const replyNodes = cards.length ? cards : Array.from(document.querySelectorAll(
           'button,a,[role="button"],.action-reply'))
         .filter((el) => visible(el) && text(el) === '回复');
       const rows = [];
       const seen = new Set();
       for (const reply of replyNodes) {{
-        let card = reply;
+        let card = reply.querySelector('.info') || reply;
+        if (cards.length && !relationPhrases.some(phrase =>
+            text(card.querySelector('.interaction-hint > span')).includes(phrase))) continue;
         for (let depth = 0; card && depth < 9; depth++, card = card.parentElement) {{
           const cardText = text(card);
           if (!relationPhrases.some((phrase) => cardText.includes(phrase))) continue;
@@ -292,12 +298,16 @@ def _extract_notifications_from_dom(page, *, max_items: int) -> list[dict]:
         const lines = text(card).split(/\\n+/).map((v) => v.trim()).filter(Boolean);
         const metaIndex = lines.findIndex((line) => relationPhrases.some((phrase) =>
             line.includes(phrase)));
-        const relation = metaIndex >= 0 ? lines[metaIndex] : '';
+        const relation = text(card.querySelector('.interaction-hint > span')) ||
+            (metaIndex >= 0 ? lines[metaIndex] : '');
+        if (!relationPhrases.some(phrase => relation.includes(phrase))) continue;
         const ignored = (line) => ['回复', '取消', '发送', '赞', '你的好友'].includes(line) ||
             (/\\d/.test(line) && line.endsWith('前'));
-        const content = lines.slice(Math.max(0, metaIndex + 1)).find((line) =>
+        const content = text(card.querySelector('.interaction-content')) ||
+            lines.slice(Math.max(0, metaIndex + 1)).find((line) =>
             !ignored(line) && !line.startsWith('回复 ')) || '';
-        const nickname = lines.slice(0, Math.max(0, metaIndex)).find((line) =>
+        const nickname = text(card.querySelector('.user-info a')) ||
+            lines.slice(0, Math.max(0, metaIndex)).find((line) =>
             !ignored(line)) || '';
         const noteLink = Array.from(card.querySelectorAll('a[href*="/explore/"]'))[0];
         const userLink = Array.from(card.querySelectorAll('a[href*="/user/profile/"]'))[0];

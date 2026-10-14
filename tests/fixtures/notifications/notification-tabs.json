@@ -1,0 +1,17 @@
+[
+  {
+    "class": "reds-tab-item active tab-item",
+    "text": "评论和@",
+    "label": "评论和@"
+  },
+  {
+    "class": "reds-tab-item tab-item",
+    "text": "赞和收藏",
+    "label": "赞和收藏"
+  },
+  {
+    "class": "reds-tab-item tab-item",
+    "text": "新增关注\n2",
+    "label": "新增关注"
+  }
+]
