@@ -103,6 +103,14 @@
         "kind": "bootstrap_prepare",
         "command": "powershell -File scripts/bootstrap.ps1 -Prepare",
         "result": "ready"
+      },
+      {
+        "kind": "reply_fix_layout_integration",
+        "upstream_pr": 56,
+        "full_suite_test_count": 1207,
+        "full_run_passed": 1206,
+        "followup_result": "47 passed",
+        "coverage": "新增子进程测试采用固定入口路径；经理存储、私信收件箱和发送确认全部专项通过"
       }
     ]
   },
@@ -120,10 +128,5 @@
   "function_package_evidence_binding": {
     "catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
     "authority": "各外部功能版本的既有验收与运行证据"
-  },
-  "primary_checkout_migration": {
-    "status": "WAITING_CURRENT_FIX",
-    "source_branch": "codex/xhs-v020-role-layout",
-    "condition": "当前私信与通知修复完成并合入后迁移主目录"
   }
 }
