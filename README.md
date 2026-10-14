@@ -470,72 +470,47 @@ python scripts/cli.py --account brand-a collect-private-messages `
 
 ## 项目结构
 
-```
+本项目使用 PC023 经理工作区维护经理业务实现和员工源版本。PC052、PC057、PC065、PC071、
+PC073 各有员工规则与程序实例定义。源码职责与真实文件位置见
+[经理与员工目录说明](docs/V020-ROLE-LAYOUT.md)和根 `source-layout.json`。
+
+```text
 xiaohongshu-skills/
-├── extension/                      # Chrome 扩展
-│   ├── manifest.json
-│   ├── background.js
-│   └── content.js
-├── scripts/                        # Python 自动化引擎
-│   ├── account_manager.py          # 多账号配置、端口与通用扩展部署管理
-│   ├── account_pairing.py          # 一次性配对、撤销与连接令牌轮换
-│   ├── account_doctor.py           # 多账号配置和运行状态只读诊断
-│   ├── account_identity.py         # 登录身份记录、安全换号和任务保护
-│   ├── application_service.py      # CLI、WebUI 和 Agent 共用的应用服务层
-│   ├── reply_intelligence_service.py # API 模型兼容生成与确定性质量标记
-│   ├── reply_llm_client.py         # API 模型兼容客户端
-│   ├── private_message_collector.py # 入站私信事件去重与持久化
-│   ├── operations_db.py            # 任务、事件和指标本地存储
-│   ├── web_server.py               # 仅监听本机的 WebUI/API 服务
-│   ├── run_lock.py                 # 每账号独立的任务锁
-│   ├── xhs/                        # 核心自动化包
-│   │   ├── bridge.py               # 扩展通信客户端
-│   │   ├── selectors.py            # CSS 选择器（集中管理）
-│   │   ├── login.py                # 登录 + 用户信息获取
-│   │   ├── feeds.py                # 首页 Feed
-│   │   ├── search.py               # 搜索 + 筛选
-│   │   ├── feed_detail.py          # 笔记详情 + 评论加载
-│   │   ├── user_profile.py         # 用户主页
-│   │   ├── comment.py              # 评论、回复
-│   │   ├── direct_message.py       # 私信上下文、发送和结果回读
-│   │   ├── private_inbox.py        # 一对一私信收件箱只读采集
-│   │   ├── like_favorite.py        # 点赞、收藏
-│   │   ├── publish.py              # 图文发布
-│   │   ├── publish_video.py        # 视频发布
-│   │   ├── publish_long_article.py # 长文发布
-│   │   ├── types.py                # 数据类型
-│   │   ├── errors.py               # 异常体系
-│   │   ├── urls.py                 # URL 常量
-│   │   ├── cookies.py              # Cookie 持久化
-│   │   └── human.py                # 行为模拟
-│   ├── cli.py                      # 统一 CLI 入口
-│   ├── bridge_server.py            # 本地通信服务
-│   ├── image_downloader.py         # 媒体下载与本地缓存
-│   ├── title_utils.py              # UTF-16 标题长度计算
-│   └── run_lock.py                 # 单实例锁
-├── webui/                          # 本地 WebUI 静态页面
-│   ├── index.html
-│   ├── styles.css
-│   ├── workspace.css
-│   ├── api-client.js
-│   ├── manager-console.js          # 经理控制台入口
-│   ├── manager-account-tools.js    # 账号配置与身份管理
-│   ├── employee-panel.js           # 员工账号运营视图
-│   └── worker/                     # 员工机工作台
-├── docs/                            # PRD、用户指南、架构、专题和验收文档
-├── prompts/                         # 评论与私信智能回复提示词
-├── skills/                         # Claude Code Skills 定义
-│   ├── xhs-auth/SKILL.md
-│   ├── xhs-publish/SKILL.md
-│   ├── xhs-explore/SKILL.md
-│   ├── xhs-interact/SKILL.md
-│   ├── xhs-reply/SKILL.md
-│   └── xhs-content-ops/SKILL.md
-├── SKILL.md                        # 技能统一入口（路由到子技能）
-├── CLAUDE.md                       # 项目开发指南
-├── pyproject.toml
-└── README.md
+├── ManagerStation/Managers/
+│   ├── AGENTS.md
+│   └── PC023/
+│       ├── AGENTS.md、manager_manifest.json
+│       ├── function_packages/xiaohongshu-skills/0.1.0/manager/
+│       │   └── runtime/
+│       │       ├── scripts/                 # 计划、投递、回收、汇总、经理存储
+│       │       └── webui/                   # 经理工作台与远端员工管理面板
+│       ├── worker_packages/xiaohongshu-skills/0.1.0/worker/
+│       │   ├── runtime/
+│       │   │   ├── scripts/                 # 本机业务服务、CLI、xhs自动化库
+│       │   │   ├── execution/               # 员工任务、账号环境、Bridge、进程
+│       │   │   ├── shared/                  # 共用数据与本机应用HTTP接口
+│       │   │   └── webui/                   # 员工本机界面与共用图标
+│       │   ├── extension/                   # 浏览器扩展
+│       │   ├── skills/                      # 员工业务技能与任务入口指引
+│       │   └── prompts/                     # 评论与私信回复提示词
+│       └── scripts/development/             # 准备、构建与代码修复工具
+├── WorkerStation/Workers/
+│   ├── AgentWorkers/
+│   │   ├── AGENTS.md
+│   │   └── PC052、PC057、PC065、PC071、PC073/ # AGENTS、Personal、Role、manifest
+│   └── ProgramWorkers/instances/<PC编号>/    # 程序实例和部署路径定义
+├── scripts/                                 # 稳定调用入口和源码加载器
+├── source-layout.json                       # Python模块、角色和资源目录映射
+├── webui-layout.json                        # HTTP静态资源URL与源码位置映射
+├── docs/、tests/、project-memory/             # 开发、验证和交接基准
+├── package_templates/                       # 正式功能包构建模板
+├── AGENTS.md、SKILL.md
+└── pyproject.toml、uv.lock
 ```
+
+`xiaohongshu-skills/0.1.0` 标识项目源版本；正式业务功能包按既有功能编号在经理 manifest 的 `paths.formal_function_packages` 指向的项目外功能包目录 维护。员工实例定义引用经理维护的同一份员工源代码和本机部署根。
+固定命令入口继续使用 `scripts/cli.py`、`scripts/manager_cli.py`、`scripts/manager_worker.py`。
+模块导入与资源定位由路径映射解析到对应角色实现。
 
 ## 跨电脑验收
 

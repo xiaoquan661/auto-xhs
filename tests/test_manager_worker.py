@@ -172,6 +172,11 @@ def test_config_health_and_state_are_json_runlock_backed(tmp_path) -> None:
             "machine_id": "PC001",
             "role": "executor",
             "project_version": PROJECT_VERSION,
+            "source_layout": {
+                "schema_version": 1,
+                "project_id": "xiaohongshu-skills",
+                "source_version": "0.1.0",
+            },
             "paused": False,
             "healthy": True,
             "status": "READY",

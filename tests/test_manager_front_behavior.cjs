@@ -1,15 +1,16 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
 process.env.TZ = "Asia/Shanghai";
-const source = fs.readFileSync(path.join(__dirname, "../webui/manager-console.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), "utf8");
 const metricLabels = vm.runInNewContext(`(${source.match(/const metricLabels = (\{[\s\S]*?\});/)[1]})`);
 assert.equal(metricLabels.friend_request, "关注博主");
 assert.ok(source.includes('accountActionButton("启动并连接账号", "profile-start"'));
 assert.ok(source.includes('"profile-start": "启动并连接账号"'));
-const workerSource = fs.readFileSync(path.join(__dirname, "../webui/worker/worker.js"), "utf8");
+const workerSource = fs.readFileSync(webuiAssetPath("worker/worker.js"), "utf8");
 assert.ok(workerSource.includes('"profile-start": "启动并连接账号"'));
 function extract(name) {
   const start = source.indexOf(`  function ${name}(`);

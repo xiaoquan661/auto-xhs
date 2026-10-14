@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from project_paths import webui_asset_path
 
 from scripts.application_service import ServiceError
 from scripts.web_server import (
@@ -339,54 +340,49 @@ def test_api_dispatch_routes_to_shared_service() -> None:
     assert _dispatch_api(service, "/api/v1/tasks")["tasks"] == []
     assert _dispatch_api(service, "/api/v1/inbound-events")["events"] == []
     assert _dispatch_api(service, "/api/v1/operation-events")["events"] == []
-    assert _dispatch_api(service, "/api/v1/data-recovery/summary")["summary"][
-        "published_posts"
-    ]["total"] == 0
+    assert (
+        _dispatch_api(service, "/api/v1/data-recovery/summary")["summary"]["published_posts"][
+            "total"
+        ]
+        == 0
+    )
     assert _dispatch_api(service, "/api/v1/data-recovery/published-posts")["posts"] == []
     assert _dispatch_api(service, "/api/v1/data-recovery/operation-records")["records"] == []
     assert _dispatch_api(service, "/api/v1/data-recovery/reply-records")["records"] == []
-    assert _dispatch_api(
-        service,
-        "/api/v1/data-recovery/published-posts/post-1",
-    )["post"]["published_post_id"] == "post-1"
-    assert _dispatch_api(
-        service,
-        "/api/v1/data-recovery/reply-records/reply-1",
-    )["record"]["reply_record_id"] == "reply-1"
+    assert (
+        _dispatch_api(
+            service,
+            "/api/v1/data-recovery/published-posts/post-1",
+        )["post"]["published_post_id"]
+        == "post-1"
+    )
+    assert (
+        _dispatch_api(
+            service,
+            "/api/v1/data-recovery/reply-records/reply-1",
+        )["record"]["reply_record_id"]
+        == "reply-1"
+    )
     assert _dispatch_api(service, "/api/v1/reply-rules")["rules"] == []
     assert _dispatch_api(service, "/api/v1/reply-cycles")["cycles"] == []
     assert _dispatch_api(service, "/api/v1/reply-decisions")["decisions"] == []
     assert _dispatch_api(service, "/api/v1/operation-reports")["reports"] == []
     assert (
-        _dispatch_api(service, "/api/v1/operation-reports/report-1")["report"][
-            "report_id"
-        ]
+        _dispatch_api(service, "/api/v1/operation-reports/report-1")["report"]["report_id"]
         == "report-1"
     )
+    assert _dispatch_api(service, "/api/v1/reply-intelligence/status")["mode"] == "review_only"
     assert (
-        _dispatch_api(service, "/api/v1/reply-intelligence/status")["mode"]
-        == "review_only"
+        _dispatch_api(service, "/api/v1/inbound-events/event-1")["event"]["event_id"] == "event-1"
     )
     assert (
-        _dispatch_api(service, "/api/v1/inbound-events/event-1")["event"]["event_id"]
-        == "event-1"
-    )
-    assert (
-        _dispatch_api(service, "/api/v1/metrics/alpha/note/note-1")["snapshots"][0][
-            "id"
-        ]
+        _dispatch_api(service, "/api/v1/metrics/alpha/note/note-1")["snapshots"][0]["id"]
         == "note-1"
     )
     assert (
-        _dispatch_api(service, "/api/v1/metrics/alpha/note/note-1/delta")["delta"][
-            "id"
-        ]
-        == "note-1"
+        _dispatch_api(service, "/api/v1/metrics/alpha/note/note-1/delta")["delta"]["id"] == "note-1"
     )
-    assert (
-        _dispatch_api(service, "/api/v1/accounts/alpha/status")["account"]["name"]
-        == "alpha"
-    )
+    assert _dispatch_api(service, "/api/v1/accounts/alpha/status")["account"]["name"] == "alpha"
     assert _dispatch_api(service, "/api/v1/accounts/alpha/switch")["pending"] is None
     with pytest.raises(ServiceError) as exc_info:
         _dispatch_api(service, "/api/v1/unknown")
@@ -664,7 +660,7 @@ def test_draft_execute_api_routes_to_shared_service() -> None:
 
 
 def test_webui_contains_manager_operations_and_account_workspace() -> None:
-    web_root = Path(__file__).resolve().parents[1] / "webui"
+    web_root = webui_asset_path("index.html").parent
     html = (web_root / "index.html").read_text(encoding="utf-8")
     controller_script = (web_root / "manager-console.js").read_text(encoding="utf-8")
 
@@ -684,9 +680,10 @@ def test_webui_contains_manager_operations_and_account_workspace() -> None:
 
 def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
     token = "test-local-session"
+    service = FakeService()
     server = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        make_handler(FakeService(), session_token=token),
+        make_handler(service, session_token=token),
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -710,12 +707,22 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
         with urlopen(f"{base_url}/api-client.js", timeout=3) as response:
             assert "AutoXhsApi" in response.read().decode("utf-8")
 
-        request = Request(f"{base_url}/api/v1/accounts", method="POST")
+        for name in ("favicon.svg", "favicon-16.png", "favicon-32.png"):
+            with urlopen(f"{base_url}/{name}", timeout=3) as response:
+                assert response.read() == webui_asset_path(name).read_bytes()
+
+        request = Request(
+            f"{base_url}/api/v1/system/pause",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
         with pytest.raises(HTTPError) as exc_info:
             urlopen(request, timeout=3)
         assert exc_info.value.code == 403
         error = json.loads(exc_info.value.read().decode("utf-8"))
         assert error["error"]["code"] == "SESSION_REQUIRED"
+        assert service.paused is False
 
         body = json.dumps({"source": "webui", "capability": "search-feeds"}).encode()
         request = Request(
@@ -728,9 +735,7 @@ def test_http_server_serves_api_static_ui_and_protects_mutations() -> None:
             task = json.loads(response.read().decode("utf-8"))
         assert task["task"]["capability"] == "search-feeds"
 
-        body = json.dumps(
-            {"confirmed": True, "confirmation_name": "alpha"}
-        ).encode()
+        body = json.dumps({"confirmed": True, "confirmation_name": "alpha"}).encode()
         request = Request(
             f"{base_url}/api/v1/accounts/alpha",
             data=body,

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from project_paths import extension_root
 
 from scripts.account_identity import identity_status, record_current_identity
 from scripts.account_manager import add_account, load_account, public_config
@@ -39,14 +40,20 @@ def test_platform_specs_detect_and_rewrite_known_routes() -> None:
     assert rednote.creator_origin == "https://creator.rednote.com"
     assert detect_platform("https://www.rednote.com/discovery/item/note-1") == "rednote"
     assert detect_platform("creator.xiaohongshu.com") == "xiaohongshu"
-    assert rewrite_platform_url(
-        "https://www.xiaohongshu.com/explore/note-1?xsec_token=t",
-        "rednote",
-    ) == "https://www.rednote.com/discovery/item/note-1?xsec_token=t"
-    assert rewrite_platform_url(
-        "https://creator.xiaohongshu.com/publish/publish?source=official",
-        "rednote",
-    ) == "https://creator.rednote.com/publish/publish?source=official"
+    assert (
+        rewrite_platform_url(
+            "https://www.xiaohongshu.com/explore/note-1?xsec_token=t",
+            "rednote",
+        )
+        == "https://www.rednote.com/discovery/item/note-1?xsec_token=t"
+    )
+    assert (
+        rewrite_platform_url(
+            "https://creator.xiaohongshu.com/publish/publish?source=official",
+            "rednote",
+        )
+        == "https://creator.rednote.com/publish/publish?source=official"
+    )
 
 
 def test_rednote_account_is_persisted_and_legacy_slot_defaults_to_xiaohongshu(
@@ -107,29 +114,29 @@ def test_identity_comparison_includes_platform(tmp_path, monkeypatch) -> None:
         source="test",
     )
 
-    assert identity_status(
-        "rednote-a",
-        {"platform": "rednote", "logged_in": True, "user_id": "uid-1"},
-    )["comparison"] == "match"
-    assert identity_status(
-        "rednote-a",
-        {"platform": "xiaohongshu", "logged_in": True, "user_id": "uid-1"},
-    )["comparison"] == "platform_mismatch"
+    assert (
+        identity_status(
+            "rednote-a",
+            {"platform": "rednote", "logged_in": True, "user_id": "uid-1"},
+        )["comparison"]
+        == "match"
+    )
+    assert (
+        identity_status(
+            "rednote-a",
+            {"platform": "xiaohongshu", "logged_in": True, "user_id": "uid-1"},
+        )["comparison"]
+        == "platform_mismatch"
+    )
 
 
 def test_bridge_rejects_cross_platform_extension_and_cli() -> None:
     server = BridgeServer("rednote-a", platform="rednote")
 
     assert server._validate_extension_handshake({"platform": "rednote"}) is None
-    assert "平台" in server._validate_extension_handshake(
-        {"platform": "xiaohongshu"}
-    )
-    assert server._validate_cli_request(
-        {"method": "evaluate", "platform": "rednote"}
-    ) is None
-    assert "平台" in server._validate_cli_request(
-        {"method": "evaluate", "platform": "xiaohongshu"}
-    )
+    assert "平台" in server._validate_extension_handshake({"platform": "xiaohongshu"})
+    assert server._validate_cli_request({"method": "evaluate", "platform": "rednote"}) is None
+    assert "平台" in server._validate_cli_request({"method": "evaluate", "platform": "xiaohongshu"})
     assert server._resolve_pairing_platform({"platform": "rednote"}) == "rednote"
     with pytest.raises(ValueError, match="重载扩展"):
         server._resolve_pairing_platform({})
@@ -150,8 +157,9 @@ def test_rednote_profile_launch_uses_rednote_home(tmp_path) -> None:
     launch_chrome_profile(
         config,
         executable_finder=lambda: Path(r"C:\Program Files\Google\Chrome\chrome.exe"),
-        process_factory=lambda command, **_kwargs: commands.append(command)
-        or SimpleNamespace(pid=1),
+        process_factory=lambda command, **_kwargs: (
+            commands.append(command) or SimpleNamespace(pid=1)
+        ),
         platform="linux",
     )
 
@@ -183,9 +191,7 @@ def test_application_service_blocks_unknown_rednote_capability_before_execution(
     service = ApplicationService(
         account_loader=lambda *_args, **_kwargs: config,
         product_store=ProductStore(tmp_path / "product"),
-        business_runner=BusinessRunner(
-            lambda *_args: executed.append(True) or {"success": True}
-        ),
+        business_runner=BusinessRunner(lambda *_args: executed.append(True) or {"success": True}),
     )
     service.get_account_status = lambda _account: {
         "ready": True,
@@ -222,11 +228,10 @@ def test_operations_database_persists_event_platform(tmp_path) -> None:
 
 
 def test_extension_sources_register_both_platforms() -> None:
-    root = Path(__file__).resolve().parents[1]
-    manifest = json.loads((root / "extension" / "manifest.json").read_text("utf-8"))
-    background = (root / "extension" / "background.js").read_text("utf-8")
-    popup = (root / "extension" / "popup.js").read_text("utf-8")
-    interceptor = (root / "extension" / "interceptor.js").read_text("utf-8")
+    manifest = json.loads((extension_root() / "manifest.json").read_text("utf-8"))
+    background = (extension_root() / "background.js").read_text("utf-8")
+    popup = (extension_root() / "popup.js").read_text("utf-8")
+    interceptor = (extension_root() / "interceptor.js").read_text("utf-8")
 
     assert "https://*.rednote.com/*" in manifest["host_permissions"]
     assert "https://creator.rednote.com/*" in manifest["content_scripts"][0]["matches"]

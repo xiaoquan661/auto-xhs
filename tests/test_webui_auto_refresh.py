@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from project_paths import webui_asset_path
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _webui_sources() -> tuple[str, str]:
-    html = (ROOT / "webui" / "index.html").read_text(encoding="utf-8")
-    script = (ROOT / "webui" / "manager-console.js").read_text(encoding="utf-8")
+    html = (webui_asset_path("index.html")).read_text(encoding="utf-8")
+    script = (webui_asset_path("manager-console.js")).read_text(encoding="utf-8")
     return html, script
 
 

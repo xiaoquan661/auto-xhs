@@ -1,9 +1,10 @@
+const { scriptSourcePath } = require("./project_paths.cjs");
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const source = fs.readFileSync(path.join(__dirname, '../scripts/xhs/comment_receipt.py'), 'utf8');
+const source = fs.readFileSync(scriptSourcePath("xhs/comment_receipt.py"), 'utf8');
 const arm = source.match(/_ARM_NOTICE = r"""([\s\S]*?)"""/)[1].replace('__KEY__', '"receipt"');
 const read = source.match(/_READ_NOTICE = r"""([\s\S]*?)"""/)[1].replace('__KEY__', '"receipt"');
 function element(text) {

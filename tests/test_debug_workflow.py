@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from debug_common import incident_from_result
+from debug_common import code_path, incident_from_result, repair_relative_path
 from manager_debug import ManagerDebugService
 from manager_service import ManagerService
 from manager_store import ManagerStore
@@ -32,7 +32,11 @@ class LocalTransport:
         if action == "restart-executor":
             return {"success": True}
         if action == "health":
-            return {"success": True, "health": {"executor_service": {"ready": self.healthy}}}
+            health = {"executor_service": {"ready": self.healthy}}
+            layout = self.debug.project / "source-layout.json"
+            if layout.is_file():
+                health["source_layout"] = json.loads(layout.read_text(encoding="utf-8"))
+            return {"success": True, "health": health}
         return dispatch_request(self.worker, {"action": action, "payload": payload})
 
     def upload(self, machine: dict, source: str, destination: str, **kwargs: object) -> None:
@@ -371,3 +375,146 @@ def test_new_files_removed_when_install_rolls_back(workflow: tuple) -> None:
     debug.action("dispatch", key)
     assert debug.action("apply", key)["release"]["state"] == "ROLLED_BACK"
     assert not (employee / "scripts/sample.py").exists()
+
+
+ROLE_SAMPLE = (
+    "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/"
+    "worker/runtime/scripts/sample.py"
+)
+
+
+def use_role_layout(project: Path) -> bytes:
+    canonical = project / ROLE_SAMPLE
+    canonical.parent.mkdir(parents=True)
+    shutil.move(project / "scripts/sample.py", canonical)
+    facade = (
+        "import runpy\nfrom pathlib import Path\n"
+        f"VALUE = runpy.run_path(str(Path(__file__).parents[1] / {ROLE_SAMPLE!r}))['VALUE']\n"
+    ).encode()
+    (project / "scripts/sample.py").write_bytes(facade)
+    (project / "source-layout.json").write_text(
+        json.dumps({"schema_version": 1, "module_files": {"sample": ROLE_SAMPLE}}),
+        encoding="utf-8",
+    )
+    return facade
+
+
+@pytest.mark.parametrize("source_file", ["scripts/sample.py", ROLE_SAMPLE])
+def test_role_repair_reads_and_installs_canonical_body(workflow: tuple, source_file: str) -> None:
+    _, _, debug, _, project, employee, incident = workflow
+    source_facade = use_role_layout(project)
+    employee_facade = use_role_layout(employee)
+    release = debug.action(
+        "build",
+        {
+            "incident_id": incident["incident_id"],
+            "project_root": str(project),
+            "files": [source_file],
+            "tests": ["tests/test_sample.py"],
+        },
+    )["release"]
+    manifest = release["manifest"]
+    assert manifest["requires_source_layout"] == 1
+    assert manifest["canonical_files"]["scripts/sample.py"] == ROLE_SAMPLE
+    assert (
+        Path(release["package_path"]) / "payload/scripts/sample.py"
+    ).read_text() == "VALUE = 2\n"
+    assert (project / "scripts/sample.py").read_bytes() == source_facade
+    key = {"release_id": release["release_id"]}
+    assert debug.action("dispatch", key)["release"]["state"] == "DELIVERED"
+    assert debug.action("apply", key)["release"]["state"] == "AWAITING_VERIFICATION"
+    assert (employee / ROLE_SAMPLE).read_text() == "VALUE = 2\n"
+    assert (employee / "scripts/sample.py").read_bytes() == employee_facade
+    assert debug.action("verify", key)["release"]["state"] == "VERIFIED"
+    assert debug.action("rollback", key)["release"]["state"] == "ROLLED_BACK"
+    assert (employee / ROLE_SAMPLE).read_text() == "VALUE = 1\n"
+    assert (employee / "scripts/sample.py").read_bytes() == employee_facade
+
+
+def test_role_repair_dispatch_waits_for_target_layout_installation(workflow: tuple) -> None:
+    _, worker, debug, _, project, employee, _ = workflow
+    use_role_layout(project)
+    release = build(workflow)
+    with pytest.raises(ServiceError, match="安装项目职责目录版本"):
+        debug.action("dispatch", {"release_id": release["release_id"]})
+    assert worker._store.snapshot()["transfers"] == {}
+    assert (employee / "scripts/sample.py").read_text() == "VALUE = 1\n"
+
+
+def test_role_repair_apply_checks_target_layout_before_maintenance(workflow: tuple) -> None:
+    manager, worker, _, _, project, employee, _ = workflow
+    use_role_layout(project)
+    release = build(workflow)
+    manager.transfer(
+        {
+            "transfer_id": release["release_id"],
+            "machine_id": "PC057",
+            "transfer_type": "repair_package",
+            "source_path": release["package_path"],
+        }
+    )
+    with pytest.raises(ServiceError, match="安装项目职责目录版本"):
+        WorkerDebugService(worker, employee).apply(
+            {"release_id": release["release_id"], "transfer_id": release["release_id"]}
+        )
+    assert worker._store.snapshot()["machine"]["paused"] is False
+    assert (employee / "scripts/sample.py").read_text() == "VALUE = 1\n"
+
+
+def test_legacy_repair_input_resolves_on_role_layout_worker(workflow: tuple) -> None:
+    _, _, debug, _, _, employee, _ = workflow
+    facade = use_role_layout(employee)
+    release = build(workflow)
+    assert "requires_source_layout" not in release["manifest"]
+    key = {"release_id": release["release_id"]}
+    debug.action("dispatch", key)
+    assert debug.action("apply", key)["release"]["state"] == "AWAITING_VERIFICATION"
+    assert (employee / ROLE_SAMPLE).read_text() == "VALUE = 2\n"
+    assert (employee / "scripts/sample.py").read_bytes() == facade
+    debug.action("rollback", key)
+    assert (employee / ROLE_SAMPLE).read_text() == "VALUE = 1\n"
+
+
+@pytest.mark.parametrize(
+    "logical, canonical",
+    [
+        (
+            "scripts/start-webui.ps1",
+            "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/"
+            "manager/runtime/scripts/start-webui.ps1",
+        ),
+        (
+            "prompts/reply-v2.md",
+            "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/"
+            "worker/prompts/reply-v2.md",
+        ),
+    ],
+)
+def test_repair_resolves_powershell_and_prompt_bodies(
+    tmp_path: Path, logical: str, canonical: str
+) -> None:
+    original = tmp_path / logical
+    original.parent.mkdir(parents=True)
+    original.write_text("entry reference", encoding="utf-8")
+    body = tmp_path / canonical
+    body.parent.mkdir(parents=True)
+    body.write_text("body before", encoding="utf-8")
+    (tmp_path / "source-layout.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "powershell_files": {"start-webui.ps1": canonical}
+                if logical.startswith("scripts/")
+                else {},
+                "resource_roots": {"prompts": str(Path(canonical).parent.as_posix())}
+                if logical.startswith("prompts/")
+                else {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert repair_relative_path(tmp_path, canonical) == logical
+    assert code_path(tmp_path, canonical).read_text(encoding="utf-8") == "body before"
+    code_path(tmp_path, logical).write_text("body after", encoding="utf-8")
+    assert body.read_text(encoding="utf-8") == "body after"
+    assert original.read_text(encoding="utf-8") == "entry reference"

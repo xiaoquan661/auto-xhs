@@ -1,12 +1,13 @@
-"""Simple same-origin session protection for local WebUI mutations."""
+"""Stable entry point for the role-owned web_session implementation."""
 
 from __future__ import annotations
 
-import secrets
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-SESSION_HEADER = "X-Auto-XHS-Session"
-MAX_JSON_BODY = 64 * 1024
-
-
-def create_session_token() -> str:
-    return secrets.token_urlsafe(24)
+if __name__ == "__main__":
+    run_entrypoint('web_session')
+else:
+    load_module('web_session', __name__)

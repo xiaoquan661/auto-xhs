@@ -1,7 +1,8 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const source = fs.readFileSync(require("node:path").join(__dirname, "../webui/manager-console.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), "utf8");
 const body = source.slice(source.indexOf("  async function loadDashboardDetails("), source.indexOf("  function scheduleRefresh()"));
 const calls = [];
 const state = {snapshot: {details_deferred: true}, results: [{task_id: "current"}]};

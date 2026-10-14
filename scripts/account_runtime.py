@@ -1,61 +1,13 @@
-"""Runtime identity helpers for user-maintained Chrome Profile sessions."""
+"""Stable entry point for the role-owned account_runtime implementation."""
 
 from __future__ import annotations
 
-from account_manager import AccountConfig
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-
-def expected_profile_directory(config: AccountConfig) -> str:
-    """Return the single Chrome Profile directory expected by this slot."""
-    return config.chrome_profile_directory or "Default"
-
-
-def evaluate_profile_connection(config: AccountConfig, bridge_status: dict | None) -> dict:
-    """Evaluate the Profile claim and, when enrolled, the paired instance proof."""
-    expected_profile = expected_profile_directory(config)
-    extension = (bridge_status or {}).get("extension") or {}
-    extension_connected = bool(
-        bridge_status and bridge_status.get("extension_connected")
-    )
-    reported_profile = extension.get("profile_directory")
-    expected_platform = getattr(config, "platform", "xiaohongshu")
-    reported_platform = extension.get("platform") or "xiaohongshu"
-    platform_matches = bool(
-        extension_connected and reported_platform == expected_platform
-    )
-    profile_directory_claim_matches = bool(
-        extension_connected and reported_profile == expected_profile
-    )
-    extension_instance_enrolled = bool(
-        extension_connected
-        and config.extension_instance_id
-        and extension.get("instance_id") == config.extension_instance_id
-        and extension.get("instance_enrolled")
-    )
-    if extension_instance_enrolled and profile_directory_claim_matches and platform_matches:
-        verification_level = "paired_instance"
-        profile_verified = True
-    elif not config.extension_instance_id and profile_directory_claim_matches and platform_matches:
-        # Legacy per-account extensions can only repeat their configured route.
-        # Preserve compatibility while making the weaker evidence explicit.
-        verification_level = "legacy_claim"
-        profile_verified = True
-    else:
-        verification_level = "unverified"
-        profile_verified = False
-    return {
-        "bridge_running": bridge_status is not None,
-        "extension_connected": extension_connected,
-        "expected_profile_directory": expected_profile,
-        "connected_profile_directory": reported_profile,
-        "expected_platform": expected_platform,
-        "connected_platform": reported_platform,
-        "platform_matches": platform_matches,
-        "profile_directory_claim_matches": profile_directory_claim_matches,
-        "profile_verified": profile_verified,
-        "profile_verification_level": verification_level,
-        "connection_identity_verified": bool(
-            extension_connected and extension.get("identity_verified")
-        ),
-        "extension_instance_enrolled": extension_instance_enrolled,
-    }
+if __name__ == "__main__":
+    run_entrypoint('account_runtime')
+else:
+    load_module('account_runtime', __name__)

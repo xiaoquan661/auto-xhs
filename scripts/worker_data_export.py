@@ -1,60 +1,13 @@
-"""Read a consistent business-data snapshot without operating platform accounts."""
+"""Stable entry point for the role-owned worker_data_export implementation."""
 
 from __future__ import annotations
 
-import base64
-import json
-import sqlite3
-from datetime import UTC, datetime
-from pathlib import Path
-
-from product_store import product_root
-
-
-def export_business_data(root: Path | None = None) -> dict:
-    root = root or product_root()
-    path = root / "operations.db"
-    tables = {}
-    schema = {}
-    if not path.exists():
-        return {"success": False, "status": "MISSING_DATABASE", "source": str(path)}
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as db:
-        db.row_factory = sqlite3.Row
-        db.execute("BEGIN")
-        names = [
-            r[0]
-            for r in db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            )
-        ]
-        for name in names:
-            quoted = '"' + name.replace('"', '""') + '"'
-            schema[name] = [dict(row) for row in db.execute(f"PRAGMA table_info({quoted})")]
-            tables[name] = [
-                {
-                    key: {"encoding": "base64", "value": base64.b64encode(value).decode()}
-                    if isinstance(value, bytes)
-                    else value
-                    for key, value in dict(row).items()
-                }
-                for row in db.execute(f"SELECT * FROM {quoted}")
-            ]
-    product = root / "product-state.json"
-    return {
-        "success": True,
-        "status": "SUCCESS",
-        "source": str(path),
-        "exported_at": datetime.now(UTC).isoformat(),
-        "tables": tables,
-        "schema": schema,
-        "product_state": json.loads(product.read_text(encoding="utf-8"))
-        if product.exists()
-        else None,
-    }
-
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
 if __name__ == "__main__":
-    import sys
-
-    sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps(export_business_data(), ensure_ascii=False))
+    run_entrypoint('worker_data_export')
+else:
+    load_module('worker_data_export', __name__)

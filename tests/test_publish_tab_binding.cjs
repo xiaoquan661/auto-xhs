@@ -1,8 +1,9 @@
+const { extensionAssetPath } = require("./project_paths.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
-const source = fs.readFileSync(require('node:path').join(__dirname, '../extension/background.js'), 'utf8');
+const source = fs.readFileSync(extensionAssetPath("background.js"), 'utf8');
 const start = source.indexOf('async function cmdSelectPublishTab(');
 const code = source.slice(start, source.indexOf('\nloadBinding()', start));
 

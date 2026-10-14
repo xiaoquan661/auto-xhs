@@ -1,0 +1,213 @@
+{
+  "schema_version": "xiaohongshu-skills.package-relations.v1",
+  "relation_id": "PC023-SOURCE-RELATIONS-0.1.0",
+  "relation_version": "0.1.0",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "path_base": "PROJECT_ROOT",
+  "binding_kind": "project_source_layout",
+  "selection_basis": "source-layout.json显式绑定经理与员工源码；业务版本按原任务授权选取",
+  "source_packages": [
+    {
+      "package_id": "xiaohongshu-skills.manager-source",
+      "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+    },
+    {
+      "package_id": "xiaohongshu-skills.worker-source",
+      "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+    }
+  ],
+  "function_catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
+  "function_version_count": 34,
+  "manager_function_versions": [
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "REPLY-01",
+      "version": "1.1"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-03",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-03",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-04",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-03",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-04",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-05",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "WEB-01",
+      "version": "1.6"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "WEB-02",
+      "version": "1.6"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "WEB-03",
+      "version": "1.6"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-01",
+      "version": "1.1"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-03",
+      "version": "1.1"
+    }
+  ],
+  "worker_function_versions": [
+    {
+      "task_code": "INTERACT-01",
+      "function_id": "INTERACT-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "INTERACT-02",
+      "function_id": "INTERACT-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "EXPLORE-01",
+      "function_id": "EXPLORE-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "EXPLORE-02",
+      "function_id": "EXPLORE-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "EXPLORE-03",
+      "function_id": "EXPLORE-03",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "PUBLISH-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "PUBLISH-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "REPLY-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "REPLY-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-03",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MESSAGE-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MESSAGE-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-02",
+      "version": "1.1"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-03",
+      "version": "1.1"
+    },
+    {
+      "task_code": "ACCOUNT-01",
+      "function_id": "ACCOUNT-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "ACCOUNT-02",
+      "function_id": "ACCOUNT-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "ACCOUNT-05",
+      "function_id": "ACCOUNT-05",
+      "version": "1.0"
+    },
+    {
+      "task_code": "ACCOUNT-06",
+      "function_id": "ACCOUNT-06",
+      "version": "1.0"
+    }
+  ],
+  "runtime_bindings": {
+    "source_layout": "source-layout.json",
+    "webui_layout": "webui-layout.json",
+    "manager_workspace": "ManagerStation/Managers/PC023/manager_manifest.json",
+    "worker_instance_root": "WorkerStation/Workers/ProgramWorkers/instances"
+  },
+  "evidence_binding": "职责源码验收引用各source package acceptance；既有业务版本验收引用其外部原件"
+}

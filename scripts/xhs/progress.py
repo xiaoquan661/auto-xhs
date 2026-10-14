@@ -1,30 +1,13 @@
-"""Task-scoped progress emitted by browser adapters while they execute."""
+"""Stable entry point for the role-owned xhs.progress implementation."""
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-_recorder: ContextVar[Callable[[dict], None] | None] = ContextVar("task_progress", default=None)
-
-
-@contextmanager
-def record_progress_with(recorder: Callable[[dict], None]) -> Iterator[None]:
-    token = _recorder.set(recorder)
-    try:
-        yield
-    finally:
-        _recorder.reset(token)
-
-
-def emit_progress(
-    stage: str, summary: str, *, metrics: dict | None = None, **details: object
-) -> None:
-    recorder = _recorder.get()
-    if recorder is not None:
-        try:
-            recorder({"stage": stage, "summary": summary, "metrics": metrics or {}, **details})
-        except Exception:
-            logging.getLogger(__name__).exception("任务进度记录失败")
+if __name__ == "__main__":
+    run_entrypoint('xhs.progress')
+else:
+    load_module('xhs.progress', __name__)

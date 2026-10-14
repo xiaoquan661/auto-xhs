@@ -8,6 +8,7 @@ import pytest
 from account_memory import AccountMemory
 from application_service import ApplicationService
 from manager_agent_service import ManagerAgentService
+from manager_application_memory import ManagerReplyMemoryResolver
 from manager_service import ManagerService
 from manager_store import ManagerStore
 from memory_context import ORDER, source_refs
@@ -211,6 +212,7 @@ def test_reply_generation_uses_updated_manager_knowledge(
     client = ContentClient()
     app = ApplicationService(
         product_store=ProductStore(tmp_path / "product"),
+        memory_context_resolver=ManagerReplyMemoryResolver(ManagerStore(tmp_path / "manager")),
         reply_intelligence=ReplyIntelligenceService(client),
     )
     event = {
@@ -312,3 +314,50 @@ def test_approved_shared_admission_preserves_origin(tmp_path: Path) -> None:
     assert shared["origin_memory_id"] == original["memory_id"]
     assert shared["origin_identity"] == IDENTITY
     assert not memory.recall(IDENTITY)["account_long_term"]
+
+
+
+def test_employee_reply_keeps_received_context_when_manager_store_is_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = manager(tmp_path / "manager")
+    row = write(source.memory, content="沿已下发任务核对光照")
+    MemoryReviewService(source.memory, ReviewClient()).run()
+    task = source._attach_task_context(source._normalize_task_request(request()))
+    employee = worker(tmp_path / "worker", task)
+    execution = employee._find_execution(employee._store.snapshot(), "task-a", None)
+    employee.load_memory(execution)
+    source.memory.update_memory(
+        {
+            "memory_id": row["memory_id"],
+            "change": "replace",
+            "reason": "经理更新知识",
+            "content": "经理当前要求核对通风",
+        }
+    )
+    MemoryReviewService(source.memory, ReviewClient()).run()
+    monkeypatch.setenv("XHS_MANAGER_HOME", str(tmp_path / "manager"))
+    monkeypatch.setenv("XHS_MANAGER_WORKER_HOME", str(tmp_path / "worker"))
+    event = {
+        "event_id": "employee-reply-a",
+        "event_type": "note_comment",
+        "account_slot": "alpha",
+        "platform": "xiaohongshu",
+        "payload": {"content": "如何养护"},
+    }
+    employee_app = ApplicationService(
+        product_store=ProductStore(tmp_path / "employee-product"),
+        reply_intelligence=ReplyIntelligenceService(ContentClient()),
+    )
+    manager_app = ApplicationService(
+        product_store=ProductStore(tmp_path / "manager-product"),
+        reply_intelligence=ReplyIntelligenceService(ContentClient()),
+        memory_context_resolver=ManagerReplyMemoryResolver(source.store),
+    )
+    assert employee_app.generate_reply_with_memory(event, "uid-a")["reply"] == (
+        "沿已下发任务核对光照"
+    )
+    assert manager_app.generate_reply_with_memory(event, "uid-a")["reply"] == (
+        "经理当前要求核对通风"
+    )

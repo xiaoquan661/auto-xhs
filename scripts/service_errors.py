@@ -1,19 +1,13 @@
-"""Stable product service errors shared by CLI and the local HTTP API."""
+"""Stable entry point for the role-owned service_errors implementation."""
 
 from __future__ import annotations
 
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-class ServiceError(RuntimeError):
-    """Application error with a stable code and HTTP mapping."""
-
-    def __init__(self, code: str, message: str, http_status: int = 400) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.http_status = http_status
-
-    def to_dict(self) -> dict:
-        return {
-            "success": False,
-            "error": {"code": self.code, "message": self.message},
-        }
+if __name__ == "__main__":
+    run_entrypoint('service_errors')
+else:
+    load_module('service_errors', __name__)

@@ -1,0 +1,156 @@
+{
+  "schema_version": "xiaohongshu-skills.project-source-package.v1",
+  "package_kind": "project_source",
+  "package_id": "xiaohongshu-skills.manager-source",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "package_name": "小红书经理职责源包",
+  "applicable_role": "manager",
+  "path_base": "PROJECT_ROOT",
+  "delivery_unit": "project_checkout",
+  "workspace_id": "PC023",
+  "manager_id": "MILA-MANAGER",
+  "runtime_root": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime",
+  "contract": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/contract/CONTRACT.md",
+  "tests_entry": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/tests/run_tests.py",
+  "tests_selection": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/tests/selection.json",
+  "acceptance": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/acceptance.json",
+  "related_function_ids": [
+    "DATA-03",
+    "MANAGER-01",
+    "MANAGER-02",
+    "MANAGER-03",
+    "MANAGER-04",
+    "MANAGER-FRONT-01",
+    "MANAGER-FRONT-02",
+    "MANAGER-FRONT-03",
+    "MANAGER-FRONT-04",
+    "MANAGER-FRONT-05",
+    "MEMORY-01",
+    "MEMORY-03",
+    "REPLY-01",
+    "WEB-01",
+    "WEB-02",
+    "WEB-03"
+  ],
+  "related_function_versions": [
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "REPLY-01",
+      "version": "1.1"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-03",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-03",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MANAGER-04",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-03",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-04",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MANAGER-FRONT-05",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "WEB-01",
+      "version": "1.6"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "WEB-02",
+      "version": "1.6"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "WEB-03",
+      "version": "1.6"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-01",
+      "version": "1.1"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-03",
+      "version": "1.1"
+    }
+  ],
+  "function_catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
+  "dependencies": [
+    {
+      "kind": "project_loader",
+      "path": "scripts/_role_layout.py"
+    },
+    {
+      "kind": "source_layout",
+      "path": "source-layout.json"
+    },
+    {
+      "kind": "project_dependencies",
+      "path": "pyproject.toml"
+    },
+    {
+      "kind": "dependency_lock",
+      "path": "uv.lock"
+    },
+    {
+      "kind": "source_test_baseline",
+      "path": "tests"
+    },
+    {
+      "kind": "worker_source",
+      "package_id": "xiaohongshu-skills.worker-source",
+      "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+    },
+    {
+      "kind": "webui_assets",
+      "path": "webui-layout.json"
+    }
+  ],
+  "entrypoints": {
+    "manager_cli": "scripts/manager_cli.py",
+    "manager_service": "scripts/web_server.py"
+  },
+  "version_binding": "源码版由source-layout.json显式选择；业务功能版由function_id与allowed_function_versions选用",
+  "runtime_state_binding": "工作区与实例manifest引用现有配置、任务协议和业务存储路径"
+}
