@@ -128,5 +128,16 @@
   "function_package_evidence_binding": {
     "catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
     "authority": "各外部功能版本的既有验收与运行证据"
+  },
+  "manager_local_application": {
+    "status": "APPLIED",
+    "machine_id": "PC023",
+    "project_root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills",
+    "source_pr": 57,
+    "upstream_reply_pr": 56,
+    "evidence": "ManagerStation/Managers/PC023/migration/2026-10-14-source-layout.json",
+    "http_status": 200,
+    "canonical_assets_verified": true,
+    "dashboard_snapshot_verified": true
   }
 }
