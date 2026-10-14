@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
+from project_paths import extension_root
 
 
 def test_extension_prefers_active_xhs_tab_after_profile_opens_chat() -> None:
-    background = (
-        Path(__file__).parents[1] / "extension" / "background.js"
-    ).read_text(encoding="utf-8")
+    background = (extension_root() / "background.js").read_text(encoding="utf-8")
 
     assert "const activeTabs = await chrome.tabs.query" in background
     assert "active: true" in background

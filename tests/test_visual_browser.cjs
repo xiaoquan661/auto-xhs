@@ -1,8 +1,9 @@
+const { extensionAssetPath } = require("./project_paths.cjs");
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(require('node:path').join(__dirname, '../extension/visual_browser.js'), 'utf8');
+const source = fs.readFileSync(extensionAssetPath("visual_browser.js"), 'utf8');
 function harness() {
   const calls = [];
   let windowState='minimized';
@@ -34,8 +35,7 @@ function harness() {
     }
   });
   vm.runInContext(source,context);
-  const background = fs.readFileSync(require('node:path').join(__dirname,
-    '../extension/background.js'), 'utf8');
+  const background = fs.readFileSync(extensionAssetPath("background.js"), 'utf8');
   vm.runInContext(background.match(/async function cmdScreenshot\([^]*?\n}/)[0], context);
   return {context,calls,frame};
 }

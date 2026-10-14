@@ -1,29 +1,13 @@
-"""Platform registry shared by account, task, browser, and UI layers."""
+"""Stable entry point for the role-owned platforms implementation."""
 
-from .capabilities import (
-    CapabilitySupport,
-    get_platform_capability,
-    list_platform_capabilities,
-)
-from .spec import (
-    DEFAULT_PLATFORM,
-    PlatformSpec,
-    detect_platform,
-    get_platform_spec,
-    list_platform_specs,
-    normalize_platform,
-    rewrite_platform_url,
-)
+from __future__ import annotations
 
-__all__ = [
-    "DEFAULT_PLATFORM",
-    "CapabilitySupport",
-    "PlatformSpec",
-    "detect_platform",
-    "get_platform_capability",
-    "get_platform_spec",
-    "list_platform_capabilities",
-    "list_platform_specs",
-    "normalize_platform",
-    "rewrite_platform_url",
-]
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
+
+if __name__ == "__main__":
+    run_entrypoint('platforms')
+else:
+    load_module('platforms', __name__)

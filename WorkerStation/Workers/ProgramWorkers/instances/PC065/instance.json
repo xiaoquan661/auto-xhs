@@ -1,0 +1,40 @@
+{
+  "schema_version": "xiaohongshu-skills.program-instance.v1",
+  "instance_id": "PC065",
+  "workspace_id": "PC065",
+  "machine_id": "PC065",
+  "manager_workspace_id": "PC023",
+  "manager_id": "MILA-MANAGER",
+  "definition_status": "LOCAL_DELIVERY_DEFINITION",
+  "identity_basis": "本项目按用户确认的PC编号组织程序实例交付定义",
+  "project": {
+    "name": "xiaohongshu-skills",
+    "version": "0.1.0"
+  },
+  "path_base": "PROJECT_ROOT",
+  "program_source_reference": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime",
+  "agent_workspace_reference": "WorkerStation/Workers/AgentWorkers/PC065",
+  "installed_paths": {
+    "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+    "inbox": "C:\\auto-xhs\\manager-task-inbox",
+    "outbox": "C:\\auto-xhs\\manager-task-outbox",
+    "protocol_state": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker"
+  },
+  "entrypoints": {
+    "worker_protocol": "scripts/manager_worker.py",
+    "employee_task_cli": "scripts/employee_task_cli.py",
+    "business_cli": "scripts/cli.py",
+    "executor_service": "scripts/executor_server.py"
+  },
+  "configuration_source": "本机账号配置、经理机器配置与原任务版本授权",
+  "runtime_material_sources": {
+    "agent_runs": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs",
+    "agent_locks": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-locks",
+    "pending_outcomes": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\pending-outcomes",
+    "daily_creator": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator",
+    "daily_passive": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive",
+    "logs": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\logs",
+    "memory": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\memory"
+  },
+  "deployment_evidence_source": "对应设备安装、版本和服务实际回读记录"
+}

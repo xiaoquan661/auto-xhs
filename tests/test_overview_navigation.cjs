@@ -1,10 +1,11 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
 
 test('all accounts renders cached overview when the snapshot is unavailable', () => {
-  const source = fs.readFileSync('webui/manager-console.js', 'utf8');
+  const source = fs.readFileSync(webuiAssetPath("manager-console.js"), 'utf8');
   const selection = source.slice(source.indexOf('  function selectEmployeeAccount('),
     source.indexOf('  function accountsForSelectedNode('));
   const navigation = source.slice(source.indexOf('  function selectManagerView('),

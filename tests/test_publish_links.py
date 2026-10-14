@@ -103,7 +103,9 @@ def test_real_capture_script_accepts_id_after_toast():
     import subprocess
     from pathlib import Path
 
-    source = Path("scripts/xhs/publish.py").read_text(encoding="utf-8")
+    from project_paths import canonical_path
+
+    source = canonical_path("xhs.publish").read_text(encoding="utf-8")
     tree = ast.parse(source)
     script = next(
         node.value

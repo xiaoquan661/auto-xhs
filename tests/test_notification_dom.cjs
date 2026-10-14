@@ -1,10 +1,11 @@
+const { scriptSourcePath } = require("./project_paths.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../scripts/xhs/notification_history.py'), 'utf8');
+const source = fs.readFileSync(scriptSourcePath("xhs/notification_history.py"), 'utf8');
 const select = source.match(/_SELECT_NOTIFICATION_TAB_JS = r"""([\s\S]*?)"""/)[1];
 const observedTabs = JSON.parse(fs.readFileSync(
   path.join(__dirname, 'fixtures/notifications/notification-tabs.json'), 'utf8'));
@@ -49,7 +50,7 @@ test('keeps the current comment label selected without another click', async () 
 });
 
 test('reads received comment cards from the observed notification structure', () => {
-  const python = fs.readFileSync(path.join(__dirname, '../scripts/xhs/notifications.py'), 'utf8');
+  const python = fs.readFileSync(scriptSourcePath("xhs/notifications.py"), 'utf8');
   const script = python.match(/script = f"""([\s\S]*?)"""/)[1]
     .replaceAll('{{', '{').replaceAll('}}', '}').replace('{int(max_items)}', '100');
   const card = (relation, content, reader) => {

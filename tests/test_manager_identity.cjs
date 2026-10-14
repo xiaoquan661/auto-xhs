@@ -1,8 +1,9 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
-const source = fs.readFileSync(path.join(__dirname, "../webui/manager-account-tools.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-account-tools.js"), "utf8");
 class Node {
   constructor(tag) {Object.assign(this, {tag, children: [], events: {}});}
   append(...children) {children.forEach((child) => this.children.push(child));}

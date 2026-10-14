@@ -1,3 +1,4 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
@@ -26,7 +27,7 @@ const state = {snapshot: {polling: {
 const context = vm.createContext({window: {}, document: {
   querySelector: get, createElement: () => new Node(),
 }});
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../webui/manager-polling.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(webuiAssetPath("manager-polling.js"), "utf8"), context);
 let request, fail = false;
 const view = context.window.AutoXhsPolling({state, managerApi: "/api/v1/manager",
   mutateJson: async (url, method, values) => {

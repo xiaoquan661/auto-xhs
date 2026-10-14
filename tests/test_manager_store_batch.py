@@ -7,6 +7,7 @@ from threading import Event, Thread
 
 import manager_store
 from manager_store import ManagerStore
+from project_paths import legacy_script_path
 from run_lock import RunLock
 
 
@@ -143,7 +144,7 @@ ManagerStore(sys.argv[2]).put("machines", "PC002", {"state": "READY"})
                     sys.executable,
                     "-c",
                     writer_code,
-                    str(Path(manager_store.__file__).parent),
+                    str(legacy_script_path("manager_store.py").parent),
                     str(tmp_path),
                 ],
                 check=True,

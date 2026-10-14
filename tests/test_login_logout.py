@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
+from project_paths import extension_root
 
 from scripts.xhs.errors import CDPError
 from scripts.xhs.login import _click_marked_logout_target, logout
@@ -11,7 +11,7 @@ from scripts.xhs.selectors import LOGIN_CONTAINER, LOGIN_STATUS
 
 
 def test_workspace_extension_supports_verified_session_logout() -> None:
-    extension_dir = Path(__file__).resolve().parents[1] / "extension"
+    extension_dir = extension_root()
     manifest = json.loads((extension_dir / "manifest.json").read_text(encoding="utf-8"))
     background = (extension_dir / "background.js").read_text(encoding="utf-8")
 
@@ -196,11 +196,7 @@ def test_logout_does_not_treat_temporarily_missing_account_markers_as_success(
             if "const loginContainerSelector" in expression:
                 return False
             if 'a[href*="/user/profile/"]' in expression:
-                return (
-                    "/user/profile/user-old"
-                    if self.logged_in and self.markers_visible
-                    else ""
-                )
+                return "/user/profile/user-old" if self.logged_in and self.markers_visible else ""
             return super().evaluate(expression)
 
         def click_element_by_text(self, selector: str, text: str) -> None:

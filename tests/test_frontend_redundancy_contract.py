@@ -5,25 +5,25 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
+from project_paths import extension_root, webui_asset_path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("directory", ["webui", "webui/worker"])
-def test_console_entrypoint_assets_exist(directory: str) -> None:
-    static_root = ROOT / directory
-    html = (static_root / "index.html").read_text(encoding="utf-8")
+@pytest.mark.parametrize("prefix", ["", "worker/"])
+def test_console_entrypoint_assets_exist(prefix: str) -> None:
+    html = webui_asset_path(f"{prefix}index.html").read_text(encoding="utf-8")
     assets = re.findall(r'<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"', html)
 
     assert assets
     for asset in assets:
         url = urlsplit(asset)
         if not url.scheme and not url.netloc:
-            assert (static_root / url.path.lstrip("/")).is_file(), asset
+            assert webui_asset_path(prefix + url.path.lstrip("/")).is_file(), asset
 
 
 def test_content_script_forwards_diagnostic_and_netlog_events() -> None:
-    content = (ROOT / "extension" / "content.js").read_text(encoding="utf-8")
+    content = (extension_root() / "content.js").read_text(encoding="utf-8")
 
     assert content.count('window.addEventListener("message"') == 2
     assert content.count("chrome.runtime.sendMessage") == 2
@@ -36,7 +36,7 @@ def test_content_script_forwards_diagnostic_and_netlog_events() -> None:
 
 
 def test_file_upload_uses_single_debugger_route() -> None:
-    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+    background = (extension_root() / "background.js").read_text(encoding="utf-8")
 
     assert background.count('case "set_file_input"') == 1
     assert "return await cmdSetFileInputViaDebugger(params)" in background
@@ -45,7 +45,7 @@ def test_file_upload_uses_single_debugger_route() -> None:
 
 
 def test_manager_initialization_binds_navigation_once() -> None:
-    script = (ROOT / "webui" / "manager-console.js").read_text(encoding="utf-8")
+    script = (webui_asset_path("manager-console.js")).read_text(encoding="utf-8")
 
     assert script.count("\n  initialize();") == 1
     assert script.count("\n    bindEvents();") == 1

@@ -1,9 +1,10 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(path.join(__dirname, "../webui/employee-panel.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("employee-panel.js"), "utf8");
 const root = {innerHTML: "", querySelectorAll: () => [], contains: () => false,
   querySelector: () => null};
 const saved = new Map();

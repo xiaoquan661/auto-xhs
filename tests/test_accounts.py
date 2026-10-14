@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from project_paths import extension_root
 
 from scripts.account_manager import (
     AccountConfig,
@@ -42,7 +43,7 @@ def _make_chrome_profile(root: Path, profile_name: str) -> Path:
 def test_default_extension_directory_is_current_workspace(monkeypatch):
     monkeypatch.delenv("XHS_UNIVERSAL_EXTENSION_DIR", raising=False)
 
-    assert universal_extension_dir() == Path(__file__).resolve().parents[1] / "extension"
+    assert universal_extension_dir() == extension_root()
 
 
 def test_add_accounts_get_independent_profiles_and_ports(tmp_path, monkeypatch):
@@ -117,9 +118,7 @@ def test_explicit_port_owned_by_another_process_is_rejected(tmp_path, monkeypatc
     source = _make_extension(tmp_path / "extension-source")
 
     with pytest.raises(ValueError, match="已被其他进程占用"):
-        account_manager.add_account(
-            "alpha", bridge_port=19412, extension_source=source
-        )
+        account_manager.add_account("alpha", bridge_port=19412, extension_source=source)
 
 
 def test_account_locks_do_not_block_each_other(tmp_path):
@@ -146,9 +145,7 @@ def test_account_file_is_json(tmp_path, monkeypatch):
     assert data["bridge_port"] == 19421
 
 
-def test_archive_account_removes_slot_but_preserves_profile_and_extension(
-    tmp_path, monkeypatch
-):
+def test_archive_account_removes_slot_but_preserves_profile_and_extension(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     source = _make_extension(tmp_path / "shared-extension")
     user_data = tmp_path / "User Data"
@@ -291,9 +288,7 @@ def test_existing_profile_cannot_be_bound_twice(tmp_path, monkeypatch):
         )
 
 
-def test_existing_account_can_be_rebound_without_deleting_old_profile(
-    tmp_path, monkeypatch
-):
+def test_existing_account_can_be_rebound_without_deleting_old_profile(tmp_path, monkeypatch):
     from scripts import account_manager
 
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
@@ -358,9 +353,7 @@ def test_old_account_config_remains_compatible(tmp_path, monkeypatch):
     assert config.chrome_profile_directory is None
 
 
-def test_legacy_account_can_initialize_and_enroll_connection_identity(
-    tmp_path, monkeypatch
-):
+def test_legacy_account_can_initialize_and_enroll_connection_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("XHS_ACCOUNTS_HOME", str(tmp_path / "accounts"))
     source = _make_extension(tmp_path / "extension-source")
     add_account("alpha", bridge_port=19472, extension_source=source)
@@ -457,9 +450,7 @@ def test_runtime_profile_connection_uses_enrolled_instance_as_strong_proof():
     assert wrong_instance["profile_verification_level"] == "unverified"
 
 
-def test_account_start_reports_extension_not_connected_after_profile_launch(
-    monkeypatch, capsys
-):
+def test_account_start_reports_extension_not_connected_after_profile_launch(monkeypatch, capsys):
     import argparse
 
     from scripts.cli import cmd_account_start

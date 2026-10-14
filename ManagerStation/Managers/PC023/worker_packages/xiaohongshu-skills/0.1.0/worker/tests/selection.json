@@ -1,0 +1,21 @@
+{
+  "schema_version": "xiaohongshu-skills.role-test-selection.v1",
+  "package_id": "xiaohongshu-skills.worker-source",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "path_base": "PROJECT_ROOT",
+  "test_authority": "tests",
+  "test_paths": [
+    "tests/test_application_service.py",
+    "tests/test_employee_task_cli.py",
+    "tests/test_employee_codex_runner.py",
+    "tests/test_employee_recovery.py",
+    "tests/test_manager_worker.py",
+    "tests/test_account_memory.py",
+    "tests/test_memory_lifecycle.py",
+    "tests/test_reply_intelligence_service.py",
+    "tests/test_reply_cycle.py",
+    "tests/test_publish_workflow.py"
+  ],
+  "test_entry": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/tests/run_tests.py"
+}

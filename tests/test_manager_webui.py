@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-WEBUI = ROOT / "webui"
+from project_paths import webui_asset_path
 
 
 def _source(name: str) -> str:
-    return (WEBUI / name).read_text(encoding="utf-8")
+    return webui_asset_path(name).read_text(encoding="utf-8")
 
 
 def test_manager_console_exposes_six_product_views() -> None:
@@ -39,7 +36,7 @@ def test_manager_console_exposes_six_product_views() -> None:
 
 def test_manager_assets_preserve_shared_plan_and_account_styles() -> None:
     css = _source("control-room.css")
-    assert not (WEBUI / "manager-planning.js").exists()
+    assert not (webui_asset_path("index.html").parent / "manager-planning.js").exists()
     assert ".daily-plan-summary" not in css
     assert ".daily-plan-inputs" not in css
     assert "#planning" not in css
@@ -52,8 +49,10 @@ def test_manager_assets_preserve_shared_plan_and_account_styles() -> None:
 def test_account_workspace_displays_units_and_attention() -> None:
     html = _source("index.html")
     for marker in (
-        'id="employee-unit-content"', 'id="manager-machine-nav"',
-        'id="manager-overview-exception-total"', 'id="manager-exception-total"',
+        'id="employee-unit-content"',
+        'id="manager-machine-nav"',
+        'id="manager-overview-exception-total"',
+        'id="manager-exception-total"',
     ):
         assert marker in html
 
@@ -73,7 +72,7 @@ def test_manager_account_directory_is_grouped_by_machine_and_slot() -> None:
     assert "function renderAccountWorkspace()" in script
     assert 'localStorage.setItem("auto-xhs:manager-account-node"' in script
     assert '["所属机器", account.machine_id]' in script
-    assert 'const name = account.account_slot;' in script
+    assert "const name = account.account_slot;" in script
     assert '["数据来源", account.source_label || "员工机回执"]' in script
     assert '["更新时间", formatTime(account.updated_at' in script
 
@@ -88,7 +87,7 @@ def test_remote_account_recovery_actions_keep_machine_and_slot_context() -> None
     assert '"profile-start": "profile/start"' in script
     assert '"bridge-restart": "bridge/restart"' in script
     assert 'accountTools.open("identity-check", target)' in script
-    assert '${base}/identity/check' in _source("manager-account-tools.js")
+    assert "${base}/identity/check" in _source("manager-account-tools.js")
     assert "card.appendChild(accountPersonaPanel(account))" in script
 
 
@@ -232,7 +231,7 @@ def test_system_settings_display_agent_managed_configuration() -> None:
     assert "submitMachine" not in script
     assert "submitTransfer" not in script
     assert "submitVersionPolicy" not in script
-    assert 'fetchJson(`${api}/system/status`)' in script
+    assert "fetchJson(`${api}/system/status`)" in script
 
 
 def test_api_client_errors_keep_the_server_payload_for_business_readback() -> None:

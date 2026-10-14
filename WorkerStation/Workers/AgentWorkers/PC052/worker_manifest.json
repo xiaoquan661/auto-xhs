@@ -1,0 +1,38 @@
+{
+  "schema_version": "xiaohongshu-skills.agent-workspace.v1",
+  "workspace_id": "PC052",
+  "workspace_role": "AGENT_WORKER",
+  "machine_id": "PC052",
+  "manager_workspace_id": "PC023",
+  "manager_id": "MILA-MANAGER",
+  "identity_basis": "用户确认的PC编号用于本项目本地职责工作区定位",
+  "definition_status": "LOCAL_DELIVERY_DEFINITION",
+  "project": {
+    "name": "xiaohongshu-skills",
+    "version": "0.1.0"
+  },
+  "path_base": "PROJECT_ROOT",
+  "project_root_relative": "../../../..",
+  "paths": {
+    "rules": "WorkerStation/Workers/AgentWorkers/PC052/AGENTS.md",
+    "common_rules": "WorkerStation/Workers/AgentWorkers/AGENTS.md",
+    "personal": "WorkerStation/Workers/AgentWorkers/PC052/Personal.md",
+    "role": "WorkerStation/Workers/AgentWorkers/PC052/Role.md",
+    "program_instance": "WorkerStation/Workers/ProgramWorkers/instances/PC052/instance.json",
+    "worker_source_runtime": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime",
+    "skills_source": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/skills",
+    "extension_source": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/extension",
+    "installed_project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+    "inbox": "C:\\auto-xhs\\manager-task-inbox",
+    "outbox": "C:\\auto-xhs\\manager-task-outbox",
+    "protocol_state": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker",
+    "agent_runs": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs"
+  },
+  "entrypoints": {
+    "business_cli": "scripts/cli.py",
+    "employee_task_cli": "scripts/employee_task_cli.py",
+    "worker_protocol": "scripts/manager_worker.py"
+  },
+  "account_persona_source": "经理业务配置与原任务persona快照，按机器和账号槽位隔离",
+  "deployment_evidence_source": "对应设备的安装、服务重载及实际加载版本回读记录"
+}

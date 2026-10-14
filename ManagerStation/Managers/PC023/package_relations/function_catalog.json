@@ -1,0 +1,1124 @@
+{
+  "schema_version": "xiaohongshu-skills.function-catalog.v1",
+  "catalog_id": "PC023-FUNCTION-CATALOG",
+  "date": "2026-10-14",
+  "path_base": "PROJECT_ROOT",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "external_root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+  "selection_basis": "职责与来源按已核对manifest和实际入口登记；业务执行采用任务明确授权的功能版本",
+  "locator_fields": [
+    "task_code",
+    "function_id",
+    "version"
+  ],
+  "package_version_count": 34,
+  "function_id_count": 33,
+  "responsibility_counts": {
+    "manager_only": 14,
+    "worker_only": 18,
+    "manager_and_worker": 2
+  },
+  "entries": [
+    {
+      "locator": {
+        "task_code": "INTERACT-01",
+        "function_id": "INTERACT-01",
+        "version": "1.0"
+      },
+      "locator_key": "INTERACT-01|INTERACT-01|1.0",
+      "function_name": "对指定目标点赞、收藏、评论和关注",
+      "package_name": "INTERACT-01 对指定目标点赞、收藏、评论和关注",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "对明确目标执行点赞、收藏、评论和关注；评论文本由 Agent 结合目标上下文提供。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "互动模块\\INTERACT-01\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-01\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-01\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-01\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-01\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行与Agent上下文生成",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "INTERACT-02",
+        "function_id": "INTERACT-02",
+        "version": "1.0"
+      },
+      "locator_key": "INTERACT-02|INTERACT-02|1.0",
+      "function_name": "首页浏览点赞评论复合任务",
+      "package_name": "INTERACT-02 首页浏览点赞评论复合任务",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "执行首页浏览点赞复合动作，并为 Agent 提供详情上下文读取和评论提交入口。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "互动模块\\INTERACT-02\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-02\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-02\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-02\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\互动模块\\INTERACT-02\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "编排层与执行层",
+      "manifest_execution_mode": "Agent编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "EXPLORE-01",
+        "function_id": "EXPLORE-01",
+        "version": "1.0"
+      },
+      "locator_key": "EXPLORE-01|EXPLORE-01|1.0",
+      "function_name": "获取和浏览首页推荐",
+      "package_name": "EXPLORE-01 获取和浏览首页推荐",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "读取首页推荐并按账号槽位执行浏览，生成结构化读取与浏览结果。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "内容发现模块\\EXPLORE-01\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-01\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-01\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-01\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-01\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "EXPLORE-02",
+        "function_id": "EXPLORE-02",
+        "version": "1.0"
+      },
+      "locator_key": "EXPLORE-02|EXPLORE-02|1.0",
+      "function_name": "搜索和筛选笔记",
+      "package_name": "EXPLORE-02 搜索和筛选笔记",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "按关键字和筛选条件在目标账号浏览器搜索笔记，返回结构化搜索结果。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "内容发现模块\\EXPLORE-02\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-02\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-02\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-02\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-02\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "EXPLORE-03",
+        "function_id": "EXPLORE-03",
+        "version": "1.0"
+      },
+      "locator_key": "EXPLORE-03|EXPLORE-03|1.0",
+      "function_name": "读取笔记、评论、作者和用户主页",
+      "package_name": "EXPLORE-03 读取笔记、评论、作者和用户主页",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "读取笔记详情、评论及作者信息，按需要读取用户主页。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "内容发现模块\\EXPLORE-03\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-03\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-03\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-03\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\内容发现模块\\EXPLORE-03\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "PUBLISH-01",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|PUBLISH-01|1.5",
+      "function_name": "准备图文、视频、长文预览并人工确认",
+      "package_name": "PUBLISH-01 准备图文、视频、长文预览并人工确认",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "在槽位绑定的浏览器填写图文、视频或长文，选择模板并推进最终预览；确认展示引用现有应用服务。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "发布模块\\PUBLISH-01\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-01\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-01\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-01\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-01\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、应用服务层、浏览器执行层、WebUI确认层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "PUBLISH-02",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|PUBLISH-02|1.5",
+      "function_name": "发布、保存草稿和结果结算",
+      "package_name": "PUBLISH-02 发布、保存草稿和结果结算",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "根据既有发布任务和有效确认执行正式发布或保存平台草稿，并由平台回读结算结果。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "发布模块\\PUBLISH-02\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-02\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-02\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-02\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\发布模块\\PUBLISH-02\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、应用服务层、浏览器执行层、任务与证据记录层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "REPLY-01",
+        "version": "1.1"
+      },
+      "locator_key": "REQ-20260904-001|REPLY-01|1.1",
+      "function_name": "配置账号人格",
+      "package_name": "REPLY-01 配置账号人格",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "配置、查询账号人格的身份关联、历史版本和任务快照；员工执行使用任务携带的人格快照。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "回复模块\\REPLY-01\\1.1",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.1",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.1\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.1\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.1\\README.md"
+      },
+      "manifest_applicable_layer": "经理机人格服务、员工任务快照与 WebUI",
+      "manifest_execution_mode": "包内源码执行、经理员工任务上下文与持久化记忆服务",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "REPLY-01",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|REPLY-01|1.5",
+      "function_name": "规则化自动评论回复",
+      "package_name": "REPLY-01 规则化自动评论回复",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "采集和查询评论回复事件、读取上下文，由 Agent 生成决策并通过既有回复入口执行与回读。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "回复模块\\REPLY-01\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-01\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、应用服务层、浏览器执行层、回复记录层",
+      "manifest_execution_mode": "Codex决策与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "REPLY-02",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|REPLY-02|1.5",
+      "function_name": "规则化自动私信回复",
+      "package_name": "REPLY-02 规则化自动私信回复",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "采集和查询私信事件及会话上下文，由 Agent 生成决策，执行回复及会话接续。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "回复模块\\REPLY-02\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-02\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-02\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-02\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\回复模块\\REPLY-02\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、应用服务层、浏览器执行层、会话所有权层",
+      "manifest_execution_mode": "Codex决策与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "DATA-01",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|DATA-01|1.5",
+      "function_name": "保存任务、规则、执行记录和诊断",
+      "package_name": "DATA-01 保存任务、规则、执行记录和诊断",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "执行全渠道、仅评论或仅私信的回复周期，调用现有任务、规则、回复记录与诊断服务。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "数据与诊断模块\\DATA-01\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-01\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-01\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-01\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-01\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、应用服务层、任务状态层、规则与回复记录层、诊断层",
+      "manifest_execution_mode": "Agent触发与本地服务执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "DATA-02",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|DATA-02|1.5",
+      "function_name": "保存入站事件和采集游标",
+      "package_name": "DATA-02 保存入站事件和采集游标",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "读取评论和私信并由员工现有入站事件服务保存事件与采集游标。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "数据与诊断模块\\DATA-02\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-02\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-02\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-02\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-02\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "浏览器采集层、应用服务层、入站事件层、游标存储层",
+      "manifest_execution_mode": "Agent触发与本地只读采集",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "DATA-03",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|DATA-03|1.5",
+      "function_name": "采集指标并生成运营报告",
+      "package_name": "DATA-03 采集指标并生成运营报告",
+      "source_sides": [
+        "manager",
+        "worker"
+      ],
+      "responsibility": "员工侧调用 collect-operations-metrics 采集槽位指标；报告侧通过既有 operation-reports API 查询、生成和修订报告。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        },
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "数据与诊断模块\\DATA-03\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-03\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-03\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-03\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-03\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "浏览器采集层、应用服务层、指标快照层、运营报告层、WebUI API层",
+      "manifest_execution_mode": "Agent触发、本地采集与报告生成",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "MESSAGE-01",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|MESSAGE-01|1.5",
+      "function_name": "Codex生成并直接发送主动私信",
+      "package_name": "MESSAGE-01 Codex生成并直接发送主动私信",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "读取私信会话上下文，由员工 Agent 生成个性化文本，执行主动私信批次及原批次接续。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "消息模块\\MESSAGE-01\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-01\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-01\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-01\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-01\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、应用服务层、浏览器执行层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "MESSAGE-02",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|MESSAGE-02|1.5",
+      "function_name": "采集收到的评论和私信",
+      "package_name": "MESSAGE-02 采集收到的评论和私信",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "读取本账号笔记评论和收到的一对一私信，交由现有事件服务去重保存。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "消息模块\\MESSAGE-02\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-02\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-02\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-02\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\消息模块\\MESSAGE-02\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "浏览器读取层、应用服务层、入站事件存储层",
+      "manifest_execution_mode": "固定程序只读采集",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "MANAGER-01",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|MANAGER-01|1.5",
+      "function_name": "注册和检查执行机",
+      "package_name": "MANAGER-01 注册和检查执行机",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "登记执行机及连接配置，并通过固定入口核对健康、角色、项目版本和账号摘要。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-01\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-01\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-01\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-01\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-01\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "经理机编排层、OpenSSH传输层、执行机协议层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "MANAGER-02",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|MANAGER-02|1.5",
+      "function_name": "SSH任务调度、暂停、恢复和离线处理",
+      "package_name": "MANAGER-02 SSH任务调度、暂停、恢复和离线处理",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "派发、查询、暂停、恢复和对账远程任务，并控制机器调度开关。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-02\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-02\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-02\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-02\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-02\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "经理机编排层、OpenSSH传输层、执行机本地应用服务层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "MANAGER-03",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|MANAGER-03|1.5",
+      "function_name": "传输任务包和功能包",
+      "package_name": "MANAGER-03 传输任务包和功能包",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "向员工机传输任务输入、功能包或配置，查询和设置员工功能版本策略。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-03\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-03\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-03\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-03\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-03\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "经理机编排层、OpenSSH传输层、执行机包管理层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "MANAGER-04",
+        "version": "1.5"
+      },
+      "locator_key": "REQ-20260824-002|MANAGER-04|1.5",
+      "function_name": "回收执行结果和数据",
+      "package_name": "MANAGER-04 回收执行结果和数据",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "按员工机增量回收业务结果、数据和证据，并查询经理结果记录。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-04\\1.5",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-04\\1.5",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-04\\1.5\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-04\\1.5\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-04\\1.5\\README.md"
+      },
+      "manifest_applicable_layer": "经理机汇总层、OpenSSH传输层、执行机结果与证据层",
+      "manifest_execution_mode": "Codex直接编排与固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MANAGER-FRONT-01",
+        "version": "1.0"
+      },
+      "locator_key": "REQ-20260904-001|MANAGER-FRONT-01|1.0",
+      "function_name": "顶部导航与运营总览",
+      "package_name": "MANAGER-FRONT-01 顶部导航与运营总览",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "提供经理控制台顶部导航和运营总览，显示现有任务、账号和员工回传摘要。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-FRONT-01\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-01\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-01\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-01\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-01\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "经理机 WebUI、经理 Agent 与员工机进度回传",
+      "manifest_execution_mode": "经理机缓存视图 + Agent 调度 + 员工机 API + SFTP outbox",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MANAGER-FRONT-02",
+        "version": "1.0"
+      },
+      "locator_key": "REQ-20260904-001|MANAGER-FRONT-02|1.0",
+      "function_name": "运营任务与 Agent 协作",
+      "package_name": "MANAGER-FRONT-02 运营任务与 Agent 协作",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "呈现运营任务、经理 Agent 领取规划、员工交接与进度回传。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-FRONT-02\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-02\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-02\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-02\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-02\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "经理机 WebUI、经理 Agent 与员工机进度回传",
+      "manifest_execution_mode": "经理机缓存视图 + Agent 调度 + 员工机 API + SFTP outbox",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MANAGER-FRONT-03",
+        "version": "1.0"
+      },
+      "locator_key": "REQ-20260904-001|MANAGER-FRONT-03|1.0",
+      "function_name": "员工机管理",
+      "package_name": "MANAGER-FRONT-03 员工机管理",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "展示和管理员工机器、健康连接、账号摘要及控制入口。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-FRONT-03\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-03\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-03\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-03\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-03\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "经理机 WebUI、经理 Agent 与员工机进度回传",
+      "manifest_execution_mode": "经理机缓存视图 + Agent 调度 + 员工机 API + SFTP outbox",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MANAGER-FRONT-04",
+        "version": "1.0"
+      },
+      "locator_key": "REQ-20260904-001|MANAGER-FRONT-04|1.0",
+      "function_name": "账号与人设统一管理",
+      "package_name": "MANAGER-FRONT-04 账号与人设统一管理",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "统一呈现账号、人设、回复规则及其员工同步管理入口。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-FRONT-04\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-04\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-04\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-04\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-04\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "经理机 WebUI 与员工机 API",
+      "manifest_execution_mode": "经理机缓存视图、远程账号管理与 SFTP outbox 回收",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MANAGER-FRONT-05",
+        "version": "1.0"
+      },
+      "locator_key": "REQ-20260904-001|MANAGER-FRONT-05|1.0",
+      "function_name": "数据回收与结果审计",
+      "package_name": "MANAGER-FRONT-05 数据回收与结果审计",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "展示员工数据回收、业务结果、证据和审计视图。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\MANAGER-FRONT-05\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-05\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-05\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-05\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-05\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "经理机 WebUI 与员工机 API",
+      "manifest_execution_mode": "经理机缓存视图、远程账号管理与 SFTP outbox 回收",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "WEB-01",
+        "version": "1.6"
+      },
+      "locator_key": "REQ-20260824-002|WEB-01|1.6",
+      "function_name": "启动经理机多设备运营控制台",
+      "package_name": "WEB-01 启动经理机多设备运营控制台",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "启动或重启经理机多设备运营控制台及其既有 Web 服务。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\WEB-01\\1.6",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-01\\1.6",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-01\\1.6\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-01\\1.6\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-01\\1.6\\README.md"
+      },
+      "manifest_applicable_layer": "经理机WebUI与跨机器数据链",
+      "manifest_execution_mode": "Windows本机启动入口 + SSH远程API-only执行机",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "WEB-02",
+        "version": "1.6"
+      },
+      "locator_key": "REQ-20260824-002|WEB-02|1.6",
+      "function_name": "多设备任务控制与既有功能状态反馈",
+      "package_name": "WEB-02 多设备任务控制与既有功能状态反馈",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "在经理控制台呈现并调用多设备任务派发、查询、暂停、恢复和对账。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\WEB-02\\1.6",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-02\\1.6",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-02\\1.6\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-02\\1.6\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-02\\1.6\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、经理机任务控制层、OpenSSH传输层、员工机API-only执行层、WebUI观察层",
+      "manifest_execution_mode": "Agent派发与固定程序执行，WebUI观察和结果处理",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260824-002",
+        "function_id": "WEB-03",
+        "version": "1.6"
+      },
+      "locator_key": "REQ-20260824-002|WEB-03|1.6",
+      "function_name": "WebUI完整调度和持续运营报告",
+      "package_name": "WEB-03 WebUI完整调度和持续运营报告",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "登记、查询、暂停和恢复运营计划，记录运行批次，生成、查询和修订持续运营报告。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "经理机模块\\WEB-03\\1.6",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-03\\1.6",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-03\\1.6\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-03\\1.6\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\WEB-03\\1.6\\README.md"
+      },
+      "manifest_applicable_layer": "Agent编排层、经理机调度与报告层、员工机API-only执行层、WebUI观察层",
+      "manifest_execution_mode": "Agent登记计划与固定程序执行，WebUI观察、控制暂停状态和查看报告",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MEMORY-01",
+        "version": "1.1"
+      },
+      "locator_key": "REQ-20260904-001|MEMORY-01|1.1",
+      "function_name": "建立共享核心与账号长期记忆",
+      "package_name": "MEMORY-01 建立共享核心与账号长期记忆",
+      "source_sides": [
+        "manager"
+      ],
+      "responsibility": "维护共享核心与账号长期经验，执行查询、审核、历史和生成召回。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "记忆模块\\MEMORY-01\\1.1",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-01\\1.1",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-01\\1.1\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-01\\1.1\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-01\\1.1\\README.md"
+      },
+      "manifest_applicable_layer": "经理机记忆服务与 WebUI",
+      "manifest_execution_mode": "包内源码执行、经理员工任务上下文与持久化记忆服务",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MEMORY-02",
+        "version": "1.1"
+      },
+      "locator_key": "REQ-20260904-001|MEMORY-02|1.1",
+      "function_name": "保存员工短期记忆",
+      "package_name": "MEMORY-02 保存员工短期记忆",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "保存和查询员工短期观察与交接摘要，并按任务上下文召回。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "记忆模块\\MEMORY-02\\1.1",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-02\\1.1",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-02\\1.1\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-02\\1.1\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-02\\1.1\\README.md"
+      },
+      "manifest_applicable_layer": "员工机记忆服务",
+      "manifest_execution_mode": "包内源码执行、经理员工任务上下文与持久化记忆服务",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "REQ-20260904-001",
+        "function_id": "MEMORY-03",
+        "version": "1.1"
+      },
+      "locator_key": "REQ-20260904-001|MEMORY-03|1.1",
+      "function_name": "回传动作事实与会话记忆",
+      "package_name": "MEMORY-03 回传动作事实与会话记忆",
+      "source_sides": [
+        "manager",
+        "worker"
+      ],
+      "responsibility": "员工侧保存动作事实和会话交接；经理侧回收结果、导入记忆、查询和追溯历史。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.manager-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        },
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "记忆模块\\MEMORY-03\\1.1",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-03\\1.1",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-03\\1.1\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-03\\1.1\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\记忆模块\\MEMORY-03\\1.1\\README.md"
+      },
+      "manifest_applicable_layer": "员工 outbox 与经理机回收服务",
+      "manifest_execution_mode": "包内源码执行、经理员工任务上下文与持久化记忆服务",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "ACCOUNT-01",
+        "function_id": "ACCOUNT-01",
+        "version": "1.0"
+      },
+      "locator_key": "ACCOUNT-01|ACCOUNT-01|1.0",
+      "function_name": "Profile发现、绑定和扩展配对",
+      "package_name": "ACCOUNT-01 Profile发现、绑定和扩展配对",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "发现和绑定本机 Chrome Profile、维护账号槽位、同步扩展并完成 Bridge 配对；经理侧维护任务授权和登记引用。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "账号模块\\ACCOUNT-01\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-01\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-01\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-01\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-01\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "ACCOUNT-02",
+        "function_id": "ACCOUNT-02",
+        "version": "1.0"
+      },
+      "locator_key": "ACCOUNT-02|ACCOUNT-02|1.0",
+      "function_name": "启动账号、核验身份并进入READY",
+      "package_name": "ACCOUNT-02 启动账号、核验身份并进入READY",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "按槽位启动账号、读取连接与身份状态、执行就绪诊断，并查询或取消本机业务任务。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "账号模块\\ACCOUNT-02\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-02\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-02\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-02\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-02\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "ACCOUNT-05",
+        "function_id": "ACCOUNT-05",
+        "version": "1.0"
+      },
+      "locator_key": "ACCOUNT-05|ACCOUNT-05|1.0",
+      "function_name": "半自动安全换号",
+      "package_name": "ACCOUNT-05 半自动安全换号",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "在员工本机完成退出登录、身份核验、半自动换号的开始/完成/取消和历史查询。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "账号模块\\ACCOUNT-05\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-05\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-05\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-05\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-05\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "Agent与固定程序配合",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    },
+    {
+      "locator": {
+        "task_code": "ACCOUNT-06",
+        "function_id": "ACCOUNT-06",
+        "version": "1.0"
+      },
+      "locator_key": "ACCOUNT-06|ACCOUNT-06|1.0",
+      "function_name": "账号诊断和归档",
+      "package_name": "ACCOUNT-06 账号诊断和归档",
+      "source_sides": [
+        "worker"
+      ],
+      "responsibility": "对员工本机账号槽位进行单项/全量诊断、清单查询和归档。",
+      "source_packages": [
+        {
+          "package_id": "xiaohongshu-skills.worker-source",
+          "source_version": "0.1.0",
+          "manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+        }
+      ],
+      "external_package": {
+        "root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+        "relative_path": "账号模块\\ACCOUNT-06\\1.0",
+        "absolute_path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-06\\1.0",
+        "manifest": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-06\\1.0\\manifest.json",
+        "entrypoint": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-06\\1.0\\runtime\\run.py",
+        "readme": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\账号模块\\ACCOUNT-06\\1.0\\README.md"
+      },
+      "manifest_applicable_layer": "执行层",
+      "manifest_execution_mode": "固定程序执行",
+      "reference_status": "VERIFIED_LOCAL_REFERENCE"
+    }
+  ]
+}

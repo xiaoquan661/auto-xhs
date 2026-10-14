@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import threading
 from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
@@ -8,6 +10,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import pytest
+from project_paths import project_root, webui_asset_path
 
 from scripts.executor_server import _validate_bind_host, make_executor_handler
 from scripts.web_session import SESSION_HEADER
@@ -103,6 +106,10 @@ def test_executor_handler_exposes_api_and_local_worker_console() -> None:
         assert "员工机执行台" in page
         assert "不提供任务创建和重复执行" in page
 
+        for name in ("worker.css", "worker.js", "favicon.svg", "favicon-16.png", "favicon-32.png"):
+            with urlopen(f"{base_url}/{name}", timeout=3) as response:
+                assert response.read() == webui_asset_path(f"worker/{name}").read_bytes()
+
         with urlopen(f"{base_url}/api/v1/worker/snapshot", timeout=3) as response:
             snapshot = json.loads(response.read().decode("utf-8"))
         assert snapshot["machine"]["machine_id"] == "PC055"
@@ -155,6 +162,9 @@ def test_worker_console_actions_are_session_protected_and_account_scoped() -> No
         with pytest.raises(HTTPError) as exc_info:
             post("/api/v1/worker/pause", authenticated=False)
         assert exc_info.value.code == 403
+        rejected = json.loads(exc_info.value.read().decode("utf-8"))
+        assert rejected["error"]["code"] == "SESSION_REQUIRED"
+        assert worker.calls == []
 
         assert post("/api/v1/worker/pause")["machine"]["paused"] is True
         assert post("/api/v1/worker/resume")["machine"]["paused"] is False
@@ -183,3 +193,19 @@ def test_worker_console_actions_are_session_protected_and_account_scoped() -> No
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_executor_imports_local_routes_without_manager_runtime() -> None:
+    probe = (
+        "import json, sys; sys.path.insert(0, sys.argv[1]); import executor_server; "
+        "print(json.dumps([name for name in sys.modules "
+        "if name in {'web_server', 'manager_service', 'manager_agent_service'}]))"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe, str(project_root() / "scripts")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    assert json.loads(completed.stdout) == []

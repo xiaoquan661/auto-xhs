@@ -1,9 +1,10 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(path.join(__dirname, "../webui/manager-account-tools.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-account-tools.js"), "utf8");
 const bundle = `demo-pairing-text:${"员工机测试/abcdef0123456789+=".repeat(30)}`;
 class Node {
   constructor(tag) {
