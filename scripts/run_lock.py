@@ -18,8 +18,14 @@ _INCOMPLETE_LOCK_STALE_SECONDS = 2.0
 class RunLock:
     """文件锁，确保同一时间只有一个进程在操作。"""
 
-    def __init__(self, lock_file: str = _DEFAULT_LOCK_FILE) -> None:
+    def __init__(
+        self,
+        lock_file: str = _DEFAULT_LOCK_FILE,
+        *,
+        poll_interval_seconds: float = 1.0,
+    ) -> None:
         self.lock_file = lock_file
+        self.poll_interval_seconds = poll_interval_seconds
         self._fd: int | None = None
 
     def acquire(self, timeout: float = 30.0) -> bool:
@@ -49,7 +55,7 @@ class RunLock:
                 if self._is_stale():
                     self._force_release()
                     continue
-                time.sleep(1)
+                time.sleep(self.poll_interval_seconds)
             except PermissionError:
                 # Windows 文件共享冲突可能短暂拒绝打开，沿用本次获取期限。
                 time.sleep(0.05)

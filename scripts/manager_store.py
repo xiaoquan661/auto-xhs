@@ -17,6 +17,7 @@ from run_lock import RunLock
 
 MANAGER_STORE_SCHEMA_VERSION = 1
 _PROCESS_LOCK = threading.RLock()
+_MANAGER_LOCK_POLL_SECONDS = 0.05
 T = TypeVar("T")
 
 
@@ -75,7 +76,7 @@ class ManagerStore:
             return
         self.root.mkdir(parents=True, exist_ok=True)
         with _PROCESS_LOCK:
-            lock = RunLock(str(self.lock_path))
+            lock = RunLock(str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS)
             if not lock.acquire(timeout=10):
                 raise TimeoutError("经理机数据正在被其他进程使用")
             try:
@@ -212,7 +213,9 @@ class ManagerStore:
                 self._batch.live_tasks.add(item_id)
             else:
                 with _PROCESS_LOCK:
-                    lock = RunLock(str(self.lock_path))
+                    lock = RunLock(
+                        str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS
+                    )
                     if not lock.acquire(timeout=10):
                         raise TimeoutError("经理机数据正在被其他进程使用")
                     try:
@@ -306,7 +309,7 @@ class ManagerStore:
                 return result
         self.root.mkdir(parents=True, exist_ok=True)
         with _PROCESS_LOCK:
-            lock = RunLock(str(self.lock_path))
+            lock = RunLock(str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS)
             if not lock.acquire(timeout=10):
                 raise TimeoutError("经理机数据正在被其他进程使用")
             try:
@@ -333,7 +336,7 @@ class ManagerStore:
 
     def _commit_live(self, tasks: dict[str, dict], results: dict[str, dict]) -> None:
         with _PROCESS_LOCK:
-            lock = RunLock(str(self.lock_path))
+            lock = RunLock(str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS)
             if not lock.acquire(timeout=10):
                 raise TimeoutError("经理机数据正在被其他进程使用")
             try:
