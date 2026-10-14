@@ -40,7 +40,7 @@ class ManagerDebugService:
             state["debug_incidents"][record["incident_id"]] = record
             return copy.deepcopy(record)
 
-        return self.store.mutate(save)
+        return self.store.mutate(save, include_live=False)
 
     def ingest_receipt(self, machine_id: str, receipt: dict) -> dict:
         release_id = str(receipt.get("release_id") or "")

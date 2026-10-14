@@ -1,4 +1,4 @@
-"""Collect comment/@ and follower notifications through fixed employee CLI calls."""
+"""Collect received comments and followers through fixed employee CLI calls."""
 
 from __future__ import annotations
 

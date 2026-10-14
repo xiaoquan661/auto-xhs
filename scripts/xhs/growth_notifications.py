@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-import itertools
 import re
 import time
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 from collection_coverage import collection_window
 from metric_temporality import GROWTH_ACTION, display_date, event_day
 
+from . import notification_history
+from .notification_history import (
+    notification_api_complete,
+    select_notification_tab,
+)
 from .urls import NOTIFICATION_URL
 
 _READ_GROWTH_JS = r"""
@@ -134,37 +138,29 @@ def collect_growth_notifications(
     ):
         if metric not in metrics:
             continue
-        import json
-
-        select_script = """(() => {
-          const labels = LABELS;
-          const tab = [...document.querySelectorAll('[role="tab"], .tab-item, .tab')]
-            .find(el => labels.includes((el.innerText || '').trim()));
-          if (!tab) return false;
-          tab.click();
-          return tab.classList.contains("active") || tab.getAttribute("aria-selected") === "true";
-        })()""".replace("LABELS", json.dumps(labels, ensure_ascii=False))
-        selected = False
-        for _ in range(40):
-            if page.evaluate(select_script) is True:
-                selected = True
-                break
-            time.sleep(0.25)
+        selected = select_notification_tab(page, labels)
         tabs.append(bool(selected))
         channel_rows = []
         exhausted = False
         stop = "通知标签未就绪"
         if selected:
-            from .notification_history import read_notification_history
-
             # The tab is visible before its asynchronous notification response arrives.
             for _ in range(40):
                 observed = page.evaluate("window.__AUTO_XHS_GROWTH__ || {}")
                 if parse_growth_api(observed, metric, captured)[0] is not None:
                     break
                 time.sleep(0.25)
-            channel_rows, exhausted, stop = read_notification_history(
-                page, lambda: page.evaluate(_READ_GROWTH_JS), max_items=max_items
+
+            def api_exhausted(selected_metric: str = metric) -> bool | None:
+                observed = page.evaluate("window.__AUTO_XHS_GROWTH__ || {}")
+                api_rows, complete = parse_growth_api(observed, selected_metric, captured)
+                return complete if api_rows is not None else None
+
+            channel_rows, exhausted, stop = notification_history.read_notification_history(
+                page,
+                lambda: page.evaluate(_READ_GROWTH_JS),
+                max_items=max_items,
+                api_exhausted=api_exhausted,
             )
         observed_api = page.evaluate("window.__AUTO_XHS_GROWTH__ || {}")
         api_rows, api_complete = parse_growth_api(observed_api, metric, captured)
@@ -311,12 +307,5 @@ def parse_growth_api(captured: dict, metric: str, captured_at: str) -> tuple[lis
                 "identity_basis": "platform_id",
                 "metric_semantics": "event",
             }
-    first_cursor = parse_qs(urlsplit(pages[0]["url"]).query).get("cursor", [""])[0]
-    last = (pages[-1].get("payload") or {}).get("data") or {}
-    for previous, current in itertools.pairwise(pages):
-        previous_data = (previous.get("payload") or {}).get("data") or {}
-        expected = str(previous_data.get("strCursor") or previous_data.get("cursor") or "")
-        cursor = parse_qs(urlsplit(current["url"]).query).get("cursor", [""])[0]
-        valid = valid and previous_data.get("has_more") is True and cursor == expected
-    complete = valid and not first_cursor and last.get("has_more") is False
+    complete = valid and notification_api_complete(pages)
     return list(rows.values()), complete

@@ -69,80 +69,109 @@ class ManagerStore:
         self._cache_state: dict | None = None
 
     @contextmanager
-    def batch(self) -> Iterator[None]:
+    def batch(self, *, include_live: bool = True) -> Iterator[None]:
         """Commit related local updates with one state-file write."""
         if getattr(self._batch, "state", None) is not None:
             yield
             return
         self.root.mkdir(parents=True, exist_ok=True)
-        with _PROCESS_LOCK:
-            lock = RunLock(str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS)
-            if not lock.acquire(timeout=10):
-                raise TimeoutError("经理机数据正在被其他进程使用")
-            try:
-                self._batch.state = self._read_state_fresh()
-                original_result_keys = set(self._batch.state["results"])
-                live_tasks, live_results = self.live.load()
-                self._batch.state["tasks"].update(live_tasks)
-                self._batch.state["results"].update(live_results)
-                self._batch.original_live_tasks = copy.deepcopy(live_tasks)
-                self._batch.original_live_results = copy.deepcopy(live_results)
-                self._batch.original_result_keys = original_result_keys
-                self._batch.dirty = False
-                self._batch.live_tasks = set()
-                self._batch.live_results = set()
+        pending: tuple[dict, dict, dict, dict] | None = None
+        after_batch: list[Callable[[], object]] = []
+        try:
+            with _PROCESS_LOCK:
+                lock = RunLock(
+                    str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS
+                )
+                if not lock.acquire(timeout=10):
+                    raise TimeoutError("经理机数据正在被其他进程使用")
                 try:
-                    yield
-                finally:
+                    self._batch.state = self._read_state_fresh()
+                    original_result_keys = set(self._batch.state["results"])
+                    live_tasks, live_results = self.live.load() if include_live else ({}, {})
+                    self._batch.state["tasks"].update(live_tasks)
+                    self._batch.state["results"].update(live_results)
+                    self._batch.original_live_tasks = copy.deepcopy(live_tasks)
+                    self._batch.original_live_results = copy.deepcopy(live_results)
+                    self._batch.original_result_keys = original_result_keys
+                    self._batch.dirty = False
+                    self._batch.live_tasks = set()
+                    self._batch.live_results = set()
+                    self._batch.after_batch = after_batch
                     try:
-                        state = self._batch.state
-                        self._batch.live_tasks.update(
-                            key
-                            for key, old in self._batch.original_live_tasks.items()
-                            if state["tasks"].get(key) != old
-                        )
-                        self._batch.live_results.update(
-                            key
-                            for key, old in self._batch.original_live_results.items()
-                            if state["results"].get(key) != old
-                        )
-                        live_task_ids = (
-                            set(self._batch.original_live_tasks) | self._batch.live_tasks
-                        )
-                        self._batch.live_results.update(
-                            key
-                            for key, row in state["results"].items()
-                            if key not in self._batch.original_result_keys
-                            and key not in self._batch.original_live_results
-                            and str(row.get("task_id") or "") in live_task_ids
-                        )
-                        self.live.commit(
-                            {key: state["tasks"][key] for key in self._batch.live_tasks},
-                            {key: state["results"][key] for key in self._batch.live_results},
-                        )
-                        if self._batch.dirty:
-                            live_tasks, live_results = self.live.load()
-                            state["tasks"] = {
-                                key: row
-                                for key, row in state["tasks"].items()
-                                if key not in live_tasks
-                            }
-                            state["results"] = {
-                                key: row
-                                for key, row in state["results"].items()
-                                if key not in live_results
-                            }
-                            self._write_state(state)
+                        yield
                     finally:
-                        del self._batch.state
-                        del self._batch.dirty
-                        del self._batch.live_tasks
-                        del self._batch.live_results
-                        del self._batch.original_live_tasks
-                        del self._batch.original_live_results
-                        del self._batch.original_result_keys
-            finally:
-                lock.release()
+                        try:
+                            state = self._batch.state
+                            self._batch.live_tasks.update(
+                                key
+                                for key, old in self._batch.original_live_tasks.items()
+                                if state["tasks"].get(key) != old
+                            )
+                            self._batch.live_results.update(
+                                key
+                                for key, old in self._batch.original_live_results.items()
+                                if state["results"].get(key) != old
+                            )
+                            live_task_ids = (
+                                set(self._batch.original_live_tasks) | self._batch.live_tasks
+                            )
+                            self._batch.live_results.update(
+                                key
+                                for key, row in state["results"].items()
+                                if key not in self._batch.original_result_keys
+                                and key not in self._batch.original_live_results
+                                and str(row.get("task_id") or "") in live_task_ids
+                            )
+                            pending = (
+                                {key: state["tasks"][key] for key in self._batch.live_tasks},
+                                {key: state["results"][key] for key in self._batch.live_results},
+                                self._batch.original_live_tasks,
+                                self._batch.original_live_results,
+                            )
+                            if self._batch.dirty:
+                                live_result_keys = (
+                                    set(self._batch.original_live_results)
+                                    | self._batch.live_results
+                                )
+                                state["tasks"] = {
+                                    key: row
+                                    for key, row in state["tasks"].items()
+                                    if key not in live_task_ids
+                                }
+                                state["results"] = {
+                                    key: row
+                                    for key, row in state["results"].items()
+                                    if key not in live_result_keys
+                                }
+                                self._write_state(state)
+                        finally:
+                            del self._batch.state
+                            del self._batch.dirty
+                            del self._batch.live_tasks
+                            del self._batch.live_results
+                            del self._batch.original_live_tasks
+                            del self._batch.original_live_results
+                            del self._batch.original_result_keys
+                            del self._batch.after_batch
+                finally:
+                    lock.release()
+        finally:
+            # SQLite writers can wait for a database projection without holding the JSON lock.
+            if pending is not None:
+                tasks, results, original_tasks, original_results = pending
+                self.live.commit(
+                    tasks, results, original_tasks=original_tasks, original_results=original_results
+                )
+                for callback in after_batch:
+                    callback()
+
+    def after_batch(self, callback: Callable[[], object]) -> None:
+        """Run related I/O after local state locks have been released."""
+        callbacks = getattr(self._batch, "after_batch", None)
+        if callbacks is None:
+            callback()
+        else:
+            callbacks.append(callback)
 
     def snapshot(self) -> dict:
         return copy.deepcopy(self._read_current_state())
@@ -159,17 +188,31 @@ class ManagerStore:
             state = _project_fields(state, excluded_fields)
         return _ManagerReadView(self.root, state, copy_on_read=copy_on_read)
 
-    def mutate(self, callback: Callable[[dict], T]) -> T:
+    def mutate(self, callback: Callable[[dict], T], *, include_live: bool = True) -> T:
         """Commit a linked plan, goal and operation task together."""
-        return self._transaction(callback, write=True)
+        return self._transaction(callback, write=True, include_live=include_live)
 
     def get(self, collection: str, item_id: str) -> dict | None:
         self._check_collection(collection)
-        return copy.deepcopy(self._read_current_state()[collection].get(item_id))
+        state = getattr(self._batch, "state", None)
+        if state is not None:
+            return copy.deepcopy(state[collection].get(item_id))
+        if collection in {"tasks", "results"}:
+            live = self.live.get(collection, item_id)
+            if live is not None:
+                return live
+        return copy.deepcopy(self._read_state()[collection].get(item_id))
 
     def list(self, collection: str) -> list[dict]:
         self._check_collection(collection)
-        return [copy.deepcopy(item) for item in self._read_current_state()[collection].values()]
+        state = getattr(self._batch, "state", None)
+        if state is not None:
+            values = state[collection]
+        else:
+            values = self._read_state()[collection]
+            if collection in {"tasks", "results"}:
+                values = {**values, **self.live.load_collection(collection)}
+        return [copy.deepcopy(item) for item in values.values()]
 
     def put(self, collection: str, item_id: str, item: dict) -> dict:
         self._check_collection(collection)
@@ -187,11 +230,17 @@ class ManagerStore:
             state[collection][item_id] = copy.deepcopy(item)
             return copy.deepcopy(item)
 
-        return self._transaction(mutate, write=True)
+        return self._transaction(
+            mutate, write=True, include_live=collection in {"tasks", "results"}
+        )
 
     def delete(self, collection: str, item_id: str) -> None:
         self._check_collection(collection)
-        self._transaction(lambda state: state[collection].pop(item_id, None), write=True)
+        self._transaction(
+            lambda state: state[collection].pop(item_id, None),
+            write=True,
+            include_live=collection in {"tasks", "results"},
+        )
 
     def update(
         self,
@@ -212,20 +261,7 @@ class ManagerStore:
                 state["tasks"][item_id] = updated
                 self._batch.live_tasks.add(item_id)
             else:
-                with _PROCESS_LOCK:
-                    lock = RunLock(
-                        str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS
-                    )
-                    if not lock.acquire(timeout=10):
-                        raise TimeoutError("经理机数据正在被其他进程使用")
-                    try:
-                        current = self.get("tasks", item_id)
-                        if current is None:
-                            return None
-                        updated = copy.deepcopy(mutator(current))
-                        self.live.commit({item_id: updated}, {})
-                    finally:
-                        lock.release()
+                updated = self.live.update_task(item_id, mutator)
             return copy.deepcopy(updated)
 
         def mutate(state: dict) -> dict | None:
@@ -236,10 +272,13 @@ class ManagerStore:
             state[collection][item_id] = copy.deepcopy(updated)
             return copy.deepcopy(updated)
 
-        return self._transaction(mutate, write=True)
+        return self._transaction(
+            mutate, write=True, include_live=collection in {"tasks", "results"}
+        )
 
     def get_collection_cursor(self, machine_id: str) -> int:
-        return int(self._read_current_state()["collection_cursors"].get(machine_id, 0))
+        state = getattr(self._batch, "state", None)
+        return int((state or self._read_state())["collection_cursors"].get(machine_id, 0))
 
     def set_collection_cursor(self, machine_id: str, sequence: int) -> int:
         def mutate(state: dict) -> int:
@@ -247,7 +286,7 @@ class ManagerStore:
             state["collection_cursors"][machine_id] = max(current, int(sequence))
             return int(state["collection_cursors"][machine_id])
 
-        return self._transaction(mutate, write=True)
+        return self._transaction(mutate, write=True, include_live=False)
 
     def record_result(self, result_key: str, result: dict) -> tuple[dict, bool]:
         """Insert one immutable remote result and report whether it was new."""
@@ -262,16 +301,16 @@ class ManagerStore:
             str(result.get("machine_id") or ""),
             str(result.get("remote_execution_id") or ""),
         ):
-            existing = self.get("results", result_key)
-            if existing is not None:
-                return existing, False
             record = copy.deepcopy(result)
             state = getattr(self._batch, "state", None)
             if state is not None:
+                existing = self.get("results", result_key)
+                if existing is not None:
+                    return existing, False
                 state["results"][result_key] = record
                 self._batch.live_results.add(result_key)
             else:
-                self._commit_live({}, {result_key: record})
+                return self.live.record_result(result_key, record)
             return copy.deepcopy(record), True
 
         def mutate(state: dict) -> tuple[dict, bool]:
@@ -293,9 +332,11 @@ class ManagerStore:
             state["incremental_records"][record_key] = copy.deepcopy(record)
             return copy.deepcopy(record), True
 
-        return self._transaction(mutate, write=True)
+        return self._transaction(mutate, write=True, include_live=False)
 
-    def _transaction(self, callback: Callable[[dict], T], *, write: bool) -> T:
+    def _transaction(
+        self, callback: Callable[[dict], T], *, write: bool, include_live: bool = True
+    ) -> T:
         state = getattr(self._batch, "state", None)
         if state is not None:
             result = callback(state)
@@ -303,7 +344,7 @@ class ManagerStore:
                 self._batch.dirty = True
             return result
         if write:
-            with self.batch():
+            with self.batch(include_live=include_live):
                 result = callback(self._batch.state)
                 self._batch.dirty = True
                 return result
@@ -335,14 +376,7 @@ class ManagerStore:
         }
 
     def _commit_live(self, tasks: dict[str, dict], results: dict[str, dict]) -> None:
-        with _PROCESS_LOCK:
-            lock = RunLock(str(self.lock_path), poll_interval_seconds=_MANAGER_LOCK_POLL_SECONDS)
-            if not lock.acquire(timeout=10):
-                raise TimeoutError("经理机数据正在被其他进程使用")
-            try:
-                self.live.commit(tasks, results)
-            finally:
-                lock.release()
+        self.live.commit(tasks, results)
 
     def _read_state(self) -> dict:
         if not self.path.exists():
@@ -443,13 +477,19 @@ class _ManagerReadView(ManagerStore):
     def _read_current_state(self) -> dict:
         return self._state
 
-    def list(self, collection: str) -> list[dict]:
-        if self._copy_on_read:
-            return super().list(collection)
+    def get(self, collection: str, item_id: str) -> dict | None:
         self._check_collection(collection)
+        return copy.deepcopy(self._state[collection].get(item_id))
+
+    def list(self, collection: str) -> list[dict]:
+        self._check_collection(collection)
+        if self._copy_on_read:
+            return [copy.deepcopy(row) for row in self._state[collection].values()]
         return [dict(row) for row in self._state[collection].values()]
 
-    def _transaction(self, callback: Callable[[dict], T], *, write: bool) -> T:
+    def _transaction(
+        self, callback: Callable[[dict], T], *, write: bool, include_live: bool = True
+    ) -> T:
         if write:
             raise RuntimeError("经理机快照仅支持读取")
         return callback(self._state)

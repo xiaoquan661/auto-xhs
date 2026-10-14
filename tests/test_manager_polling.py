@@ -8,23 +8,21 @@ from manager_polling import DEFAULT_POLLING
 from manager_service import ManagerService
 from manager_store import ManagerStore
 from manager_sync_service import ManagerSyncService
+from run_lock import RunLock
 from service_errors import ServiceError
 from web_server import _dispatch_manager_api, _dispatch_manager_mutation
 
 
 def test_manager_initialization_reads_polling_without_state_lock(tmp_path, monkeypatch):
     store = ManagerStore(tmp_path)
-    original_get = store.get
     store.put("settings", "polling", {"intervals": {"health_accounts_seconds": 900}})
 
-    def busy_get(collection, item_id):
-        if collection == "settings" and item_id == "polling":
-            raise TimeoutError("经理机数据正在被其他进程使用")
-        return original_get(collection, item_id)
+    def fail_load():
+        raise AssertionError("读取轮询设置加载了全部live回执")
 
-    monkeypatch.setattr(store, "get", busy_get)
-
-    manager = ManagerService(store=store)
+    monkeypatch.setattr(store.live, "load", fail_load)
+    with RunLock(str(store.lock_path)):
+        manager = ManagerService(store=store)
 
     assert manager.polling_settings["health_accounts_seconds"] == 900
 
