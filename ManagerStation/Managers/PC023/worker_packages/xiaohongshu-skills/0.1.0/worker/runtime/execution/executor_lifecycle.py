@@ -31,7 +31,7 @@ from project_paths import project_root
 try:
     from .executor_server import DEFAULT_EXECUTOR_PORT
     from .product_store import product_root
-    from .web_lifecycle import (
+    from .service_health import (
         ACTIVE_RESTART_STATES,
         port_is_listening,
         read_tasks,
@@ -40,7 +40,7 @@ try:
 except ImportError:  # Direct execution: python scripts/executor_lifecycle.py
     from executor_server import DEFAULT_EXECUTOR_PORT
     from product_store import product_root
-    from web_lifecycle import (
+    from service_health import (
         ACTIVE_RESTART_STATES,
         port_is_listening,
         read_tasks,

@@ -19,44 +19,28 @@ import argparse
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
 
 from process_utils import startup_log_excerpt as _startup_log_excerpt
 from product_store import product_root
 from project_paths import project_root
-
-ACTIVE_RESTART_STATES = {"RUNNING", "CANCEL_REQUESTED"}
-
-
-def service_is_healthy(url: str, *, timeout: float = 0.5) -> bool:
-    try:
-        with urlopen(f"{url}/api/v1/health", timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        return response.status == 200 and payload.get("status") == "ok"
-    except (OSError, URLError, json.JSONDecodeError):
-        return False
-
-
-def port_is_listening(host: str, port: int, *, timeout: float = 0.2) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-def read_tasks(url: str, *, timeout: float = 2.0) -> list[dict]:
-    with urlopen(f"{url}/api/v1/tasks", timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    return list(payload.get("tasks") or [])
+from service_health import (
+    ACTIVE_RESTART_STATES as ACTIVE_RESTART_STATES,
+)
+from service_health import (
+    port_is_listening as port_is_listening,
+)
+from service_health import (
+    read_tasks as read_tasks,
+)
+from service_health import (
+    service_is_healthy as service_is_healthy,
+)
 
 
 def listener_pid(host: str, port: int) -> int | None:

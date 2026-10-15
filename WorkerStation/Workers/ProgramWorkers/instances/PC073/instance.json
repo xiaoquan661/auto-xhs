@@ -5,7 +5,7 @@
   "machine_id": "PC073",
   "manager_workspace_id": "PC023",
   "manager_id": "MILA-MANAGER",
-  "definition_status": "LOCAL_DELIVERY_DEFINITION",
+  "definition_status": "DEVICE_INSTALLED",
   "identity_basis": "本项目按用户确认的PC编号组织程序实例交付定义",
   "project": {
     "name": "xiaohongshu-skills",
@@ -18,7 +18,8 @@
     "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
     "inbox": "C:\\auto-xhs\\manager-task-inbox",
     "outbox": "C:\\auto-xhs\\manager-task-outbox",
-    "protocol_state": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker"
+    "protocol_state": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker",
+    "program_package_root": "C:/auto-xhs/xiaohongshu-skills/WorkerStation/Workers/ProgramWorkers/packages/xiaohongshu-skills/0.1.0"
   },
   "entrypoints": {
     "worker_protocol": "scripts/manager_worker.py",
@@ -36,5 +37,7 @@
     "logs": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\logs",
     "memory": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\memory"
   },
-  "deployment_evidence_source": "对应设备安装、版本和服务实际回读记录"
+  "deployment_evidence_source": "对应设备安装、版本和服务实际回读记录",
+  "deployment_record": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json",
+  "validation_status": "AWAITING_CODEX_ACCESS"
 }

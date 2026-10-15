@@ -6,7 +6,7 @@
   "manager_workspace_id": "PC023",
   "manager_id": "MILA-MANAGER",
   "identity_basis": "用户确认的PC编号用于本项目本地职责工作区定位",
-  "definition_status": "LOCAL_DELIVERY_DEFINITION",
+  "definition_status": "DEVICE_INSTALLED",
   "project": {
     "name": "xiaohongshu-skills",
     "version": "0.1.0"
@@ -34,5 +34,6 @@
     "worker_protocol": "scripts/manager_worker.py"
   },
   "account_persona_source": "经理业务配置与原任务persona快照，按机器和账号槽位隔离",
-  "deployment_evidence_source": "对应设备的安装、服务重载及实际加载版本回读记录"
+  "deployment_evidence_source": "对应设备的安装、服务重载及实际加载版本回读记录",
+  "deployment_record": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json"
 }
