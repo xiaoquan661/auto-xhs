@@ -1169,6 +1169,7 @@ def cmd_submit_text_card(args: argparse.Namespace) -> None:
         if not title_path.is_absolute():
             raise ValueError("文字配图标题文件必须使用绝对路径")
         expected_title = title_path.read_text(encoding="utf-8-sig").strip()
+    expected_title = expected_title.removeprefix("求助").lstrip("：:，, ").strip()
     if not expected_title:
         raise ValueError("文字配图任务缺少标题")
     tags = list(parameters.get("tags") or [])
