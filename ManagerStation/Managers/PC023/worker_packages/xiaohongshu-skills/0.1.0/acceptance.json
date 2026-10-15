@@ -3,7 +3,7 @@
   "package_id": "xiaohongshu-skills.worker-source",
   "project_id": "xiaohongshu-skills",
   "source_version": "0.1.0",
-  "date": "2026-10-14",
+  "date": "2026-10-15",
   "local_validation": {
     "status": "PASSED",
     "scope": "本机职责分层、调用边界与资源路径",
@@ -111,11 +111,20 @@
         "full_run_passed": 1206,
         "followup_result": "47 passed",
         "coverage": "新增子进程测试采用固定入口路径；经理存储、私信收件箱和发送确认全部专项通过"
+      },
+      {
+        "kind": "worker_station_installation",
+        "date": "2026-10-15",
+        "python_tests": "100 passed; 10 role and package tests passed",
+        "package_notes_recheck": "1 passed",
+        "source_module_count": 148,
+        "worker_module_count": 121,
+        "ruff": "PASSED"
       }
     ]
   },
   "remote_deployment": {
-    "status": "PENDING_DEPLOYMENT",
+    "status": "INSTALLED",
     "devices": [
       "PC052",
       "PC057",
@@ -123,7 +132,15 @@
       "PC071",
       "PC073"
     ],
-    "evidence_binding": "对应设备安装、服务重载、版本及业务回读记录"
+    "evidence_binding": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json",
+    "date": "2026-10-15",
+    "validation_by_machine": {
+      "PC065": "PASSED",
+      "PC052": "PASSED",
+      "PC057": "PASSED",
+      "PC071": "PASSED",
+      "PC073": "AWAITING_CODEX_ACCESS"
+    }
   },
   "function_package_evidence_binding": {
     "catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
@@ -139,5 +156,16 @@
     "http_status": 200,
     "canonical_assets_verified": true,
     "dashboard_snapshot_verified": true
+  },
+  "deployment_validation": {
+    "date": "2026-10-15",
+    "evidence": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json",
+    "devices": {
+      "PC065": "PASSED",
+      "PC052": "PASSED",
+      "PC057": "PASSED",
+      "PC071": "PASSED",
+      "PC073": "AWAITING_CODEX_ACCESS"
+    }
   }
 }

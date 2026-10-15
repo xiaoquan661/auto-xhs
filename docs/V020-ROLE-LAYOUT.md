@@ -81,5 +81,6 @@ PC023 经理状态读取 `XHS_MANAGER_HOME`；当前本机配置为 `C:\auto-xhs
 `C:\Users\EDY\.xhs\auto-xhs\manager-worker`。运行数据、配置、数据库、账号状态与历史回执由
 既有存储继续管理。设备安装、服务重载和实际加载版本通过各设备部署证据登记。
 
-本轮交付是本机源目录及规则的适配；五机定义用于后续交付和部署核对。
-本地自动测试和远机实际安装分别登记在验收记录中。
+员工端安装到 `WorkerStation/Workers/ProgramWorkers/packages/xiaohongshu-skills/0.1.0/worker/`，
+员工岗位和程序实例按本机 PC 编号绑定。经理维护的员工源版本经构建器转换为执行机布局。
+安装方法及 2026-10-15 五机部署状态见[员工机安装与验收](V020-WORKER-DEPLOYMENT.md)。

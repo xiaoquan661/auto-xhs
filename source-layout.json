@@ -152,7 +152,8 @@
     "project_paths": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime/shared/project_paths.py",
     "application_http": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime/shared/application_http.py",
     "manager_employee_operations": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/scripts/manager_employee_operations.py",
-    "manager_application_memory": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/scripts/manager_application_memory.py"
+    "manager_application_memory": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/scripts/manager_application_memory.py",
+    "service_health": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime/shared/service_health.py"
   },
   "module_roles": {
     "account_doctor": "Worker执行支撑",
@@ -301,7 +302,8 @@
     "project_paths": "经理与Worker共用能力",
     "application_http": "经理与Worker共用能力",
     "manager_employee_operations": "经理业务",
-    "manager_application_memory": "经理业务"
+    "manager_application_memory": "经理业务",
+    "service_health": "经理与Worker共用能力"
   },
   "powershell_files": {
     "bootstrap.ps1": "ManagerStation/Managers/PC023/scripts/development/bootstrap.ps1",

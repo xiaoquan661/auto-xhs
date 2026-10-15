@@ -1,0 +1,401 @@
+{
+  "date": "2026-10-15",
+  "architecture": "NexaFlow V0.20",
+  "source_version": "0.1.0",
+  "scope": "worker_directory_installation_and_local_probe",
+  "devices": [
+    {
+      "machine_id": "PC065",
+      "pilot": true,
+      "installed": true,
+      "validation_status": "PASSED",
+      "installation": {
+        "success": true,
+        "machine_id": "PC065",
+        "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+        "backup_root": "C:\\auto-xhs\\deployments\\v020-20261015-112957-PC065\\backup",
+        "file_count": 295,
+        "bytes": 1883604,
+        "byte_comparison": "MATCH",
+        "protected_file_count": 7,
+        "previous_source_trees": [
+          "scripts",
+          "skills",
+          "prompts",
+          "webui"
+        ]
+      },
+      "runtime": {
+        "machine_id": "PC065",
+        "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+        "system": "Windows-11-10.0.22631-SP0",
+        "source_file_count": 295,
+        "source_byte_comparison": "MATCH",
+        "package_note_count": 4,
+        "package_note_byte_comparison": "MATCH"
+      },
+      "smoke": {
+        "imports": 121,
+        "entry_help": [
+          "cli.py",
+          "employee_task_cli.py",
+          "executor_server.py"
+        ],
+        "origins": {
+          "executor_server": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "manager_worker_service": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        }
+      },
+      "verification": {
+        "checks": {
+          "service_reloaded": true,
+          "protected_files": true,
+          "prior_execution_states": true,
+          "history_files": true,
+          "config": true,
+          "machine_pause": true,
+          "account_management": true,
+          "probe_success": true,
+          "probe_token": true,
+          "agent_claimed": true,
+          "outbox_written": true
+        },
+        "success": true,
+        "http": {
+          "/api/v1/health": 200,
+          "/api/v1/worker/snapshot": 200,
+          "/": 200,
+          "/worker.css": 200,
+          "/worker.js": 200
+        },
+        "historical_execution_count": 14,
+        "retained_inbox_files": 12,
+        "retained_outbox_files": 78,
+        "protected_file_count": 7,
+        "paused_tasks": [],
+        "source_layout": "worker",
+        "probe_task_id": "v020-deployment-probe-pc065-20261015-113100",
+        "probe_execution_id": "a658e0c243a44611a63e07dd8d8fa0a5",
+        "probe_state": "SUCCESS",
+        "callback_status": "OUTBOX_READY"
+      },
+      "manager_task_state": "SUCCESS"
+    },
+    {
+      "machine_id": "PC052",
+      "pilot": false,
+      "installed": true,
+      "validation_status": "PASSED",
+      "installation": {
+        "success": true,
+        "machine_id": "PC052",
+        "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+        "backup_root": "C:\\auto-xhs\\deployments\\v020-20261015-113430-PC052\\backup",
+        "file_count": 295,
+        "bytes": 1883900,
+        "byte_comparison": "MATCH",
+        "protected_file_count": 5,
+        "previous_source_trees": [
+          "scripts",
+          "skills",
+          "prompts",
+          "webui"
+        ]
+      },
+      "runtime": {
+        "machine_id": "PC052",
+        "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+        "system": "Windows-11-10.0.22631-SP0",
+        "source_file_count": 295,
+        "source_byte_comparison": "MATCH",
+        "package_note_count": 4,
+        "package_note_byte_comparison": "MATCH"
+      },
+      "smoke": {
+        "imports": 121,
+        "entry_help": [
+          "cli.py",
+          "employee_task_cli.py",
+          "executor_server.py"
+        ],
+        "origins": {
+          "executor_server": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "manager_worker_service": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        }
+      },
+      "verification": {
+        "checks": {
+          "service_reloaded": true,
+          "protected_files": true,
+          "prior_execution_states": true,
+          "history_files": true,
+          "config": true,
+          "machine_pause": true,
+          "account_management": true,
+          "probe_success": true,
+          "probe_token": true,
+          "agent_claimed": true,
+          "outbox_written": true
+        },
+        "success": true,
+        "http": {
+          "/api/v1/health": 200,
+          "/api/v1/worker/snapshot": 200,
+          "/": 200,
+          "/worker.css": 200,
+          "/worker.js": 200
+        },
+        "historical_execution_count": 200,
+        "retained_inbox_files": 174,
+        "retained_outbox_files": 1288,
+        "protected_file_count": 5,
+        "paused_tasks": [],
+        "source_layout": "worker",
+        "probe_task_id": "v020-deployment-probe-pc052-20261015-113448",
+        "probe_execution_id": "d445db46e4a8464d8f19cd00c51665f0",
+        "probe_state": "SUCCESS",
+        "callback_status": "OUTBOX_READY"
+      },
+      "manager_task_state": "SUCCESS"
+    },
+    {
+      "machine_id": "PC057",
+      "pilot": false,
+      "installed": true,
+      "validation_status": "PASSED",
+      "installation": {
+        "success": true,
+        "machine_id": "PC057",
+        "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+        "backup_root": "C:\\auto-xhs\\deployments\\v020-20261015-113504-PC057\\backup",
+        "file_count": 295,
+        "bytes": 1883604,
+        "byte_comparison": "MATCH",
+        "protected_file_count": 7,
+        "previous_source_trees": [
+          "scripts",
+          "skills",
+          "prompts",
+          "webui"
+        ]
+      },
+      "runtime": {
+        "machine_id": "PC057",
+        "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+        "system": "Windows-11-10.0.22631-SP0",
+        "source_file_count": 295,
+        "source_byte_comparison": "MATCH",
+        "package_note_count": 4,
+        "package_note_byte_comparison": "MATCH"
+      },
+      "smoke": {
+        "imports": 121,
+        "entry_help": [
+          "cli.py",
+          "employee_task_cli.py",
+          "executor_server.py"
+        ],
+        "origins": {
+          "executor_server": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "manager_worker_service": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        }
+      },
+      "verification": {
+        "checks": {
+          "service_reloaded": true,
+          "protected_files": true,
+          "prior_execution_states": true,
+          "history_files": true,
+          "config": true,
+          "machine_pause": true,
+          "account_management": true,
+          "probe_success": true,
+          "probe_token": true,
+          "agent_claimed": true,
+          "outbox_written": true
+        },
+        "success": true,
+        "http": {
+          "/api/v1/health": 200,
+          "/api/v1/worker/snapshot": 200,
+          "/": 200,
+          "/worker.css": 200,
+          "/worker.js": 200
+        },
+        "historical_execution_count": 490,
+        "retained_inbox_files": 312,
+        "retained_outbox_files": 2393,
+        "protected_file_count": 7,
+        "paused_tasks": [
+          "daily-20260929-pc057-serial-8"
+        ],
+        "source_layout": "worker",
+        "probe_task_id": "v020-deployment-probe-pc057-20261015-113537",
+        "probe_execution_id": "40a65a8902ec41a08f7c9da19b324126",
+        "probe_state": "SUCCESS",
+        "callback_status": "OUTBOX_READY"
+      },
+      "manager_task_state": "SUCCESS"
+    },
+    {
+      "machine_id": "PC071",
+      "pilot": false,
+      "installed": true,
+      "validation_status": "PASSED",
+      "installation": {
+        "success": true,
+        "machine_id": "PC071",
+        "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+        "backup_root": "C:\\auto-xhs\\deployments\\v020-20261015-113616-PC071\\backup",
+        "file_count": 295,
+        "bytes": 1883604,
+        "byte_comparison": "MATCH",
+        "protected_file_count": 7,
+        "previous_source_trees": [
+          "scripts",
+          "skills",
+          "prompts",
+          "webui"
+        ]
+      },
+      "runtime": {
+        "machine_id": "PC071",
+        "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+        "system": "Windows-11-10.0.22631-SP0",
+        "source_file_count": 295,
+        "source_byte_comparison": "MATCH",
+        "package_note_count": 4,
+        "package_note_byte_comparison": "MATCH"
+      },
+      "smoke": {
+        "imports": 121,
+        "entry_help": [
+          "cli.py",
+          "employee_task_cli.py",
+          "executor_server.py"
+        ],
+        "origins": {
+          "executor_server": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "manager_worker_service": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        }
+      },
+      "verification": {
+        "checks": {
+          "service_reloaded": true,
+          "protected_files": true,
+          "prior_execution_states": true,
+          "history_files": true,
+          "config": true,
+          "machine_pause": true,
+          "account_management": true,
+          "probe_success": true,
+          "probe_token": true,
+          "agent_claimed": true,
+          "outbox_written": true
+        },
+        "success": true,
+        "http": {
+          "/api/v1/health": 200,
+          "/api/v1/worker/snapshot": 200,
+          "/": 200,
+          "/worker.css": 200,
+          "/worker.js": 200
+        },
+        "historical_execution_count": 147,
+        "retained_inbox_files": 107,
+        "retained_outbox_files": 750,
+        "protected_file_count": 7,
+        "paused_tasks": [],
+        "source_layout": "worker",
+        "probe_task_id": "v020-deployment-probe-pc071-20261015-113637",
+        "probe_execution_id": "0d76395e926143659315f302fb661b41",
+        "probe_state": "SUCCESS",
+        "callback_status": "OUTBOX_READY"
+      },
+      "manager_task_state": "SUCCESS"
+    },
+    {
+      "machine_id": "PC073",
+      "pilot": false,
+      "installed": true,
+      "validation_status": "AWAITING_CODEX_ACCESS",
+      "installation": {
+        "success": true,
+        "machine_id": "PC073",
+        "project_root": "C:\\auto-xhs\\xiaohongshu-skills",
+        "backup_root": "C:\\auto-xhs\\deployments\\v020-20261015-113652-PC073\\backup",
+        "file_count": 295,
+        "bytes": 1883604,
+        "byte_comparison": "MATCH",
+        "protected_file_count": 7,
+        "previous_source_trees": [
+          "scripts",
+          "skills",
+          "prompts",
+          "webui"
+        ]
+      },
+      "runtime": {
+        "machine_id": "PC073",
+        "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+        "system": "Windows-11-10.0.22631-SP0",
+        "source_file_count": 295,
+        "source_byte_comparison": "MATCH",
+        "package_note_count": 4,
+        "package_note_byte_comparison": "MATCH"
+      },
+      "smoke": {
+        "imports": 121,
+        "entry_help": [
+          "cli.py",
+          "employee_task_cli.py",
+          "executor_server.py"
+        ],
+        "origins": {
+          "executor_server": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "manager_worker_service": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        }
+      },
+      "verification": {
+        "checks": {
+          "service_reloaded": true,
+          "protected_files": true,
+          "prior_execution_states": true,
+          "history_files": true,
+          "config": true,
+          "machine_pause": true,
+          "account_management": true,
+          "probe_success": false,
+          "probe_token": false,
+          "agent_claimed": false,
+          "outbox_written": true
+        },
+        "success": false,
+        "http": {
+          "/api/v1/health": 200,
+          "/api/v1/worker/snapshot": 200,
+          "/": 200,
+          "/worker.css": 200,
+          "/worker.js": 200
+        },
+        "historical_execution_count": 28,
+        "retained_inbox_files": 27,
+        "retained_outbox_files": 153,
+        "protected_file_count": 7,
+        "paused_tasks": [],
+        "source_layout": "worker",
+        "probe_task_id": "v020-deployment-probe-pc073-20261015-113709",
+        "probe_execution_id": "36cab1da110a458f8e979da485824bcb",
+        "probe_state": "FAILED",
+        "callback_status": "OUTBOX_READY"
+      },
+      "manager_task_state": "FAILED",
+      "agent_error": "workspace routing discovery unauthorized (401)",
+      "user_next_action": "用户检查并重新登录 Codex 后通知继续验证"
+    }
+  ],
+  "python_regression": "100 passed",
+  "independent_package_recheck": "1 passed",
+  "ruff": "PASSED",
+  "role_and_memory_package_regression": "10 passed"
+}
