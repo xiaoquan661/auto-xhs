@@ -16,10 +16,10 @@ from .errors import (
     TitleTooLongError,
     UploadTimeoutError,
 )
+from .publish_links import MANAGER_URL
 from .selectors import (
     CONTENT_EDITOR,
     CONTENT_LENGTH_ERROR,
-    CREATOR_TAB,
     DATETIME_INPUT,
     FILE_INPUT,
     IMAGE_PREVIEW,
@@ -245,8 +245,10 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
 
     # Read the closed shadow button's layout and click it in one debugger session.
     click_result = page.click_publish_control()
-    if (click_result.get("dispatched") is False
-            and click_result.get("error_code") != "EXTENSION_RELOAD_REQUIRED"):
+    if (
+        click_result.get("dispatched") is False
+        and click_result.get("error_code") != "EXTENSION_RELOAD_REQUIRED"
+    ):
         logger.warning("发布尚未派发，重新定位按钮: %s", click_result)
         time.sleep(0.5)
         click_result = page.click_publish_control()
@@ -569,117 +571,83 @@ def save_as_draft(page: Page, *, expected_title: str = "") -> dict:
 
 
 def _navigate_to_publish_page(page: Page) -> None:
-    """导航到发布页面。"""
-    page.navigate(PUBLISH_URL)
+    """按平台打开创作入口。"""
+    if getattr(page, "_platform", "xiaohongshu") == "rednote":
+        page.navigate(PUBLISH_URL)
+        page.wait_for_load(timeout=300)
+        page.wait_dom_stable()
+        return
+    page.navigate(MANAGER_URL)
     page.wait_for_load(timeout=300)
-    time.sleep(3)
     page.wait_dom_stable()
-    time.sleep(2)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if _click_visible_publish_text(page, "发布笔记"):
+            return
+        time.sleep(0.2)
+    raise PublishError("未找到创作中心“发布笔记”入口")
+
+
+def _click_visible_publish_text(page: Page, label: str) -> bool:
+    """按当前页面可见文字点击创作入口或发布类型。"""
+    point = page.evaluate(
+        f"""
+        (() => {{
+            const label = {json.dumps(label)};
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {{
+                const node = walker.currentNode;
+                if (node.textContent.trim() !== label) continue;
+                const el = node.parentElement;
+                if (el.closest('[data-hp-kind],[button-hp-installed],[aria-hidden="true"]'))
+                    continue;
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                if (rect.width <= 0 || rect.height <= 0 ||
+                    rect.right <= 0 || rect.bottom <= 0 ||
+                    rect.left >= innerWidth || rect.top >= innerHeight ||
+                    style.display === 'none' || style.visibility === 'hidden')
+                    continue;
+                return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
+            }}
+            return null;
+        }})()
+        """
+    )
+    if not point:
+        return False
+    page.mouse_click(point["x"], point["y"])
+    return True
+
+
+def _active_publish_tab(page: Page) -> str | None:
+    return page.evaluate(
+        """
+        (() => {
+            for (const tab of document.querySelectorAll('div.creator-tab.active')) {
+                if (tab.hasAttribute('data-hp-kind') ||
+                    tab.hasAttribute('button-hp-installed')) continue;
+                const rect = tab.getBoundingClientRect();
+                if (rect.left < -1000 || rect.top < -1000) continue;
+                return tab.querySelector('span.title')?.textContent.trim() || null;
+            }
+            return null;
+        })()
+        """
+    )
 
 
 def _click_publish_tab(page: Page, tab_name: str) -> None:
-    """点击发布页 TAB（上传图文/上传视频/写长文/发播客）。
-
-    XHS 创作中心反爬升级版 —— 每个 tab 渲染 3 份：
-
-    1. "屏外诱饵"：Vue scoped (data-v-*)，藏在 `left:-9999px; top:-9999px`，
-       看起来像真 tab 但**不绑事件**，点了 active 不切换。**没有 hp 属性**所以
-       老代码会把它当真 tab 误点。
-    2. "明显 honey pot"：带 data-hp-kind + button-hp-installed，
-       inset 在视口内但 opacity:1e-05 + z-index:-1，点了被标机器人。
-    3. **真 tab**：Vue scoped + 在视口内 + 带 **data-hp-bound="1"**
-       （XHS 反爬框架"已绑定真实事件"的标记）。
-
-    正确策略：找 `data-hp-bound="1"` 且无 hp 陷阱属性的 Vue tab；用 active class
-    切换确认。
-
-    """
+    """从“发布笔记”菜单选择发布类型并确认对应编辑页。"""
     deadline = time.monotonic() + 15
+    clicked = False
     while time.monotonic() < deadline:
-        found = page.evaluate(
-            f"""
-            (() => {{
-                const name = {json.dumps(tab_name)};
-                const tabs = document.querySelectorAll({json.dumps(CREATOR_TAB)});
-
-                // 真 tab：有 data-hp-bound + 无 hp 陷阱属性 + 在视口里
-                for (const t of tabs) {{
-                    if (t.hasAttribute('data-hp-kind') ||
-                        t.hasAttribute('button-hp-installed')) continue;
-                    if (!t.hasAttribute('data-hp-bound')) continue;
-                    const title = t.querySelector('span.title');
-                    if (!title || title.textContent.trim() !== name) continue;
-                    const r = t.getBoundingClientRect();
-                    if (r.left < -1000 || r.top < -1000) continue;
-                    t.click();
-                    return 'clicked';
-                }}
-
-                // 兜底 1：无 hp 陷阱属性 + 在视口内（兼容 XHS 未来去掉 data-hp-bound）
-                for (const t of tabs) {{
-                    if (t.hasAttribute('data-hp-kind') ||
-                        t.hasAttribute('button-hp-installed')) continue;
-                    const title = t.querySelector('span.title');
-                    if (!title || title.textContent.trim() !== name) continue;
-                    const r = t.getBoundingClientRect();
-                    if (r.left < -1000 || r.top < -1000) continue;
-                    t.click();
-                    return 'clicked';
-                }}
-
-                return 'not_found';
-            }})()
-            """
-        )
-
-        # 等待 active class 切换：检查真正 active 的 tab title 是否 == 目标
-        if found == "clicked":
-            switched_deadline = time.monotonic() + 5
-            while time.monotonic() < switched_deadline:
-                active_title = page.evaluate(
-                    f"""
-                    (() => {{
-                        // 找视口内 + 无 hp 陷阱 + active 的 tab，取它的 title
-                        const tabs = document.querySelectorAll({json.dumps(CREATOR_TAB)});
-                        for (const t of tabs) {{
-                            if (t.hasAttribute('data-hp-kind') ||
-                                t.hasAttribute('button-hp-installed')) continue;
-                            if (!t.classList.contains('active')) continue;
-                            const r = t.getBoundingClientRect();
-                            if (r.left < -1000 || r.top < -1000) continue;
-                            const title = t.querySelector('span.title');
-                            return title ? title.textContent.trim() : null;
-                        }}
-                        return null;
-                    }})()
-                    """
-                )
-                if active_title == tab_name:
-                    return
-                time.sleep(0.2)
-            logger.warning(
-                "点击了 %s 但 active tab 仍是 %r，可能被反爬拦截", tab_name, active_title
-            )
-
-        if found == "clicked":
+        if _active_publish_tab(page) == tab_name:
             return
-
+        if not clicked:
+            clicked = _click_visible_publish_text(page, tab_name)
         time.sleep(0.2)
-
-    # 调试：输出页面信息
-    debug_info = page.evaluate("""
-        (() => {
-            const creatorTabs = document.querySelectorAll('div.creator-tab');
-            const tabTexts = Array.from(creatorTabs).map(t => ({
-                text: t.textContent.trim(),
-                html: t.outerHTML.substring(0, 200)
-            }));
-            const url = window.location.href;
-            return JSON.stringify({url, tabCount: creatorTabs.length, tabs: tabTexts});
-        })()
-    """)
-    logger.error("调试信息: %s", debug_info)
-    raise PublishError(f"没有找到发布 TAB - {tab_name}")
+    raise PublishError(f"未能打开“{tab_name}”编辑页")
 
 
 # ========== 图片上传 ==========
