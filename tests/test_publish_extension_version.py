@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
+from project_paths import extension_root
 from xhs.bridge import BridgePage
 from xhs.errors import PublishError
 from xhs.publish import click_publish_button
@@ -11,14 +11,13 @@ from xhs.publish import click_publish_button
 
 def test_publish_click_requires_loaded_extension_version(monkeypatch) -> None:
     page = BridgePage("ws://localhost:9334", account="2-2", platform="xiaohongshu")
-    expected = json.loads(
-        (Path(__file__).resolve().parents[1] / "extension" / "manifest.json").read_text(
-            encoding="utf-8"
-        )
-    )["version"]
+    expected = json.loads((extension_root() / "manifest.json").read_text(encoding="utf-8"))[
+        "version"
+    ]
     calls: list[str] = []
     monkeypatch.setattr(
-        page, "get_server_status",
+        page,
+        "get_server_status",
         lambda: {"extension": {"extension_version": "older"}},
     )
     monkeypatch.setattr(page, "_call", lambda method, params: calls.append(method))
@@ -28,7 +27,8 @@ def test_publish_click_requires_loaded_extension_version(monkeypatch) -> None:
     assert calls == []
 
     monkeypatch.setattr(
-        page, "get_server_status",
+        page,
+        "get_server_status",
         lambda: {"extension": {"extension_version": expected}},
     )
     monkeypatch.setattr(page, "_call", lambda method, params: {"dispatched": True})

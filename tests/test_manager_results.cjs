@@ -1,3 +1,4 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -43,7 +44,7 @@ const state = {
     content: {actual_total: 0, target_total: 5}}],
 };
 const context = vm.createContext({window: {}, document: {querySelector: () => root}});
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../webui/manager-results.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(webuiAssetPath("manager-results.js"), "utf8"), context);
 let selection = {machine:"",account:""};
 let selectedCalls = [];
 const view = context.window.AutoXhsResultView({
@@ -141,7 +142,7 @@ assert.ok(JSON.stringify(cards()).includes('平台已发布作品'));
 assert.ok(JSON.stringify(cards()).includes('2026-09-23 12:00'));
 assert.equal(collected.capability,'collect-operations-metrics');
 console.log('PASS: collected creator works join published list and deduplicate without changing receipts');
-const source = fs.readFileSync(path.join(__dirname, '../webui/manager-console.js'), 'utf8');
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), 'utf8');
 const metricFunction = source.slice(source.indexOf('  function publishedMetricHistory('),
   source.indexOf('  function publishedNoteMetrics('));
 const metricState = {results:[],resultHistory:[]};

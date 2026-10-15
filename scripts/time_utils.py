@@ -1,12 +1,13 @@
-"""Shared time conversion helpers."""
+"""Stable entry point for the role-owned time_utils implementation."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-
-def epoch_to_iso(value: int) -> str:
-    if not value:
-        return ""
-    seconds = value / 1000 if value > 10_000_000_000 else value
-    return datetime.fromtimestamp(seconds, UTC).isoformat()
+if __name__ == "__main__":
+    run_entrypoint('time_utils')
+else:
+    load_module('time_utils', __name__)

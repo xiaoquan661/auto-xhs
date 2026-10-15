@@ -1,0 +1,171 @@
+{
+  "schema_version": "xiaohongshu-skills.source-acceptance.v1",
+  "package_id": "xiaohongshu-skills.worker-source",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "date": "2026-10-15",
+  "local_validation": {
+    "status": "PASSED",
+    "scope": "本机职责分层、调用边界与资源路径",
+    "records": [
+      {
+        "kind": "python_regression",
+        "test_paths": [
+          "tests/test_employee_operations.py",
+          "tests/test_collection_coverage.py",
+          "tests/test_metric_temporality.py",
+          "tests/test_memory_lifecycle.py",
+          "tests/test_reply_intelligence_service.py",
+          "tests/test_reply_cycle.py"
+        ],
+        "result": "69 passed",
+        "coverage": "经理视图迁移、员工回执工具、显式经理记忆注入和员工冻结上下文"
+      },
+      {
+        "kind": "ruff",
+        "result": "PASSED",
+        "coverage": "本轮职责拆分的应用、记忆、经理视图和服务接线源码"
+      },
+      {
+        "kind": "source_path_readback",
+        "module_count": 147,
+        "missing_modules": 0,
+        "resource_roots": [
+          "extension",
+          "skills",
+          "prompts"
+        ],
+        "result": "PASSED"
+      },
+      {
+        "kind": "import_boundary",
+        "result": "PASSED",
+        "coverage": "员工flatten_observations导入保持员工工具依赖；经理类兼容导出指向manager_employee_operations"
+      },
+      {
+        "kind": "role_test_entry_collection",
+        "command": "tests/run_tests.py --collect-only",
+        "result": "PASSED",
+        "tests_collected": 218,
+        "test_implementation_authority": "project_root/tests"
+      },
+      {
+        "kind": "function_catalog_readback",
+        "result": "PASSED",
+        "external_version_count": 34,
+        "unique_composite_locators": 34,
+        "verified_fields": [
+          "package_path",
+          "manifest",
+          "entrypoint",
+          "readme"
+        ]
+      },
+      {
+        "kind": "role_test_entry_lint",
+        "result": "PASSED",
+        "command": "ruff check manager/tests/run_tests.py worker/tests/run_tests.py"
+      },
+      {
+        "kind": "python_full_regression",
+        "command": "python -m pytest -q --tb=short",
+        "result": "1192 passed",
+        "elapsed_seconds": 369.56
+      },
+      {
+        "kind": "frontend_regression",
+        "command": "node --test tests/*.cjs",
+        "result": "86 passed"
+      },
+      {
+        "kind": "ruff_full_check",
+        "command": "ruff check .",
+        "result": "PASSED"
+      },
+      {
+        "kind": "powershell_parser",
+        "result": "PASSED",
+        "coverage": "稳定启动入口、经理启动实现、环境准备实现"
+      },
+      {
+        "kind": "editable_install",
+        "command": "pip install -e source[dev]",
+        "result": "PASSED",
+        "coverage": "独立临时venv完整安装、四类命令帮助与canonical来源",
+        "evidence": "tmp/role-layout-editable-probe.json"
+      },
+      {
+        "kind": "powershell_forwarding",
+        "result": "PASSED",
+        "coverage": "稳定入口将指定Port和ListenAddress传入真实实现"
+      },
+      {
+        "kind": "bootstrap_prepare",
+        "command": "powershell -File scripts/bootstrap.ps1 -Prepare",
+        "result": "ready"
+      },
+      {
+        "kind": "reply_fix_layout_integration",
+        "upstream_pr": 56,
+        "full_suite_test_count": 1207,
+        "full_run_passed": 1206,
+        "followup_result": "47 passed",
+        "coverage": "新增子进程测试采用固定入口路径；经理存储、私信收件箱和发送确认全部专项通过"
+      },
+      {
+        "kind": "worker_station_installation",
+        "date": "2026-10-15",
+        "python_tests": "100 passed; 10 role and package tests passed",
+        "package_notes_recheck": "1 passed",
+        "source_module_count": 148,
+        "worker_module_count": 121,
+        "ruff": "PASSED"
+      }
+    ]
+  },
+  "remote_deployment": {
+    "status": "INSTALLED",
+    "devices": [
+      "PC052",
+      "PC057",
+      "PC065",
+      "PC071",
+      "PC073"
+    ],
+    "evidence_binding": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json",
+    "date": "2026-10-15",
+    "validation_by_machine": {
+      "PC065": "PASSED",
+      "PC052": "PASSED",
+      "PC057": "PASSED",
+      "PC071": "PASSED",
+      "PC073": "PASSED"
+    }
+  },
+  "function_package_evidence_binding": {
+    "catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
+    "authority": "各外部功能版本的既有验收与运行证据"
+  },
+  "manager_local_application": {
+    "status": "APPLIED",
+    "machine_id": "PC023",
+    "project_root": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills",
+    "source_pr": 57,
+    "upstream_reply_pr": 56,
+    "evidence": "ManagerStation/Managers/PC023/migration/2026-10-14-source-layout.json",
+    "http_status": 200,
+    "canonical_assets_verified": true,
+    "dashboard_snapshot_verified": true
+  },
+  "deployment_validation": {
+    "date": "2026-10-15",
+    "evidence": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json",
+    "devices": {
+      "PC065": "PASSED",
+      "PC052": "PASSED",
+      "PC057": "PASSED",
+      "PC071": "PASSED",
+      "PC073": "PASSED"
+    }
+  }
+}

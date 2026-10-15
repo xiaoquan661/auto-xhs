@@ -54,8 +54,11 @@ def test_delivery_contract_and_source_origin() -> None:
     ManagerWorkerService._validate_function_package_payload(MANIFEST, ROOT)
     for name in MANIFEST["evidence_files"]:
         assert (ROOT / name).is_file()
-    assert Path(sys.modules["account_memory"].__file__).resolve().is_relative_to(ROOT)
-    assert Path(sys.modules["manager_service"].__file__).resolve().is_relative_to(ROOT)
+    project = ROOT / "runtime" / "project"
+    layout = json.loads((project / "source-layout.json").read_text(encoding="utf-8"))
+    for module in ("account_memory", "manager_service", "manager_worker_service"):
+        source = Path(sys.modules[module].__file__).resolve()
+        assert source == (project / layout["module_files"][module]).resolve()
     assert MANIFEST["task_code"] == "REQ-20260904-001"
     assert MANIFEST["version"] == "1.1"
 

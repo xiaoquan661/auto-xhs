@@ -1,0 +1,9 @@
+{
+  "schema_version": "xiaohongshu-skills.source-relation-selection.v1",
+  "binding_kind": "project_source_layout",
+  "relation_id": "PC023-SOURCE-RELATIONS-0.1.0",
+  "relation_version": "0.1.0",
+  "path_base": "PROJECT_ROOT",
+  "relation_file": "ManagerStation/Managers/PC023/package_relations/relations_0.1.0.json",
+  "source_layout": "source-layout.json"
+}

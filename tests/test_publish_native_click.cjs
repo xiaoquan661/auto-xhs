@@ -1,8 +1,9 @@
+const { extensionAssetPath } = require("./project_paths.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
-const source = fs.readFileSync('extension/background.js', 'utf8');
+const source = fs.readFileSync(extensionAssetPath("background.js"), 'utf8');
 const code = source.slice(source.indexOf('function publishDomNodes('), source.indexOf('async function cmdClickViaDebugger('));
 function harness(disabled = false, text = '\u53d1\u5e03', scale = 1, moved = false,
   detached = false, mouseDelivered = true) {

@@ -1,0 +1,72 @@
+{
+  "schema_version": "xiaohongshu-skills.manager-workspace.v1",
+  "workspace_id": "PC023",
+  "workspace_role": "MANAGER",
+  "manager_id": "MILA-MANAGER",
+  "machine_id": "PC023",
+  "identity_basis": "PC编号定位本项目本地职责工作区；manager_id沿既有经理业务配置",
+  "definition_status": "LOCAL_ROLE_WORKSPACE",
+  "project": {
+    "name": "xiaohongshu-skills",
+    "version": "0.1.0"
+  },
+  "path_base": "PROJECT_ROOT",
+  "project_root_relative": "../../..",
+  "paths": {
+    "rules": "ManagerStation/Managers/PC023/AGENTS.md",
+    "common_rules": "ManagerStation/Managers/AGENTS.md",
+    "source_baseline": ".",
+    "manager_runtime": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/scripts",
+    "worker_source_runtime": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime",
+    "worker_skills": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/skills",
+    "worker_extension": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/extension",
+    "docs": "docs",
+    "project_memory": "project-memory",
+    "source_tests": "tests",
+    "formal_function_packages": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+    "manager_state": "C:\\auto-xhs\\manager-state",
+    "business_database": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+    "material_source": "C:\\小红书Mila文件存档\\素材",
+    "function_catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
+    "package_relations": "ManagerStation/Managers/PC023/package_relations/current.json",
+    "manager_source_manifest": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manifest.json",
+    "worker_source_manifest": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/manifest.json"
+  },
+  "entrypoints": {
+    "manager_cli": "scripts/manager_cli.py",
+    "business_cli": "scripts/cli.py",
+    "manager_web_server": "scripts/web_server.py"
+  },
+  "worker_workspaces": [
+    {
+      "workspace_id": "PC052",
+      "machine_id": "PC052",
+      "agent_workspace": "WorkerStation/Workers/AgentWorkers/PC052",
+      "program_instance": "WorkerStation/Workers/ProgramWorkers/instances/PC052"
+    },
+    {
+      "workspace_id": "PC057",
+      "machine_id": "PC057",
+      "agent_workspace": "WorkerStation/Workers/AgentWorkers/PC057",
+      "program_instance": "WorkerStation/Workers/ProgramWorkers/instances/PC057"
+    },
+    {
+      "workspace_id": "PC065",
+      "machine_id": "PC065",
+      "agent_workspace": "WorkerStation/Workers/AgentWorkers/PC065",
+      "program_instance": "WorkerStation/Workers/ProgramWorkers/instances/PC065"
+    },
+    {
+      "workspace_id": "PC071",
+      "machine_id": "PC071",
+      "agent_workspace": "WorkerStation/Workers/AgentWorkers/PC071",
+      "program_instance": "WorkerStation/Workers/ProgramWorkers/instances/PC071"
+    },
+    {
+      "workspace_id": "PC073",
+      "machine_id": "PC073",
+      "agent_workspace": "WorkerStation/Workers/AgentWorkers/PC073",
+      "program_instance": "WorkerStation/Workers/ProgramWorkers/instances/PC073"
+    }
+  ]
+}

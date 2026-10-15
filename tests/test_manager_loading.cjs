@@ -1,7 +1,8 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const source = fs.readFileSync(require("node:path").join(__dirname, "../webui/manager-console.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), "utf8");
 const body = source.slice(source.indexOf("  async function performLoad()"), source.indexOf("  function scheduleRefresh()"));
 function deferred() {
   let resolve, reject;

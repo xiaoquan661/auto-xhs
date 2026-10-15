@@ -12,6 +12,7 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
 PROJECT = PACKAGE / "runtime" / "project"
+sys.path.insert(0, str(PROJECT))
 sys.path.insert(0, str(PROJECT / "scripts"))
 
 

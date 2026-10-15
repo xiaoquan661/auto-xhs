@@ -1,0 +1,100 @@
+{
+  "/api/sns/web/v1/you/connections": {
+    "pages": [
+      {
+        "url": "//edith.xiaohongshu.com/api/sns/web/v1/you/connections?num=2&cursor=",
+        "payload": {
+          "data": {
+            "cursor": 7696417706370913000,
+            "strCursor": "7696417706370913653",
+            "has_more": true,
+            "message_list": [
+              {
+                "id": "follow-notification-1",
+                "type": "follow/you",
+                "time": 1791963067,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-1",
+                  "nickname": "关注者1"
+                }
+              },
+              {
+                "id": "follow-notification-2",
+                "type": "follow/you",
+                "time": 1791961888,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-2",
+                  "nickname": "关注者2"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "url": "//edith.xiaohongshu.com/api/sns/web/v1/you/connections?num=20&cursor=7696417706370913653",
+        "payload": {
+          "data": {
+            "cursor": 7694607506136766000,
+            "strCursor": "7694607506136766125",
+            "has_more": false,
+            "message_list": [
+              {
+                "id": "follow-notification-3",
+                "type": "follow/you",
+                "time": 1791939168,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-3",
+                  "nickname": "关注者3"
+                }
+              },
+              {
+                "id": "follow-notification-4",
+                "type": "follow/you",
+                "time": 1791781862,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-4",
+                  "nickname": "关注者4"
+                }
+              },
+              {
+                "id": "follow-notification-5",
+                "type": "follow/you",
+                "time": 1791545363,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-5",
+                  "nickname": "关注者5"
+                }
+              },
+              {
+                "id": "follow-notification-6",
+                "type": "follow/you",
+                "time": 1791543420,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-6",
+                  "nickname": "关注者6"
+                }
+              },
+              {
+                "id": "follow-notification-7",
+                "type": "follow/you",
+                "time": 1791540418,
+                "title": "开始关注你了",
+                "user": {
+                  "userid": "follower-7",
+                  "nickname": "关注者7"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,7 +1,8 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const source = fs.readFileSync(require("node:path").join(__dirname, "../webui/manager-console.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), "utf8");
 const body = source.slice(source.indexOf("  function operationalExceptions()"), source.indexOf("  function renderExceptions()"));
 const account = {machine_id: "PC052", account_slot: "xiix", scheduling_enabled: false, account_note: "已封禁"};
 const result = (id, status, capability = "collect-operations-metrics", slot = "xiix") => ({

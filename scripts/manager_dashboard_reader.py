@@ -1,27 +1,13 @@
-"""Read manager dashboard data in a process shared by HTTP requests."""
+"""Stable entry point for the role-owned manager_dashboard_reader implementation."""
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
-from pathlib import Path
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-
-def read_dashboard(root: str) -> dict:
-    from manager_service import ManagerService
-    from manager_store import ManagerStore
-
-    return ManagerService(store=ManagerStore(root=root)).dashboard_snapshot()
-
-
-class ManagerDashboardReader:
-    """Keep dashboard calculations responsive while collection runs in the server."""
-
-    def __init__(self, root: Path) -> None:
-        self.root = str(root)
-        self.pool = ProcessPoolExecutor(max_workers=1)
-
-    def snapshot(self) -> dict:
-        return self.pool.submit(read_dashboard, self.root).result(timeout=60)
-
-    def close(self) -> None:
-        self.pool.shutdown(wait=False, cancel_futures=True)
+if __name__ == "__main__":
+    run_entrypoint('manager_dashboard_reader')
+else:
+    load_module('manager_dashboard_reader', __name__)

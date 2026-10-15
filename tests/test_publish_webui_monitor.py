@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from business_runner import BusinessRunner
 from product_store import ProductStore
+from project_paths import webui_asset_path
 from publish_workflow import PublishWorkflowService
 from service_errors import ServiceError
 
@@ -47,9 +46,8 @@ def _ready_status(uid: str = "owner-1") -> dict:
 
 
 def test_webui_can_resume_existing_prepared_publish_task() -> None:
-    root = Path(__file__).parents[1]
-    script = (root / "webui" / "manager-console.js").read_text(encoding="utf-8")
-    page = (root / "webui" / "index.html").read_text(encoding="utf-8")
+    script = (webui_asset_path("manager-console.js")).read_text(encoding="utf-8")
+    page = (webui_asset_path("index.html")).read_text(encoding="utf-8")
 
     assert '"fill-publish"' in script
     assert "function pendingPublishTasks()" in script

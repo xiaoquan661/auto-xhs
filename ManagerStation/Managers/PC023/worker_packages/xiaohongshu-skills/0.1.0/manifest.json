@@ -1,0 +1,181 @@
+{
+  "schema_version": "xiaohongshu-skills.project-source-package.v1",
+  "package_kind": "project_source",
+  "package_id": "xiaohongshu-skills.worker-source",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "package_name": "小红书员工职责源包",
+  "applicable_role": "worker",
+  "path_base": "PROJECT_ROOT",
+  "delivery_unit": "worker_station_installation",
+  "build_entry": "deploy/build-worker-layout.py",
+  "install_entry": "deploy/install-worker-layout.py",
+  "installed_package_root": "WorkerStation/Workers/ProgramWorkers/packages/xiaohongshu-skills/0.1.0",
+  "workspace_id": "PC023",
+  "manager_id": "MILA-MANAGER",
+  "runtime_root": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime",
+  "contract": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/contract/CONTRACT.md",
+  "tests_entry": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/tests/run_tests.py",
+  "tests_selection": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/tests/selection.json",
+  "acceptance": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/acceptance.json",
+  "related_function_ids": [
+    "ACCOUNT-01",
+    "ACCOUNT-02",
+    "ACCOUNT-05",
+    "ACCOUNT-06",
+    "DATA-01",
+    "DATA-02",
+    "DATA-03",
+    "EXPLORE-01",
+    "EXPLORE-02",
+    "EXPLORE-03",
+    "INTERACT-01",
+    "INTERACT-02",
+    "MEMORY-02",
+    "MEMORY-03",
+    "MESSAGE-01",
+    "MESSAGE-02",
+    "PUBLISH-01",
+    "PUBLISH-02",
+    "REPLY-01",
+    "REPLY-02"
+  ],
+  "related_function_versions": [
+    {
+      "task_code": "INTERACT-01",
+      "function_id": "INTERACT-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "INTERACT-02",
+      "function_id": "INTERACT-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "EXPLORE-01",
+      "function_id": "EXPLORE-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "EXPLORE-02",
+      "function_id": "EXPLORE-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "EXPLORE-03",
+      "function_id": "EXPLORE-03",
+      "version": "1.0"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "PUBLISH-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "PUBLISH-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "REPLY-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "REPLY-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "DATA-03",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MESSAGE-01",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260824-002",
+      "function_id": "MESSAGE-02",
+      "version": "1.5"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-02",
+      "version": "1.1"
+    },
+    {
+      "task_code": "REQ-20260904-001",
+      "function_id": "MEMORY-03",
+      "version": "1.1"
+    },
+    {
+      "task_code": "ACCOUNT-01",
+      "function_id": "ACCOUNT-01",
+      "version": "1.0"
+    },
+    {
+      "task_code": "ACCOUNT-02",
+      "function_id": "ACCOUNT-02",
+      "version": "1.0"
+    },
+    {
+      "task_code": "ACCOUNT-05",
+      "function_id": "ACCOUNT-05",
+      "version": "1.0"
+    },
+    {
+      "task_code": "ACCOUNT-06",
+      "function_id": "ACCOUNT-06",
+      "version": "1.0"
+    }
+  ],
+  "function_catalog": "ManagerStation/Managers/PC023/package_relations/function_catalog.json",
+  "dependencies": [
+    {
+      "kind": "project_loader",
+      "path": "scripts/_role_layout.py"
+    },
+    {
+      "kind": "source_layout",
+      "path": "source-layout.json"
+    },
+    {
+      "kind": "project_dependencies",
+      "path": "pyproject.toml"
+    },
+    {
+      "kind": "dependency_lock",
+      "path": "uv.lock"
+    },
+    {
+      "kind": "source_test_baseline",
+      "path": "tests"
+    }
+  ],
+  "entrypoints": {
+    "business_cli": "scripts/cli.py",
+    "task_protocol": "scripts/manager_worker.py",
+    "employee_task": "scripts/employee_task_cli.py",
+    "executor_service": "scripts/executor_server.py"
+  },
+  "version_binding": "源码版由source-layout.json显式选择；业务功能版由function_id与allowed_function_versions选用",
+  "runtime_state_binding": "工作区与实例manifest引用现有配置、任务协议和业务存储路径",
+  "resources": {
+    "skills": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/skills",
+    "extension": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/extension",
+    "prompts": "ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/prompts"
+  }
+}

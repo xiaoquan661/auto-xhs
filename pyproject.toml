@@ -18,6 +18,10 @@ dev = [
     "pytest>=8.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["scripts", "scripts.*"]
+namespaces = false
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

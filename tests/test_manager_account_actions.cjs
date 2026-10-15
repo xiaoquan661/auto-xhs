@@ -1,10 +1,11 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(path.join(__dirname, "../webui/manager-console.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), "utf8");
 function extract(name) {
   const start = source.indexOf(`  async function ${name}(`);
   assert.ok(start >= 0, name);

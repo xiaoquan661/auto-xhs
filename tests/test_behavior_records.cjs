@@ -1,3 +1,4 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -9,7 +10,7 @@ const account = {machine_id: "m", account_slot: "a", nickname: "运营账号",
 const root = {innerHTML: "", querySelectorAll: () => []};
 const context = vm.createContext({window: {}, document: {querySelector: () => root},
   localStorage: {getItem: () => null}, Date, Intl});
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../webui/employee-panel.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(webuiAssetPath("employee-panel.js"), "utf8"), context);
 function panel(receipts) {
   const results = receipts.map((row, i) => ({...account, date, task_id: `task-${i}`,
     record_id: `record-${i}`, completed_at: `${date}T08:00:00Z`, ...row}));

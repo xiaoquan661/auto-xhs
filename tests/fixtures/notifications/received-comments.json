@@ -1,0 +1,105 @@
+{
+  "url": "//edith.xiaohongshu.com/api/sns/web/v1/you/mentions?num=20&cursor=",
+  "status": 200,
+  "payload": {
+    "code": 0,
+    "success": true,
+    "data": {
+      "cursor": 7691718045781211000,
+      "strCursor": "7691718045781210793",
+      "has_more": false,
+      "message_list": [
+        {
+          "id": "comment-notification-1",
+          "type": "comment/item",
+          "time": 1791961428,
+          "title": "评论了你的笔记",
+          "comment_info": {
+            "id": "comment-1",
+            "content": "收到评论1"
+          },
+          "item_info": {
+            "id": "note-1",
+            "content": "作品1"
+          },
+          "user_info": {
+            "userid": "reader-1",
+            "nickname": "读者1"
+          }
+        },
+        {
+          "id": "comment-notification-2",
+          "type": "comment/item",
+          "time": 1791890436,
+          "title": "评论了你的笔记",
+          "comment_info": {
+            "id": "comment-2",
+            "content": "收到评论2"
+          },
+          "item_info": {
+            "id": "note-2",
+            "content": "作品2"
+          },
+          "user_info": {
+            "userid": "reader-2",
+            "nickname": "读者2"
+          }
+        },
+        {
+          "id": "comment-notification-3",
+          "type": "comment/item",
+          "time": 1791621812,
+          "title": "评论了你的笔记",
+          "comment_info": {
+            "id": "comment-3",
+            "content": "收到评论3"
+          },
+          "item_info": {
+            "id": "note-3",
+            "content": "作品3"
+          },
+          "user_info": {
+            "userid": "reader-3",
+            "nickname": "读者3"
+          }
+        },
+        {
+          "id": "comment-notification-4",
+          "type": "comment/item",
+          "time": 1790871798,
+          "title": "评论了你的笔记",
+          "comment_info": {
+            "id": "comment-4",
+            "content": "收到评论4"
+          },
+          "item_info": {
+            "id": "note-4",
+            "content": "作品4"
+          },
+          "user_info": {
+            "userid": "reader-4",
+            "nickname": "读者4"
+          }
+        },
+        {
+          "id": "comment-notification-5",
+          "type": "comment/item",
+          "time": 1790867663,
+          "title": "评论了你的笔记",
+          "comment_info": {
+            "id": "comment-5",
+            "content": "收到评论5"
+          },
+          "item_info": {
+            "id": "note-5",
+            "content": "作品5"
+          },
+          "user_info": {
+            "userid": "reader-5",
+            "nickname": "读者5"
+          }
+        }
+      ]
+    }
+  }
+}

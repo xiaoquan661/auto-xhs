@@ -1,8 +1,9 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
 const fs = require("node:fs");
-const source = fs.readFileSync(require("node:path").join(__dirname, "../webui/manager-console.js"), "utf8");
+const source = fs.readFileSync(webuiAssetPath("manager-console.js"), "utf8");
 const start = source.indexOf("  function accountCardSection(");
 const end = source.indexOf("  function resultLinks(", start);
 class Node {

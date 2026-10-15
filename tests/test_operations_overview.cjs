@@ -1,10 +1,11 @@
+const { webuiAssetPath } = require("./project_paths.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
 function days(actualB = null) {
  const context = vm.createContext({window: {}, document: {querySelector: () => null}, Date, Intl});
- vm.runInContext(fs.readFileSync('webui/employee-panel.js', 'utf8'), context);
+ vm.runInContext(fs.readFileSync(webuiAssetPath("employee-panel.js"), 'utf8'), context);
  const accounts = ['a','b'].map(account_slot => ({machine_id:'pc',account_slot}));
  const state = {accounts, machines:[], results:[], tasks:[], goals:[], dailyPlans:[
   {plan_date:'2026-09-14',accounts:accounts.map(a=>({...a,participating:true,metrics:{browse:5}}))},

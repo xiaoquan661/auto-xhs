@@ -1,13 +1,14 @@
+const { extensionAssetPath, scriptSourcePath } = require("./project_paths.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
-const source = fs.readFileSync(require('node:path').join(__dirname, '../extension/background.js'), 'utf8');
+const source = fs.readFileSync(extensionAssetPath("background.js"), 'utf8');
 const navigation = source.slice(source.indexOf('async function cmdNavigate('), source.indexOf('// ───────────────────────── 截图'));
 const note = 'https://www.xiaohongshu.com/explore/note1';
 
 test('recommendation extraction supports arrays and Vue ref wrappers', () => {
-  const python = fs.readFileSync(require('node:path').join(__dirname, '../scripts/xhs/feeds.py'), 'utf8');
+  const python = fs.readFileSync(scriptSourcePath("xhs/feeds.py"), 'utf8');
   const script = python.match(/_EXTRACT_FEEDS_JS = """([\s\S]*?)"""/)[1];
   const feeds = [{ id: 'note1', xsecToken: 'token', noteCard: { displayTitle: 'title' } }];
   for (const wrap of [x => x, x => ({ value: x }), x => ({ _value: x })]) {
@@ -17,7 +18,7 @@ test('recommendation extraction supports arrays and Vue ref wrappers', () => {
 });
 
 test('profile extraction supports plain state and Vue ref wrappers', () => {
-  const python = fs.readFileSync(require('node:path').join(__dirname, '../scripts/xhs/user_profile.py'), 'utf8');
+  const python = fs.readFileSync(scriptSourcePath("xhs/user_profile.py"), 'utf8');
   const userScript = python.match(/_EXTRACT_USER_DATA_JS = """([\s\S]*?)"""/)[1];
   const notesScript = python.match(/_EXTRACT_USER_NOTES_JS = """([\s\S]*?)"""/)[1];
   const data = { basicInfo: { nickname: 'tester' }, interactions: [] };

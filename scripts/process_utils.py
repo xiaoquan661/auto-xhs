@@ -1,13 +1,13 @@
-"""Shared helpers for managed service processes."""
+"""Stable entry point for the role-owned process_utils implementation."""
 
 from __future__ import annotations
 
-from pathlib import Path
+try:
+    from scripts._role_layout import load_module, run_entrypoint
+except ModuleNotFoundError:
+    from _role_layout import load_module, run_entrypoint
 
-
-def startup_log_excerpt(path: Path, *, limit: int = 1200) -> str:
-    try:
-        content = path.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
-        return ""
-    return content[-limit:]
+if __name__ == "__main__":
+    run_entrypoint('process_utils')
+else:
+    load_module('process_utils', __name__)

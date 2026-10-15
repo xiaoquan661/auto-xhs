@@ -161,9 +161,7 @@ def test_profile_message_entry_supports_icon_next_to_follow_button() -> None:
 def test_reopens_first_message_when_profile_button_uses_new_tab(monkeypatch) -> None:
     page = FakePage(existing=False, profile_click_opens_new_tab=True)
     moments = iter([0.0, 9.0])
-    monkeypatch.setattr(
-        "scripts.xhs.direct_message.time.monotonic", lambda: next(moments)
-    )
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", lambda: next(moments))
 
     result = inspect_private_message_context(page, "user-1", "token-1")
 
@@ -271,9 +269,7 @@ def test_unavailable_first_message_fails_before_send() -> None:
 def test_post_send_without_readback_is_result_unknown(monkeypatch) -> None:
     page = FakePage(existing=True, append_after_send=False)
     moments = iter([0.0, 9.0])
-    monkeypatch.setattr(
-        "scripts.xhs.direct_message.time.monotonic", lambda: next(moments)
-    )
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", lambda: next(moments))
 
     with pytest.raises(PrivateMessageResultUnknownError):
         send_private_message(page, "user-1", "", "专属私信")
@@ -281,7 +277,10 @@ def test_post_send_without_readback_is_result_unknown(monkeypatch) -> None:
     assert page.pressed == ["Enter"]
 
 
-def test_send_stops_when_latest_peer_turn_changed() -> None:
+def test_send_stops_when_latest_peer_turn_changed(monkeypatch) -> None:
+    clock = PollingClock()
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("scripts.xhs.direct_message.time.sleep", clock.sleep)
     page = FakePage(
         existing=True,
         messages=[
@@ -301,3 +300,83 @@ def test_send_stops_when_latest_peer_turn_changed() -> None:
         )
 
     assert page.pressed == []
+    assert page.entered == ""
+    assert clock.elapsed == pytest.approx(5.0)
+
+
+class PollingClock:
+    def __init__(self) -> None:
+        self.elapsed = 0.0
+
+    def monotonic(self) -> float:
+        return self.elapsed
+
+    def sleep(self, seconds: float) -> None:
+        self.elapsed += seconds
+
+
+class DelayedChatPage(FakePage):
+    def __init__(self, *, append_after_send: bool = True) -> None:
+        super().__init__(existing=True, append_after_send=append_after_send)
+        self.chat_reads = 0
+
+    def evaluate(self, script: str):
+        if ".chat-item" in script:
+            self.chat_reads += 1
+            if self.chat_reads == 3:
+                self.messages = [
+                    {"role": "peer", "content": "此前消息"},
+                    {"role": "self", "content": "准备回复"},
+                    {"role": "peer", "content": "本轮消息"},
+                ]
+        return super().evaluate(script)
+
+
+def test_send_waits_for_matching_peer_turn_and_sends_once(monkeypatch) -> None:
+    clock = PollingClock()
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("scripts.xhs.direct_message.time.sleep", clock.sleep)
+    page = DelayedChatPage()
+
+    result = send_private_message(
+        page,
+        "user-1",
+        "",
+        "准备回复",
+        expected_peer_turn=["本轮消息"],
+    )
+
+    assert result["success"] is True
+    assert page.chat_reads >= 4
+    assert page.pressed == ["Enter"]
+    assert clock.elapsed == pytest.approx(0.2)
+
+
+def test_persistent_unmatched_peer_turn_stops_before_input(monkeypatch) -> None:
+    clock = PollingClock()
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("scripts.xhs.direct_message.time.sleep", clock.sleep)
+    page = FakePage(existing=True)
+
+    with pytest.raises(PrivateMessageContextChangedError):
+        send_private_message(page, "user-1", "", "准备回复", expected_peer_turn=["本轮消息"])
+
+    assert page.entered == ""
+    assert page.pressed == []
+    assert page.trusted_clicked == []
+    assert clock.elapsed == pytest.approx(5.0)
+
+
+def test_matching_loaded_snapshot_defines_new_outgoing_readback(monkeypatch) -> None:
+    clock = PollingClock()
+    monkeypatch.setattr("scripts.xhs.direct_message.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("scripts.xhs.direct_message.time.sleep", clock.sleep)
+    page = DelayedChatPage(append_after_send=False)
+
+    with pytest.raises(PrivateMessageResultUnknownError):
+        send_private_message(page, "user-1", "", "准备回复", expected_peer_turn=["本轮消息"])
+
+    assert page.pressed == ["Enter"]
+    assert (
+        sum(item["role"] == "self" and item["content"] == "准备回复" for item in page.messages) == 1
+    )

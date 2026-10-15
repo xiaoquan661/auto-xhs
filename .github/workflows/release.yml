@@ -49,9 +49,9 @@ jobs:
           PREFIX="xiaohongshu-skills-${TAG}"
           tar czf "${PREFIX}.tar.gz" \
             --transform "s,^,${PREFIX}/," \
-            skills/ scripts/ SKILL.md pyproject.toml uv.lock LICENSE README.md
+            ManagerStation/ WorkerStation/ scripts/ source-layout.json webui-layout.json AGENTS.md SKILL.md pyproject.toml uv.lock LICENSE README.md start-auto-xhs.cmd restart-auto-xhs.cmd package_templates/ tests/ docs/ project-memory/ deploy/
           zip -r "${PREFIX}.zip" \
-            skills/ scripts/ SKILL.md pyproject.toml uv.lock LICENSE README.md \
+            ManagerStation/ WorkerStation/ scripts/ source-layout.json webui-layout.json AGENTS.md SKILL.md pyproject.toml uv.lock LICENSE README.md start-auto-xhs.cmd restart-auto-xhs.cmd package_templates/ tests/ docs/ project-memory/ deploy/ \
             -x '*.pyc' '__pycache__/*'
 
       - name: Create GitHub Release

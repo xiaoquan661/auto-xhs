@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-WORKER_WEBUI = ROOT / "webui" / "worker"
+from project_paths import webui_asset_path
 
 
 def _source(name: str) -> str:
-    return (WORKER_WEBUI / name).read_text(encoding="utf-8")
+    return webui_asset_path(f"worker/{name}").read_text(encoding="utf-8")
 
 
 def test_worker_console_has_only_local_execution_views() -> None:

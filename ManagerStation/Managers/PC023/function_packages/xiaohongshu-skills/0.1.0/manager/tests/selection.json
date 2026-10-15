@@ -1,0 +1,20 @@
+{
+  "schema_version": "xiaohongshu-skills.role-test-selection.v1",
+  "package_id": "xiaohongshu-skills.manager-source",
+  "project_id": "xiaohongshu-skills",
+  "source_version": "0.1.0",
+  "path_base": "PROJECT_ROOT",
+  "test_authority": "tests",
+  "test_paths": [
+    "tests/test_manager_cli.py",
+    "tests/test_manager_service.py",
+    "tests/test_manager_transport.py",
+    "tests/test_manager_database.py",
+    "tests/test_manager_live_records.py",
+    "tests/test_manager_daily_plans.py",
+    "tests/test_employee_operations.py",
+    "tests/test_memory_lifecycle.py",
+    "tests/test_manager_web_routes.py"
+  ],
+  "test_entry": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/tests/run_tests.py"
+}
