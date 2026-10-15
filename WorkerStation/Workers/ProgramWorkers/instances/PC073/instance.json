@@ -39,5 +39,5 @@
   },
   "deployment_evidence_source": "对应设备安装、版本和服务实际回读记录",
   "deployment_record": "ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json",
-  "validation_status": "AWAITING_CODEX_ACCESS"
+  "validation_status": "PASSED"
 }

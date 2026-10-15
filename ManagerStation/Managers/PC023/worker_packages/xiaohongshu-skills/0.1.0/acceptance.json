@@ -139,7 +139,7 @@
       "PC052": "PASSED",
       "PC057": "PASSED",
       "PC071": "PASSED",
-      "PC073": "AWAITING_CODEX_ACCESS"
+      "PC073": "PASSED"
     }
   },
   "function_package_evidence_binding": {
@@ -165,7 +165,7 @@
       "PC052": "PASSED",
       "PC057": "PASSED",
       "PC071": "PASSED",
-      "PC073": "AWAITING_CODEX_ACCESS"
+      "PC073": "PASSED"
     }
   }
 }

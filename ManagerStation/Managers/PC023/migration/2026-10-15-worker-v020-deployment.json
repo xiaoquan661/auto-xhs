@@ -318,7 +318,7 @@
       "machine_id": "PC073",
       "pilot": false,
       "installed": true,
-      "validation_status": "AWAITING_CODEX_ACCESS",
+      "validation_status": "PASSED",
       "installation": {
         "success": true,
         "machine_id": "PC073",
@@ -365,12 +365,12 @@
           "config": true,
           "machine_pause": true,
           "account_management": true,
-          "probe_success": false,
-          "probe_token": false,
-          "agent_claimed": false,
+          "probe_success": true,
+          "probe_token": true,
+          "agent_claimed": true,
           "outbox_written": true
         },
-        "success": false,
+        "success": true,
         "http": {
           "/api/v1/health": 200,
           "/api/v1/worker/snapshot": 200,
@@ -384,14 +384,76 @@
         "protected_file_count": 7,
         "paused_tasks": [],
         "source_layout": "worker",
-        "probe_task_id": "v020-deployment-probe-pc073-20261015-113709",
-        "probe_execution_id": "36cab1da110a458f8e979da485824bcb",
-        "probe_state": "FAILED",
+        "probe_task_id": "v020-deployment-probe-pc073-20261015-115555",
+        "probe_execution_id": "80bc0d6932b140babdc76324f774332b",
+        "probe_state": "SUCCESS",
         "callback_status": "OUTBOX_READY"
       },
-      "manager_task_state": "FAILED",
-      "agent_error": "workspace routing discovery unauthorized (401)",
-      "user_next_action": "用户检查并重新登录 Codex 后通知继续验证"
+      "manager_task_state": "SUCCESS",
+      "validation_history": [
+        {
+          "validation_status": "AWAITING_CODEX_ACCESS",
+          "verification": {
+            "checks": {
+              "service_reloaded": true,
+              "protected_files": true,
+              "prior_execution_states": true,
+              "history_files": true,
+              "config": true,
+              "machine_pause": true,
+              "account_management": true,
+              "probe_success": false,
+              "probe_token": false,
+              "agent_claimed": false,
+              "outbox_written": true
+            },
+            "success": false,
+            "http": {
+              "/api/v1/health": 200,
+              "/api/v1/worker/snapshot": 200,
+              "/": 200,
+              "/worker.css": 200,
+              "/worker.js": 200
+            },
+            "historical_execution_count": 28,
+            "retained_inbox_files": 27,
+            "retained_outbox_files": 153,
+            "protected_file_count": 7,
+            "paused_tasks": [],
+            "source_layout": "worker",
+            "probe_task_id": "v020-deployment-probe-pc073-20261015-113709",
+            "probe_execution_id": "36cab1da110a458f8e979da485824bcb",
+            "probe_state": "FAILED",
+            "callback_status": "OUTBOX_READY"
+          },
+          "manager_task_state": "FAILED",
+          "agent_error": "workspace routing discovery unauthorized (401)"
+        }
+      ],
+      "database_verification": [
+        {
+          "collection": "results",
+          "record_key": "PC073:80bc0d6932b140babdc76324f774332b:31",
+          "state": "SUCCESS",
+          "remote_execution_id": "80bc0d6932b140babdc76324f774332b",
+          "probe_token": "v020-deployment-probe-pc073-20261015-115555"
+        },
+        {
+          "collection": "tasks",
+          "record_key": "v020-deployment-probe-pc073-20261015-115555",
+          "state": "SUCCESS",
+          "remote_execution_id": "80bc0d6932b140babdc76324f774332b",
+          "probe_token": null
+        }
+      ],
+      "probe_scope": "local_task_file_round_trip",
+      "manager_service_recovery": {
+        "previous_pid": 10188,
+        "action": "reload",
+        "local_health_http": 200,
+        "lan_health_http": 200,
+        "reason": "经理健康接口超时且持有状态锁；原任务按同一编号接续"
+      }
     }
   ],
   "python_regression": "100 passed",
