@@ -1,41 +1,85 @@
 # xiaohongshu-skills
 
-面向个人运营者的本地多账号小红书运营系统。系统通过 Chrome Profile、WebUI、Codex 和统一
-Python CLI 完成配置、任务、确认和结果反馈。V1.0 是冻结基线；V1.5 能力正在分批交付，其中
-账号联合启动、分步发布、主加和私信已具备自动化测试证据；V2.0 已接入由 Codex 生成决策的评论和
-入站私信回复收件箱。
-凡涉及真实浏览器写操作的能力，仍按各自文档标注区分“已测试”和“已实机验收”。
+支持本机多账号和经理机、员工机协作的小红书运营系统。经理机维护账号策略、运营计划、任务投递
+和结果汇总；员工机使用本机 Chrome Profile、Bridge、Codex 与 Python CLI 执行任务并回传结果。
+源码采用 NexaFlow V0.20 的职责目录：经理维护源版本，员工安装对应的执行版本。
 
 支持 [OpenClaw](https://github.com/openclaw/openclaw) 及所有兼容 `SKILL.md` 格式的 AI Agent 平台。
 
 > **⚠️ 使用建议**：虽然本项目使用真实的用户浏览器和账号环境，但仍建议**控制使用频率**，避免短时间内大量操作。频繁的自动化行为可能触发小红书的风控机制，导致账号受限。
+
+## 版本与架构
+
+| 项目 | 当前说明 |
+| --- | --- |
+| 程序包版本 | `0.1.0`，来自 `pyproject.toml` |
+| 职责目录架构 | NexaFlow V0.20 |
+| 获取源码 | 使用 GitHub `main`；Release 为对应发布时点的源码快照 |
+| 业务规格 | V1.0、V1.5、V2.0 等功能阶段沿各业务文档维护，与程序包、目录架构分别登记 |
+
+### 当前适配内容
+
+| 层面 | 已采用的实现 |
+| --- | --- |
+| 源码与资源 | 实现文件归入经理业务包、员工业务包、执行支撑和共用组件；技能、扩展、提示词及界面随职责版本管理 |
+| 代码职责 | 抽出共用的本机 HTTP 接口、经理运营汇总及经理知识注入；业务功能主体继续由现有服务模块实现 |
+| 调用与交付 | 根 `scripts/` 提供固定入口，模块、静态资源、构建和修复安装沿布局映射定位真实实现 |
+| 设备运行 | PC023 维护经理与员工源版本；PC052、PC057、PC065、PC071、PC073 已安装 V0.20 员工执行布局 |
+| 跨机通信 | 使用 SSH/SFTP、任务 inbox、员工领取、结果 outbox、经理回收与数据库导入 |
+
+`manager_service.py`、`application_service.py` 等服务保留现有主体业务逻辑，职责交叉处通过上述
+接口和模块分开维护。NexaFlow Hub 接口对接与新机器统一一键接入属于后续工作。
+
+2026-10-15 五台员工机的启动、接单、Agent 领取、本地探针回传和经理入库验收均已通过，
+账号、登录环境、历史数据与暂停设置沿各机配置保留。验收范围及逐机证据见
+[员工机安装与验收](docs/V020-WORKER-DEPLOYMENT.md)；职责与调用关系见
+[经理与员工目录说明](docs/V020-ROLE-LAYOUT.md)。
 
 ## 功能概览
 
 | 技能                | 说明     | 核心能力                                 |
 | ------------------- | -------- | ---------------------------------------- |
 | **xhs-auth**        | 认证管理 | 登录检查                                 |
-| **xhs-publish**     | V1.5目标 | 图文 / 视频 / 长文 / 草稿 / 定时发布     |
+| **xhs-publish**     | 内容发布 | 图文 / 视频 / 长文 / 草稿 / 定时发布     |
 | **xhs-explore**     | 内容发现 | 关键词搜索、笔记详情、用户主页、首页推荐 |
 | **xhs-interact**    | 社交互动 | 私信、主加、评论、回复、点赞、收藏       |
 | **xhs-reply**       | 入站回复 | Codex 评论与私信上下文回复               |
 | **xhs-content-ops** | 复合运营 | 竞品分析、热点追踪、批量互动、内容创作   |
 
-### 版本与开放范围
+各业务的实现、自动化测试和真实账号验收范围见
+[需求追踪矩阵](docs/PRD-TRACEABILITY.md)及对应功能记录；文档导航见
+[文档索引](docs/README.md)。五机部署的本地探针用于验证安装与任务链，平台业务按具体账号和动作验收。
 
-| 范围 | 冻结基线 / 产品规则 | 当前交付状态 |
-|---|---|---|
-| 登录 | 检查、退出、用户手动登录和新 UID 核验 | 半自动换号链已测试；历史二维码和手机登录命令仅兼容保留 |
-| Chrome | 绑定固定 Profile，不自动关闭或切换账号 | 联合启动已测试：扩展离线时可打开绑定 Profile；真实 Windows 待验收 |
-| 发布 | 生成内容、填写、正式发布和结果回读 | Agent/CLI 连续发布链路已测试；真实发布待验收 |
-| 评论 | 指定评论/回复保留最终文本确认；随机评论一次授权 1–3 条 | 当前确认链可用；“所有指定评论点击即直发”仍是 V1.5 规格 |
-| Codex 回复 | Codex 读取入站上下文并提交回复决策；业务判断类内容进入待处理 | `reply-inbox`、规则复核、发送回读和专用 Skill 已通过自动化测试；真实账号周期待验收 |
-| 主加 | 单向关注，Agent/CLI 内部预览后执行并回读 | 已完成自动化测试和测试账号实机回读 |
-| 私信 | 主动私信沿用 Agent 任务；入站私信按账号规则回复或进入待处理 | 最新连续对方消息作为一次回复单位，发送前校验会话未变化 |
-| 资料修改 | 展示前后差异并确认后执行 | 尚无完整执行链 |
+## 选择部署方式
 
-实现状态以 [需求追踪矩阵](docs/PRD-TRACEABILITY.md) 为准；文档导航和历史/现行边界见
-[文档索引](docs/README.md)。规格批准、自动化测试和真实设备验收不是同一状态。
+| 场景 | 部署流程 | 说明入口 |
+| --- | --- | --- |
+| 本机使用或开发 | 获取完整源码，准备依赖，启动本机 WebUI 并配置账号 | 下方安装步骤 |
+| 新经理机 | 获取 `main`，准备依赖，配置经理身份、独立状态目录及员工 SSH 连接 | [第二套系统部署](docs/SECOND-SYSTEM-DEPLOYMENT.md) |
+| 新员工机 | 登记岗位与程序实例，准备运行环境及协议目录，再构建和安装本机 V0.20 员工包 | 下方新增机器流程及[员工部署说明](docs/V020-WORKER-DEPLOYMENT.md) |
+| 已接入员工机升级 | 经理构建对应员工包，空闲时备份安装，重载服务并验收任务链 | [员工机安装与验收](docs/V020-WORKER-DEPLOYMENT.md) |
+
+### 新增机器
+
+1. 确定经理、员工的唯一编号、Windows 用户、地址及实际运行路径。当前岗位模板为 PC023
+   与五台已登记员工；新编号需要同步配置岗位、manifest 和程序实例。
+2. 准备 Python 与依赖、Chrome、Codex 登录和 OpenSSH。新员工配置独立的协议状态、inbox/outbox，
+   并在经理端登记相同路径；基础环境与连接配置参照第二套系统部署指南。
+3. 经理为新员工补齐 `WorkerStation/Workers/AgentWorkers/<机器编号>/`、
+   `WorkerStation/Workers/ProgramWorkers/instances/<机器编号>/` 以及 `source-layout.json` 的员工登记，
+   再用 `deploy/build-worker-layout.py` 构建对应执行包。
+4. 员工已有协议配置与执行服务后，按 `deploy/install-worker-layout.py` 安装 V0.20 布局，
+   重载服务并核对实际加载位置。构建、传输、备份及安装命令见员工部署说明。
+5. 在员工机绑定账号槽位与 Chrome Profile，按账号输出的扩展路径加载并完成 Bridge 配对和平台登录。
+6. 验证接单、Agent 领取、回传及经理入库；再按账号要求完成业务验收和调度配置。
+
+`deploy/employee-bootstrap/onboard.ps1` 保留基础接入入口，使用配套源码 ZIP 和离线依赖目录。
+接入包需按当前源码与 `pyproject.toml` 的依赖重新准备；V0.20 构建、安装及新编号登记目前按上述
+阶段执行。现有五机已完成已有环境上的布局迁移与任务链验收；统一的一键入口及新编号从零安装
+的整体验收属于后续工作。
+
+经理状态、员工账号、Chrome Profile、登录会话和业务历史由各机本地存储维护；项目源码由 GitHub
+同步，员工运行版本由经理构建交付。
 
 ## 普通用户快速开始
 
@@ -46,8 +90,8 @@ Windows 用户可以直接双击仓库根目录的 `start-auto-xhs.cmd`。启动
 更新 Python 后端代码后，可点击 WebUI 顶部的“重启服务”，也可以双击 `restart-auto-xhs.cmd`。
 安全重启会先检查执行中任务；服务恢复后，WebUI 通过新的运行实例标识确认后台已经完成更新。
 
-V1.5 已把“启动 Bridge”升级为“启动账号”：先启动 Bridge，扩展未连接时再自动打开绑定
-Profile，并在核对扩展实例和 Profile 后恢复连接。该链已通过自动化测试，真实 Windows 环境仍待验收。
+“启动账号”先启动或复用 Bridge，扩展未连接时按需打开绑定 Profile，并核对扩展实例和
+Profile。各机浏览器连接与账号可用状态以本机实际回读为准。
 
 WebUI 当前作为本地控制面板，包含账号槽位、Bridge 启停、已有直接任务、评论采集、评论/回复草稿确认、
 执行记录、全局暂停、L1 配额、并发设置和脱敏诊断导出。后续新增运营能力默认由 Agent/Python CLI
@@ -61,6 +105,8 @@ WebUI 当前作为本地控制面板，包含账号槽位、Bridge 启停、已�
 Agent 会自动执行：搜索 → 筛选图文 → 按点赞排序 → 收藏 → 获取详情 → 总结内容。
 
 ## 安装
+
+以下步骤用于完整源码的本机或经理环境。员工执行版本按照上方部署流程由经理构建交付。
 
 ### 前置条件
 
@@ -84,17 +130,16 @@ Agent 会自动执行：搜索 → 筛选图文 → 按点赞排序 → 收藏 �
 
 **方法二：Git Clone**
 
-```bash
-cd <your-project-directory>
-git clone https://github.com/xiaoquan661/auto-xhs.git
-cd auto-xhs
+```powershell
+git clone --branch main https://github.com/xiaoquan661/auto-xhs.git C:\auto-xhs\xiaohongshu-skills
+Set-Location C:\auto-xhs\xiaohongshu-skills
 ```
 
-2. 检测 Python 并准备项目依赖：
+2. 在解压或克隆后的项目根目录中，检测 Python 并准备项目依赖：
 
 ```powershell
-cd xiaohongshu-skills
-powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1 -Prepare
+$projectRoot = (Resolve-Path .).Path
+powershell -ExecutionPolicy Bypass -File "$projectRoot\scripts\bootstrap.ps1" -Prepare
 ```
 
 脚本会优先使用项目 `.venv` 或本机 Python。若输出 `python_missing`，先向用户确认；得到同意后
@@ -119,11 +164,14 @@ CLI 与 Bridge 的连接，`requests` 用于页面和资源请求。这些依赖
 当前版本使用一套通用扩展；不同 Chrome Profile 通过各自的 `chrome.storage.local` 保存配对，
 不再为每个账号复制扩展代码或在扩展磁盘文件中写入长期令牌。
 
-1. 先按下方说明创建或导入至少一个账号槽位；通用扩展就是当前项目根目录中的
-   `extension` 文件夹，不使用 `.codex` 下的旧安装副本。
+1. 先按下方说明创建或导入至少一个账号槽位，执行
+   `python scripts/cli.py --account brand-a account-sync`，读取返回的 `extension_dir`。
 2. 在目标 Chrome Profile 打开 `chrome://extensions/` 并开启**开发者模式**。
 3. 点击**加载已解压的扩展程序**，选择 CLI 输出的同一个通用扩展目录。
 4. 运行 `account-pair-begin --confirm`，把一次性配对包粘贴到扩展弹窗。
+
+扩展源码随员工版本的 `worker/extension/` 交付，实际加载目录以账号配置中的 `extension_dir`
+为准。已部署机器继续使用该账号登记的本机扩展位置。
 
 安装完成后即可使用 — 所有操作都发生在你自己的浏览器里，使用你的真实账号和浏览器环境。
 
@@ -139,10 +187,10 @@ CLI 与 Bridge 的连接，`requests` 用于页面和资源请求。这些依赖
 python scripts/cli.py account-onboard --name brand-a --confirm
 python scripts/cli.py account-onboard --name brand-b --confirm
 
-# 用户手动打开各自对应的 Chrome Profile，并保持小红书页面开启
-# 然后在各自 Chrome 中完成一次登录
-python scripts/cli.py --account brand-a login
-python scripts/cli.py --account brand-b login
+# 在各账号绑定的 Chrome Profile 中手动登录小红书并完成扩展配对
+# 随后读取各槽位连接状态
+python scripts/cli.py --account brand-a account-pair-status
+python scripts/cli.py --account brand-b account-pair-status
 
 # 查看配置与连接状态
 python scripts/cli.py account-list
@@ -276,8 +324,8 @@ python scripts/cli.py account-import `
 导入操作不会修改或复制原 Profile，原 Cookie 和登录状态会继续使用。每个 Profile 只能绑定
 一个账号别名。用户首次手动打开后，在该 Profile 的 `chrome://extensions` 中加载通用扩展目录并完成
 一次性配对。多个 Profile 应共用这一目录，但每个 Profile 只能保留一个 XHS Bridge 实例；若已加载
-旧版账号专属扩展，先禁用或移除旧副本。V1.0 的 `account-start` 不会启动 Chrome；只有 Bridge 服务和
-已配对扩展都连接时才返回 `success: true`。
+旧版账号专属扩展，先禁用或移除旧副本。`account-start` 启动或复用 Bridge，并在扩展离线时按需
+打开绑定 Profile；成功状态结合已配对扩展的实际连接回报确认。
 
 #### 本地 WebUI 开发预览
 
@@ -464,9 +512,8 @@ python scripts/cli.py --account brand-a collect-private-messages `
 
 退出码：`0` 成功 · `1` 未登录 · `2` 错误
 
-主加已完成 Agent/CLI 自动化链和真实关注验收。主动私信执行器已完成自动化测试；入站私信收件箱
-只读采集和模型草稿已有真实页面记录。评论和私信规则周期、上下文判断、发送前会话校验、页面
-回读和待处理记录已完成自动化测试，真实账号周期仍需单独授权验收。
+业务验收按设备、账号、动作、时间及平台回读证据登记。发布、互动、采集和回复的具体记录见
+[项目当前状态](project-memory/03-当前状态.md)及[工作记录](project-memory/工作记录/README.md)。
 
 ## 项目结构
 
@@ -493,6 +540,8 @@ xiaohongshu-skills/
 │       │   ├── extension/                   # 浏览器扩展
 │       │   ├── skills/                      # 员工业务技能与任务入口指引
 │       │   └── prompts/                     # 评论与私信回复提示词
+│       ├── package_relations/                # 既有功能版本与职责源码配套关系
+│       ├── migration/                        # 迁移、部署与验收记录
 │       └── scripts/development/             # 准备、构建与代码修复工具
 ├── WorkerStation/Workers/
 │   ├── AgentWorkers/
@@ -504,6 +553,7 @@ xiaohongshu-skills/
 ├── webui-layout.json                        # HTTP静态资源URL与源码位置映射
 ├── docs/、tests/、project-memory/             # 开发、验证和交接基准
 ├── package_templates/                       # 正式功能包构建模板
+├── deploy/                                  # 员工接入、V0.20构建与安装工具
 ├── AGENTS.md、SKILL.md
 └── pyproject.toml、uv.lock
 ```
@@ -512,11 +562,38 @@ xiaohongshu-skills/
 固定命令入口继续使用 `scripts/cli.py`、`scripts/manager_cli.py`、`scripts/manager_worker.py`。
 模块导入与资源定位由路径映射解析到对应角色实现。
 
+员工机安装后，执行版本按本机编号绑定：
+
+```text
+C:\auto-xhs\xiaohongshu-skills\
+├── WorkerStation/Workers/
+│   ├── AgentWorkers/<本机编号>/              # 本机岗位规则
+│   └── ProgramWorkers/
+│       ├── packages/xiaohongshu-skills/0.1.0/worker/
+│       │                                    # 业务、执行支撑、共用组件、技能和扩展源
+│       ├── instances/<本机编号>/             # 程序版本与运行路径
+│       └── environments/existing-python/    # 本机Python环境引用
+├── scripts/                                 # 员工固定调用入口
+├── source-layout.json                       # 绑定本机WorkerStation实现
+└── webui-layout.json                        # 员工界面资源映射
+```
+
+主要运行数据位置：
+
+| 内容 | 路径 |
+| --- | --- |
+| 经理配置与数据库 | 当前 PC023 为 `C:\auto-xhs\manager-state`，由 `XHS_MANAGER_HOME` 指定 |
+| 员工任务收件箱 | `C:\auto-xhs\manager-task-inbox` |
+| 员工结果发件箱 | `C:\auto-xhs\manager-task-outbox` |
+| 员工协议状态与执行记录 | `%USERPROFILE%\.xhs\auto-xhs\manager-worker` |
+| 账号与浏览器环境 | 由各机账号配置引用的 Chrome Profile、配对及扩展目录 |
+
 ## 跨电脑验收
 
-需要把 Private 仓库交给另一台电脑的 Codex 安装和测试时，使用
-[另一台电脑部署、使用与验收手册](docs/OTHER-COMPUTER-ACCEPTANCE-TEST.md)。文档包含双 Profile
-通用扩展配对、Skill 路由、只读实测、验收标准和结果报告模板。
+多机部署以[选择部署方式](#选择部署方式)和[员工机安装与验收](docs/V020-WORKER-DEPLOYMENT.md)
+为入口，环境与 SSH 配置参照[第二套系统部署](docs/SECOND-SYSTEM-DEPLOYMENT.md)。账号、Profile
+和扩展配对参考[普通用户操作手册](docs/USER-GUIDE.md)；业务回收与入库核对参考
+[运营验收查询](docs/OPERATIONS-ACCEPTANCE-DATABASE.md)。执行路径使用本机布局映射和账号实际配置。
 
 ## 开发
 
