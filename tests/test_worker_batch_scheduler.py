@@ -173,6 +173,22 @@ def test_claimed_dead_runner_is_not_replayed(tmp_path, monkeypatch):
     assert service.task_status("task-1")["execution"]["state"] == "RESULT_UNKNOWN"
 
 
+@pytest.mark.parametrize("explicit_predecessor", [False, True])
+def test_paused_task_reserves_only_explicit_successors(tmp_path, explicit_predecessor):
+    service = make_service(tmp_path)
+    first = task_request()
+    service.accept_task(first)
+    service.pause_task("task-1")
+    second = task_request(task_id="task-2", dispatch_id="dispatch-2")
+    second["task"]["parameters"].update(machine_serial=True)
+    if explicit_predecessor:
+        second["task"]["parameters"]["machine_predecessor_task_id"] = "task-1"
+    service.accept_task(second)
+    state = service._store.snapshot()
+    row = next(row for row in state["executions"].values() if row["task_id"] == "task-2")
+    assert queue_status(state, row)[0] == ("WAITING" if explicit_predecessor else "READY")
+
+
 def test_machine_serial_waits_other_account_and_continues_after_blocked(tmp_path):
     service = make_service(tmp_path)
     service.accept_task(task_request())

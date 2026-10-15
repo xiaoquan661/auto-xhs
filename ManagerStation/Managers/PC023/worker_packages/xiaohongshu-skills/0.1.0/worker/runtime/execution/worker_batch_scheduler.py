@@ -65,7 +65,7 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
     for other in state["executions"].values():
         if other["remote_execution_id"] == execution["remote_execution_id"]:
             continue
-        if other["state"] in FINAL:
+        if other["state"] in FINAL or other["state"] == "PAUSED":
             continue
         if effective_execution(other) is not other:
             continue

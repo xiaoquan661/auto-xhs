@@ -250,6 +250,25 @@ def test_timeout_terminates_owned_process(tmp_path: Path, monkeypatch) -> None:
     assert "超时" in result["message"]
 
 
+def test_reconnecting_events_have_a_bounded_wait(tmp_path: Path, monkeypatch) -> None:
+    body = (
+        "for index in range(100):\n"
+        "    print(json.dumps({'type':'error','message':'Reconnecting... waiting for network'}), "
+        "flush=True)\n"
+        "    time.sleep(0.1)\n"
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    monkeypatch.setattr(runner_module, "NETWORK_RETRY_TIMEOUT_SECONDS", 0.5)
+    result = EmployeeCodexRunner(tmp_path / "state")(
+        task(parameters={"agent_idle_seconds": 60}, timeout_seconds=10)
+    )
+    assert result["state"] == "FAILED"
+    assert "网络连接持续失败" in result["message"]
+    root = tmp_path / "state" / "agent-runs" / "execution-1"
+    assert not (root / "agent-progress.json").exists()
+    assert (root / "runner-recovery.json").exists()
+
+
 @pytest.mark.parametrize("active", [True, False])
 def test_browser_checkpoint_controls_idle_timeout(
     tmp_path: Path,
