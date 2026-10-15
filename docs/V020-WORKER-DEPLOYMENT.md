@@ -69,5 +69,6 @@ python "$projectRoot\deploy\build-worker-layout.py" `
 
 2026-10-15 先以 PC065 完成全链验收，再安装其余四台。设备证据见
 [本次部署记录](../ManagerStation/Managers/PC023/migration/2026-10-15-worker-v020-deployment.json)。
-PC052、PC057、PC065、PC071 的探针与经理入库通过。PC073 执行服务和接单通过，员工 Codex
-工作区鉴权返回 401；用户确认将检查并重新登录，登录恢复后继续该机 Agent 领取和回传验收。
+PC052、PC057、PC065、PC071、PC073 的接单、Agent 领取、本地探针回传与经理入库均通过。
+PC073 登录恢复后完成最终验证，任务与结果在经理数据库均为 SUCCESS，返回的 probe_token
+与原任务一致；五机的程序目录及本地连接验收完成。
