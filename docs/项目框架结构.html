@@ -140,6 +140,14 @@
 .flow-diagram .flow-location{font-size:11px;fill:#587b96}
 .flow-diagram .flow-section-note{font-size:11px;fill:#657e92}
 
+
+.overview-filter{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:#f7faff;border-bottom:1px solid #dce6f0}
+.overview-filter strong{font-size:12px;color:#3b5d7b}.overview-filter button{border:1px solid #bdd0e3;background:white;padding:7px 18px;border-radius:7px;color:#365f84;font-size:13px}
+.overview-filter button[aria-pressed="true"]{background:#2164bf;color:white;border-color:#2164bf}.overview-filter small{font-size:11px;color:#526e88}
+.overview-diagram .overview-port{cursor:pointer;outline:none}.overview-port:hover rect,.overview-port:focus-visible rect{stroke:#2164bf;stroke-width:2}
+.overview-diagram .overview-port text{font-size:11px;fill:#365f7c}.overview-diagram .edge-annotation.focus rect{stroke:#2164bf}
+.overview-diagram .overview-band{font-size:19px;font-weight:600;fill:#244f76}
+
 </style>
 </head>
 <body>
@@ -6237,6 +6245,139 @@
         ]
       ]
     ]
+  },
+  "overviewStages": [
+    [
+      "01 配置与接入",
+      [
+        "od-goal",
+        "od-config",
+        "od-ssh",
+        "od-service"
+      ]
+    ],
+    [
+      "02 计划、输入与业务就绪",
+      [
+        "od-plan",
+        "od-task",
+        "od-material",
+        "od-ready"
+      ]
+    ],
+    [
+      "03 任务下发与接单",
+      [
+        "od-upload",
+        "od-inbox",
+        "od-accept-task",
+        "od-wake"
+      ]
+    ],
+    [
+      "04 员工执行与进度",
+      [
+        "od-queue",
+        "od-agent",
+        "od-platform",
+        "od-ack"
+      ]
+    ],
+    [
+      "05 结果回收与追踪",
+      [
+        "od-outbox",
+        "od-pull",
+        "od-poll",
+        "od-track"
+      ]
+    ],
+    [
+      "06 经理入库、验收与证据",
+      [
+        "od-ingest",
+        "od-accept",
+        "od-data",
+        "od-evidence"
+      ]
+    ]
+  ],
+  "overviewLayers": {
+    "all": {
+      "label": "全部",
+      "edges": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28
+      ]
+    },
+    "data": {
+      "label": "数据",
+      "edges": [
+        14,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28
+      ]
+    },
+    "communication": {
+      "label": "通信",
+      "edges": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ]
+    }
   }
 }
 </script>
@@ -6255,6 +6396,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let active='guide';
 const navigationTrail=[],graphOrigins={},graphZoom={};
 let expandedGraph=null;
+let overviewLayer='all';
 const graphModes=Object.fromEntries(chapters.filter(c=>D.graphs[c.id]).map(c=>[c.id,'detail']));
 function graphFor(id){return D.graphDetails[id];}
 const selections=Object.fromEntries(chapters.filter(c=>D.graphs[c.id]).map(c=>[c.id,graphFor(c.id).selected]));
@@ -6538,7 +6680,7 @@ function codeMatrixMarkup(){
 }
 function graphMarkup(c){
  const g=graphFor(c.id);
- return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}${D.flowRoutes[c.id]?' · 按场景分行，沿箭头阅读':''}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
+ return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}${D.flowRoutes[c.id]?' · 按场景分行，沿箭头阅读':''}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}${c.id==='overall'?overviewFilterMarkup():''}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
 }
 function flowReferenceMarkup(id,keys){
  const blocks=D.flowReferences[id]||[];
@@ -6548,7 +6690,7 @@ function chapterFAQ(c){
  const selection=c.id==='source'
  ? `<details class="faq-item code-detail" id="code-detail"><summary><span class="question-label">代码条目</span><span id="code-question"></span></summary><div class="faq-answer" id="code-answer"></div></details>`
  : `<details class="faq-item node-faq" id="node-faq-${c.id}"><summary><span class="question-label">图中节点</span><span id="node-question-${c.id}"></span></summary><div class="faq-answer" id="node-answer-${c.id}"></div></details>`;
- return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${selection}${faqsFor(c.id)}${flowReferenceMarkup(c.id)}</section>`;
+ return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${selection}${c.id==='overall'?faq('全部、数据、通信怎样切换？','<p>图上方的三个按钮只切换连线、文字标签和编号接点；24 个模块的位置、标题和参与角色始终保持一致。全部显示完整关系；数据展示素材、业务结果、同步、证据与入库；通信展示任务、调用、控制、接收及回执。</p><p>回执既是通信消息，也可以携带业务结果，所以回收和入库相关的连接可同时出现在数据和通信视图。跨阶段连接在两端显示相同编号，点击接点可定位另一端；点击模块查看功能与源码 FAQ。</p>'):''}${faqsFor(c.id)}${flowReferenceMarkup(c.id)}</section>`;
 }
 document.getElementById('chapters').innerHTML=chapters.map((c,i)=>`<section class="chapter" id="chapter-${c.id}" ${i?'hidden':''} aria-labelledby="title-${c.id}"><div class="chapter-head"><div class="chapter-number">${c.no||String(i).padStart(2,'0')}</div><div><h2 id="title-${c.id}">${c.title}</h2><p>${c.subtitle}</p></div><span class="tag">${c.tag}</span></div>${c.id==='guide'?guideMarkup():c.id==='source'?codeMatrixMarkup():graphMarkup(c)}${c.id==='guide'?'':chapterFAQ(c)}<div class="chapter-pagination">${i?`<button type="button" data-chapter="${chapters[i-1].id}">← ${chapters[i-1].name}</button>`:'<span></span>'}${i<chapters.length-1?`<button type="button" data-chapter="${chapters[i+1].id}">下一章 · ${chapters[i+1].name} →</button>`:'<button type="button" data-chapter="overall">返回系统总览 ↑</button>'}</div></section>`).join('');
 const nodeKinds={action:'处理',decision:'条件判断',store:'持久记录',message:'消息 / 回执',interface:'接口 / 通道',platform:'平台侧'};
@@ -6632,7 +6774,78 @@ function makeFlowGraph(id){
  updateNodeFAQ(id,selections[id]);updateGraphChrome(id);
 }
 
+function overviewFilterMarkup(){
+ return `<div class="overview-filter" role="group" aria-label="筛选总图连线"><strong>显示连线</strong>${Object.entries(D.overviewLayers).map(([key,l])=>`<button type="button" data-overview-layer="${key}" aria-pressed="${key===overviewLayer}">${l.label}</button>`).join('')}<small id="overview-filter-status" role="status" aria-live="polite"></small><small>通信：任务、控制与回执；数据：素材、业务结果与入库。模块位置固定。</small></div>`;
+}
+function overviewLayout(layer){
+ const g=graphFor('overall'),selected=new Set(D.overviewLayers[layer].edges),width=1320,nw=228,gap=122,pad=22,positions={},ports={},boxes=[],labels=[],connectors=[];
+ const colors={down:'#3475c7',back:'#218e78',control:'#b58036'};
+ D.overviewStages.forEach(([,ids],row)=>ids.forEach((id,col)=>{positions[id]={row,col};ports[id]=[];}));
+ const local=e=>positions[e.a].row===positions[e.b].row&&Math.abs(positions[e.a].col-positions[e.b].col)===1;
+ g.edges.forEach((e,index)=>{if(!local(e)){ports[e.a].push({index,other:e.b,out:true});ports[e.b].push({index,other:e.a,out:false});}});
+ let y=64,svg=`<defs>${Object.entries(colors).map(([kind,color])=>`<marker id="overview-arrow-${kind}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="${color}"/></marker>`).join('')}</defs>`;
+ svg+=flowText(['下发与执行'],pad,30,19,'#244f76','overview-band');
+ svg+=flowText(['按阶段查看模块；短线连接相邻模块，编号接点连接跨阶段模块。'],pad,50,12,'#56758e','flow-sub');
+ const rows=[];
+ D.overviewStages.forEach(([title,ids],row)=>{
+  if(row===4){svg+=flowText(['回收与留存'],pad,y+22,19,'#244f76','overview-band');y+=44;}
+  const ns=ids.map(id=>{
+   const n=g.nodes.find(n=>n.id===id),roles=flowWrap(D.nodeParticipation[id].map(r=>D.participation[r].label).join(' / '),nw-28,10),titles=flowWrap(n.title,nw-28,15),subs=flowWrap(n.sub,nw-28,12);
+   return {n,roles,titles,subs,body:46+roles.length*15+titles.length*20+subs.length*17};
+  });
+  const bodyHeight=Math.max(148,...ns.map(n=>n.body)),height=bodyHeight+Math.max(...ids.map(id=>ports[id].length))*80+18,top=y+48;
+  svg+=`<rect x="6" y="${y}" width="1308" height="${height+68}" rx="12" fill="${row<4?(row%2?'#f6f9fc':'#eef5fc'):'#edf7f3'}" stroke="#dce7f0"/>`;
+  svg+=flowText([title],pad,y+28,17,'#183a58','flow-section');rows.push({row,y,top,height:height+68});
+  ns.forEach((l,col)=>{
+   const n=l.n,x=pad+col*(nw+gap);boxes.push({id:n.id,x,y:top,w:nw,h:height});
+   svg+=`<g class="flow-node" id="${n.id}" data-node="${n.id}" tabindex="0" role="button" aria-label="${esc(n.title)}" aria-pressed="${n.id===selections.overall}" aria-controls="node-faq-overall"><rect class="flow-card" x="${x}" y="${top}" width="${nw}" height="${height}" rx="9" fill="white" stroke="#b8cee2"/>`;
+   let ty=top+22;svg+=flowText(l.roles,x+14,ty,10,'#476b8c','flow-role');ty+=l.roles.length*15+10;
+   svg+=flowText(l.titles,x+14,ty,15,'#183a58','flow-title');ty+=l.titles.length*20+10;
+   svg+=flowText(l.subs,x+14,ty,12,'#566f83','flow-sub')+'</g>';
+   ports[n.id].forEach((port,slot)=>{
+    if(!selected.has(port.index))return;
+    const e=g.edges[port.index],other=g.nodes.find(n=>n.id===port.other),py=top+bodyHeight+slot*80;
+    const code='A'+String(port.index+1).padStart(2,'0'),shortTitle=other.title.replace(/^\d+\s*/,''),caption=code+(port.out?' → ':' ← ')+shortTitle;
+    const lines=flowWrap(caption,nw-40,11),detail=flowWrap(e.label.replaceAll('\n',' ')||'流程衔接',nw-40,10);
+    const labelLines=[...lines,...detail];
+    // Each connector has a fixed slot so changing a layer preserves every module coordinate.
+    connectors.push({edge:port.index,source:n.id,target:port.other,code,x:x+10,y:py,w:nw-20,h:74,lines:labelLines});
+    svg+=`<g class="overview-port edge-annotation ${e.type}" data-label-edge="${port.index}" data-overview-jump="${port.other}" data-from-node="${n.id}" tabindex="0" role="button" aria-label="${esc(caption+'；'+e.label)}"><title>${esc(caption+'；'+e.label)}</title><rect x="${x+10}" y="${py}" width="${nw-20}" height="74" rx="5" fill="#f4f8fc" stroke="#cbdce9"/>`;
+    svg+=flowText(lines,x+18,py+15,11,'#365f7c');
+    svg+=flowText(detail,x+18,py+15+lines.length*16,10,'#587b96')+'</g>';
+   });
+  });
+  g.edges.forEach((e,index)=>{
+   if(!selected.has(index)||!local(e)||positions[e.a].row!==row)return;
+   const ca=positions[e.a].col,cb=positions[e.b].col,right=cb>ca,left=Math.min(ca,cb),x=pad+left*(nw+gap)+nw,ay=top+bodyHeight-22;
+   const lines=flowWrap(e.label||'下一步',gap-18,12),box={edge:index,x:x+9,y:ay-17-lines.length*17,w:gap-18,h:lines.length*17};labels.push(box);
+   svg+=`<path class="wire ${e.type}" data-edge="${index}" d="M${right?x+6:x+gap-6} ${ay} H${right?x+gap-7:x+7}" stroke="${colors[e.type]}" marker-end="url(#overview-arrow-${e.type})"/>`;
+   svg+=`<g class="edge-annotation ${e.type}" data-label-edge="${index}"><title>${esc(e.label)}</title>`+flowText(lines,x+gap/2,box.y+13,12,'#42617c','','middle')+'</g>';
+  });
+  y+=height+90;
+ });
+ return {width,height:y,boxes,labels,connectors,rows,svg:`<svg xmlns="http://www.w3.org/2000/svg" class="flow-diagram overview-diagram" width="${width}" height="${y}" viewBox="0 0 ${width} ${y}" role="group" aria-label="总体流程 · ${D.overviewLayers[layer].label}">${svg}</svg>`};
+}
+function makeOverviewGraph(){
+ const graph=document.getElementById('graph-overall'),layout=overviewLayout(overviewLayer);
+ graph.innerHTML=layout.svg;graph.style.width=layout.width+'px';graph.style.height=layout.height+'px';graph.style.minWidth='0';
+ const handle=event=>{
+  const link=event.target.closest('[data-overview-jump]');
+  if(link){locateGraphNode('overall',link.dataset.overviewJump);return;}
+  const node=event.target.closest('[data-node]');if(node)openNodeFAQ('overall',node.dataset.node);
+ };
+ graph.onclick=handle;graph.onkeydown=event=>{if((event.key==='Enter'||event.key===' ')&&event.target.closest('[data-overview-jump],[data-node]')){event.preventDefault();handle(event);}};
+ updateNodeFAQ('overall',selections.overall);updateGraphChrome('overall');
+ document.getElementById('overview-filter-status').textContent=`${D.overviewLayers[overviewLayer].label} · ${D.overviewLayers[overviewLayer].edges.length} 条关系 · 24 个模块`;
+}
+function selectOverviewLayer(layer){
+ overviewLayer=layer;
+ document.querySelectorAll('[data-overview-layer]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.overviewLayer===layer)));
+ makeOverviewGraph();drawGraph('overall');
+}
+
 function makeGraph(id){
+ if(id==='overall'){makeOverviewGraph();return;}
  if(D.flowRoutes[id]){makeFlowGraph(id);return;}
  const container=document.getElementById('graph-'+id),g=graphFor(id);
  container.innerHTML=g.lanes.map((l,c)=>`<div class="lane" data-lane="${c}"></div><div class="lane-title" data-lane-title="${c}">${esc(l[0])}<small>${esc(l[1])}</small></div>`).join('')+`<svg class="wires" aria-hidden="true"></svg>`+g.nodes.map(n=>`<button class="graph-node ${n.kind?'kind-'+n.kind:''}" id="${n.id}" data-node="${n.id}" data-column="${n.c}" type="button" aria-pressed="${n.id===selections[id]}" aria-controls="node-faq-${id}"><i class="node-dot" aria-hidden="true"></i>${n.kind?`<span class="node-kicker">${nodeKinds[n.kind]}</span>`:''}${participationMarkup(n.id)}<b>${esc(n.title)}</b><small>${esc(n.sub)}</small>${n.meta?`<span class="node-meta">${n.meta.map(m=>`<span><em>${esc(m.k)}</em><span>${esc(m.v)}</span></span>`).join('')}</span>`:''}</button>`).join('');
@@ -6693,7 +6906,7 @@ function placeEdgeLabels(svg,paths,boxes,headers,width,height){
 function drawGraph(id){
  if(!D.graphs[id])return;
  const graph=document.getElementById('graph-'+id);if(graph.closest('[hidden]'))return;
- if(D.flowRoutes[id]){highlightEdges(id);applyGraphScale(id);return;}
+ if(id==='overall'||D.flowRoutes[id]){highlightEdges(id);applyGraphScale(id);return;}
  const scroller=graph.closest('.graph-scroll'),baseWidth=Math.max(id==='overall'?(innerWidth<=700?860:900):1260,scroller.clientWidth-12);
  graph.style.width=baseWidth+'px';graph.style.minWidth='0';
  const g=graphFor(id),width=graph.clientWidth,pad=25,gutter=id==='overall'?(graphModes[id]==='detail'?100:84):170,laneWidth=(width-2*pad-2*gutter)/3,inside=12,nodeWidth=laneWidth-inside*2;
@@ -6833,6 +7046,8 @@ document.querySelectorAll('[data-graph-search]').forEach(input=>{
  });
 });
 document.addEventListener('click',event=>{
+ const layerButton=event.target.closest('[data-overview-layer]');
+ if(layerButton){selectOverviewLayer(layerButton.dataset.overviewLayer);return;}
  const ret=event.target.closest('[data-return-graph]');
  if(ret){returnToGraph(ret.dataset.returnGraph,ret.dataset.returnNode);return;}
  const tool=event.target.closest('[data-graph-action]');
@@ -6852,7 +7067,7 @@ document.addEventListener('keydown',event=>{
  if(!expandedGraph)return;
  if(event.key==='Escape'){setExpandedGraph(expandedGraph,false);return;}
  if(event.key==='Tab'){
-  const sheet=document.querySelector('.architecture-sheet.is-expanded'),items=[...sheet.querySelectorAll('button:not(:disabled),input,[data-node][tabindex]')].filter(el=>el.getClientRects().length),first=items[0],last=items[items.length-1];
+  const sheet=document.querySelector('.architecture-sheet.is-expanded'),items=[...sheet.querySelectorAll('button:not(:disabled),input,[data-node][tabindex],[data-overview-jump]')].filter(el=>el.getClientRects().length),first=items[0],last=items[items.length-1];
   if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
   else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
  }
