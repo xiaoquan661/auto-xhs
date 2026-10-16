@@ -34,7 +34,6 @@ from project_paths import webui_asset_path
 from web_session import MAX_JSON_BODY, SESSION_HEADER, create_session_token
 
 DEFAULT_EXECUTOR_PORT = 8766
-WORKER_WEB_ROOT = webui_asset_path("worker/index.html").parent
 WORKER_ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/worker.css": ("worker.css", "text/css; charset=utf-8"),

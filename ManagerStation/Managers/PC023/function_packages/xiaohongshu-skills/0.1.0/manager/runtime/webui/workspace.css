@@ -250,8 +250,7 @@ body { background: var(--workspace-sidebar); }
   .compact-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.content-section,
-.diagnosis-layout {
+.content-section {
   max-width: none;
   margin-inline: 0;
 }
@@ -511,8 +510,7 @@ body { background: var(--workspace-sidebar); }
 }
 .messages-section .subpage-panel:not(.draft-layout) { margin-top: 0; }
 .task-grid { grid-template-columns: minmax(310px, .72fr) minmax(420px, 1.28fr); }
-.task-ledger,
-.draft-ledger { max-height: calc(100vh - 220px); min-height: 430px; }
+.task-ledger { max-height: calc(100vh - 220px); min-height: 430px; }
 .setup-card { border-radius: 13px; box-shadow: none; }
 .record-card { border-radius: 10px; }
 .record-ledger { grid-template-columns: 1fr; }
@@ -667,12 +665,6 @@ body { background: var(--workspace-sidebar); }
 }
 .report-meta { grid-column: 1 / -1; color: var(--faint); font-size: 9px; }
 .report-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
-
-.system-section .diagnosis-layout {
-  padding-top: 0;
-  grid-template-columns: 1.15fr .85fr;
-}
-.diagnosis-card,
 .settings-card { min-height: 300px; box-shadow: none; }
 
 .manager-cluster,
@@ -1660,18 +1652,13 @@ summary:focus-visible {
   .section-heading-actions { width: 100%; align-items: flex-start; justify-content: space-between; }
   .section-heading > p,
   .section-heading-actions > p { text-align: left; }
-  .setup-grid,
-  .task-grid,
-  .draft-layout,
-  .report-layout,
-  .system-section .diagnosis-layout { grid-template-columns: 1fr; }
+  .setup-grid, .task-grid, .report-layout { grid-template-columns: 1fr; }
   .publishing-summary,
   .execution-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .execution-filter-bar { grid-template-columns: 1fr 1fr; }
   .execution-search { grid-column: 1 / -1; }
   .data-ledger { grid-template-columns: 1fr; }
-  .task-ledger,
-  .draft-ledger { min-height: 0; max-height: none; }
+  .task-ledger { min-height: 0; max-height: none; }
   .manager-collection-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manager-collection-label { grid-column: 1 / -1; }
   .manager-collection-strip > div:nth-child(4) { border-left: 0; }

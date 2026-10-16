@@ -376,11 +376,6 @@ class BridgePage:
         result = self._call("get_netlog") or {}
         return result.get("entries") or []
 
-    # ─── 无操作（原 CDP 专有功能，扩展模式不需要） ─────────────────
-
-    def inject_stealth(self) -> None:
-        """不需要注入 stealth 脚本——直接使用用户浏览器，无需伪装。"""
-
     # ─── 兼容性辅助方法 ──────────────────────────────────────────
 
     def is_server_running(self) -> bool:

@@ -593,19 +593,6 @@ window.AutoXhsEmployeePanel = function (services) {
       });
   }
 
-  function operationsOverview() {
-    const days = operationsDays();
-    return `<section class="panel" data-panel="operations-overview">
-      <div class="section-heading compact"><div><h2>运营总览</h2>
-        <p class="plain-help">每日运营计划总览 · 汇总全部账号，数量按计划 / 实际展示</p></div>
-        <span>${days.length} 天</span></div>
-      <div class="daily-report-table-wrap operations-days-scroll"><table class="daily-report-table">
-        <thead><tr><th>运营日期</th>${overviewFields.map(([, label]) => `<th>${label}<small>计划 / 实际</small></th>`).join("")}
-          <th>完成情况</th></tr></thead><tbody>${days.map((day) => `<tr data-operation-date="${esc(day.date)}">
-          <th>${esc(day.date)}</th>${day.metrics.map((m) => `<td>${number(m.target)} / ${number(m.actual)}${m.incomplete ? '<small>部分数据待回传</small>' : ''}</td>`).join("")}
-          <td>${badge(day.status, day.tone)}</td></tr>`).join("")}</tbody></table></div></section>`;
-  }
-
   function todayPlanning() {
     const today = localDateValue(new Date());
     const plan = (state.dailyPlans || []).find((item) => item.plan_date === today);
