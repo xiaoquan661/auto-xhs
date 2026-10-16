@@ -306,39 +306,6 @@ def click_publish_button(page: Page, *, expected_title: str = "") -> dict:
     }
 
 
-def _readback_published_note(page: Page, expected_title: str) -> dict:
-    """Read the bound account's homepage after platform success has been recorded."""
-    from account_identity import load_identity_record
-    from product_store import ProductStore
-
-    from .user_profile import get_user_profile
-
-    if not ProductStore().get_setting("publish_profile_readback_enabled", True):
-        return {
-            "verified": False,
-            "status": "disabled_by_policy",
-            "message": "按设备规则使用创作中心发布成功证据",
-        }
-    account = getattr(page, "account", "")
-    if not account:
-        return {"verified": False, "reason": "当前连接未提供账号槽位"}
-    record = load_identity_record(account) or {}
-    uid = str((record.get("current") or {}).get("user_id") or "")
-    if not uid:
-        return {"verified": False, "reason": "槽位未记录 UID"}
-    try:
-        profile = get_user_profile(page, uid, "")
-        matches = [feed for feed in profile.feeds if feed.note_card.display_title == expected_title]
-        return {
-            "verified": bool(matches),
-            "user_id": uid,
-            "note_ids": [feed.id for feed in matches],
-            "message": "主页已找到本次笔记" if matches else "发布已成功，主页暂未显示本次笔记",
-        }
-    except Exception as exc:
-        return {"verified": False, "user_id": uid, "reason": str(exc)}
-
-
 def _read_publish_observation(
     page: Page,
     *,

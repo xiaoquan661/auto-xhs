@@ -1,4 +1,4 @@
-"""Browse feed cards and like them while preserving the same feed page session."""
+"""Browse feed cards while preserving the same feed page session."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import time
 
 from .errors import XHSError
 from .feeds import extract_current_feeds
-from .like_favorite import like_current_feed
 from .types import Feed
 from .urls import HOME_URL
 
@@ -78,26 +77,6 @@ def _close_detail(page, feed_id: str) -> str:
         return "history_back"
 
     raise XHSError(f"无法退出笔记详情页: {feed_id}")
-
-
-def _select_candidates(page, count: int, video_only: bool) -> list[Feed]:
-    feeds = extract_current_feeds(page)
-    candidates = [
-        feed
-        for feed in feeds
-        if feed.model_type == "note"
-        and feed.id
-        and feed.xsec_token
-        and (not video_only or feed.note_card.type == "video")
-        and not feed.note_card.interact_info.liked
-        and page.has_element(_card_selector(feed.id))
-    ]
-    if len(candidates) < count:
-        kind = "视频" if video_only else "笔记"
-        raise XHSError(f"当前信息流中仅找到 {len(candidates)} 条可点赞{kind}，不足 {count} 条")
-
-    # Randomize the items, then restore feed order so each next item is below the last.
-    return sorted(random.sample(candidates, count), key=lambda feed: feed.index)
 
 
 def _browse_candidates(page, seen: set[str]) -> list[Feed]:
@@ -221,62 +200,4 @@ def browse_feed_cycle(
         "items": completed,
         "skipped_count": len(skipped),
         "skipped_items": skipped,
-    }
-
-
-def browse_like_cycle(
-    page,
-    count: int = 3,
-    min_interval: float = 10.0,
-    max_interval: float = 20.0,
-    video_only: bool = True,
-) -> dict:
-    """Open, like, close, and scroll through feed items without refreshing between items."""
-    if count < 1:
-        raise ValueError("count 必须大于 0")
-    if min_interval < 0 or max_interval < min_interval:
-        raise ValueError("点赞间隔参数无效")
-
-    # This is the only top-level navigation in the workflow.
-    page.navigate(HOME_URL)
-    page.wait_for_load()
-    page.wait_dom_stable()
-    time.sleep(random.uniform(0.8, 1.4))
-
-    selected = _select_candidates(page, count, video_only)
-    completed: list[dict] = []
-
-    for position, feed in enumerate(selected):
-        _open_from_feed(page, feed)
-        page.simulate_reading_mouse(random.randint(2200, 4200))
-
-        like_result = like_current_feed(page, feed.id)
-        close_method = _close_detail(page, feed.id)
-
-        item = {
-            "feed_id": feed.id,
-            "title": feed.note_card.display_title,
-            "type": feed.note_card.type,
-            "liked": like_result.success,
-            "message": like_result.message,
-            "closed_by": close_method,
-        }
-
-        if position < len(selected) - 1:
-            viewport = int(page.evaluate("window.innerHeight || 768") or 768)
-            scroll_distance = int(viewport * random.uniform(0.65, 0.95))
-            page.scroll_by(0, scroll_distance)
-            interval = random.uniform(min_interval, max_interval)
-            item["scroll_distance"] = scroll_distance
-            item["interval_after"] = round(interval, 2)
-            time.sleep(interval)
-
-        completed.append(item)
-
-    return {
-        "success": True,
-        "count": len(completed),
-        "video_only": video_only,
-        "refreshed_between_items": False,
-        "items": completed,
     }
