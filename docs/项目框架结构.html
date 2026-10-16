@@ -6244,6 +6244,24 @@
     ]
   },
   "overviewLayers": {
+    "main": {
+      "label": "关键流程",
+      "edges": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        9,
+        11,
+        12,
+        13,
+        14,
+        20,
+        21,
+        26
+      ]
+    },
     "all": {
       "label": "全部",
       "edges": [
@@ -6296,20 +6314,11 @@
     "communication": {
       "label": "通信",
       "edges": [
-        0,
-        1,
-        2,
         3,
         4,
         5,
         6,
         7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
         15,
         16,
         17,
@@ -6356,6 +6365,37 @@
       "分别看目标、确认量和作品表现，再调整下一次计划。",
       "回收入库完成后，仍需核对实际业务目标是否达成。"
     ]
+  ],
+  "overviewLabels": [
+    "",
+    "复用绑定\n配置计划",
+    "生成批次\n任务快照",
+    "接入配置",
+    "投递任务",
+    "任务 JSON\n写入收件箱",
+    "落盘后唤醒",
+    "SSH 唤醒",
+    "",
+    "",
+    "账号就绪",
+    "接收入队",
+    "按条件调度",
+    "调用执行",
+    "结果与证据",
+    "接收确认\nTASK_ACK",
+    "领取进度",
+    "关联执行",
+    "",
+    "按游标拉取",
+    "增量回收",
+    "归档入库",
+    "",
+    "业务表同步",
+    "",
+    "下载证据",
+    "确认实际量",
+    "按需备料",
+    "引用素材路径"
   ]
 }
 </script>
@@ -6374,7 +6414,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let active='guide';
 const navigationTrail=[],graphOrigins={},graphZoom={};
 let expandedGraph=null;
-let overviewLayer='all';
+let overviewLayer='main',overviewFocus=null;
 const graphModes=Object.fromEntries(chapters.filter(c=>D.graphs[c.id]).map(c=>[c.id,'detail']));
 function graphFor(id){return D.graphDetails[id];}
 const selections=Object.fromEntries(chapters.filter(c=>D.graphs[c.id]).map(c=>[c.id,graphFor(c.id).selected]));
@@ -6412,7 +6452,7 @@ function faqsFor(id){
  ])+refsMarkup([['web_server',540],['executor_server',270],['bridge_server',348],['account_manager',23],['manager_transport',151]])),
  faq('经理和员工之间，实际怎样传任务与结果？','<p>PC023 创建任务 JSON，经 SFTP 写入员工 <code>inbox/pending</code>，再用 SSH 调用 <code>wake-task</code>。员工接收、排队并在本机执行，把接收确认、进度、结果和修订写入 outbox。</p><p>PC023 主动读取 <code>outbox/index.json</code>，按序号下载新增记录，归档和去重导入后推进回收游标。员工业务表快照与证据文件分别同步。</p>'+refsMarkup([['manager_service',1559],['manager_service',5490],['manager_worker_service',1520],['manager_worker_service',3367],['manager_service',2586]])),
  faq('为什么计划按批次执行？','<p>批次让全天工作落到具体时点，并让每次执行有明确的新增目标、有效时间和完成依据。员工调度再按账号锁、机器串行配置、依赖和间隔决定何时启动。</p>'+batch+'<p>浏览部分同时参考预算与配置时点：有浏览预算时，批数取 <code>ceil(浏览预算 / 15)</code> 与时点数量中的较大值，再把浏览和点赞预算分摊到批次。其他能力沿计划的动作与依赖生成任务。</p><p class="note">每批报告本批新增完成量；批间隔描述任务之间的等待，单条笔记的阅读停留沿业务节奏配置执行。</p>'+refsMarkup([['scheduled_daily_batches',17],['daily_operations_runner',331],['tests/test_scheduled_daily_batches.py',15]])),
- faq('本手册的范围和查看方式是什么？','<p>使用导航提供角色阅读路线、真实任务样例、排查入口和适用版本。全流程详图说明任务、执行、通信、结果回收与经理本地留存。通信流程图列出通道、方向、执行者、触发周期和回执含义；数据流程图列出采集路径、数据位置、完成依据和功能包。代码与功能章节按主要模块说明采用原因与实现策略。点击总图节点可查看 FAQ，阅读路线与任务样例可定位到图或表中的对应条目。</p><p>内容依据 2026-10-16 工作区源码核对。图示表达当前实现关系；设备在线状态、账号状态和平台业务结果由实际回读确认。本 HTML 的样式、图数据与交互均在文件内部，可直接用浏览器打开。</p>')
+ faq('本手册的范围和查看方式是什么？','<p>使用导航提供角色阅读路线、真实任务样例、排查入口和适用版本。全流程详图说明任务、执行、通信、结果回收与经理本地留存。通信流程图列出通道、方向、执行者、触发周期和回执含义；数据流程图列出采集路径、数据位置、完成依据和功能包。代码与功能章节按主要模块说明采用原因与实现策略。点击总图节点展开上下游，再通过“查看模块说明”查看 FAQ，阅读路线与任务样例可定位到图或表中的对应条目。</p><p>内容依据 2026-10-16 工作区源码核对。图示表达当前实现关系；设备在线状态、账号状态和平台业务结果由实际回读确认。本 HTML 的样式、图数据与交互均在文件内部，可直接用浏览器打开。</p>')
  ].join('');
  if(id==='manager')return [
  faq('经理机日常操作，按什么顺序进行？',steps([
@@ -6606,7 +6646,7 @@ function setExpandedGraph(id,expand,focus=true){
 }
 function locateGraphNode(id,nodeId){
  const graph=document.getElementById('graph-'+id),el=document.getElementById(nodeId);
- selections[id]=nodeId;
+ selections[id]=nodeId;if(id==='overall')overviewFocus=nodeId;
  graph.querySelectorAll('[data-node]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.node===nodeId)));
  updateNodeFAQ(id,nodeId);highlightEdges(id);
  el.scrollIntoView({behavior:'instant',block:'center',inline:'center'});el.focus({preventScroll:true});
@@ -6658,7 +6698,7 @@ function codeMatrixMarkup(){
 }
 function graphMarkup(c){
  const g=graphFor(c.id);
- return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}${D.flowRoutes[c.id]?' · 按场景分行，沿箭头阅读':''}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}${c.id==='overall'?overviewFilterMarkup():''}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
+ return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}${D.flowRoutes[c.id]?' · 按场景分行，沿箭头阅读':''}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}${c.id==='overall'?overviewFilterMarkup():''}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · ${c.id==='overall'?'展开上下游，再查看模块说明':'查看处理原因与源码 FAQ'}；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
 }
 function flowReferenceMarkup(id,keys){
  const blocks=D.flowReferences[id]||[];
@@ -6672,14 +6712,14 @@ function chapterFAQ(c){
  const selection=c.id==='source'
  ? `<details class="faq-item code-detail" id="code-detail"><summary><span class="question-label">代码条目</span><span id="code-question"></span></summary><div class="faq-answer" id="code-answer"></div></details>`
  : `<details class="faq-item node-faq" id="node-faq-${c.id}"><summary><span class="question-label">图中节点</span><span id="node-question-${c.id}"></span></summary><div class="faq-answer" id="node-answer-${c.id}"></div></details>`;
- return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${c.id==='overall'?operationsStrategyMarkup():''}${selection}${c.id==='overall'?faq('全部、数据、通信怎样切换？','<p>图上方的三个按钮只切换连线与文字标签；24 个模块的位置、标题和参与角色始终保持一致。全部显示完整关系；数据展示素材、业务结果、同步、证据与入库；通信展示任务、调用、控制、接收及回执。</p><p>回执既是通信消息，也可以携带业务结果，所以回收和入库相关的连接可同时出现在数据和通信视图。总图按经理机、通信层、员工机三列泳道展示。点击模块查看功能与源码 FAQ。</p>'):''}${faqsFor(c.id)}${flowReferenceMarkup(c.id)}</section>`;
+ return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${c.id==='overall'?operationsStrategyMarkup():''}${selection}${c.id==='overall'?faq('怎样查看关键流程、数据、通信和模块上下游？','<p>默认的关键流程沿目标、绑定与策略、计划、任务下发、员工执行、结果回收、入库和确认展开。全部显示 29 条关系；数据展示素材、业务结果、同步、证据与入库；通信聚焦接入、投递、唤醒、接收确认、领取进度与回收。</p><p>24 个模块始终保持原位置。切换时只显示或隐藏连线及其文字，连线走向和标签位置保持固定。回执既是通信消息，也携带结果数据，因此增量回收与归档入库会出现在两种视图中。</p><p>点击模块只展开它直接相连的上下游；点击“返回当前视图”或再次点击该模块，恢复所选视图。“查看模块说明”打开详细 FAQ，其中保留动作、传递内容、分工与源码依据。</p>'):''}${faqsFor(c.id)}${flowReferenceMarkup(c.id)}</section>`;
 }
 document.getElementById('chapters').innerHTML=chapters.map((c,i)=>`<section class="chapter" id="chapter-${c.id}" ${i?'hidden':''} aria-labelledby="title-${c.id}"><div class="chapter-head"><div class="chapter-number">${c.no||String(i).padStart(2,'0')}</div><div><h2 id="title-${c.id}">${c.title}</h2><p>${c.subtitle}</p></div><span class="tag">${c.tag}</span></div>${c.id==='overall'?'<p><a href="#operations-strategy">查看运营策略简表 ↓</a></p>':''}${c.id==='guide'?guideMarkup():c.id==='source'?codeMatrixMarkup():graphMarkup(c)}${c.id==='guide'?'':chapterFAQ(c)}<div class="chapter-pagination">${i?`<button type="button" data-chapter="${chapters[i-1].id}">← ${chapters[i-1].name}</button>`:'<span></span>'}${i<chapters.length-1?`<button type="button" data-chapter="${chapters[i+1].id}">下一章 · ${chapters[i+1].name} →</button>`:'<button type="button" data-chapter="overall">返回系统总览 ↑</button>'}</div></section>`).join('');
 const nodeKinds={action:'处理',decision:'条件判断',store:'持久记录',message:'消息 / 回执',interface:'接口 / 通道',platform:'平台侧'};
 function updateNodeFAQ(id,nodeId,open=false){
  const n=graphFor(id).nodes.find(n=>n.id===nodeId),x=D.explanations[nodeId],roles=D.nodeParticipation[nodeId].map(kind=>D.participation[kind]);
  document.getElementById('node-question-'+id).textContent=n.title+'：怎样处理、需要什么、产出什么？';
- document.getElementById('node-answer-'+id).innerHTML=`<p>${esc(n.detail)}</p><div class="participation-note">${D.nodeResponsibilities[nodeId]?`<p><strong>本节点分工：</strong>${esc(D.nodeResponsibilities[nodeId])}</p>`:''}${roles.map(role=>`<p><strong>${esc(role.label)}：</strong>${esc(role.detail)}</p>`).join('')}</div><dl class="explain-grid"><div><dt>为什么需要</dt><dd>${esc(x.why)}</dd></div><div><dt>前置条件</dt><dd>${esc(x.before)}</dd></div><div><dt>处理产出</dt><dd>${esc(x.output)}</dd></div></dl>${x.note?`<p class="note">${esc(x.note)}</p>`:''}${refsMarkup(n.refs)}${n.referenceKeys?flowReferenceMarkup(id,n.referenceKeys):''}<div class="faq-return"><button type="button" class="node-return" data-return-graph="${id}" data-return-node="${nodeId}">↑ 返回图中节点</button><small>定位并高亮当前节点及相邻连线</small></div>`;
+ document.getElementById('node-answer-'+id).innerHTML=`<p>${esc(n.detail)}</p><div class="participation-note">${D.nodeResponsibilities[nodeId]?`<p><strong>本节点分工：</strong>${esc(D.nodeResponsibilities[nodeId])}</p>`:''}${roles.map(role=>`<p><strong>${esc(role.label)}：</strong>${esc(role.detail)}</p>`).join('')}</div><dl class="explain-grid"><div><dt>为什么需要</dt><dd>${esc(x.why)}</dd></div><div><dt>前置条件</dt><dd>${esc(x.before)}</dd></div><div><dt>处理产出</dt><dd>${esc(x.output)}</dd></div></dl>${x.note?`<p class="note">${esc(x.note)}</p>`:''}${id==='overall'?'<h4>上下游关系</h4>'+table(['起点 → 终点','动作 / 传递内容'],graphFor(id).edges.filter(e=>e.a===nodeId||e.b===nodeId).map(e=>[esc(graphFor(id).nodes.find(n=>n.id===e.a).title)+' → '+esc(graphFor(id).nodes.find(n=>n.id===e.b).title),esc(e.label||'沿流程进入下一步').replaceAll('\n','<br>')])):''}${refsMarkup(n.refs)}${n.referenceKeys?flowReferenceMarkup(id,n.referenceKeys):''}<div class="faq-return"><button type="button" class="node-return" data-return-graph="${id}" data-return-node="${nodeId}">↑ 返回图中节点</button><small>定位并高亮当前节点及相邻连线</small></div>`;
  document.getElementById('node-faq-'+id).open=open;
 }
 function updateGraphChrome(id){
@@ -6757,12 +6797,61 @@ function makeFlowGraph(id){
 }
 
 function overviewFilterMarkup(){
- return `<div class="overview-filter" role="group" aria-label="筛选总图连线"><strong>显示连线</strong>${Object.entries(D.overviewLayers).map(([key,l])=>`<button type="button" data-overview-layer="${key}" aria-pressed="${key===overviewLayer}">${l.label}</button>`).join('')}<small id="overview-filter-status" role="status" aria-live="polite"></small><small>通信：任务、控制与回执；数据：素材、业务结果与入库。模块位置固定。</small></div>`;
+ return `<div class="overview-filter" role="group" aria-label="筛选总图连线"><strong>显示连线</strong>${Object.entries(D.overviewLayers).map(([key,l])=>`<button type="button" data-overview-layer="${key}" aria-pressed="${key===overviewLayer}">${l.label}</button>`).join('')}<small id="overview-filter-status" role="status" aria-live="polite"></small><small>点击模块展开上下游；模块位置固定，连线与文字同步筛选。</small><button type="button" data-overview-action="clear" hidden>返回当前视图</button><button type="button" data-overview-action="detail" hidden>查看模块说明 ↓</button></div>`;
 }
 function selectOverviewLayer(layer){
- overviewLayer=layer;
+ overviewLayer=layer;overviewFocus=null;
  document.querySelectorAll('[data-overview-layer]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.overviewLayer===layer)));
- drawGraph('overall');
+ applyOverviewVisibility();
+}
+function selectOverviewNode(nodeId){
+ overviewFocus=overviewFocus===nodeId?null:nodeId;selections.overall=nodeId;
+ updateNodeFAQ('overall',nodeId);applyOverviewVisibility();
+}
+function applyOverviewVisibility(){
+ const graph=document.getElementById('graph-overall'),g=graphFor('overall');
+ const visible=new Set(overviewFocus?g.edges.flatMap((e,i)=>e.a===overviewFocus||e.b===overviewFocus?[i]:[]):D.overviewLayers[overviewLayer].edges);
+ graph.querySelectorAll('[data-edge], [data-label-edge]').forEach(el=>{
+  const index=+(el.dataset.edge??el.dataset.labelEdge);
+  el.toggleAttribute('hidden',!visible.has(index));
+  el.classList.toggle('focus',Boolean(overviewFocus)&&visible.has(index));el.classList.remove('dim');
+ });
+ graph.querySelectorAll('[data-node]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.node===overviewFocus)));
+ document.querySelectorAll('[data-overview-action]').forEach(el=>el.hidden=!overviewFocus);
+ const title=overviewFocus?'上下游 · '+g.nodes.find(n=>n.id===overviewFocus).title:D.overviewLayers[overviewLayer].label;
+ document.getElementById('overview-filter-status').textContent=`${title} · ${visible.size} 条关系 · ${g.nodes.length} 个模块`;
+}
+function overviewPaths(g,boxes,rowGap){
+ const ports=new Map(),routes=g.edges.map((e,i)=>{
+  const a=boxes[e.a],b=boxes[e.b],same=a.c===b.c,near=same&&Math.abs(a.r-b.r)===1;
+  const sides=near?(b.r>a.r?['bottom','top']:['top','bottom']):same?['left','left']:(b.c>a.c?['right','left']:['left','right']);
+  sides.forEach((side,k)=>{const key=(k?e.b:e.a)+':'+side;if(!ports.has(key))ports.set(key,[]);ports.get(key).push(i);});
+  return {a,b,sides,near,e,i};
+ });
+ const point=(r,k)=>{
+  const b=k?r.b:r.a,side=r.sides[k],list=ports.get((k?r.e.b:r.e.a)+':'+side),offset=(list.indexOf(r.i)-(list.length-1)/2)*12;
+  return side==='top'?[b.x+b.w/2+offset,b.y-3]:side==='bottom'?[b.x+b.w/2+offset,b.y+b.h+3]:[side==='left'?b.x-3:b.x+b.w+3,b.y+b.h/2+offset];
+ };
+ const tracks=new Map();
+ const channel=(column,y1,y2,sx,tx)=>{
+  const left=Object.values(boxes).find(b=>b.c===column),right=Object.values(boxes).find(b=>b.c===column+1);
+  const lo=column<0?7:left.x+left.w+8,hi=column<0?boxes[g.nodes[0].id].x-8:right.x-8;
+  const mid=(lo+hi)/2,step=8,candidates=[mid];
+  for(let d=step;mid-d>=lo||mid+d<=hi;d+=step){if(mid+d<=hi)candidates.push(mid+d);if(mid-d>=lo)candidates.push(mid-d);}
+  const used=tracks.get(column)||[],top=Math.min(y1,y2)-6,bottom=Math.max(y1,y2)+6;
+  const x=candidates.find(x=>!used.some(t=>Math.abs(t.x-x)<1&&top<t.bottom&&bottom>t.top)&&!paths.some(p=>p.slice(1).some((b,i)=>{const a=p[i];return a[1]===b[1]&&[[sx,y1],[tx,y2]].some(([end,y])=>end!==undefined&&y===a[1]&&Math.min(Math.max(end,x),Math.max(a[0],b[0]))-Math.max(Math.min(end,x),Math.min(a[0],b[0]))>1);})));
+  const chosen=x??candidates[candidates.length-1];used.push({x:chosen,top,bottom});tracks.set(column,used);return chosen;
+ };
+ const paths=[];
+ for(const r of routes){
+  const s=point(r,0),t=point(r,1),{a,b}=r;let p;
+  if(r.near){const y=(s[1]+t[1])/2;p=s[0]===t[0]?[s,t]:[s,[s[0],y],[t[0],y],t];}
+  else if(a.c===b.c){const x=channel(a.c-1,s[1],t[1],s[0],t[0]);p=[s,[x,s[1]],[x,t[1]],t];}
+  else if(Math.abs(a.c-b.c)===1){const x=channel(Math.min(a.c,b.c),s[1],t[1],s[0],t[0]);p=s[1]===t[1]?[s,t]:[s,[x,s[1]],[x,t[1]],t];}
+  else{const y=Math.min(a.y,b.y)-rowGap/2,x1=channel(a.c===0?0:1,s[1],y),x2=channel(b.c===0?0:1,t[1],y);p=[s,[x1,s[1]],[x1,y],[x2,y],[x2,t[1]],t];}
+  paths.push(p);
+ }
+ return paths;
 }
 
 function makeGraph(id){
@@ -6771,7 +6860,7 @@ function makeGraph(id){
  container.innerHTML=g.lanes.map((l,c)=>`<div class="lane" data-lane="${c}"></div><div class="lane-title" data-lane-title="${c}">${esc(l[0])}<small>${esc(l[1])}</small></div>`).join('')+`<svg class="wires" aria-hidden="true"></svg>`+g.nodes.map(n=>`<button class="graph-node ${n.kind?'kind-'+n.kind:''}" id="${n.id}" data-node="${n.id}" data-column="${n.c}" type="button" aria-pressed="${n.id===selections[id]}" aria-controls="node-faq-${id}"><i class="node-dot" aria-hidden="true"></i>${n.kind?`<span class="node-kicker">${nodeKinds[n.kind]}</span>`:''}${participationMarkup(n.id)}<b>${esc(n.title)}</b><small>${esc(n.sub)}</small>${n.meta?`<span class="node-meta">${n.meta.map(m=>`<span><em>${esc(m.k)}</em><span>${esc(m.v)}</span></span>`).join('')}</span>`:''}</button>`).join('');
  container.onclick=event=>{
   const btn=event.target.closest('[data-node]');if(!btn)return;
-  openNodeFAQ(id,btn.dataset.node);
+  if(id==='overall')selectOverviewNode(btn.dataset.node);else openNodeFAQ(id,btn.dataset.node);
  };
  updateNodeFAQ(id,selections[id]);updateGraphChrome(id);
 }
@@ -6800,11 +6889,9 @@ function placeEdgeLabels(svg,paths,boxes,headers,width,height){
   const points=paths[+group.dataset.labelEdge],candidates=[];
   for(let i=1;i<points.length;i++){
    const a=points[i-1],b=points[i],horizontal=a[1]===b[1],length=Math.abs(b[0]-a[0])+Math.abs(b[1]-a[1]);
-   if(length<(horizontal?w:h)+6)continue;
+   if(length<10)continue;
    for(const t of [.5,.3,.7,.15,.85,.4,.6]){
     const ax=a[0]+(b[0]-a[0])*t,ay=a[1]+(b[1]-a[1])*t;
-    if(horizontal&&(ax-w/2<Math.min(a[0],b[0])+2||ax+w/2>Math.max(a[0],b[0])-2))continue;
-    if(!horizontal&&(ay-h/2<Math.min(a[1],b[1])+2||ay+h/2>Math.max(a[1],b[1])-2))continue;
     for(const offset of [0,-12,12,-24,24]){
      const x=ax+(horizontal?0:offset),y=ay+(horizontal?offset:0),r={x:x-w/2,y:y-h/2,w,h};
      if(r.x<6||r.x+w>width-6||r.y<5||r.y+h>height-5)continue;
@@ -6839,14 +6926,14 @@ function drawGraph(id){
  for(let r=0;r<rowHeights.length;r++){rows[r]=y;y+=rowHeights[r]+rowGap;}
  const height=y-12;graph.style.height=height+'px';
  for(const n of g.nodes){const el=document.getElementById(n.id);const b={x:pad+n.c*(laneWidth+gutter)+inside,y:rows[n.r],w:nodeWidth,h:rowHeights[n.r],c:n.c,r:n.r};boxes[n.id]=b;el.style.left=b.x+'px';el.style.top=b.y+'px';el.style.height=b.h+'px';}
- const visibleEdges=id==='overall'?new Set(D.overviewLayers[overviewLayer].edges):null;
- if(id==='overall')document.getElementById('overview-filter-status').textContent=`${D.overviewLayers[overviewLayer].label} · ${visibleEdges.size} 条关系 · ${g.nodes.length} 个模块`;
  const colors={down:'#3475c7',back:'#218e78',control:'#c18c46'},svg=graph.querySelector('svg'),paths=[];
+ const overviewRoutes=id==='overall'?overviewPaths(g,boxes,rowGap):null;
  svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
  let markup=`<defs>${Object.entries(colors).map(([t,c])=>`<marker id="arrow-${id}-${t}" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L7 3.5 L0 7 Z" fill="${c}"/></marker>`).join('')}</defs>`;
  for(let i=0;i<g.edges.length;i++){
   const e=g.edges[i],a=boxes[e.a],b=boxes[e.b];let points=[];
-  if(a.c===b.c){
+  if(overviewRoutes){points=overviewRoutes[i];}
+  else if(a.c===b.c){
    const down=b.r>a.r;
    if(Math.abs(a.r-b.r)===1){points=[[a.x+a.w/2,down?a.y+a.h:a.y],[b.x+b.w/2,down?b.y-3:b.y+b.h+3]];}
    else{
@@ -6865,11 +6952,11 @@ function drawGraph(id){
   }
   paths.push(points);
   const path=points.map((p,j)=>(j?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
-  if(!visibleEdges||visibleEdges.has(i))markup+=`<path class="wire ${e.type}" data-edge="${i}" d="${path}" stroke="${colors[e.type]}" marker-end="url(#arrow-${id}-${e.type})"/>`;
+  markup+=`<path class="wire ${e.type}" data-edge="${i}" d="${path}" stroke="${colors[e.type]}" marker-end="url(#arrow-${id}-${e.type})"/>`;
  }
  for(let i=0;i<g.edges.length;i++){
-  const e=g.edges[i];if(!e.label||(visibleEdges&&!visibleEdges.has(i)))continue;
-  const lines=wrapEdgeLabel(e.label);
+  const e=g.edges[i];if(!e.label)continue;
+  const lines=wrapEdgeLabel(id==='overall'?D.overviewLabels[i]:e.label);
   markup+=`<g class="edge-annotation ${e.type}" data-label-edge="${i}"><title>${esc(e.label.replaceAll('\n',' '))}</title><line class="label-leader"/><rect rx="4"/><text text-anchor="middle">${lines.map((s,k)=>`<tspan x="0" y="${k*13}">${esc(s)}</tspan>`).join('')}</text></g>`;
  }
  svg.innerHTML=markup;
@@ -6883,6 +6970,7 @@ function drawGraph(id){
  graph.onpointerout=event=>{if(event.target.closest('[data-label-edge]'))highlightEdges(id);};
 }
 function highlightEdges(id){
+ if(id==='overall'){applyOverviewVisibility();return;}
  const g=graphFor(id),nodeId=selections[id];
  document.querySelectorAll('#graph-'+id+' [data-edge]').forEach(el=>{const e=g.edges[+el.dataset.edge],focus=e.a===nodeId||e.b===nodeId;el.classList.toggle('focus',focus);el.classList.toggle('dim',false);});
  document.querySelectorAll('#graph-'+id+' [data-label-edge]').forEach(el=>{const e=g.edges[+el.dataset.labelEdge];el.classList.toggle('focus',e.a===nodeId||e.b===nodeId);});
@@ -6970,6 +7058,8 @@ document.querySelectorAll('[data-graph-search]').forEach(input=>{
 document.addEventListener('click',event=>{
  const layerButton=event.target.closest('[data-overview-layer]');
  if(layerButton){selectOverviewLayer(layerButton.dataset.overviewLayer);return;}
+ const overviewAction=event.target.closest('[data-overview-action]');
+ if(overviewAction){if(overviewAction.dataset.overviewAction==='clear'){overviewFocus=null;applyOverviewVisibility();}else if(overviewFocus)openNodeFAQ('overall',overviewFocus);return;}
  const ret=event.target.closest('[data-return-graph]');
  if(ret){returnToGraph(ret.dataset.returnGraph,ret.dataset.returnNode);return;}
  const tool=event.target.closest('[data-graph-action]');
