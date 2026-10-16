@@ -496,6 +496,15 @@ class _ManagerReadView(ManagerStore):
     def _read_current_state(self) -> dict:
         return self._state
 
+    def read_view(
+        self,
+        *,
+        excluded_fields: frozenset[str] = frozenset(),
+        copy_on_read: bool = True,
+    ) -> ManagerStore:
+        state = _project_fields(self._state, excluded_fields) if excluded_fields else self._state
+        return _ManagerReadView(self.root, state, copy_on_read=copy_on_read)
+
     def get(self, collection: str, item_id: str) -> dict | None:
         self._check_collection(collection)
         return copy.deepcopy(self._state[collection].get(item_id))
