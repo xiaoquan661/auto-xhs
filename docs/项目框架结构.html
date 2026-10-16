@@ -1047,6 +1047,772 @@
           "label": "素材就绪后\n任务引用员工绝对路径"
         }
       ]
+    },
+    "communication": {
+      "title": "通信流程 · 任务投递、即时调用与结果返回",
+      "modeLabel": "通信流程图",
+      "lanes": [
+        [
+          "PC023 · 发起与回收",
+          "操作人 / 经理 Agent / 经理程序"
+        ],
+        [
+          "通道 · 文件与调用",
+          "HTTP / SSH / SFTP"
+        ],
+        [
+          "员工机 · 接收与响应",
+          "员工程序 / 员工 Agent / Bridge"
+        ]
+      ],
+      "selected": "cf-manager",
+      "nodes": [
+        {
+          "id": "cf-launch",
+          "c": 0,
+          "r": 0,
+          "title": "Windows 启动控制台",
+          "sub": "登录时启动；每 5 分钟检查 8765 监听",
+          "kind": "action",
+          "detail": "经理控制台启动：AutoXHS-Manager-WebUI：登录触发；检查端口后按需启动服务",
+          "refs": [],
+          "referenceKeys": [
+            "comm-win"
+          ]
+        },
+        {
+          "id": "cf-http",
+          "c": 1,
+          "r": 0,
+          "title": "运营台 / 经理 API",
+          "sub": "HTTP :8765 · 操作人或经理 Agent 发起",
+          "kind": "interface",
+          "detail": "HTTP :8765：配置、计划、查询、手动采集和回收请求",
+          "refs": [],
+          "referenceKeys": [
+            "comm-http"
+          ]
+        },
+        {
+          "id": "cf-executor",
+          "c": 2,
+          "r": 0,
+          "title": "员工本机 Executor",
+          "sub": "127.0.0.1:8766 · 本机队列与服务",
+          "kind": "interface",
+          "detail": "HTTP 127.0.0.1:8766：本机 API、运行状态与队列调度入口",
+          "refs": [],
+          "referenceKeys": [
+            "comm-executor"
+          ]
+        },
+        {
+          "id": "cf-manager",
+          "c": 0,
+          "r": 1,
+          "title": "经理程序准备与派发",
+          "sub": "经理 Agent 安排业务；程序生成任务 JSON",
+          "kind": "action",
+          "detail": "经理 Agent 安排业务；程序生成任务 JSON",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "cf-task",
+          "c": 1,
+          "r": 1,
+          "title": "任务文件 + 控制调用",
+          "sub": "SFTP 投递 JSON；SSH wake-task 唤醒",
+          "kind": "interface",
+          "detail": "SSH · 任务控制：wake-task、查询、暂停 / 恢复等控制命令；SFTP · 任务投递：task_id、账号槽位、动作、授权、时间窗及素材引用",
+          "refs": [],
+          "referenceKeys": [
+            "comm-task",
+            "comm-ssh"
+          ]
+        },
+        {
+          "id": "cf-inbox",
+          "c": 2,
+          "r": 1,
+          "title": "员工收件与执行记录",
+          "sub": "inbox/pending → 原执行编号 → 接收确认",
+          "kind": "store",
+          "detail": "TASK_ACK / ACCEPTED：员工已接收任务并建立执行记录",
+          "refs": [],
+          "referenceKeys": [
+            "comm-ack"
+          ]
+        },
+        {
+          "id": "cf-source",
+          "c": 0,
+          "r": 2,
+          "title": "账号来源绑定 / 本次素材",
+          "sub": "接入时关联来源；按本次发布需要准备",
+          "kind": "action",
+          "detail": "账号与素材来源、具体素材：接入绑定 → 计划复用；本次素材就绪后引用路径",
+          "refs": [],
+          "referenceKeys": [
+            "comm-material-cycle"
+          ]
+        },
+        {
+          "id": "cf-material",
+          "c": 1,
+          "r": 2,
+          "title": "素材文件传输",
+          "sub": "SFTP · 图文 / 视频 / 输入文件",
+          "kind": "interface",
+          "detail": "SFTP · 素材传输：本次发布需要的图片、视频或输入文件",
+          "refs": [],
+          "referenceKeys": [
+            "comm-material"
+          ]
+        },
+        {
+          "id": "cf-files",
+          "c": 2,
+          "r": 2,
+          "title": "员工素材目录",
+          "sub": "任务引用绝对路径；已有文件可复用",
+          "kind": "store",
+          "detail": "任务引用绝对路径；已有文件可复用",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "cf-manual",
+          "c": 0,
+          "r": 3,
+          "title": "点击作品 / 通知采集",
+          "sub": "运营台手动入口；MANAGER-FRONT-05 / 1.0",
+          "kind": "action",
+          "detail": "手动作品 / 通知采集：经理 API → SSH → 员工固定采集程序",
+          "refs": [],
+          "referenceKeys": [
+            "comm-manual"
+          ]
+        },
+        {
+          "id": "cf-instant",
+          "c": 1,
+          "r": 3,
+          "title": "SSH 固定采集调用",
+          "sub": "collect-creator-now / collect-notifications-now",
+          "kind": "interface",
+          "detail": "SSH · 即时采集结果：collect-creator-now / collect-notifications-now；同步返回 result",
+          "refs": [],
+          "referenceKeys": [
+            "comm-instant"
+          ]
+        },
+        {
+          "id": "cf-runner",
+          "c": 2,
+          "r": 3,
+          "title": "员工业务执行入口",
+          "sub": "普通任务：员工 Agent；采集：固定程序；每日启用时 00:30",
+          "kind": "action",
+          "detail": "员工每日作品采集：Creator-0030 → daily_creator_collection → 直接采集 runner；agent_claimed / claimed.json：员工 Agent 已实际读取、领取原任务",
+          "refs": [],
+          "referenceKeys": [
+            "comm-claim",
+            "comm-daily"
+          ]
+        },
+        {
+          "id": "cf-poll",
+          "c": 0,
+          "r": 4,
+          "title": "经理后台回收线程",
+          "sub": "Web 服务内 manager-result-sync；当前 180 秒",
+          "kind": "action",
+          "detail": "经理回执与业务表回收：Web 服务启动 ManagerSyncService 的 manager-result-sync 线程",
+          "refs": [],
+          "referenceKeys": [
+            "comm-poll"
+          ]
+        },
+        {
+          "id": "cf-outbox",
+          "c": 1,
+          "r": 4,
+          "title": "SFTP 增量回执回收",
+          "sub": "PC023 主动拉 index + 新 sequence",
+          "kind": "interface",
+          "detail": "SFTP · 已有回执回收：index.json、新 sequence 的 ACK、事件、结果与修订",
+          "refs": [],
+          "referenceKeys": [
+            "comm-outbox"
+          ]
+        },
+        {
+          "id": "cf-result",
+          "c": 2,
+          "r": 4,
+          "title": "员工结果 / outbox",
+          "sub": "接收、进度、TASK_RESULT 与 result_revision",
+          "kind": "message",
+          "detail": "TASK_RESULT / result_revision：本次执行按能力规则形成结果及版本",
+          "refs": [],
+          "referenceKeys": [
+            "comm-result"
+          ]
+        },
+        {
+          "id": "cf-store",
+          "c": 0,
+          "r": 5,
+          "title": "经理结果导入与确认",
+          "sub": "RESULT_ACK / result_collected；关联原执行",
+          "kind": "store",
+          "detail": "RESULT_ACK / result_collected：经理已回收并导入该版本结果；confirmed_counts / 业务确认量：对应动作具备计数依据；RESULT_UNKNOWN / 原执行对账与修订：原执行事实经过核对，并形成同一执行的新结果版本",
+          "refs": [],
+          "referenceKeys": [
+            "comm-resultack",
+            "comm-count",
+            "comm-reconcile"
+          ]
+        },
+        {
+          "id": "cf-export",
+          "c": 1,
+          "r": 5,
+          "title": "SSH 业务表只读导出",
+          "sub": "返回 JSON 快照；经理 import_worker",
+          "kind": "interface",
+          "detail": "SSH · 业务表导出：operations.db 全表、schema、product_state 和导出元数据；database_status=SYNCED / worker 元数据：即时入口本轮业务表同步成功；元数据记录实际导入时间",
+          "refs": [],
+          "referenceKeys": [
+            "comm-export",
+            "comm-business"
+          ]
+        },
+        {
+          "id": "cf-browser",
+          "c": 2,
+          "r": 5,
+          "title": "账号 Bridge ↔ Chrome",
+          "sub": "WebSocket · bridge_port；默认从 9333 分配",
+          "kind": "interface",
+          "detail": "WebSocket · 每账号 Bridge：页面命令、DOM、平台响应与结果证据",
+          "refs": [],
+          "referenceKeys": [
+            "comm-bridge"
+          ]
+        },
+        {
+          "id": "cf-page",
+          "c": 0,
+          "r": 6,
+          "title": "运营台读取经理留存",
+          "sub": "页面当前每 30 秒刷新快照",
+          "kind": "action",
+          "detail": "运营台页面刷新：页面定时请求经理快照 API",
+          "refs": [],
+          "referenceKeys": [
+            "comm-page"
+          ]
+        },
+        {
+          "id": "cf-health",
+          "c": 1,
+          "r": 6,
+          "title": "后台机器与账号检查",
+          "sub": "独立健康周期；当前 600 秒",
+          "kind": "action",
+          "detail": "机器与账号检查：独立后台健康与账号同步周期",
+          "refs": [],
+          "referenceKeys": [
+            "comm-health"
+          ]
+        },
+        {
+          "id": "cf-db",
+          "c": 2,
+          "r": 6,
+          "title": "员工本地业务数据",
+          "sub": "operations.db + product-state.json",
+          "kind": "store",
+          "detail": "operations.db + product-state.json",
+          "refs": [],
+          "referenceKeys": []
+        }
+      ],
+      "edges": [
+        {
+          "a": "cf-launch",
+          "b": "cf-manager",
+          "type": "control",
+          "label": "启动 Web 服务\n及后台线程"
+        },
+        {
+          "a": "cf-http",
+          "b": "cf-manager",
+          "type": "down",
+          "label": "配置 / 计划 /\n采集与回收请求"
+        },
+        {
+          "a": "cf-manager",
+          "b": "cf-task",
+          "type": "down",
+          "label": "task_id + 槽位\n动作 / 授权 / 时间窗"
+        },
+        {
+          "a": "cf-task",
+          "b": "cf-inbox",
+          "type": "down",
+          "label": "先文件送达\n再 SSH 唤醒"
+        },
+        {
+          "a": "cf-inbox",
+          "b": "cf-executor",
+          "type": "control",
+          "label": "本机接单 / 排队\n建立执行记录"
+        },
+        {
+          "a": "cf-executor",
+          "b": "cf-runner",
+          "type": "control",
+          "label": "调度就绪后\n按任务类型执行"
+        },
+        {
+          "a": "cf-source",
+          "b": "cf-material",
+          "type": "down",
+          "label": "本次需要的文件\n就绪后传输"
+        },
+        {
+          "a": "cf-material",
+          "b": "cf-files",
+          "type": "down",
+          "label": "落入素材目录\n返回可引用路径"
+        },
+        {
+          "a": "cf-files",
+          "b": "cf-runner",
+          "type": "control",
+          "label": "发布任务按需\n读取本地文件"
+        },
+        {
+          "a": "cf-manual",
+          "b": "cf-instant",
+          "type": "down",
+          "label": "一次手动请求\n同机账号串行"
+        },
+        {
+          "a": "cf-instant",
+          "b": "cf-runner",
+          "type": "down",
+          "label": "固定采集 runner\n账号忙 → DEFERRED"
+        },
+        {
+          "a": "cf-runner",
+          "b": "cf-result",
+          "type": "back",
+          "label": "结算执行结果\n协议任务写 outbox"
+        },
+        {
+          "a": "cf-result",
+          "b": "cf-outbox",
+          "type": "back",
+          "label": "ACK / 进度 / 结果\n按 sequence 拉取"
+        },
+        {
+          "a": "cf-outbox",
+          "b": "cf-poll",
+          "type": "back",
+          "label": "增量下载 / 去重\n原始回执归档"
+        },
+        {
+          "a": "cf-poll",
+          "b": "cf-store",
+          "type": "back",
+          "label": "导入结果版本\n推进回收游标"
+        },
+        {
+          "a": "cf-instant",
+          "b": "cf-store",
+          "type": "back",
+          "label": "即时 result 经\nSSH stdout 同步返回"
+        },
+        {
+          "a": "cf-export",
+          "b": "cf-store",
+          "type": "back",
+          "label": "业务表导入成功\n记录同步元数据"
+        },
+        {
+          "a": "cf-db",
+          "b": "cf-export",
+          "type": "back",
+          "label": "经理发起导出请求\n员工返回 JSON"
+        },
+        {
+          "a": "cf-browser",
+          "b": "cf-db",
+          "type": "back",
+          "label": "页面 / 平台证据\n由业务程序保存"
+        },
+        {
+          "a": "cf-runner",
+          "b": "cf-browser",
+          "type": "down",
+          "label": "执行页面命令\n响应经 Bridge 返回"
+        },
+        {
+          "a": "cf-store",
+          "b": "cf-page",
+          "type": "back",
+          "label": "读取本地结果\n与业务表查询"
+        },
+        {
+          "a": "cf-health",
+          "b": "cf-executor",
+          "type": "control",
+          "label": "SSH 健康查询\n更新机器账号缓存"
+        }
+      ]
+    },
+    "data": {
+      "title": "数据流程 · 采集、返回、经理本地入库与展示",
+      "modeLabel": "数据流程图",
+      "lanes": [
+        [
+          "采集入口与员工留存",
+          "手动请求 / 定时采集 / 本地事实"
+        ],
+        [
+          "传输、回收与归档",
+          "SSH 同步返回 / SFTP 拉取 / 只读导出"
+        ],
+        [
+          "PC023 · 本地数据库与查询",
+          "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        ]
+      ],
+      "selected": "df-manager-db",
+      "nodes": [
+        {
+          "id": "df-manual",
+          "c": 0,
+          "r": 0,
+          "title": "手动作品 / 通知采集",
+          "sub": "运营台点击 → 经理 API → SSH 固定程序",
+          "kind": "action",
+          "detail": "手动作品采集：SSH 同步返回本次 result JSON；手动通知采集：SSH 同步返回 channels、incremental_data 与 result；MANAGER-FRONT-05 / 1.0：REQ-20260904-001",
+          "refs": [],
+          "referenceKeys": [
+            "data-creator",
+            "data-notifications",
+            "package-MANAGER-FRONT-05"
+          ]
+        },
+        {
+          "id": "df-result",
+          "c": 1,
+          "r": 0,
+          "title": "即时 result JSON",
+          "sub": "SSH stdout 同步返回结果及各通道状态",
+          "kind": "message",
+          "detail": "SSH stdout 同步返回结果及各通道状态",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "df-records",
+          "c": 2,
+          "r": 0,
+          "title": "经理任务 / 结果记录",
+          "sub": "records 与任务结果关联索引",
+          "kind": "store",
+          "detail": "经理任务与结果：records；任务与结果关联索引",
+          "refs": [],
+          "referenceKeys": [
+            "data-records"
+          ]
+        },
+        {
+          "id": "df-daily",
+          "c": 0,
+          "r": 1,
+          "title": "员工每日作品采集",
+          "sub": "启用时默认 00:30；DATA-03 / 1.5",
+          "kind": "action",
+          "detail": "员工每日作品采集：员工生成 outbox；经理后台轮询拉取；DATA-03 / 1.5：REQ-20260824-002",
+          "refs": [],
+          "referenceKeys": [
+            "data-daily",
+            "package-DATA-03"
+          ]
+        },
+        {
+          "id": "df-outbox",
+          "c": 1,
+          "r": 1,
+          "title": "员工 outbox",
+          "sub": "index.json + 接收 / 进度 / 结果记录",
+          "kind": "store",
+          "detail": "员工协议结果：task_outbox_root/index.json；回执记录文件",
+          "refs": [],
+          "referenceKeys": [
+            "data-outbox-files"
+          ]
+        },
+        {
+          "id": "df-manager-db",
+          "c": 2,
+          "r": 1,
+          "title": "PC023 本地 SQLite",
+          "sub": "manager-operations.db · 经理业务留存",
+          "kind": "store",
+          "detail": "经理业务数据库：C:\\auto-xhs\\manager-state\\manager-operations.db",
+          "refs": [],
+          "referenceKeys": [
+            "data-manager-db"
+          ],
+          "meta": [
+            {
+              "k": "库",
+              "v": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+            }
+          ]
+        },
+        {
+          "id": "df-worker-db",
+          "c": 0,
+          "r": 2,
+          "title": "员工业务库与产品状态",
+          "sub": "operations.db + product-state.json",
+          "kind": "store",
+          "detail": "员工业务事实：XHS_PRODUCT_HOME/operations.db；默认 %USERPROFILE%\\.xhs\\auto-xhs\\operations.db；员工产品状态：XHS_PRODUCT_HOME/product-state.json",
+          "refs": [],
+          "referenceKeys": [
+            "data-worker-db",
+            "data-worker-product"
+          ]
+        },
+        {
+          "id": "df-pull",
+          "c": 1,
+          "r": 2,
+          "title": "经理拉取已有回执",
+          "sub": "后台当前 180 秒；或点击回收已有回执",
+          "kind": "action",
+          "detail": "回收已有回执：SFTP 读取 outbox 索引和新增记录；MANAGER-04 / 1.5：REQ-20260824-002",
+          "refs": [],
+          "referenceKeys": [
+            "data-outbox",
+            "package-MANAGER-04"
+          ]
+        },
+        {
+          "id": "df-archive",
+          "c": 2,
+          "r": 2,
+          "title": "原始回执与下载缓存",
+          "sub": "daily_receipts/.../raw + collector/{machine}",
+          "kind": "store",
+          "detail": "原始回执归档：daily_receipts/{回收日期}/raw/{machine}/{task}/{sequence}.json；回收索引与下载缓存：collector/{machine}/index.json；collector/{machine}/records",
+          "refs": [],
+          "referenceKeys": [
+            "data-archive",
+            "data-cache"
+          ]
+        },
+        {
+          "id": "df-export",
+          "c": 0,
+          "r": 3,
+          "title": "员工只读导出器",
+          "sub": "worker_data_export.py · SQLite 只读快照",
+          "kind": "action",
+          "detail": "员工业务表快照同步：SSH worker_data_export.py → JSON",
+          "refs": [],
+          "referenceKeys": [
+            "data-export"
+          ]
+        },
+        {
+          "id": "df-json",
+          "c": 1,
+          "r": 3,
+          "title": "SSH 返回业务快照",
+          "sub": "各业务表 + schema + product_state + 时间",
+          "kind": "message",
+          "detail": "各业务表 + schema + product_state + 时间",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "df-worker-records",
+          "c": 2,
+          "r": 3,
+          "title": "worker_records",
+          "sub": "按 machine_id 替换该机业务表快照",
+          "kind": "store",
+          "detail": "员工业务表快照：worker_records",
+          "refs": [],
+          "referenceKeys": [
+            "data-worker-records"
+          ]
+        },
+        {
+          "id": "df-check",
+          "c": 0,
+          "r": 4,
+          "title": "核对来源与时间",
+          "sub": "区分 captured_at / exported_at / imported_at",
+          "kind": "decision",
+          "detail": "区分 captured_at / exported_at / imported_at",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "df-metadata",
+          "c": 1,
+          "r": 4,
+          "title": "metadata · worker:{machine}",
+          "sub": "源库、导出时间、导入时间、记录数",
+          "kind": "store",
+          "detail": "同步来源与时间：metadata：worker:{machine_id} 等",
+          "refs": [],
+          "referenceKeys": [
+            "data-metadata"
+          ]
+        },
+        {
+          "id": "df-query",
+          "c": 2,
+          "r": 4,
+          "title": "运营查询与指标投影",
+          "sub": "daily_metric_facts · 业务日期 / 覆盖度 / 实际量",
+          "kind": "store",
+          "detail": "每日指标查询与投影：daily_metric_facts",
+          "refs": [],
+          "referenceKeys": [
+            "data-facts"
+          ]
+        },
+        {
+          "id": "df-page",
+          "c": 2,
+          "r": 5,
+          "title": "运营台数据展示",
+          "sub": "数据回收 / 运营汇总 / 任务详情",
+          "kind": "interface",
+          "detail": "页面展示：数据回收、运营汇总及任务详情",
+          "refs": [],
+          "referenceKeys": [
+            "data-dashboard"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "a": "df-manual",
+          "b": "df-result",
+          "type": "back",
+          "label": "固定采集完成\n同步返回本次结果"
+        },
+        {
+          "a": "df-result",
+          "b": "df-records",
+          "type": "back",
+          "label": "_ingest_results\n保存结果身份与版本"
+        },
+        {
+          "a": "df-records",
+          "b": "df-manager-db",
+          "type": "back",
+          "label": "写入本地库\n关联机器 / 槽位 / 执行"
+        },
+        {
+          "a": "df-manual",
+          "b": "df-worker-db",
+          "type": "back",
+          "label": "采集到的业务事实\n先由员工本地保存"
+        },
+        {
+          "a": "df-daily",
+          "b": "df-worker-db",
+          "type": "back",
+          "label": "定时任务启用时\n固定程序采集入库"
+        },
+        {
+          "a": "df-daily",
+          "b": "df-outbox",
+          "type": "back",
+          "label": "本次采集结算后\n写入协议结果"
+        },
+        {
+          "a": "df-outbox",
+          "b": "df-pull",
+          "type": "back",
+          "label": "SFTP 拉取索引\n下载新增 sequence"
+        },
+        {
+          "a": "df-pull",
+          "b": "df-archive",
+          "type": "back",
+          "label": "缓存 + 按回收日\n保存原始回执"
+        },
+        {
+          "a": "df-pull",
+          "b": "df-records",
+          "type": "back",
+          "label": "去重导入 / 关联\n记录回收确认"
+        },
+        {
+          "a": "df-worker-db",
+          "b": "df-export",
+          "type": "down",
+          "label": "经理请求后\n只读读取业务库"
+        },
+        {
+          "a": "df-export",
+          "b": "df-json",
+          "type": "back",
+          "label": "即时回收后 / 后台同轮\n业务同步启用时"
+        },
+        {
+          "a": "df-json",
+          "b": "df-worker-records",
+          "type": "back",
+          "label": "import_worker\n导入该机业务表"
+        },
+        {
+          "a": "df-worker-records",
+          "b": "df-metadata",
+          "type": "back",
+          "label": "导入成功写元数据\n即时入口报告 SYNCED"
+        },
+        {
+          "a": "df-metadata",
+          "b": "df-check",
+          "type": "back",
+          "label": "查看采集与导入时间\n核对同一账号和日期"
+        },
+        {
+          "a": "df-worker-records",
+          "b": "df-query",
+          "type": "back",
+          "label": "运营查询计算\nDB 同步刷新指标表"
+        },
+        {
+          "a": "df-manager-db",
+          "b": "df-query",
+          "type": "back",
+          "label": "读取经理任务结果\n与员工业务事实"
+        },
+        {
+          "a": "df-query",
+          "b": "df-page",
+          "type": "back",
+          "label": "页面刷新经理快照\n显示当前留存与统计"
+        }
+      ]
     }
   },
   "explanations": {
@@ -1090,7 +1856,7 @@
       "why": "同一执行可能多次回收或修订，需要保留身份并更新最新业务结论。",
       "before": "记录 + 执行编号 + revision；记录类型与关联任务可解析，执行和修订标识明确。",
       "output": "经理任务结果与业务表投影",
-      "note": "PC023 当前业务库：C:\\auto-xhs\\manager-state\\manager-operations.db。原始回执和业务表同步位置见数据对照表。"
+      "note": "PC023 当前业务库：C:\\auto-xhs\\manager-state\\manager-operations.db。原始回执和业务表同步位置见数据流程图。"
     },
     "od-accept": {
       "why": "把各机结果关联到账号、计划和日期，让页面能回答完成了多少。",
@@ -1193,6 +1959,228 @@
       "before": "业务结果 + 逐项证据；接收、进度或结算记录已产生；本机发件目录可写。",
       "output": "sequence + result_revision",
       "note": ""
+    },
+    "cf-launch": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "登录时启动；每 5 分钟检查 8765 监听",
+      "output": "启动 Web 服务 及后台线程",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-http": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "HTTP :8765 · 操作人或经理 Agent 发起",
+      "output": "配置 / 计划 / 采集与回收请求",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-executor": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "127.0.0.1:8766 · 本机队列与服务",
+      "output": "调度就绪后 按任务类型执行",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-manager": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "经理 Agent 安排业务；程序生成任务 JSON",
+      "output": "task_id + 槽位 动作 / 授权 / 时间窗",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-task": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "SFTP 投递 JSON；SSH wake-task 唤醒",
+      "output": "先文件送达 再 SSH 唤醒",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-inbox": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "inbox/pending → 原执行编号 → 接收确认",
+      "output": "本机接单 / 排队 建立执行记录",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-source": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "接入时关联来源；按本次发布需要准备",
+      "output": "本次需要的文件 就绪后传输",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-material": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "SFTP · 图文 / 视频 / 输入文件",
+      "output": "落入素材目录 返回可引用路径",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-files": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "任务引用绝对路径；已有文件可复用",
+      "output": "发布任务按需 读取本地文件",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-manual": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "运营台手动入口；MANAGER-FRONT-05 / 1.0",
+      "output": "一次手动请求 同机账号串行",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-instant": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "collect-creator-now / collect-notifications-now",
+      "output": "固定采集 runner 账号忙 → DEFERRED；即时 result 经 SSH stdout 同步返回",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-runner": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "普通任务：员工 Agent；采集：固定程序；每日启用时 00:30",
+      "output": "结算执行结果 协议任务写 outbox；执行页面命令 响应经 Bridge 返回",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-poll": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "Web 服务内 manager-result-sync；当前 180 秒",
+      "output": "导入结果版本 推进回收游标",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-outbox": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "PC023 主动拉 index + 新 sequence",
+      "output": "增量下载 / 去重 原始回执归档",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-result": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "接收、进度、TASK_RESULT 与 result_revision",
+      "output": "ACK / 进度 / 结果 按 sequence 拉取",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-store": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "RESULT_ACK / result_collected；关联原执行",
+      "output": "读取本地结果 与业务表查询",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-export": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "返回 JSON 快照；经理 import_worker",
+      "output": "业务表导入成功 记录同步元数据",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-browser": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "WebSocket · bridge_port；默认从 9333 分配",
+      "output": "页面 / 平台证据 由业务程序保存",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-page": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "页面当前每 30 秒刷新快照",
+      "output": "供操作人查看或作为后续处理依据。",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-health": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "独立健康周期；当前 600 秒",
+      "output": "SSH 健康查询 更新机器账号缓存",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "cf-db": {
+      "why": "明确本段通信的发起方、传输对象与返回方向，便于定位任务或结果停在哪一段。",
+      "before": "operations.db + product-state.json",
+      "output": "经理发起导出请求 员工返回 JSON",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-manual": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "运营台点击 → 经理 API → SSH 固定程序",
+      "output": "固定采集完成 同步返回本次结果；采集到的业务事实 先由员工本地保存",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-result": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "SSH stdout 同步返回结果及各通道状态",
+      "output": "_ingest_results 保存结果身份与版本",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-records": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "records 与任务结果关联索引",
+      "output": "写入本地库 关联机器 / 槽位 / 执行",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-daily": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "启用时默认 00:30；DATA-03 / 1.5",
+      "output": "定时任务启用时 固定程序采集入库；本次采集结算后 写入协议结果",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-outbox": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "index.json + 接收 / 进度 / 结果记录",
+      "output": "SFTP 拉取索引 下载新增 sequence",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-manager-db": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "manager-operations.db · 经理业务留存",
+      "output": "读取经理任务结果 与员工业务事实",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-worker-db": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "operations.db + product-state.json",
+      "output": "经理请求后 只读读取业务库",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-pull": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "后台当前 180 秒；或点击回收已有回执",
+      "output": "缓存 + 按回收日 保存原始回执；去重导入 / 关联 记录回收确认",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-archive": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "daily_receipts/.../raw + collector/{machine}",
+      "output": "供操作人查看或作为后续处理依据。",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-export": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "worker_data_export.py · SQLite 只读快照",
+      "output": "即时回收后 / 后台同轮 业务同步启用时",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-json": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "各业务表 + schema + product_state + 时间",
+      "output": "import_worker 导入该机业务表",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-worker-records": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "按 machine_id 替换该机业务表快照",
+      "output": "导入成功写元数据 即时入口报告 SYNCED；运营查询计算 DB 同步刷新指标表",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-check": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "区分 captured_at / exported_at / imported_at",
+      "output": "供操作人查看或作为后续处理依据。",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-metadata": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "源库、导出时间、导入时间、记录数",
+      "output": "查看采集与导入时间 核对同一账号和日期",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-query": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "daily_metric_facts · 业务日期 / 覆盖度 / 实际量",
+      "output": "页面刷新经理快照 显示当前留存与统计",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "df-page": {
+      "why": "明确本段数据的来源和留存位置，核对采集、回收与查询各自完成到哪一步。",
+      "before": "数据回收 / 运营汇总 / 任务详情",
+      "output": "供操作人查看或作为后续处理依据。",
+      "note": "完整字段与功能包位置见下方专题 FAQ。"
     }
   },
   "modulePaths": {
@@ -2999,6 +3987,772 @@
           "label": "素材就绪后\n任务引用员工绝对路径"
         }
       ]
+    },
+    "communication": {
+      "title": "通信流程 · 任务投递、即时调用与结果返回",
+      "modeLabel": "通信流程图",
+      "lanes": [
+        [
+          "PC023 · 发起与回收",
+          "操作人 / 经理 Agent / 经理程序"
+        ],
+        [
+          "通道 · 文件与调用",
+          "HTTP / SSH / SFTP"
+        ],
+        [
+          "员工机 · 接收与响应",
+          "员工程序 / 员工 Agent / Bridge"
+        ]
+      ],
+      "selected": "cf-manager",
+      "nodes": [
+        {
+          "id": "cf-launch",
+          "c": 0,
+          "r": 0,
+          "title": "Windows 启动控制台",
+          "sub": "登录时启动；每 5 分钟检查 8765 监听",
+          "kind": "action",
+          "detail": "经理控制台启动：AutoXHS-Manager-WebUI：登录触发；检查端口后按需启动服务",
+          "refs": [],
+          "referenceKeys": [
+            "comm-win"
+          ]
+        },
+        {
+          "id": "cf-http",
+          "c": 1,
+          "r": 0,
+          "title": "运营台 / 经理 API",
+          "sub": "HTTP :8765 · 操作人或经理 Agent 发起",
+          "kind": "interface",
+          "detail": "HTTP :8765：配置、计划、查询、手动采集和回收请求",
+          "refs": [],
+          "referenceKeys": [
+            "comm-http"
+          ]
+        },
+        {
+          "id": "cf-executor",
+          "c": 2,
+          "r": 0,
+          "title": "员工本机 Executor",
+          "sub": "127.0.0.1:8766 · 本机队列与服务",
+          "kind": "interface",
+          "detail": "HTTP 127.0.0.1:8766：本机 API、运行状态与队列调度入口",
+          "refs": [],
+          "referenceKeys": [
+            "comm-executor"
+          ]
+        },
+        {
+          "id": "cf-manager",
+          "c": 0,
+          "r": 1,
+          "title": "经理程序准备与派发",
+          "sub": "经理 Agent 安排业务；程序生成任务 JSON",
+          "kind": "action",
+          "detail": "经理 Agent 安排业务；程序生成任务 JSON",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "cf-task",
+          "c": 1,
+          "r": 1,
+          "title": "任务文件 + 控制调用",
+          "sub": "SFTP 投递 JSON；SSH wake-task 唤醒",
+          "kind": "interface",
+          "detail": "SSH · 任务控制：wake-task、查询、暂停 / 恢复等控制命令；SFTP · 任务投递：task_id、账号槽位、动作、授权、时间窗及素材引用",
+          "refs": [],
+          "referenceKeys": [
+            "comm-task",
+            "comm-ssh"
+          ]
+        },
+        {
+          "id": "cf-inbox",
+          "c": 2,
+          "r": 1,
+          "title": "员工收件与执行记录",
+          "sub": "inbox/pending → 原执行编号 → 接收确认",
+          "kind": "store",
+          "detail": "TASK_ACK / ACCEPTED：员工已接收任务并建立执行记录",
+          "refs": [],
+          "referenceKeys": [
+            "comm-ack"
+          ]
+        },
+        {
+          "id": "cf-source",
+          "c": 0,
+          "r": 2,
+          "title": "账号来源绑定 / 本次素材",
+          "sub": "接入时关联来源；按本次发布需要准备",
+          "kind": "action",
+          "detail": "账号与素材来源、具体素材：接入绑定 → 计划复用；本次素材就绪后引用路径",
+          "refs": [],
+          "referenceKeys": [
+            "comm-material-cycle"
+          ]
+        },
+        {
+          "id": "cf-material",
+          "c": 1,
+          "r": 2,
+          "title": "素材文件传输",
+          "sub": "SFTP · 图文 / 视频 / 输入文件",
+          "kind": "interface",
+          "detail": "SFTP · 素材传输：本次发布需要的图片、视频或输入文件",
+          "refs": [],
+          "referenceKeys": [
+            "comm-material"
+          ]
+        },
+        {
+          "id": "cf-files",
+          "c": 2,
+          "r": 2,
+          "title": "员工素材目录",
+          "sub": "任务引用绝对路径；已有文件可复用",
+          "kind": "store",
+          "detail": "任务引用绝对路径；已有文件可复用",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "cf-manual",
+          "c": 0,
+          "r": 3,
+          "title": "点击作品 / 通知采集",
+          "sub": "运营台手动入口；MANAGER-FRONT-05 / 1.0",
+          "kind": "action",
+          "detail": "手动作品 / 通知采集：经理 API → SSH → 员工固定采集程序",
+          "refs": [],
+          "referenceKeys": [
+            "comm-manual"
+          ]
+        },
+        {
+          "id": "cf-instant",
+          "c": 1,
+          "r": 3,
+          "title": "SSH 固定采集调用",
+          "sub": "collect-creator-now / collect-notifications-now",
+          "kind": "interface",
+          "detail": "SSH · 即时采集结果：collect-creator-now / collect-notifications-now；同步返回 result",
+          "refs": [],
+          "referenceKeys": [
+            "comm-instant"
+          ]
+        },
+        {
+          "id": "cf-runner",
+          "c": 2,
+          "r": 3,
+          "title": "员工业务执行入口",
+          "sub": "普通任务：员工 Agent；采集：固定程序；每日启用时 00:30",
+          "kind": "action",
+          "detail": "员工每日作品采集：Creator-0030 → daily_creator_collection → 直接采集 runner；agent_claimed / claimed.json：员工 Agent 已实际读取、领取原任务",
+          "refs": [],
+          "referenceKeys": [
+            "comm-claim",
+            "comm-daily"
+          ]
+        },
+        {
+          "id": "cf-poll",
+          "c": 0,
+          "r": 4,
+          "title": "经理后台回收线程",
+          "sub": "Web 服务内 manager-result-sync；当前 180 秒",
+          "kind": "action",
+          "detail": "经理回执与业务表回收：Web 服务启动 ManagerSyncService 的 manager-result-sync 线程",
+          "refs": [],
+          "referenceKeys": [
+            "comm-poll"
+          ]
+        },
+        {
+          "id": "cf-outbox",
+          "c": 1,
+          "r": 4,
+          "title": "SFTP 增量回执回收",
+          "sub": "PC023 主动拉 index + 新 sequence",
+          "kind": "interface",
+          "detail": "SFTP · 已有回执回收：index.json、新 sequence 的 ACK、事件、结果与修订",
+          "refs": [],
+          "referenceKeys": [
+            "comm-outbox"
+          ]
+        },
+        {
+          "id": "cf-result",
+          "c": 2,
+          "r": 4,
+          "title": "员工结果 / outbox",
+          "sub": "接收、进度、TASK_RESULT 与 result_revision",
+          "kind": "message",
+          "detail": "TASK_RESULT / result_revision：本次执行按能力规则形成结果及版本",
+          "refs": [],
+          "referenceKeys": [
+            "comm-result"
+          ]
+        },
+        {
+          "id": "cf-store",
+          "c": 0,
+          "r": 5,
+          "title": "经理结果导入与确认",
+          "sub": "RESULT_ACK / result_collected；关联原执行",
+          "kind": "store",
+          "detail": "RESULT_ACK / result_collected：经理已回收并导入该版本结果；confirmed_counts / 业务确认量：对应动作具备计数依据；RESULT_UNKNOWN / 原执行对账与修订：原执行事实经过核对，并形成同一执行的新结果版本",
+          "refs": [],
+          "referenceKeys": [
+            "comm-resultack",
+            "comm-count",
+            "comm-reconcile"
+          ]
+        },
+        {
+          "id": "cf-export",
+          "c": 1,
+          "r": 5,
+          "title": "SSH 业务表只读导出",
+          "sub": "返回 JSON 快照；经理 import_worker",
+          "kind": "interface",
+          "detail": "SSH · 业务表导出：operations.db 全表、schema、product_state 和导出元数据；database_status=SYNCED / worker 元数据：即时入口本轮业务表同步成功；元数据记录实际导入时间",
+          "refs": [],
+          "referenceKeys": [
+            "comm-export",
+            "comm-business"
+          ]
+        },
+        {
+          "id": "cf-browser",
+          "c": 2,
+          "r": 5,
+          "title": "账号 Bridge ↔ Chrome",
+          "sub": "WebSocket · bridge_port；默认从 9333 分配",
+          "kind": "interface",
+          "detail": "WebSocket · 每账号 Bridge：页面命令、DOM、平台响应与结果证据",
+          "refs": [],
+          "referenceKeys": [
+            "comm-bridge"
+          ]
+        },
+        {
+          "id": "cf-page",
+          "c": 0,
+          "r": 6,
+          "title": "运营台读取经理留存",
+          "sub": "页面当前每 30 秒刷新快照",
+          "kind": "action",
+          "detail": "运营台页面刷新：页面定时请求经理快照 API",
+          "refs": [],
+          "referenceKeys": [
+            "comm-page"
+          ]
+        },
+        {
+          "id": "cf-health",
+          "c": 1,
+          "r": 6,
+          "title": "后台机器与账号检查",
+          "sub": "独立健康周期；当前 600 秒",
+          "kind": "action",
+          "detail": "机器与账号检查：独立后台健康与账号同步周期",
+          "refs": [],
+          "referenceKeys": [
+            "comm-health"
+          ]
+        },
+        {
+          "id": "cf-db",
+          "c": 2,
+          "r": 6,
+          "title": "员工本地业务数据",
+          "sub": "operations.db + product-state.json",
+          "kind": "store",
+          "detail": "operations.db + product-state.json",
+          "refs": [],
+          "referenceKeys": []
+        }
+      ],
+      "edges": [
+        {
+          "a": "cf-launch",
+          "b": "cf-manager",
+          "type": "control",
+          "label": "启动 Web 服务\n及后台线程"
+        },
+        {
+          "a": "cf-http",
+          "b": "cf-manager",
+          "type": "down",
+          "label": "配置 / 计划 /\n采集与回收请求"
+        },
+        {
+          "a": "cf-manager",
+          "b": "cf-task",
+          "type": "down",
+          "label": "task_id + 槽位\n动作 / 授权 / 时间窗"
+        },
+        {
+          "a": "cf-task",
+          "b": "cf-inbox",
+          "type": "down",
+          "label": "先文件送达\n再 SSH 唤醒"
+        },
+        {
+          "a": "cf-inbox",
+          "b": "cf-executor",
+          "type": "control",
+          "label": "本机接单 / 排队\n建立执行记录"
+        },
+        {
+          "a": "cf-executor",
+          "b": "cf-runner",
+          "type": "control",
+          "label": "调度就绪后\n按任务类型执行"
+        },
+        {
+          "a": "cf-source",
+          "b": "cf-material",
+          "type": "down",
+          "label": "本次需要的文件\n就绪后传输"
+        },
+        {
+          "a": "cf-material",
+          "b": "cf-files",
+          "type": "down",
+          "label": "落入素材目录\n返回可引用路径"
+        },
+        {
+          "a": "cf-files",
+          "b": "cf-runner",
+          "type": "control",
+          "label": "发布任务按需\n读取本地文件"
+        },
+        {
+          "a": "cf-manual",
+          "b": "cf-instant",
+          "type": "down",
+          "label": "一次手动请求\n同机账号串行"
+        },
+        {
+          "a": "cf-instant",
+          "b": "cf-runner",
+          "type": "down",
+          "label": "固定采集 runner\n账号忙 → DEFERRED"
+        },
+        {
+          "a": "cf-runner",
+          "b": "cf-result",
+          "type": "back",
+          "label": "结算执行结果\n协议任务写 outbox"
+        },
+        {
+          "a": "cf-result",
+          "b": "cf-outbox",
+          "type": "back",
+          "label": "ACK / 进度 / 结果\n按 sequence 拉取"
+        },
+        {
+          "a": "cf-outbox",
+          "b": "cf-poll",
+          "type": "back",
+          "label": "增量下载 / 去重\n原始回执归档"
+        },
+        {
+          "a": "cf-poll",
+          "b": "cf-store",
+          "type": "back",
+          "label": "导入结果版本\n推进回收游标"
+        },
+        {
+          "a": "cf-instant",
+          "b": "cf-store",
+          "type": "back",
+          "label": "即时 result 经\nSSH stdout 同步返回"
+        },
+        {
+          "a": "cf-export",
+          "b": "cf-store",
+          "type": "back",
+          "label": "业务表导入成功\n记录同步元数据"
+        },
+        {
+          "a": "cf-db",
+          "b": "cf-export",
+          "type": "back",
+          "label": "经理发起导出请求\n员工返回 JSON"
+        },
+        {
+          "a": "cf-browser",
+          "b": "cf-db",
+          "type": "back",
+          "label": "页面 / 平台证据\n由业务程序保存"
+        },
+        {
+          "a": "cf-runner",
+          "b": "cf-browser",
+          "type": "down",
+          "label": "执行页面命令\n响应经 Bridge 返回"
+        },
+        {
+          "a": "cf-store",
+          "b": "cf-page",
+          "type": "back",
+          "label": "读取本地结果\n与业务表查询"
+        },
+        {
+          "a": "cf-health",
+          "b": "cf-executor",
+          "type": "control",
+          "label": "SSH 健康查询\n更新机器账号缓存"
+        }
+      ]
+    },
+    "data": {
+      "title": "数据流程 · 采集、返回、经理本地入库与展示",
+      "modeLabel": "数据流程图",
+      "lanes": [
+        [
+          "采集入口与员工留存",
+          "手动请求 / 定时采集 / 本地事实"
+        ],
+        [
+          "传输、回收与归档",
+          "SSH 同步返回 / SFTP 拉取 / 只读导出"
+        ],
+        [
+          "PC023 · 本地数据库与查询",
+          "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        ]
+      ],
+      "selected": "df-manager-db",
+      "nodes": [
+        {
+          "id": "df-manual",
+          "c": 0,
+          "r": 0,
+          "title": "手动作品 / 通知采集",
+          "sub": "运营台点击 → 经理 API → SSH 固定程序",
+          "kind": "action",
+          "detail": "手动作品采集：SSH 同步返回本次 result JSON；手动通知采集：SSH 同步返回 channels、incremental_data 与 result；MANAGER-FRONT-05 / 1.0：REQ-20260904-001",
+          "refs": [],
+          "referenceKeys": [
+            "data-creator",
+            "data-notifications",
+            "package-MANAGER-FRONT-05"
+          ]
+        },
+        {
+          "id": "df-result",
+          "c": 1,
+          "r": 0,
+          "title": "即时 result JSON",
+          "sub": "SSH stdout 同步返回结果及各通道状态",
+          "kind": "message",
+          "detail": "SSH stdout 同步返回结果及各通道状态",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "df-records",
+          "c": 2,
+          "r": 0,
+          "title": "经理任务 / 结果记录",
+          "sub": "records 与任务结果关联索引",
+          "kind": "store",
+          "detail": "经理任务与结果：records；任务与结果关联索引",
+          "refs": [],
+          "referenceKeys": [
+            "data-records"
+          ]
+        },
+        {
+          "id": "df-daily",
+          "c": 0,
+          "r": 1,
+          "title": "员工每日作品采集",
+          "sub": "启用时默认 00:30；DATA-03 / 1.5",
+          "kind": "action",
+          "detail": "员工每日作品采集：员工生成 outbox；经理后台轮询拉取；DATA-03 / 1.5：REQ-20260824-002",
+          "refs": [],
+          "referenceKeys": [
+            "data-daily",
+            "package-DATA-03"
+          ]
+        },
+        {
+          "id": "df-outbox",
+          "c": 1,
+          "r": 1,
+          "title": "员工 outbox",
+          "sub": "index.json + 接收 / 进度 / 结果记录",
+          "kind": "store",
+          "detail": "员工协议结果：task_outbox_root/index.json；回执记录文件",
+          "refs": [],
+          "referenceKeys": [
+            "data-outbox-files"
+          ]
+        },
+        {
+          "id": "df-manager-db",
+          "c": 2,
+          "r": 1,
+          "title": "PC023 本地 SQLite",
+          "sub": "manager-operations.db · 经理业务留存",
+          "kind": "store",
+          "detail": "经理业务数据库：C:\\auto-xhs\\manager-state\\manager-operations.db",
+          "refs": [],
+          "referenceKeys": [
+            "data-manager-db"
+          ],
+          "meta": [
+            {
+              "k": "库",
+              "v": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+            }
+          ]
+        },
+        {
+          "id": "df-worker-db",
+          "c": 0,
+          "r": 2,
+          "title": "员工业务库与产品状态",
+          "sub": "operations.db + product-state.json",
+          "kind": "store",
+          "detail": "员工业务事实：XHS_PRODUCT_HOME/operations.db；默认 %USERPROFILE%\\.xhs\\auto-xhs\\operations.db；员工产品状态：XHS_PRODUCT_HOME/product-state.json",
+          "refs": [],
+          "referenceKeys": [
+            "data-worker-db",
+            "data-worker-product"
+          ]
+        },
+        {
+          "id": "df-pull",
+          "c": 1,
+          "r": 2,
+          "title": "经理拉取已有回执",
+          "sub": "后台当前 180 秒；或点击回收已有回执",
+          "kind": "action",
+          "detail": "回收已有回执：SFTP 读取 outbox 索引和新增记录；MANAGER-04 / 1.5：REQ-20260824-002",
+          "refs": [],
+          "referenceKeys": [
+            "data-outbox",
+            "package-MANAGER-04"
+          ]
+        },
+        {
+          "id": "df-archive",
+          "c": 2,
+          "r": 2,
+          "title": "原始回执与下载缓存",
+          "sub": "daily_receipts/.../raw + collector/{machine}",
+          "kind": "store",
+          "detail": "原始回执归档：daily_receipts/{回收日期}/raw/{machine}/{task}/{sequence}.json；回收索引与下载缓存：collector/{machine}/index.json；collector/{machine}/records",
+          "refs": [],
+          "referenceKeys": [
+            "data-archive",
+            "data-cache"
+          ]
+        },
+        {
+          "id": "df-export",
+          "c": 0,
+          "r": 3,
+          "title": "员工只读导出器",
+          "sub": "worker_data_export.py · SQLite 只读快照",
+          "kind": "action",
+          "detail": "员工业务表快照同步：SSH worker_data_export.py → JSON",
+          "refs": [],
+          "referenceKeys": [
+            "data-export"
+          ]
+        },
+        {
+          "id": "df-json",
+          "c": 1,
+          "r": 3,
+          "title": "SSH 返回业务快照",
+          "sub": "各业务表 + schema + product_state + 时间",
+          "kind": "message",
+          "detail": "各业务表 + schema + product_state + 时间",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "df-worker-records",
+          "c": 2,
+          "r": 3,
+          "title": "worker_records",
+          "sub": "按 machine_id 替换该机业务表快照",
+          "kind": "store",
+          "detail": "员工业务表快照：worker_records",
+          "refs": [],
+          "referenceKeys": [
+            "data-worker-records"
+          ]
+        },
+        {
+          "id": "df-check",
+          "c": 0,
+          "r": 4,
+          "title": "核对来源与时间",
+          "sub": "区分 captured_at / exported_at / imported_at",
+          "kind": "decision",
+          "detail": "区分 captured_at / exported_at / imported_at",
+          "refs": [],
+          "referenceKeys": []
+        },
+        {
+          "id": "df-metadata",
+          "c": 1,
+          "r": 4,
+          "title": "metadata · worker:{machine}",
+          "sub": "源库、导出时间、导入时间、记录数",
+          "kind": "store",
+          "detail": "同步来源与时间：metadata：worker:{machine_id} 等",
+          "refs": [],
+          "referenceKeys": [
+            "data-metadata"
+          ]
+        },
+        {
+          "id": "df-query",
+          "c": 2,
+          "r": 4,
+          "title": "运营查询与指标投影",
+          "sub": "daily_metric_facts · 业务日期 / 覆盖度 / 实际量",
+          "kind": "store",
+          "detail": "每日指标查询与投影：daily_metric_facts",
+          "refs": [],
+          "referenceKeys": [
+            "data-facts"
+          ]
+        },
+        {
+          "id": "df-page",
+          "c": 2,
+          "r": 5,
+          "title": "运营台数据展示",
+          "sub": "数据回收 / 运营汇总 / 任务详情",
+          "kind": "interface",
+          "detail": "页面展示：数据回收、运营汇总及任务详情",
+          "refs": [],
+          "referenceKeys": [
+            "data-dashboard"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "a": "df-manual",
+          "b": "df-result",
+          "type": "back",
+          "label": "固定采集完成\n同步返回本次结果"
+        },
+        {
+          "a": "df-result",
+          "b": "df-records",
+          "type": "back",
+          "label": "_ingest_results\n保存结果身份与版本"
+        },
+        {
+          "a": "df-records",
+          "b": "df-manager-db",
+          "type": "back",
+          "label": "写入本地库\n关联机器 / 槽位 / 执行"
+        },
+        {
+          "a": "df-manual",
+          "b": "df-worker-db",
+          "type": "back",
+          "label": "采集到的业务事实\n先由员工本地保存"
+        },
+        {
+          "a": "df-daily",
+          "b": "df-worker-db",
+          "type": "back",
+          "label": "定时任务启用时\n固定程序采集入库"
+        },
+        {
+          "a": "df-daily",
+          "b": "df-outbox",
+          "type": "back",
+          "label": "本次采集结算后\n写入协议结果"
+        },
+        {
+          "a": "df-outbox",
+          "b": "df-pull",
+          "type": "back",
+          "label": "SFTP 拉取索引\n下载新增 sequence"
+        },
+        {
+          "a": "df-pull",
+          "b": "df-archive",
+          "type": "back",
+          "label": "缓存 + 按回收日\n保存原始回执"
+        },
+        {
+          "a": "df-pull",
+          "b": "df-records",
+          "type": "back",
+          "label": "去重导入 / 关联\n记录回收确认"
+        },
+        {
+          "a": "df-worker-db",
+          "b": "df-export",
+          "type": "down",
+          "label": "经理请求后\n只读读取业务库"
+        },
+        {
+          "a": "df-export",
+          "b": "df-json",
+          "type": "back",
+          "label": "即时回收后 / 后台同轮\n业务同步启用时"
+        },
+        {
+          "a": "df-json",
+          "b": "df-worker-records",
+          "type": "back",
+          "label": "import_worker\n导入该机业务表"
+        },
+        {
+          "a": "df-worker-records",
+          "b": "df-metadata",
+          "type": "back",
+          "label": "导入成功写元数据\n即时入口报告 SYNCED"
+        },
+        {
+          "a": "df-metadata",
+          "b": "df-check",
+          "type": "back",
+          "label": "查看采集与导入时间\n核对同一账号和日期"
+        },
+        {
+          "a": "df-worker-records",
+          "b": "df-query",
+          "type": "back",
+          "label": "运营查询计算\nDB 同步刷新指标表"
+        },
+        {
+          "a": "df-manager-db",
+          "b": "df-query",
+          "type": "back",
+          "label": "读取经理任务结果\n与员工业务事实"
+        },
+        {
+          "a": "df-query",
+          "b": "df-page",
+          "type": "back",
+          "label": "页面刷新经理快照\n显示当前留存与统计"
+        }
+      ]
     }
   },
   "handoff": {
@@ -3012,7 +4766,7 @@
           "title": "通信与数据查阅",
           "items": [
             "全流程详图连接任务、执行、通信与本地留存",
-            "通信通道、触发周期与消息确认对照表",
+            "通信通道、触发周期与消息确认流程图",
             "采集路径、数据落地与功能包定位表",
             "角色路线与任务样例定位到总图或表格条目"
           ]
@@ -3056,21 +4810,21 @@
             "title": "查通信与触发",
             "detail": "通道、执行者、周期及回执含义",
             "chapter": "communication",
-            "node": "comm-channels",
+            "node": "cf-manager",
             "code": ""
           },
           {
             "title": "查采集与本地留存",
             "detail": "手动入口、业务表、原始回执和功能包",
             "chapter": "data",
-            "node": "data-paths",
+            "node": "df-manual",
             "code": ""
           },
           {
             "title": "核对任务完成",
             "detail": "平台证据、确认量与经理回收",
             "chapter": "communication",
-            "node": "comm-count",
+            "node": "cf-store",
             "code": ""
           }
         ]
@@ -3163,7 +4917,7 @@
           "snippet": "{\n  \"message_type\": \"TASK_ACK\",\n  \"status\": \"ACCEPTED\",\n  \"task_id\": \"evening-20261015-pc065-4-2-actions\",\n  \"payload\": {\n    \"machine_id\": \"PC065\",\n    \"remote_execution_id\": \"88b8566993f944799ecd3d03a08a1522\"\n  },\n  \"created_at\": \"2026-10-15T10:40:50.146060+00:00\"\n}",
           "source": "manager-results.json → agent_messages → TASK_ACK",
           "chapter": "communication",
-          "node": "comm-ack",
+          "node": "cf-inbox",
           "code": ""
         },
         {
@@ -3191,7 +4945,7 @@
           "snippet": "{\n  \"item_count\": 10,\n  \"browse_success_items\": 10,\n  \"like_items\": [\n    {\n      \"item_index\": 3,\n      \"browse\": {\n        \"status\": \"SUCCESS\",\n        \"success\": true,\n        \"message\": \"详情页已打开\"\n      },\n      \"like\": {\n        \"status\": \"SUCCESS\",\n        \"success\": true,\n        \"changed\": true,\n        \"platform_readback\": true,\n        \"message\": \"点赞成功\"\n      }\n    },\n    {\n      \"item_index\": 6,\n      \"browse\": {\n        \"status\": \"SUCCESS\",\n        \"success\": true,\n        \"message\": \"详情页已打开\"\n      },\n      \"like\": {\n        \"status\": \"SUCCESS\",\n        \"success\": true,\n        \"changed\": true,\n        \"platform_readback\": true,\n        \"message\": \"点赞成功\"\n      }\n    }\n  ]\n}",
           "source": "manager-results.json → item_results（按原顺序提取动作字段）",
           "chapter": "communication",
-          "node": "comm-count",
+          "node": "cf-store",
           "code": ""
         },
         {
@@ -3205,7 +4959,7 @@
           "snippet": "{\n  \"state\": \"SUCCESS\",\n  \"completed_at\": \"2026-10-15T10:48:48.743300+00:00\",\n  \"record_id\": \"result:PC065:88b8566993f944799ecd3d03a08a1522:16\",\n  \"sequence\": 16,\n  \"result_revision\": 16,\n  \"business_result\": {\n    \"expected_metrics\": {\n      \"browse\": 10,\n      \"like\": 2\n    },\n    \"actual_metrics\": {\n      \"browse\": 10,\n      \"like\": 2,\n      \"comment\": 0,\n      \"publish\": 0\n    },\n    \"success\": true,\n    \"stop_reason\": \"count_reached\",\n    \"elapsed_seconds\": 391.14\n  }\n}",
           "source": "manager-results.json → 结果信封与 business_result",
           "chapter": "communication",
-          "node": "comm-result",
+          "node": "cf-result",
           "code": ""
         },
         {
@@ -3219,7 +4973,7 @@
           "note": "本例证据覆盖历史任务、回执、逐项结果和经理指标归档；页面查看步骤是操作指引。归档中的时间戳保留 UTC 原值，图中换算为北京时间。",
           "source": "manager-results.json + manager-tasks.json + daily-metric-facts.json",
           "chapter": "data",
-          "node": "data-facts",
+          "node": "df-query",
           "code": "",
           "snippet": "{\n  \"task_id\": \"evening-20261015-pc065-4-2-actions\",\n  \"collected_at\": \"2026-10-15T10:51:04.756144+00:00\",\n  \"manager_task\": {\n    \"state\": \"SUCCESS\",\n    \"business_state\": \"SUCCESS\",\n    \"remote_state\": \"SUCCESS\"\n  },\n  \"daily_metric_facts\": [\n    {\n      \"machine_id\": \"PC065\",\n      \"account_slot\": \"4-2\",\n      \"metric\": \"browse\",\n      \"actual\": 10,\n      \"coverage\": \"execution\"\n    },\n    {\n      \"machine_id\": \"PC065\",\n      \"account_slot\": \"4-2\",\n      \"metric\": \"like\",\n      \"actual\": 2,\n      \"coverage\": \"execution\"\n    }\n  ]\n}"
         }
@@ -3303,7 +5057,7 @@
         ],
         "retain": "原任务编号、结果版本、目标与已确认量、逐项证据和未完成原因。",
         "chapter": "communication",
-        "node": "comm-reconcile",
+        "node": "cf-store",
         "code": ""
       },
       {
@@ -3319,7 +5073,7 @@
         ],
         "retain": "员工索引位置、结果序号与版本、经理游标和 collected_at。",
         "chapter": "communication",
-        "node": "comm-outbox",
+        "node": "cf-outbox",
         "code": ""
       },
       {
@@ -3335,7 +5089,7 @@
         ],
         "retain": "业务记录标识、员工采集时间、经理导入时间及证据同步状态。",
         "chapter": "data",
-        "node": "data-worker-records",
+        "node": "df-worker-records",
         "code": ""
       },
       {
@@ -3351,7 +5105,7 @@
         ],
         "retain": "账号与日期、库中值、API 值、页面值和各自读取时间。",
         "chapter": "data",
-        "node": "data-dashboard",
+        "node": "df-page",
         "code": ""
       }
     ],
@@ -3376,7 +5130,7 @@
           "snippet": "{\n  \"task_id\": \"evening-20261015-pc065-4-3-actions\",\n  \"remote_execution_id\": \"ef3e49e366ff44dbbd0c3569ae718cad\",\n  \"state\": \"RESULT_UNKNOWN\",\n  \"message\": \"本批缺少实际数量回执：槽位4-3本批新增浏览10/10篇、点赞2/2次；逐篇浏览成功，两次点赞均经平台回读确认。\",\n  \"completed_at\": \"2026-10-15T11:01:26.694197+00:00\"\n}",
           "source": "manager-results.json → 原始结果与提示",
           "chapter": "communication",
-          "node": "comm-reconcile",
+          "node": "cf-store",
           "code": ""
         },
         {
@@ -3390,7 +5144,7 @@
           "snippet": "{\n  \"machine_id\": \"PC065\",\n  \"account_slot\": \"4-3\",\n  \"task_id\": \"evening-20261015-pc065-4-3-actions\",\n  \"dispatch_id\": \"91599d7abe634918a9145cb02ba5209e\",\n  \"remote_execution_id\": \"ef3e49e366ff44dbbd0c3569ae718cad\",\n  \"sequence\": 17,\n  \"result_revision\": 17\n}",
           "source": "manager-results.json → 关联身份",
           "chapter": "communication",
-          "node": "comm-reconcile",
+          "node": "cf-store",
           "code": ""
         },
         {
@@ -3404,7 +5158,7 @@
           "snippet": "{\n  \"browse_success_items\": 10,\n  \"like_items\": [\n    {\n      \"item_index\": 1,\n      \"like\": {\n        \"status\": \"SUCCESS\",\n        \"success\": true,\n        \"changed\": true,\n        \"platform_readback\": true\n      }\n    },\n    {\n      \"item_index\": 4,\n      \"like\": {\n        \"status\": \"SUCCESS\",\n        \"success\": true,\n        \"changed\": true,\n        \"platform_readback\": true\n      }\n    }\n  ]\n}",
           "source": "manager-results.json → item_results（按原顺序提取动作字段）",
           "chapter": "communication",
-          "node": "comm-count",
+          "node": "cf-store",
           "code": ""
         },
         {
@@ -3433,7 +5187,7 @@
           "snippet": "{\n  \"collected_at\": \"2026-10-15T11:01:45.229810+00:00\",\n  \"manager_task\": {\n    \"state\": \"RESULT_UNKNOWN\",\n    \"business_state\": \"RESULT_UNKNOWN\",\n    \"remote_state\": \"RESULT_UNKNOWN\"\n  },\n  \"daily_metric_facts\": [\n    {\n      \"machine_id\": \"PC065\",\n      \"account_slot\": \"4-3\",\n      \"metric\": \"browse\",\n      \"actual\": 10,\n      \"coverage\": \"execution\"\n    },\n    {\n      \"machine_id\": \"PC065\",\n      \"account_slot\": \"4-3\",\n      \"metric\": \"like\",\n      \"actual\": 2,\n      \"coverage\": \"execution\"\n    }\n  ]\n}",
           "source": "manager-results.json + manager-tasks.json + daily-metric-facts.json",
           "chapter": "data",
-          "node": "data-facts",
+          "node": "df-query",
           "code": ""
         },
         {
@@ -3453,7 +5207,7 @@
           ],
           "source": "操作指引 → 原任务对账、结果修订与经理回收",
           "chapter": "communication",
-          "node": "comm-reconcile",
+          "node": "cf-store",
           "code": ""
         }
       ]
@@ -3538,6 +5292,133 @@
     ],
     "od-outbox": [
       "workerProgram"
+    ],
+    "cf-launch": [
+      "scheduler"
+    ],
+    "cf-http": [
+      "operator",
+      "managerAgent",
+      "managerProgram"
+    ],
+    "cf-executor": [
+      "workerProgram"
+    ],
+    "cf-manager": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "cf-task": [
+      "managerProgram"
+    ],
+    "cf-inbox": [
+      "workerProgram"
+    ],
+    "cf-source": [
+      "operator",
+      "managerAgent"
+    ],
+    "cf-material": [
+      "managerProgram"
+    ],
+    "cf-files": [
+      "workerProgram"
+    ],
+    "cf-manual": [
+      "operator",
+      "managerAgent"
+    ],
+    "cf-instant": [
+      "managerProgram"
+    ],
+    "cf-runner": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "cf-poll": [
+      "managerProgram"
+    ],
+    "cf-outbox": [
+      "managerProgram"
+    ],
+    "cf-result": [
+      "workerProgram"
+    ],
+    "cf-store": [
+      "managerProgram"
+    ],
+    "cf-export": [
+      "managerProgram",
+      "workerProgram"
+    ],
+    "cf-browser": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "cf-page": [
+      "frontend",
+      "managerProgram"
+    ],
+    "cf-health": [
+      "managerProgram"
+    ],
+    "cf-db": [
+      "workerProgram"
+    ],
+    "df-manual": [
+      "operator",
+      "managerProgram",
+      "workerProgram"
+    ],
+    "df-result": [
+      "workerProgram",
+      "managerProgram"
+    ],
+    "df-records": [
+      "managerProgram"
+    ],
+    "df-daily": [
+      "scheduler",
+      "workerProgram"
+    ],
+    "df-outbox": [
+      "workerProgram"
+    ],
+    "df-manager-db": [
+      "managerProgram"
+    ],
+    "df-worker-db": [
+      "workerProgram"
+    ],
+    "df-pull": [
+      "managerProgram"
+    ],
+    "df-archive": [
+      "managerProgram"
+    ],
+    "df-export": [
+      "workerProgram"
+    ],
+    "df-json": [
+      "managerProgram",
+      "workerProgram"
+    ],
+    "df-worker-records": [
+      "managerProgram"
+    ],
+    "df-check": [
+      "operator",
+      "managerAgent"
+    ],
+    "df-metadata": [
+      "managerProgram"
+    ],
+    "df-query": [
+      "managerProgram"
+    ],
+    "df-page": [
+      "frontend",
+      "managerProgram"
     ]
   },
   "participation": {
@@ -3564,13 +5445,58 @@
     "browserProgram": {
       "label": "Bridge / 扩展程序",
       "detail": "Bridge 和 Chrome 扩展在绑定的 Profile 内执行页面命令，读取 DOM 与平台响应并返回证据。"
+    },
+    "scheduler": {
+      "label": "Windows 任务计划",
+      "detail": "Windows 任务计划程序按已登记的触发条件启动相应程序；业务处理继续由对应经理或员工程序完成。"
+    },
+    "frontend": {
+      "label": "前端程序",
+      "detail": "浏览器中的运营台脚本发送 API 请求并刷新展示经理已留存的数据。"
     }
   },
   "nodeResponsibilities": {
     "od-config": "经理 Agent 按人工要求配置绑定和策略；经理程序保存配置，供后续计划复用。",
     "od-material": "经理 Agent 准备或选定本次素材、决定传输；经理程序执行 SFTP，任务引用员工素材路径。",
     "od-plan": "经理 Agent 决定目标与节奏；经理程序准备计划、计算本批新增量并生成任务参数。",
-    "od-agent": "员工程序按能力选择 runner。常规任务由员工 Agent 领取、组织步骤并调用 CLI；创作中心指标采集由固定程序直接执行。"
+    "od-agent": "员工程序按能力选择 runner。常规任务由员工 Agent 领取、组织步骤并调用 CLI；创作中心指标采集由固定程序直接执行。",
+    "cf-launch": "登录时启动；每 5 分钟检查 8765 监听",
+    "cf-http": "HTTP :8765 · 操作人或经理 Agent 发起",
+    "cf-executor": "127.0.0.1:8766 · 本机队列与服务",
+    "cf-manager": "经理 Agent 安排业务；程序生成任务 JSON",
+    "cf-task": "SFTP 投递 JSON；SSH wake-task 唤醒",
+    "cf-inbox": "inbox/pending → 原执行编号 → 接收确认",
+    "cf-source": "接入时关联来源；按本次发布需要准备",
+    "cf-material": "SFTP · 图文 / 视频 / 输入文件",
+    "cf-files": "任务引用绝对路径；已有文件可复用",
+    "cf-manual": "运营台手动入口；MANAGER-FRONT-05 / 1.0",
+    "cf-instant": "collect-creator-now / collect-notifications-now",
+    "cf-runner": "普通任务：员工 Agent；即时采集：固定程序",
+    "cf-poll": "Web 服务内 manager-result-sync；当前 180 秒",
+    "cf-outbox": "PC023 主动拉 index + 新 sequence",
+    "cf-result": "接收、进度、TASK_RESULT 与 result_revision",
+    "cf-store": "RESULT_ACK / result_collected；关联原执行",
+    "cf-export": "返回 JSON 快照；经理 import_worker",
+    "cf-browser": "WebSocket · bridge_port；默认从 9333 分配",
+    "cf-page": "页面当前每 30 秒刷新快照",
+    "cf-health": "独立健康周期；当前 600 秒",
+    "cf-db": "operations.db + product-state.json",
+    "df-manual": "运营台点击 → 经理 API → SSH 固定程序",
+    "df-result": "SSH stdout 同步返回结果及各通道状态",
+    "df-records": "records 与任务结果关联索引",
+    "df-daily": "启用时默认 00:30；DATA-03 / 1.5",
+    "df-outbox": "index.json + 接收 / 进度 / 结果记录",
+    "df-manager-db": "manager-operations.db · 经理业务留存",
+    "df-worker-db": "operations.db + product-state.json",
+    "df-pull": "后台当前 180 秒；或点击回收已有回执",
+    "df-archive": "daily_receipts/.../raw + collector/{machine}",
+    "df-export": "worker_data_export.py · SQLite 只读快照",
+    "df-json": "各业务表 + schema + product_state + 时间",
+    "df-worker-records": "按 machine_id 替换该机业务表快照",
+    "df-check": "区分 captured_at / exported_at / imported_at",
+    "df-metadata": "源库、导出时间、导入时间、记录数",
+    "df-query": "daily_metric_facts · 业务日期 / 覆盖度 / 实际量",
+    "df-page": "数据回收 / 运营汇总 / 任务详情"
   },
   "dataFaqs": [
     {
@@ -3602,7 +5528,8 @@
     "question": "账号与素材来源的绑定、素材准备、SFTP 投递各在什么时候发生？",
     "answer": "<p><strong>接入绑定：</strong>经理 Agent 按要求建立机器、账号槽位、身份、策略及素材来源关联，后续配置发生变更时再维护；计划复用这些绑定。</p><p><strong>本次素材：</strong>经理 Agent 在有发布需求时准备或选定内容，检查员工已有可读文件，需要传输时调用经理固定程序通过 SFTP 送到员工素材目录。</p><p><strong>任务投递：</strong>素材就绪后，任务参数引用员工素材绝对路径；任务 JSON 单独写入 <code>inbox/pending</code> 并经 SSH 唤醒。本次素材准备由计划需求触发，账号绑定为后续任务提供可复用的配置。</p>"
   },
-  "referenceTables": {
+  "formalPackageRoot": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包",
+  "flowReferences": {
     "communication": [
       {
         "id": "comm-channels",
@@ -4153,8 +6080,7 @@
         ]
       }
     ]
-  },
-  "formalPackageRoot": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包"
+  }
 }
 </script>
 <script>
@@ -4164,8 +6090,8 @@ const D=JSON.parse(document.getElementById('manual-data').textContent);
 const chapters=[
  {id:'guide',no:'00',name:'使用导航',title:'使用导航',subtitle:'按角色上手，沿真实任务理解闭环',tag:'路线 / 实例 / 排查'},
  {id:'overall',name:'全流程总图',title:'总体通信与数据闭环',subtitle:'沿一张全流程详图查看角色、任务、通信与结果留存',tag:'全流程详图'},
- {id:'communication',name:'通信对照',title:'通信通道与触发机制',subtitle:'通道、方向、内容、执行者、周期与消息确认逐项对照',tag:'通道 / 周期 / 回执'},
- {id:'data',name:'数据对照',title:'采集与数据留存',subtitle:'查采集入口、传输方式、本地数据库、原始文件和功能包',tag:'采集 / 本地 DB / 包位'},
+ {id:'communication',name:'通信流程',title:'通信通道与触发机制',subtitle:'沿箭头查看任务投递、即时调用、回执回收和业务数据返回',tag:'通道 / 周期 / 回执'},
+ {id:'data',name:'数据流程',title:'采集与数据留存',subtitle:'沿箭头查看采集、员工留存、传输、经理本地入库和页面展示',tag:'采集 / 本地 DB / 包位'},
  {id:'source',name:'代码与功能',title:'主要代码与功能',subtitle:'按主要模块查功能、实现策略与采用原因',tag:'对照表 / 代码策略'}
 ];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -4209,7 +6135,7 @@ function faqsFor(id){
  ])+refsMarkup([['web_server',540],['executor_server',270],['bridge_server',348],['account_manager',23],['manager_transport',151]])),
  faq('经理和员工之间，实际怎样传任务与结果？','<p>PC023 创建任务 JSON，经 SFTP 写入员工 <code>inbox/pending</code>，再用 SSH 调用 <code>wake-task</code>。员工接收、排队并在本机执行，把接收确认、进度、结果和修订写入 outbox。</p><p>PC023 主动读取 <code>outbox/index.json</code>，按序号下载新增记录，归档和去重导入后推进回收游标。员工业务表快照与证据文件分别同步。</p>'+refsMarkup([['manager_service',1559],['manager_service',5490],['manager_worker_service',1520],['manager_worker_service',3367],['manager_service',2586]])),
  faq('为什么计划按批次执行？','<p>批次让全天工作落到具体时点，并让每次执行有明确的新增目标、有效时间和完成依据。员工调度再按账号锁、机器串行配置、依赖和间隔决定何时启动。</p>'+batch+'<p>浏览部分同时参考预算与配置时点：有浏览预算时，批数取 <code>ceil(浏览预算 / 15)</code> 与时点数量中的较大值，再把浏览和点赞预算分摊到批次。其他能力沿计划的动作与依赖生成任务。</p><p class="note">每批报告本批新增完成量；批间隔描述任务之间的等待，单条笔记的阅读停留沿业务节奏配置执行。</p>'+refsMarkup([['scheduled_daily_batches',17],['daily_operations_runner',331],['tests/test_scheduled_daily_batches.py',15]])),
- faq('本手册的范围和查看方式是什么？','<p>使用导航提供角色阅读路线、真实任务样例、排查入口和适用版本。全流程详图说明任务、执行、通信、结果回收与经理本地留存。通信对照表列出通道、方向、执行者、触发周期和回执含义；数据对照表列出采集路径、数据位置、完成依据和功能包。代码与功能章节按主要模块说明采用原因与实现策略。点击总图节点可查看 FAQ，阅读路线与任务样例可定位到图或表中的对应条目。</p><p>内容依据 2026-10-16 工作区源码核对。图示表达当前实现关系；设备在线状态、账号状态和平台业务结果由实际回读确认。本 HTML 的样式、图数据与交互均在文件内部，可直接用浏览器打开。</p>')
+ faq('本手册的范围和查看方式是什么？','<p>使用导航提供角色阅读路线、真实任务样例、排查入口和适用版本。全流程详图说明任务、执行、通信、结果回收与经理本地留存。通信流程图列出通道、方向、执行者、触发周期和回执含义；数据流程图列出采集路径、数据位置、完成依据和功能包。代码与功能章节按主要模块说明采用原因与实现策略。点击总图节点可查看 FAQ，阅读路线与任务样例可定位到图或表中的对应条目。</p><p>内容依据 2026-10-16 工作区源码核对。图示表达当前实现关系；设备在线状态、账号状态和平台业务结果由实际回读确认。本 HTML 的样式、图数据与交互均在文件内部，可直接用浏览器打开。</p>')
  ].join('');
  if(id==='manager')return [
  faq('经理机日常操作，按什么顺序进行？',steps([
@@ -4272,7 +6198,7 @@ function guideJumpMarkup(target,label){return `<button class="guide-jump" type="
 function guideMarkup(){
  const H=D.handoff,C=H.case,V=H.edition;
  return `<nav class="guide-links" aria-label="使用导航分区"><a href="#guide-routes">阅读路线</a><a href="#guide-case">完整任务样例</a><a href="#guide-exception">异常样例</a><a href="#guide-trouble">问题排查</a><a href="#guide-version">版本与更新</a></nav>
- <section class="guide-block" id="guide-routes"><div class="guide-heading"><h3>从你的职责开始</h3><span>点击步骤，直接定位总图、对照表或代码 FAQ</span></div><div class="route-grid">${H.routes.map(r=>`<article class="route-card"><h4>${esc(r.title)}</h4><div class="route-eyebrow">${esc(r.eyebrow)}</div><div class="route-steps">${r.steps.map((s,i)=>`<button class="route-step" type="button" data-guide-chapter="${s.chapter}" data-guide-node="${s.node||''}" data-guide-code="${s.code||''}"><i>${i+1}</i><span><b>${esc(s.title)}</b><small>${esc(s.detail)}</small></span><em aria-hidden="true">↗</em></button>`).join('')}</div></article>`).join('')}</div></section>
+ <section class="guide-block" id="guide-routes"><div class="guide-heading"><h3>从你的职责开始</h3><span>点击步骤，直接定位流程图节点或代码 FAQ</span></div><div class="route-grid">${H.routes.map(r=>`<article class="route-card"><h4>${esc(r.title)}</h4><div class="route-eyebrow">${esc(r.eyebrow)}</div><div class="route-steps">${r.steps.map((s,i)=>`<button class="route-step" type="button" data-guide-chapter="${s.chapter}" data-guide-node="${s.node||''}" data-guide-code="${s.code||''}"><i>${i+1}</i><span><b>${esc(s.title)}</b><small>${esc(s.detail)}</small></span><em aria-hidden="true">↗</em></button>`).join('')}</div></article>`).join('')}</div></section>
  <section class="guide-block" id="guide-case"><div class="guide-heading"><h3>完整任务样例</h3><span>真实归档 · 点击任一步，展开凭据 FAQ</span></div><div class="sheet"><div class="case-summary"><div><h4>${esc(C.title)}</h4><small>${esc(C.date)} · ${esc(C.machine)} / ${esc(C.slot)} · home-engagement</small></div><div class="case-totals"><div><b>10/10</b><small>新增浏览</small></div><div><b>2/2</b><small>平台确认点赞</small></div></div></div><div class="case-task">task_id · <code>${esc(C.task_id)}</code></div><div class="mobile-hint">← 左右滑动查看完整任务时间线 →</div><div class="case-scroll"><div class="case-track" aria-label="任务从配置到回收的七步时间线">${C.steps.map((s,i)=>`<button type="button" class="case-step" data-case-step="${s.id}" aria-pressed="${i===0}" aria-controls="case-detail"><span>${esc(s.time)}</span><i>${String(i+1).padStart(2,'0')}</i><b>${esc(s.title)}</b><small>${esc(s.short)}</small></button>`).join('')}</div></div><div class="case-hint"><span>${esc(C.basis)}</span><span>凭据覆盖：任务 → 接收 → 领取 → 平台 → 经理归档</span></div></div>
  <div class="guide-faq">${faq('<span class="question-label">样例 FAQ</span><span id="case-question"></span>','<div id="case-answer"></div>','case-detail')}</div></section>
  ${exceptionMarkup()}
@@ -4302,11 +6228,7 @@ function updateTroubleFAQ(id,open=false){
 }
 function followGuide(target){
  activate(target.chapter);
- if(target.node&&D.referenceTables[target.chapter]){
-  const row=document.getElementById(target.node);
-  row.scrollIntoView({behavior:'instant',block:'center'});row.focus({preventScroll:true});
-  row.classList.remove('is-located');void row.offsetWidth;row.classList.add('is-located');
- }else if(target.node){
+ if(target.node){
   activateGraphMode(target.chapter,'detail');selections[target.chapter]=target.node;
   const graph=document.getElementById('graph-'+target.chapter);
   graph.querySelectorAll('[data-node]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.node===target.node)));
@@ -4459,24 +6381,24 @@ function codeMatrixMarkup(){
 }
 function graphMarkup(c){
  const g=graphFor(c.id);
- return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">全流程详图</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
+ return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
 }
-function referenceTablesMarkup(c){
- const blocks=D.referenceTables[c.id];
- return `<div class="reference-index" aria-label="${esc(c.title)}表格索引">${blocks.map(b=>`<a href="#${b.id}">${esc(b.title)}</a>`).join('')}</div>${blocks.map(b=>`<section class="sheet reference-block" id="${b.id}" tabindex="-1"><div class="sheet-bar"><h3>${esc(b.title)}</h3><span class="hint">${b.rows.length} 项</span></div><div class="reference-caption">${esc(b.caption)}</div><div class="table-scroll"><table class="reference-table"><thead><tr>${b.heads.map(h=>`<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r=>`<tr id="${r.id}" tabindex="-1">${r.cells.map((cell,i)=>i===0?`<th scope="row">${esc(cell).replaceAll('\n','<br>')}</th>`:`<td>${esc(cell).replaceAll('\n','<br>')}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`).join('')}${c.id==='data'?`<div class="package-root"><strong>正式功能包根目录</strong><code>${esc(D.formalPackageRoot)}</code></div>`:''}`;
+function flowReferenceMarkup(id,keys){
+ const blocks=D.flowReferences[id]||[];
+ return blocks.map(b=>b.rows.filter(r=>!keys||keys.includes(r.id)).map(r=>faq(r.cells[0],`<dl class="explain-grid">${r.cells.map((cell,i)=>`<div><dt>${esc(b.heads[i])}</dt><dd>${esc(cell).replaceAll('\n','<br>')}</dd></div>`).join('')}</dl>`)).join('')).join('');
 }
 function chapterFAQ(c){
- const selection=D.referenceTables[c.id]?'':c.id==='source'
+ const selection=c.id==='source'
  ? `<details class="faq-item code-detail" id="code-detail"><summary><span class="question-label">代码条目</span><span id="code-question"></span></summary><div class="faq-answer" id="code-answer"></div></details>`
  : `<details class="faq-item node-faq" id="node-faq-${c.id}"><summary><span class="question-label">图中节点</span><span id="node-question-${c.id}"></span></summary><div class="faq-answer" id="node-answer-${c.id}"></div></details>`;
- return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${selection}${faqsFor(c.id)}</section>`;
+ return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${selection}${faqsFor(c.id)}${flowReferenceMarkup(c.id)}</section>`;
 }
-document.getElementById('chapters').innerHTML=chapters.map((c,i)=>`<section class="chapter" id="chapter-${c.id}" ${i?'hidden':''} aria-labelledby="title-${c.id}"><div class="chapter-head"><div class="chapter-number">${c.no||String(i).padStart(2,'0')}</div><div><h2 id="title-${c.id}">${c.title}</h2><p>${c.subtitle}</p></div><span class="tag">${c.tag}</span></div>${c.id==='guide'?guideMarkup():c.id==='source'?codeMatrixMarkup():D.referenceTables[c.id]?referenceTablesMarkup(c):graphMarkup(c)}${c.id==='guide'?'':chapterFAQ(c)}<div class="chapter-pagination">${i?`<button type="button" data-chapter="${chapters[i-1].id}">← ${chapters[i-1].name}</button>`:'<span></span>'}${i<chapters.length-1?`<button type="button" data-chapter="${chapters[i+1].id}">下一章 · ${chapters[i+1].name} →</button>`:'<button type="button" data-chapter="overall">返回系统总览 ↑</button>'}</div></section>`).join('');
+document.getElementById('chapters').innerHTML=chapters.map((c,i)=>`<section class="chapter" id="chapter-${c.id}" ${i?'hidden':''} aria-labelledby="title-${c.id}"><div class="chapter-head"><div class="chapter-number">${c.no||String(i).padStart(2,'0')}</div><div><h2 id="title-${c.id}">${c.title}</h2><p>${c.subtitle}</p></div><span class="tag">${c.tag}</span></div>${c.id==='guide'?guideMarkup():c.id==='source'?codeMatrixMarkup():graphMarkup(c)}${c.id==='guide'?'':chapterFAQ(c)}<div class="chapter-pagination">${i?`<button type="button" data-chapter="${chapters[i-1].id}">← ${chapters[i-1].name}</button>`:'<span></span>'}${i<chapters.length-1?`<button type="button" data-chapter="${chapters[i+1].id}">下一章 · ${chapters[i+1].name} →</button>`:'<button type="button" data-chapter="overall">返回系统总览 ↑</button>'}</div></section>`).join('');
 const nodeKinds={action:'处理',decision:'条件判断',store:'持久记录',message:'消息 / 回执',interface:'接口 / 通道',platform:'平台侧'};
 function updateNodeFAQ(id,nodeId,open=false){
  const n=graphFor(id).nodes.find(n=>n.id===nodeId),x=D.explanations[nodeId],roles=D.nodeParticipation[nodeId].map(kind=>D.participation[kind]);
  document.getElementById('node-question-'+id).textContent=n.title+'：怎样处理、需要什么、产出什么？';
- document.getElementById('node-answer-'+id).innerHTML=`<p>${esc(n.detail)}</p><div class="participation-note">${D.nodeResponsibilities[nodeId]?`<p><strong>本节点分工：</strong>${esc(D.nodeResponsibilities[nodeId])}</p>`:''}${roles.map(role=>`<p><strong>${esc(role.label)}：</strong>${esc(role.detail)}</p>`).join('')}</div><dl class="explain-grid"><div><dt>为什么需要</dt><dd>${esc(x.why)}</dd></div><div><dt>前置条件</dt><dd>${esc(x.before)}</dd></div><div><dt>处理产出</dt><dd>${esc(x.output)}</dd></div></dl>${x.note?`<p class="note">${esc(x.note)}</p>`:''}${refsMarkup(n.refs)}<div class="faq-return"><button type="button" class="node-return" data-return-graph="${id}" data-return-node="${nodeId}">↑ 返回图中节点</button><small>定位并高亮当前节点及相邻连线</small></div>`;
+ document.getElementById('node-answer-'+id).innerHTML=`<p>${esc(n.detail)}</p><div class="participation-note">${D.nodeResponsibilities[nodeId]?`<p><strong>本节点分工：</strong>${esc(D.nodeResponsibilities[nodeId])}</p>`:''}${roles.map(role=>`<p><strong>${esc(role.label)}：</strong>${esc(role.detail)}</p>`).join('')}</div><dl class="explain-grid"><div><dt>为什么需要</dt><dd>${esc(x.why)}</dd></div><div><dt>前置条件</dt><dd>${esc(x.before)}</dd></div><div><dt>处理产出</dt><dd>${esc(x.output)}</dd></div></dl>${x.note?`<p class="note">${esc(x.note)}</p>`:''}${refsMarkup(n.refs)}${n.referenceKeys?flowReferenceMarkup(id,n.referenceKeys):''}<div class="faq-return"><button type="button" class="node-return" data-return-graph="${id}" data-return-node="${nodeId}">↑ 返回图中节点</button><small>定位并高亮当前节点及相邻连线</small></div>`;
  document.getElementById('node-faq-'+id).open=open;
 }
 function updateGraphChrome(id){
@@ -4548,15 +6470,15 @@ function placeEdgeLabels(svg,paths,boxes,headers,width,height){
 function drawGraph(id){
  if(!D.graphs[id])return;
  const graph=document.getElementById('graph-'+id);if(graph.closest('[hidden]'))return;
- const scroller=graph.closest('.graph-scroll'),baseWidth=Math.max(innerWidth<=700?860:900,scroller.clientWidth-12);
+ const scroller=graph.closest('.graph-scroll'),baseWidth=Math.max(id==='overall'?(innerWidth<=700?860:900):1260,scroller.clientWidth-12);
  graph.style.width=baseWidth+'px';graph.style.minWidth='0';
- const g=graphFor(id),width=graph.clientWidth,pad=25,gutter=graphModes[id]==='detail'?100:84,laneWidth=(width-2*pad-2*gutter)/3,inside=12,nodeWidth=laneWidth-inside*2;
+ const g=graphFor(id),width=graph.clientWidth,pad=25,gutter=id==='overall'?(graphModes[id]==='detail'?100:84):170,laneWidth=(width-2*pad-2*gutter)/3,inside=12,nodeWidth=laneWidth-inside*2;
  graph.querySelectorAll('[data-lane]').forEach(el=>{const c=+el.dataset.lane;el.style.left=(pad+c*(laneWidth+gutter))+'px';el.style.width=laneWidth+'px';});
  graph.querySelectorAll('[data-lane-title]').forEach(el=>{const c=+el.dataset.laneTitle;el.style.left=(pad+c*(laneWidth+gutter)+inside+1)+'px';el.style.width=(nodeWidth-2)+'px';});
  const boxes={},rowHeights=[];
  for(const n of g.nodes){const el=document.getElementById(n.id);el.style.width=nodeWidth+'px';el.style.height='auto';rowHeights[n.r]=Math.max(rowHeights[n.r]||0,el.offsetHeight);}
  const headers=[...graph.querySelectorAll('.lane-title')].map(el=>({x:el.offsetLeft-3,y:el.offsetTop-3,w:el.offsetWidth+6,h:el.offsetHeight+6}));
- const rows=[],rowGap=58;let y=Math.max(112,...headers.map(h=>h.y+h.h+50));
+ const rows=[],rowGap=id==='overall'?58:100;let y=Math.max(112,...headers.map(h=>h.y+h.h+50));
  for(let r=0;r<rowHeights.length;r++){rows[r]=y;y+=rowHeights[r]+rowGap;}
  const height=y-12;graph.style.height=height+'px';
  for(const n of g.nodes){const el=document.getElementById(n.id);const b={x:pad+n.c*(laneWidth+gutter)+inside,y:rows[n.r],w:nodeWidth,h:rowHeights[n.r],c:n.c,r:n.r};boxes[n.id]=b;el.style.left=b.x+'px';el.style.top=b.y+'px';el.style.height=b.h+'px';}
