@@ -1,0 +1,2647 @@
+{
+  "checked_at": "2026-10-16T18:37:02.828378",
+  "ledger_url": "http://192.168.110.8:8812/#directory-standard?station=ManagerStation",
+  "ledger_revision": 10203,
+  "nodes": {
+    "od-goal": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_cli",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_cli.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_cli.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "目标记录 · goals",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "rule": "经理 Agent / 人工明确目标后，经理程序保存 goals；自然语言讨论本身不产生专属业务文件。",
+      "card_paths": [
+        {
+          "label": "目标记录 · goals",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_cli.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "经理 Agent / 人工明确目标后，经理程序保存 goals；自然语言讨论本身不产生专属业务文件。"
+        }
+      ]
+    },
+    "od-config": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "绑定 / 人设 / 授权 · accounts、personas",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "rule": "经理配置保存在 manager-state.json；员工账号配置和配对独立位于各机账号目录。",
+      "card_paths": [
+        {
+          "label": "绑定 / 人设 / 授权 · accounts、personas",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "经理配置保存在 manager-state.json；员工账号配置和配对独立位于各机账号目录。"
+        }
+      ]
+    },
+    "od-plan": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "scheduled_daily_batches",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\scheduled_daily_batches.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\scheduled_daily_batches.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "运营计划 · daily_plans",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "rule": "每日计划、批次及操作任务集合由 ManagerStore 保存；真正下发任务另入 SQLite。",
+      "card_paths": [
+        {
+          "label": "运营计划 · daily_plans",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\scheduled_daily_batches.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "每日计划、批次及操作任务集合由 ManagerStore 保存；真正下发任务另入 SQLite。"
+        }
+      ]
+    },
+    "od-task": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "经理任务包",
+          "path": "C:\\auto-xhs\\manager-state\\task-outbox\\{机器}\\{任务}.json"
+        },
+        {
+          "label": "新任务 · records/tasks",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        }
+      ],
+      "rule": "_write_task_package 写入任务 JSON；新 tasks 通过 ManagerLiveRecords 保存。",
+      "card_paths": [
+        {
+          "label": "经理任务包",
+          "path": "C:\\auto-xhs\\manager-state\\task-outbox\\{机器}\\{任务}.json"
+        },
+        {
+          "label": "新任务 · records/tasks",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "_write_task_package 写入任务 JSON；新 tasks 通过 ManagerLiveRecords 保存。"
+        }
+      ]
+    },
+    "od-track": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "进度消息 · agent_messages",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "rule": "经理保存接收、领取进度；员工原始 ACK / event 文件见通信回执模块。",
+      "card_paths": [
+        {
+          "label": "进度消息 · agent_messages",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "经理保存接收、领取进度；员工原始 ACK / event 文件见通信回执模块。"
+        }
+      ]
+    },
+    "od-poll": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_sync_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_sync_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_sync_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "轮询配置 · settings/polling",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        },
+        {
+          "label": "后台回收日志",
+          "path": "C:\\auto-xhs\\manager-state\\logs\\manager-sync.log"
+        }
+      ],
+      "rule": "WebUI 进程内 manager-result-sync 线程按配置轮询；Windows 启动 WebUI，后台线程实际拉取 outbox。",
+      "card_paths": [
+        {
+          "label": "经理程序入口",
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_sync_service.py"
+        },
+        {
+          "label": "轮询配置 · settings/polling",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_sync_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "WebUI 进程内 manager-result-sync 线程按配置轮询；Windows 启动 WebUI，后台线程实际拉取 outbox。"
+        }
+      ]
+    },
+    "od-ingest": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_database",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_database.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_database.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "经理数据库",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        },
+        {
+          "label": "原始回执归档",
+          "path": "C:\\auto-xhs\\manager-state\\daily_receipts\\{日期}\\raw\\{机器}\\{任务}\\{序号}.json"
+        }
+      ],
+      "rule": "任务结果进入 records；业务表导入 worker_records；回执按经理回收日期归档。",
+      "card_paths": [
+        {
+          "label": "经理数据库",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        },
+        {
+          "label": "原始回执归档",
+          "path": "C:\\auto-xhs\\manager-state\\daily_receipts\\{日期}\\raw\\{机器}\\{任务}\\{序号}.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_database.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "任务结果进入 records；业务表导入 worker_records；回执按经理回收日期归档。"
+        }
+      ]
+    },
+    "od-accept": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "operations_acceptance",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\operations_acceptance.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\operations_acceptance.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "验收读取 · records / daily_metric_facts",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        }
+      ],
+      "rule": "验收读取结果、目标及业务投影；页面由快照 API 呈现，页面本身无专属结果文件。",
+      "card_paths": [
+        {
+          "label": "验收读取 · records / daily_metric_facts",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\operations_acceptance.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "验收读取结果、目标及业务投影；页面由快照 API 呈现，页面本身无专属结果文件。"
+        }
+      ]
+    },
+    "od-ssh": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_transport",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_transport.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_transport.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "连接配置 · machines",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "rule": "SSH 主机、端口、用户、工作目录、Python 与收发箱来自 machines 配置。",
+      "card_paths": [
+        {
+          "label": "经理程序入口",
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_transport.py"
+        },
+        {
+          "label": "连接配置 · machines",
+          "path": "C:\\auto-xhs\\manager-state\\manager-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_transport.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "SSH 主机、端口、用户、工作目录、Python 与收发箱来自 machines 配置。"
+        }
+      ]
+    },
+    "od-material": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_transport",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_transport.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_transport.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工素材示例 · PC052",
+          "path": "C:\\auto-xhs\\materials\\20261014\\pc052-002-g10\\{素材文件}"
+        }
+      ],
+      "rule": "素材按本次任务声明的员工绝对路径上传并引用。示例取自经理已保存任务，PC052 实查目录存在且有6个文件；其他任务按各自材料路径，不能把功能包 transfers/staging 当作统一素材目录。",
+      "card_paths": [
+        {
+          "label": "经理程序入口",
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_transport.py"
+        },
+        {
+          "label": "员工素材示例 · PC052",
+          "path": "C:\\auto-xhs\\materials\\20261014\\pc052-002-g10\\{素材文件}"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_transport.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "素材按本次任务声明的员工绝对路径上传并引用。示例取自经理已保存任务，PC052 实查目录存在且有6个文件；其他任务按各自材料路径，不能把功能包 transfers/staging 当作统一素材目录。"
+        }
+      ]
+    },
+    "od-upload": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_transport",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_transport.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_transport.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工待接收任务",
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending\\{任务}.json"
+        }
+      ],
+      "rule": "经理通过 SFTP 原子投递已有任务包到员工 inbox/pending；再调用 wake-task。",
+      "card_paths": [
+        {
+          "label": "经理程序入口",
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_transport.py"
+        },
+        {
+          "label": "员工待接收任务",
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending\\{任务}.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_transport.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "经理通过 SFTP 原子投递已有任务包到员工 inbox/pending；再调用 wake-task。"
+        }
+      ]
+    },
+    "od-wake": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "manager_worker",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_worker_service",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "唤醒 / 接收状态",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "rule": "SSH 调用员工 scripts/manager_worker.py wake-task；实际协议实现在版本包中。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py"
+        },
+        {
+          "label": "唤醒 / 接收状态",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "SSH 调用员工 scripts/manager_worker.py wake-task；实际协议实现在版本包中。"
+        }
+      ]
+    },
+    "od-ack": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "manager_worker_service",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_worker_async",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工接收回执",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements\\{序号}-{任务}.json"
+        },
+        {
+          "label": "员工进度回执",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\events\\{序号}-{任务}.json"
+        }
+      ],
+      "rule": "TASK_ACK / event 通过 _publish_outbox_record 写文件和 index；经理拉取后保存消息。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py"
+        },
+        {
+          "label": "员工接收回执",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements\\{序号}-{任务}.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "TASK_ACK / event 通过 _publish_outbox_record 写文件和 index；经理拉取后保存消息。"
+        }
+      ]
+    },
+    "od-pull": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "经理下载索引",
+          "path": "C:\\auto-xhs\\manager-state\\collector\\{机器}\\index.json"
+        },
+        {
+          "label": "经理回执缓存",
+          "path": "C:\\auto-xhs\\manager-state\\collector\\{机器}\\records\\{序号}.json"
+        }
+      ],
+      "rule": "员工 index.json 与新 sequence 文件经 SFTP 缓存到经理；游标保存在 manager-state.json 的 collection_cursors。",
+      "card_paths": [
+        {
+          "label": "经理程序入口",
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py"
+        },
+        {
+          "label": "经理下载索引",
+          "path": "C:\\auto-xhs\\manager-state\\collector\\{机器}\\index.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "员工 index.json 与新 sequence 文件经 SFTP 缓存到经理；游标保存在 manager-state.json 的 collection_cursors。"
+        }
+      ]
+    },
+    "od-data": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "worker_data_export",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工导出源库",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        },
+        {
+          "label": "经理导入目标",
+          "path": "C:\\auto-xhs\\manager-state\\manager-operations.db"
+        }
+      ],
+      "rule": "SSH 调用员工只读导出器，JSON 经标准输出返回；不虚构导出 JSON 落盘文件。经理按机器导入 worker_records。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py"
+        },
+        {
+          "label": "员工导出源库",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "SSH 调用员工只读导出器，JSON 经标准输出返回；不虚构导出 JSON 落盘文件。经理按机器导入 worker_records。"
+        }
+      ]
+    },
+    "od-evidence": {
+      "side": "manager",
+      "programs": [
+        {
+          "module": "manager_service",
+          "entry": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py",
+          "implementation": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "verified_on": [
+            "PC023"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "经理证据下载",
+          "path": "C:\\auto-xhs\\manager-state\\collected\\{机器}\\{执行ID}\\{版本}\\{证据文件}"
+        }
+      ],
+      "rule": "_download_result_evidence 沿 evidence_index.remote_path 按需下载，保留证据相对路径。",
+      "card_paths": [
+        {
+          "label": "经理程序入口",
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\scripts\\manager_service.py"
+        },
+        {
+          "label": "经理证据下载",
+          "path": "C:\\auto-xhs\\manager-state\\collected\\{机器}\\{执行ID}\\{版本}\\{证据文件}"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\function_packages\\xiaohongshu-skills\\0.1.0\\manager\\runtime\\scripts\\manager_store.py",
+          "basis": "_download_result_evidence 沿 evidence_index.remote_path 按需下载，保留证据相对路径。"
+        }
+      ]
+    },
+    "od-service": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "executor_server",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工服务 / 协议状态",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "rule": "固定入口启动本机执行服务；状态由 ManagerWorkerService 持久化。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py"
+        },
+        {
+          "label": "员工服务 / 协议状态",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "固定入口启动本机执行服务；状态由 ManagerWorkerService 持久化。"
+        }
+      ]
+    },
+    "od-ready": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "account_runtime",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "account_manager",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_manager.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "account_pairing",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_pairing.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工槽位配置",
+          "path": "C:\\Users\\EDY\\.xhs\\accounts\\{槽位}\\account.json"
+        }
+      ],
+      "rule": "account.json 定位 Profile 与 Bridge 配置；extension-pairing.json 为按实际配对流程生成的可选文件，本次仅 PC057 查到该文件。实时 Bridge 就绪状态并非独立业务文件。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py"
+        },
+        {
+          "label": "员工槽位配置",
+          "path": "C:\\Users\\EDY\\.xhs\\accounts\\{槽位}\\account.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "account.json 定位 Profile 与 Bridge 配置；extension-pairing.json 为按实际配对流程生成的可选文件，本次仅 PC057 查到该文件。实时 Bridge 就绪状态并非独立业务文件。"
+        }
+      ]
+    },
+    "od-inbox": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "manager_worker",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工待接收任务",
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending\\{任务}.json"
+        },
+        {
+          "label": "员工已接收任务",
+          "path": "C:\\auto-xhs\\manager-task-inbox\\claimed\\{任务}.json"
+        }
+      ],
+      "rule": "wake_task 读取 pending 或 claimed 任务文件，建立执行后沿原文件名处理。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py"
+        },
+        {
+          "label": "员工待接收任务",
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending\\{任务}.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "wake_task 读取 pending 或 claimed 任务文件，建立执行后沿原文件名处理。"
+        }
+      ]
+    },
+    "od-accept-task": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "manager_worker_service",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "executions / task_index",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "rule": "accept_task 建立 remote_execution_id 和执行索引，WorkerStore 写 worker-state.json。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py"
+        },
+        {
+          "label": "executions / task_index",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "accept_task 建立 remote_execution_id 和执行索引，WorkerStore 写 worker-state.json。"
+        }
+      ]
+    },
+    "od-queue": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "worker_batch_scheduler",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "manager_worker_async",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "任务状态 / 暂停 / 调度依据",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "rule": "调度依据 worker-state 中的任务、暂停、依赖与时点；实际进程锁沿账号执行入口维护。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py"
+        },
+        {
+          "label": "任务状态 / 暂停 / 调度依据",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "调度依据 worker-state 中的任务、暂停、依赖与时点；实际进程锁沿账号执行入口维护。"
+        }
+      ]
+    },
+    "od-agent": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "employee_codex_runner",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "direct_creator_metrics",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工 Agent 任务材料",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\{执行ID}\\task.json"
+        },
+        {
+          "label": "员工 Agent 领取确认",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\{执行ID}\\claimed.json"
+        }
+      ],
+      "rule": "Agent runner 还写 instructions.md、events.jsonl、result.json；固定采集 runner 按能力直接执行，不强行生成 Agent claimed.json。",
+      "card_paths": [
+        {
+          "label": "员工 Agent 入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py"
+        },
+        {
+          "label": "员工固定采集入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "Agent runner 还写 instructions.md、events.jsonl、result.json；固定采集 runner 按能力直接执行，不强行生成 Agent claimed.json。"
+        }
+      ]
+    },
+    "od-platform": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "cli",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "application_service",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\application_service.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "bridge_server",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\bridge_server.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工业务数据库",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        }
+      ],
+      "rule": "CLI / application_service 调用 Bridge 与浏览器能力，业务事实写 operations.db；扩展加载位置以槽位 account.json 为准。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py"
+        },
+        {
+          "label": "员工业务数据库",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "CLI / application_service 调用 Bridge 与浏览器能力，业务事实写 operations.db；扩展加载位置以槽位 account.json 为准。"
+        }
+      ]
+    },
+    "od-outbox": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "manager_worker_service",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "员工 outbox 索引",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "label": "员工结果回执",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results\\{序号}-{任务}.json"
+        }
+      ],
+      "rule": "固定发布函数写不可变结果记录，再更新 index.json；待结算材料在 manager-worker/pending-outcomes。",
+      "card_paths": [
+        {
+          "label": "员工 outbox 索引",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "label": "员工结果回执",
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results\\{序号}-{任务}.json"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "固定发布函数写不可变结果记录，再更新 index.json；待结算材料在 manager-worker/pending-outcomes。"
+        }
+      ]
+    },
+    "od-daily": {
+      "side": "worker",
+      "programs": [
+        {
+          "module": "daily_creator_collection",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        },
+        {
+          "module": "daily_passive_collection",
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py",
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py",
+          "verified_on": [
+            "PC052",
+            "PC057",
+            "PC065",
+            "PC071",
+            "PC073"
+          ],
+          "entry_exists": true,
+          "implementation_exists": true
+        }
+      ],
+      "files": [
+        {
+          "label": "每日作品运行记录",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator\\last-run.json"
+        },
+        {
+          "label": "每日通知任务记录",
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive\\{任务}.json"
+        }
+      ],
+      "rule": "每日采集由 Windows 任务计划调用 scripts 下的固定 Python 入口，实际实现位于员工版本包；启停按本机任务计划维护。",
+      "card_paths": [
+        {
+          "label": "员工程序入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py"
+        },
+        {
+          "label": "员工每日通知入口",
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py"
+        }
+      ],
+      "evidence_sources": [
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py",
+          "basis": "固定入口由 source-layout.json/module_files 解析，文件已实机只读核对"
+        },
+        {
+          "path": "C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\xiaohongshu-skills\\ManagerStation\\Managers\\PC023\\worker_packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py",
+          "basis": "每日采集由 Windows 任务计划调用 scripts 下的固定 Python 入口，实际实现位于员工版本包；启停按本机任务计划维护。"
+        }
+      ]
+    }
+  },
+  "coverage": {
+    "total": 25,
+    "with_absolute_paths": 25,
+    "percent": 100
+  },
+  "machines": [
+    {
+      "machine": "PC052",
+      "files": [
+        {
+          "module": "manager_worker",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py"
+        },
+        {
+          "module": "manager_worker_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        },
+        {
+          "module": "manager_worker_async",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py"
+        },
+        {
+          "module": "worker_batch_scheduler",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py"
+        },
+        {
+          "module": "executor_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py"
+        },
+        {
+          "module": "account_runtime",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py"
+        },
+        {
+          "module": "account_manager",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_manager.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py"
+        },
+        {
+          "module": "account_pairing",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_pairing.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py"
+        },
+        {
+          "module": "application_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\application_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py"
+        },
+        {
+          "module": "employee_codex_runner",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py"
+        },
+        {
+          "module": "direct_creator_metrics",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py"
+        },
+        {
+          "module": "daily_creator_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py"
+        },
+        {
+          "module": "daily_passive_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py"
+        },
+        {
+          "module": "bridge_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\bridge_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py"
+        },
+        {
+          "module": "worker_data_export",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py"
+        },
+        {
+          "module": "cli",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py"
+        },
+        {
+          "module": "operations_db",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\operations_db.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\operations_db.py"
+        }
+      ],
+      "storage": [
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\accounts"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\product-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\pending-outcomes"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\claimed"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\events"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results"
+        }
+      ],
+      "patterns": [
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\account.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\extension-pairing.json",
+          "exists": false
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\task.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\claimed.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator\\last-run.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive\\*.json",
+          "exists": true
+        }
+      ],
+      "schedules": [
+        {
+          "actions": [
+            {
+              "Execute": "C:/auto-xhs/xiaohongshu-skills/.venv/Scripts/pythonw.exe",
+              "Arguments": "\"C:/auto-xhs/xiaohongshu-skills/scripts/daily_creator_collection.py\"",
+              "WorkingDirectory": "C:/auto-xhs/xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC052-Creator-0030",
+          "state": "Ready"
+        },
+        {
+          "actions": [
+            {
+              "Execute": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\pythonw.exe",
+              "Arguments": "\"C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py\"",
+              "WorkingDirectory": "C:\\auto-xhs\\xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC052-Passive-0010",
+          "state": "Disabled"
+        }
+      ]
+    },
+    {
+      "machine": "PC057",
+      "files": [
+        {
+          "module": "manager_worker",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py"
+        },
+        {
+          "module": "manager_worker_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        },
+        {
+          "module": "manager_worker_async",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py"
+        },
+        {
+          "module": "worker_batch_scheduler",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py"
+        },
+        {
+          "module": "executor_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py"
+        },
+        {
+          "module": "account_runtime",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py"
+        },
+        {
+          "module": "account_manager",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_manager.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py"
+        },
+        {
+          "module": "account_pairing",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_pairing.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py"
+        },
+        {
+          "module": "application_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\application_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py"
+        },
+        {
+          "module": "employee_codex_runner",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py"
+        },
+        {
+          "module": "direct_creator_metrics",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py"
+        },
+        {
+          "module": "daily_creator_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py"
+        },
+        {
+          "module": "daily_passive_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py"
+        },
+        {
+          "module": "bridge_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\bridge_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py"
+        },
+        {
+          "module": "worker_data_export",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py"
+        },
+        {
+          "module": "cli",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py"
+        },
+        {
+          "module": "operations_db",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\operations_db.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\operations_db.py"
+        }
+      ],
+      "storage": [
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\accounts"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\product-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\pending-outcomes"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\claimed"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\events"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results"
+        }
+      ],
+      "patterns": [
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\account.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\extension-pairing.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\task.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\claimed.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator\\last-run.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive\\*.json",
+          "exists": true
+        }
+      ],
+      "schedules": [
+        {
+          "actions": [
+            {
+              "Execute": "C:/auto-xhs/xiaohongshu-skills/.venv/Scripts/pythonw.exe",
+              "Arguments": "\"C:/auto-xhs/xiaohongshu-skills/scripts/daily_creator_collection.py\"",
+              "WorkingDirectory": "C:/auto-xhs/xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC057-Creator-0030",
+          "state": "Ready"
+        },
+        {
+          "actions": [
+            {
+              "Execute": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\pythonw.exe",
+              "Arguments": "\"C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py\"",
+              "WorkingDirectory": "C:\\auto-xhs\\xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC057-Passive-0010",
+          "state": "Disabled"
+        }
+      ]
+    },
+    {
+      "machine": "PC065",
+      "files": [
+        {
+          "module": "manager_worker",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py"
+        },
+        {
+          "module": "manager_worker_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        },
+        {
+          "module": "manager_worker_async",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py"
+        },
+        {
+          "module": "worker_batch_scheduler",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py"
+        },
+        {
+          "module": "executor_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py"
+        },
+        {
+          "module": "account_runtime",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py"
+        },
+        {
+          "module": "account_manager",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_manager.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py"
+        },
+        {
+          "module": "account_pairing",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_pairing.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py"
+        },
+        {
+          "module": "application_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\application_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py"
+        },
+        {
+          "module": "employee_codex_runner",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py"
+        },
+        {
+          "module": "direct_creator_metrics",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py"
+        },
+        {
+          "module": "daily_creator_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py"
+        },
+        {
+          "module": "daily_passive_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py"
+        },
+        {
+          "module": "bridge_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\bridge_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py"
+        },
+        {
+          "module": "worker_data_export",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py"
+        },
+        {
+          "module": "cli",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py"
+        },
+        {
+          "module": "operations_db",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\operations_db.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\operations_db.py"
+        }
+      ],
+      "storage": [
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\accounts"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\product-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\pending-outcomes"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\claimed"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\events"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results"
+        }
+      ],
+      "patterns": [
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\account.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\extension-pairing.json",
+          "exists": false
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\task.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\claimed.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator\\last-run.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive\\*.json",
+          "exists": true
+        }
+      ],
+      "schedules": [
+        {
+          "actions": [
+            {
+              "Execute": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\pythonw.exe",
+              "Arguments": "\"C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py\"",
+              "WorkingDirectory": "C:\\auto-xhs\\xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC065-Passive-0010",
+          "state": "Disabled"
+        }
+      ]
+    },
+    {
+      "machine": "PC071",
+      "files": [
+        {
+          "module": "manager_worker",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py"
+        },
+        {
+          "module": "manager_worker_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        },
+        {
+          "module": "manager_worker_async",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py"
+        },
+        {
+          "module": "worker_batch_scheduler",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py"
+        },
+        {
+          "module": "executor_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py"
+        },
+        {
+          "module": "account_runtime",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py"
+        },
+        {
+          "module": "account_manager",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_manager.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py"
+        },
+        {
+          "module": "account_pairing",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_pairing.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py"
+        },
+        {
+          "module": "application_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\application_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py"
+        },
+        {
+          "module": "employee_codex_runner",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py"
+        },
+        {
+          "module": "direct_creator_metrics",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py"
+        },
+        {
+          "module": "daily_creator_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py"
+        },
+        {
+          "module": "daily_passive_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py"
+        },
+        {
+          "module": "bridge_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\bridge_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py"
+        },
+        {
+          "module": "worker_data_export",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py"
+        },
+        {
+          "module": "cli",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py"
+        },
+        {
+          "module": "operations_db",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\operations_db.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\operations_db.py"
+        }
+      ],
+      "storage": [
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\accounts"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\product-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\pending-outcomes"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\claimed"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\events"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results"
+        }
+      ],
+      "patterns": [
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\account.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\extension-pairing.json",
+          "exists": false
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\task.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\claimed.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator\\last-run.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive\\*.json",
+          "exists": true
+        }
+      ],
+      "schedules": [
+        {
+          "actions": [
+            {
+              "Execute": "C:/auto-xhs/xiaohongshu-skills/.venv/Scripts/pythonw.exe",
+              "Arguments": "\"C:/auto-xhs/xiaohongshu-skills/scripts/daily_creator_collection.py\"",
+              "WorkingDirectory": "C:/auto-xhs/xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC071-Creator-0030",
+          "state": "Ready"
+        },
+        {
+          "actions": [
+            {
+              "Execute": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\pythonw.exe",
+              "Arguments": "\"C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py\"",
+              "WorkingDirectory": "C:\\auto-xhs\\xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC071-Passive-0010",
+          "state": "Disabled"
+        }
+      ]
+    },
+    {
+      "machine": "PC073",
+      "files": [
+        {
+          "module": "manager_worker",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker.py"
+        },
+        {
+          "module": "manager_worker_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_service.py"
+        },
+        {
+          "module": "manager_worker_async",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\manager_worker_async.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\manager_worker_async.py"
+        },
+        {
+          "module": "worker_batch_scheduler",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_batch_scheduler.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\worker_batch_scheduler.py"
+        },
+        {
+          "module": "executor_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\executor_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\executor_server.py"
+        },
+        {
+          "module": "account_runtime",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_runtime.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_runtime.py"
+        },
+        {
+          "module": "account_manager",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_manager.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_manager.py"
+        },
+        {
+          "module": "account_pairing",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\account_pairing.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\account_pairing.py"
+        },
+        {
+          "module": "application_service",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\application_service.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\application_service.py"
+        },
+        {
+          "module": "employee_codex_runner",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\employee_codex_runner.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\employee_codex_runner.py"
+        },
+        {
+          "module": "direct_creator_metrics",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\direct_creator_metrics.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\direct_creator_metrics.py"
+        },
+        {
+          "module": "daily_creator_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_creator_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_creator_collection.py"
+        },
+        {
+          "module": "daily_passive_collection",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\daily_passive_collection.py"
+        },
+        {
+          "module": "bridge_server",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\bridge_server.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\execution\\bridge_server.py"
+        },
+        {
+          "module": "worker_data_export",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\worker_data_export.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\worker_data_export.py"
+        },
+        {
+          "module": "cli",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\cli.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\cli.py"
+        },
+        {
+          "module": "operations_db",
+          "implementation_exists": true,
+          "entry": "C:\\auto-xhs\\xiaohongshu-skills\\scripts\\operations_db.py",
+          "entry_exists": true,
+          "implementation": "C:\\auto-xhs\\xiaohongshu-skills\\WorkerStation\\Workers\\ProgramWorkers\\packages\\xiaohongshu-skills\\0.1.0\\worker\\runtime\\scripts\\operations_db.py"
+        }
+      ],
+      "storage": [
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\operations.db"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\accounts"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\product-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\worker-state.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive"
+        },
+        {
+          "exists": true,
+          "path": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\pending-outcomes"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\pending"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-inbox\\claimed"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\index.json"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\acknowledgements"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\events"
+        },
+        {
+          "exists": true,
+          "path": "C:\\auto-xhs\\manager-task-outbox\\results"
+        }
+      ],
+      "patterns": [
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\account.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\accounts\\*\\extension-pairing.json",
+          "exists": false
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\task.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\agent-runs\\*\\claimed.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-creator\\last-run.json",
+          "exists": true
+        },
+        {
+          "pattern": "C:\\Users\\EDY\\.xhs\\auto-xhs\\manager-worker\\daily-passive\\*.json",
+          "exists": true
+        }
+      ],
+      "schedules": [
+        {
+          "actions": [
+            {
+              "Execute": "C:\\auto-xhs\\xiaohongshu-skills\\.venv\\Scripts\\pythonw.exe",
+              "Arguments": "\"C:\\auto-xhs\\xiaohongshu-skills\\scripts\\daily_passive_collection.py\"",
+              "WorkingDirectory": "C:\\auto-xhs\\xiaohongshu-skills"
+            }
+          ],
+          "name": "AutoXHS-PC073-Passive-0010",
+          "state": "Disabled"
+        }
+      ]
+    }
+  ],
+  "ledger": [
+    {
+      "machine": "PC023",
+      "status": "PASS",
+      "entries": 600,
+      "truncated": true,
+      "revision": 10203,
+      "url": "http://192.168.110.8:8812/api/files/list?node=PC023&root=xhs_project&relative=&recursive=1&limit=600"
+    },
+    {
+      "machine": "PC052",
+      "status": "PASS",
+      "entries": 51,
+      "truncated": false,
+      "revision": 10203,
+      "url": "http://192.168.110.8:8812/api/files/list?node=PC052&root=xhs_worker_project&relative=&recursive=1&limit=600"
+    },
+    {
+      "machine": "PC057",
+      "status": "PASS",
+      "entries": 51,
+      "truncated": false,
+      "revision": 10203,
+      "url": "http://192.168.110.8:8812/api/files/list?node=PC057&root=xhs_worker_project&relative=&recursive=1&limit=600"
+    },
+    {
+      "machine": "PC065",
+      "status": "PASS",
+      "entries": 51,
+      "truncated": false,
+      "revision": 10203,
+      "url": "http://192.168.110.8:8812/api/files/list?node=PC065&root=xhs_worker_project&relative=&recursive=1&limit=600"
+    },
+    {
+      "machine": "PC071",
+      "status": "PASS",
+      "entries": 54,
+      "truncated": false,
+      "revision": 10203,
+      "url": "http://192.168.110.8:8812/api/files/list?node=PC071&root=xhs_worker_project&relative=&recursive=1&limit=600"
+    },
+    {
+      "machine": "PC073",
+      "status": "PASS",
+      "entries": 51,
+      "truncated": false,
+      "revision": 10203,
+      "url": "http://192.168.110.8:8812/api/files/list?node=PC073&root=xhs_worker_project&relative=&recursive=1&limit=600"
+    }
+  ],
+  "manager_storage": [
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-state.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-state.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-state.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\task-outbox\\{机器}\\{任务}.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-state.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-state.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\logs\\manager-sync.log",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\daily_receipts\\{日期}\\raw\\{机器}\\{任务}\\{序号}.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-state.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\collector\\{机器}\\index.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\collector\\{机器}\\records\\{序号}.json",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    },
+    {
+      "path": "C:\\auto-xhs\\manager-state\\collected\\{机器}\\{执行ID}\\{版本}\\{证据文件}",
+      "exists_or_sample_exists": true,
+      "basis": "PC023 read-only filesystem metadata"
+    }
+  ],
+  "material_example": {
+    "path": "C:\\auto-xhs\\materials\\20261014\\pc052-002-g10",
+    "files": 6,
+    "exists": true,
+    "machine": "PC052"
+  },
+  "notes": [
+    "程序入口与版本包实现分别列出；Outbox 存放回执文件。",
+    "路径中的花括号为运行时变量；序号为12位；归档日期为经理回收日期。",
+    "PC052、PC057、PC065、PC071、PC073 的17个员工程序入口与实现路径一致，85组实机文件核对通过。",
+    "每日作品任务：PC052、PC057、PC071 为 Ready；PC065、PC073 本轮未查到；五机每日通知任务为 Disabled。",
+    "账本证明登记目录；实机 Test-Path 证明核对时文件存在；源码证明读取、写入与调用关系。"
+  ]
+}
