@@ -167,7 +167,7 @@ body.layer-view .main{padding:12px 18px 24px}
  stroke:#3779b7;stroke-width:2}
 .layer-label text{pointer-events:none}
 @media(max-width:700px){.layer-controls span{display:none}}
-[data-landing-inset].layer-background{opacity:.27}
+
 </style>
 </head>
 <body>
@@ -6495,9 +6495,26 @@ function canonicalNode(nodeId){
  };return aliases[nodeId]||nodeId;
 }
 function layerLayout(host){
- const g=D.graphDetails.overall,width=1160,height=820,boxes={};
- for(const n of g.nodes)boxes[n.id]={x:48+n.c*400,y:64+n.r*72,w:264,h:44,c:n.c,r:n.r};
+ const g=D.graphDetails.overall,width=1160,height=900,boxes={};
+ for(const n of g.nodes)boxes[n.id]={x:48+n.c*400,y:[64,136,208,280,352,424,592,748][n.r],w:264,h:44,c:n.c,r:n.r};
  boxes['od-daily']={x:848,y:39,w:264,h:20,c:2,r:-1};
+
+ const nodePaths={
+  'od-agent':[['每日作品记录',String.raw`C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-creator\last-run.json`],['每日通知记录',String.raw`C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-passive\{任务}.json`]],
+  'od-platform':[['员工业务库',String.raw`C:\Users\EDY\.xhs\auto-xhs\operations.db`]],
+  'od-outbox':[['索引',String.raw`C:\auto-xhs\manager-task-outbox\index.json`],['结果',String.raw`C:\auto-xhs\manager-task-outbox\results\{序号}-{任务}.json`]],
+  'od-pull':[['经理回执缓存',String.raw`C:\auto-xhs\manager-state\collector\{机器}\records\{序号}.json`]],
+  'od-ingest':[['经理业务库',String.raw`C:\auto-xhs\manager-state\manager-operations.db`],['经理原始归档',String.raw`C:\auto-xhs\manager-state\daily_receipts\{日期}\raw\{机器}\{任务}\{序号}.json`]]
+ };
+ const pathLines={};
+ for(const [id,items] of Object.entries(nodePaths)){
+  const lines=[];
+  for(const [label,path] of items){lines.push({text:label,label:true});let rest=path;
+   while(rest.length>43){const slash=rest.lastIndexOf('\\',42),cut=slash>0?slash+1:43;lines.push({text:rest.slice(0,cut)});rest=rest.slice(cut);}lines.push({text:rest});
+  }
+  pathLines[id]=lines;boxes[id].h=46+lines.length*11;
+ }
+
  const edges=[...g.edges,{a:'od-pull',b:'od-outbox',type:'control'}];
  const paths=overviewPaths({...g,edges},boxes,28);
  const captions=['','复用配置','批次快照','接入参数','投递任务','任务文件',
@@ -6513,7 +6530,7 @@ function layerLayout(host){
   communication:{edges:[3,4,5,6,7,8,9,15,16,17,18,19,20,21,29,31],
    nodes:['od-ssh','od-upload','od-wake','od-inbox','od-accept-task','od-ack',
     'od-track','od-poll','od-pull','od-service','od-outbox','od-ingest']},
-  data:{edges:[13,14,20,21,22,23,33],nodes:['od-daily','od-agent','od-platform','od-outbox','od-ingest']}
+  data:{edges:[13,14,20,21,22,23,33],nodes:['od-daily','od-agent','od-platform','od-outbox','od-pull','od-ingest']}
  };
  const q=boxes['od-queue'],p=boxes['od-poll'],a=boxes['od-accept'],plan=boxes['od-plan'];
  paths.push([[q.x+q.w,q.y+32],[1140,q.y+32],[1140,q.y+12],[q.x+q.w+4,q.y+12]]);
@@ -6541,7 +6558,7 @@ function layerLayout(host){
     const ax=a[0]+(b[0]-a[0])*t,ay=a[1]+(b[1]-a[1])*t;
     const x=ax+(horizontal?0:offset),y=ay+(horizontal?offset:0);
     const r={x:x-w/2,y:y-h/2,w,h};
-    if(r.x<36||r.x+w>1124||r.y<54||r.y+h>618)continue;
+    if(r.x<36||r.x+w>1124||r.y<54||r.y+h>height-28)continue;
     const collisions=occupied.filter(o=>intersects(r,o)).length+
      labels.filter(l=>intersects(r,{x:l.x-3,y:l.y-3,w:l.w+6,h:l.h+6})).length;
     const crossings=paths.filter((path,i)=>i!==index&&crosses(path,r)).length;
@@ -6553,7 +6570,7 @@ function layerLayout(host){
  });
  const color=i=>i>=30?'#a77a3e':edges[i].type==='back'?'#288773':
   edges[i].type==='control'?'#a77a3e':'#3977b7';
- let svg='<rect width="1160" height="820" fill="#f8fafc"/><defs>';
+ let svg='<rect width="1160" height="900" fill="#f8fafc"/><defs>';
  for(const c of ['#3977b7','#288773','#a77a3e'])svg+=`<marker id="arrow-${host}-${c.slice(1)}"
  markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
  <path d="M0 0L7 3.5L0 7Z" fill="${c}"/></marker>`;
@@ -6561,7 +6578,7 @@ function layerLayout(host){
  const lanes=['经理机 · PC023','通信与共享通道','员工机 · 本地执行'];
  const fills=['#eef4fc','#f3f5f8','#edf7f3'];
  lanes.forEach((title,c)=>{
-  svg+=`<rect x="${36+c*400}" y="8" width="288" height="610" rx="10"
+  svg+=`<rect x="${36+c*400}" y="8" width="288" height="858" rx="10"
   fill="${fills[c]}" stroke="#dce5ed"/><text x="${180+c*400}" y="34"
   text-anchor="middle" font-size="14" font-weight="600" fill="#29465e">${title}</text>`;
  });
@@ -6594,43 +6611,15 @@ function layerLayout(host){
   role="button" tabindex="0" aria-label="${esc(n.title+'；'+roles)}" aria-pressed="false">
   <title>${esc(n.title+'\n'+n.sub)}</title><rect x="${b.x}" y="${b.y}"
   width="${b.w}" height="${b.h}" rx="6" fill="white" stroke="#9db8cc"/>
-  ${["all","communication","data"].map(layer=>`<text data-caption-layer="${layer}" x="${b.x+12}" y="${b.y+18}" font-size="13" font-weight="600" fill="#28465e">${esc(layer==="data"&&n.id==="od-agent"?"固定采集程序 · 每日 / 手动":layer==="data"&&n.id==="od-platform"?"采集数据 → 员工 operations.db":names[n.id]||n.title)}</text>`).join("")}${["all","communication","data"].map(layer=>`<text data-caption-layer="${layer}" x="${b.x+12}" y="${b.y+34}" font-size="10.5" fill="#657f92">${esc(layer==="data"&&n.id==="od-agent"?"员工固定程序 · 本机队列调度":roles)}</text>`).join("")}</g>`;
+  ${["all","communication","data"].map(layer=>`<text data-caption-layer="${layer}" x="${b.x+12}" y="${b.y+18}" font-size="13" font-weight="600" fill="#28465e">${esc(layer==="data"&&n.id==="od-agent"?"固定采集程序 · 每日 / 手动":layer==="data"&&n.id==="od-platform"?"采集数据 → 员工 operations.db":names[n.id]||n.title)}</text>`).join("")}${["all","communication","data"].map(layer=>`<text data-caption-layer="${layer}" x="${b.x+12}" y="${b.y+34}" font-size="10.5" fill="#657f92">${esc(layer==="data"&&n.id==="od-agent"?"员工固定程序 · 本机队列调度":roles)}</text>`).join("")}${(pathLines[n.id]||[]).map((line,i)=>`<text data-node-path="${n.id}" x="${b.x+10}" y="${b.y+48+i*11}" font-size="10" font-family="${line.label?'Segoe UI,Microsoft YaHei':'Consolas,Microsoft YaHei,monospace'}" fill="${line.label?'#60798e':'#28465e'}">${esc(line.text)}</text>`).join("")}</g>`;
  }
  const notes={all:'回路：07 条件未满足则等待重查；10 按配置周期再拉取；12 人工复盘后返回 03。',
   communication:'消息链：文件投递 → 唤醒接收 → 接收与进度确认 → 主动拉取 outbox → 归档并推进游标。',
-  data:'每日采集：Windows 定时任务 → 固定采集程序 → 员工库 / outbox → 经理本地库；绝对路径见图内落盘区。'};
+  data:'每日采集：Windows 定时任务 → 固定采集程序 → 员工库 / outbox → 经理本地库；路径位于对应模块内；{序号}为12位，{日期}为经理回收日期。'};
  for(const [layer,t] of Object.entries(notes))svg+=`<text data-layer-note="${layer}"
- x="48" y="641" font-size="12" fill="#536d82" ${layer!=='all'?'hidden':''}>${esc(t)}</text>`;
+ x="48" y="883" font-size="12" fill="#536d82" ${layer!=='all'?'hidden':''}>${esc(t)}</text>`;
 
- const landingGroups=[
-  {x:36,title:'经理 · PC023 本地留存',items:[
-   ['业务库',String.raw`C:\auto-xhs\manager-state\manager-operations.db`],
-   ['回执缓存',String.raw`C:\auto-xhs\manager-state\collector\{机器}\records\{序号}.json`],
-   ['原始归档',String.raw`C:\auto-xhs\manager-state\daily_receipts\{日期}\raw\{机器}\{任务}\{序号}.json`]]},
-  {x:412,title:'员工 · outbox 结果文件',items:[
-   ['索引',String.raw`C:\auto-xhs\manager-task-outbox\index.json`],
-   ['结果',String.raw`C:\auto-xhs\manager-task-outbox\results\{序号}-{任务}.json`]],
-   note:'{序号}为12位序号；{日期}为经理回收日期。'},
-  {x:788,title:'员工 · 采集与业务留存',items:[
-   ['业务库',String.raw`C:\Users\EDY\.xhs\auto-xhs\operations.db`],
-   ['每日作品',String.raw`C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-creator\last-run.json`],
-   ['每日通知',String.raw`C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-passive\{任务}.json`]]}
- ];
- for(const group of landingGroups){
-  svg+=`<g data-landing-inset="true"><rect x="${group.x}" y="654" width="336" height="152" rx="8" fill="#fff" stroke="#c5d5e4"/><text x="${group.x+10}" y="673" font-size="12" font-weight="600" fill="#28465e">${esc(group.title)} · 绝对路径</text>`;
-  let y=688;
-  for(const [label,path] of group.items){
-   svg+=`<text x="${group.x+10}" y="${y}" font-size="10" fill="#54738e">${esc(label)}</text>`;y+=12;
-   const lines=[];let rest=path;
-   while(rest.length>51){const slash=rest.lastIndexOf('\\',50),cut=slash>0?slash+1:51;lines.push(rest.slice(0,cut));rest=rest.slice(cut);}lines.push(rest);
-   for(const line of lines){svg+=`<text x="${group.x+10}" y="${y}" font-family="Consolas,Microsoft YaHei,monospace" font-size="10.5" fill="#28465e">${esc(line)}</text>`;y+=12;}
-   y+=3;
-  }
-  if(group.note)svg+=`<text x="${group.x+10}" y="${y+3}" font-size="10" fill="#54738e">${esc(group.note)}</text>`;
-  svg+='</g>';
- }
-
- return {width,height,boxes,paths,labels,defs,svg:`<svg xmlns="http://www.w3.org/2000/svg"
+ return {width,height,boxes,paths,labels,defs,pathLines,svg:`<svg xmlns="http://www.w3.org/2000/svg"
  width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
  style="font-family:Segoe UI,Microsoft YaHei,sans-serif">${svg}</svg>`};
 }
@@ -6642,7 +6631,7 @@ function layerControls(id){
 }
 function applyLayer(id){
  const graph=document.getElementById('graph-'+id),layer=layerFor(id);
- graph.querySelectorAll('[data-landing-inset]').forEach(el=>el.classList.toggle('layer-background',layer==='communication'));
+
  const def=graph.layerLayout.defs[layer],visible=new Set(def.edges),nodes=new Set(def.nodes);
  graph.querySelectorAll('[data-layer-edge]').forEach(el=>
   el.toggleAttribute('hidden',!visible.has(+el.dataset.layerEdge)));
