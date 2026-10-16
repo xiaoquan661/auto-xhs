@@ -167,6 +167,7 @@ body.layer-view .main{padding:12px 18px 24px}
  stroke:#3779b7;stroke-width:2}
 .layer-label text{pointer-events:none}
 @media(max-width:700px){.layer-controls span{display:none}}
+.landing-paths{padding:12px 18px;border-top:1px solid #dce5ed}.landing-paths p,.landing-paths small{font-size:11px;color:#60768a}.landing-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.landing-grid code{display:block;margin:8px 0 3px;font-size:11px;overflow-wrap:anywhere}.landing-grid small{display:block}.landing-grid b{font-size:12px}@media(max-width:700px){.landing-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -182,8 +183,7 @@ body.layer-view .main{padding:12px 18px 24px}
  <footer class="page-foot"><span>xiaohongshu-skills · 本文件内维护架构图、FAQ 与代码功能对照</span><span>运行状态以设备、任务回执和平台回读为准</span></footer>
 </main>
 <div class="return-location" id="return-location" hidden><button type="button" id="return-origin"></button></div>
-<script id="manual-data" type="application/json">
-{
+<script id="manual-data" type="application/json">{
   "graphs": {
     "overall": {
       "title": "总体通信与数据闭环 · 全流程详图",
@@ -353,7 +353,7 @@ body.layer-view .main{padding:12px 18px 24px}
           "id": "od-poll",
           "c": 0,
           "r": 5,
-          "title": "10 程序按周期回收结果",
+          "title": "10 程序定时拉取 outbox",
           "sub": "后台线程：当前 180 秒 / 手动触发",
           "kind": "action",
           "meta": [
@@ -2223,6 +2223,12 @@ body.layer-view .main{padding:12px 18px 24px}
       "before": "数据回收 / 运营汇总 / 任务详情",
       "output": "供操作人查看或作为后续处理依据。",
       "note": "完整字段与功能包位置见下方专题 FAQ。"
+    },
+    "od-daily": {
+      "why": "每日补充作品与通知数据，为经理端汇总提供来源。",
+      "before": "Windows 任务及参与账号启用，账号环境就绪；通知任务独立配置。",
+      "output": "员工本地业务库、采集运行记录及 outbox 结果。",
+      "note": "定时采集负责产生新数据；经理定时拉取 outbox 负责回收已有结果。"
     }
   },
   "modulePaths": {
@@ -3293,7 +3299,7 @@ body.layer-view .main{padding:12px 18px 24px}
           "id": "od-poll",
           "c": 0,
           "r": 5,
-          "title": "10 程序按周期回收结果",
+          "title": "10 程序定时拉取 outbox",
           "sub": "后台线程：当前 180 秒 / 手动触发",
           "kind": "action",
           "meta": [
@@ -3849,6 +3855,35 @@ body.layer-view .main{padding:12px 18px 24px}
             [
               "operations_db",
               492
+            ]
+          ]
+        },
+        {
+          "id": "od-daily",
+          "c": 2,
+          "r": -1,
+          "title": "每日采集 · Windows 定时任务",
+          "sub": "作品 00:30；通知按员工配置",
+          "kind": "action",
+          "meta": [
+            {
+              "k": "入",
+              "v": "原任务、岗位规则与技能"
+            },
+            {
+              "k": "出",
+              "v": "agent_claimed / 步骤输出"
+            }
+          ],
+          "detail": "员工 Windows 任务计划在启用时触发每日采集。Creator-0030 按北京时间 00:30 调用 daily_creator_collection.py，参与账号进入本机队列并由固定作品采集程序执行；每日通知由独立 daily_passive_collection.py 执行。数据先写员工 operations.db，结果发布 outbox，经理分别回收结果和同步业务表。各机实际启停及通知时间以该机配置为准。",
+          "refs": [
+            [
+              "daily_creator_collection",
+              122
+            ],
+            [
+              "daily_passive_collection",
+              86
             ]
           ]
         }
@@ -5461,6 +5496,10 @@ body.layer-view .main{padding:12px 18px 24px}
     "df-page": [
       "frontend",
       "managerProgram"
+    ],
+    "od-daily": [
+      "scheduler",
+      "workerProgram"
     ]
   },
   "participation": {
@@ -5538,7 +5577,8 @@ body.layer-view .main{padding:12px 18px 24px}
     "df-check": "区分 captured_at / exported_at / imported_at",
     "df-metadata": "源库、导出时间、导入时间、记录数",
     "df-query": "daily_metric_facts · 业务日期 / 覆盖度 / 实际量",
-    "df-page": "数据回收 / 运营汇总 / 任务详情"
+    "df-page": "数据回收 / 运营汇总 / 任务详情",
+    "od-daily": "Windows 任务计划负责触发；员工固定程序负责采集，作品采集经过本机队列。"
   },
   "dataFaqs": [
     {
@@ -6419,8 +6459,7 @@ body.layer-view .main{padding:12px 18px 24px}
     "按需备料",
     "引用素材路径"
   ]
-}
-</script>
+}</script>
 <script>
 (() => {
 'use strict';
@@ -6461,6 +6500,7 @@ function canonicalNode(nodeId){
 function layerLayout(host){
  const g=D.graphDetails.overall,width=1160,height=660,boxes={};
  for(const n of g.nodes)boxes[n.id]={x:48+n.c*400,y:64+n.r*72,w:264,h:44,c:n.c,r:n.r};
+ boxes['od-daily']={x:848,y:39,w:264,h:20,c:2,r:-1};
  const edges=[...g.edges,{a:'od-pull',b:'od-outbox',type:'control'}];
  const paths=overviewPaths({...g,edges},boxes,28);
  const captions=['','复用配置','批次快照','接入参数','投递任务','任务文件',
@@ -6468,20 +6508,21 @@ function layerLayout(host){
   '条件满足','调用执行','结果落盘','TASK_ACK','领取进度','关联记录',
   '继续回收','读取索引','新增回执','归档入库','业务快照','导入业务表',
   '证据索引','按需证据','业务确认','按需备料','素材路径','拉取请求'];
- const dataCaptions={14:'产生结果',20:'任务结果',21:'保存结果',22:'业务数据',23:'本地留存'};
+ const dataCaptions={13:'固定采集',14:'产生结果',20:'任务结果',21:'保存结果',22:'业务数据',23:'本地留存'};
  const communicationCaptions={4:'任务文件',6:'触发调用',7:'wake-task',
   9:'接收文件',16:'进度消息',17:'保存确认',18:'继续回收',21:'归档 / 游标'};
  const defs={
-  all:{edges:edges.map((_,i)=>i).concat([30,31,32]),nodes:g.nodes.map(n=>n.id)},
+  all:{edges:edges.map((_,i)=>i).concat([30,31,32,33]),nodes:g.nodes.map(n=>n.id)},
   communication:{edges:[3,4,5,6,7,8,9,15,16,17,18,19,20,21,29,31],
    nodes:['od-ssh','od-upload','od-wake','od-inbox','od-accept-task','od-ack',
     'od-track','od-poll','od-pull','od-service','od-outbox','od-ingest']},
-  data:{edges:[14,20,21,22,23],nodes:['od-platform','od-outbox','od-ingest']}
+  data:{edges:[13,14,20,21,22,23,33],nodes:['od-daily','od-agent','od-platform','od-outbox','od-ingest']}
  };
  const q=boxes['od-queue'],p=boxes['od-poll'],a=boxes['od-accept'],plan=boxes['od-plan'];
  paths.push([[q.x+q.w,q.y+32],[1140,q.y+32],[1140,q.y+12],[q.x+q.w+4,q.y+12]]);
  paths.push([[p.x,p.y+32],[30,p.y+32],[30,p.y+12],[p.x-4,p.y+12]]);
  paths.push([[a.x,a.y+22],[12,a.y+22],[12,plan.y+22],[plan.x-4,plan.y+22]]);
+ paths.push([[1112,49],[1152,49],[1152,446],[1116,446]]);
  const occupied=Object.values(boxes).map(b=>({x:b.x-3,y:b.y-3,w:b.w+6,h:b.h+6}));
  const labels=[];
  const intersects=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
@@ -6546,22 +6587,21 @@ function layerLayout(host){
   svg+='</g>';
  }
  const names={'od-config':'02 绑定账号与运营策略','od-task':'04 生成执行任务',
-  'od-poll':'10 按周期回收结果','od-platform':'09 业务与浏览器执行',
+  'od-poll':'10 定时拉取 outbox','od-platform':'09 业务与浏览器执行',
   'od-accept-task':'06 接收并建立执行记录'};
  for(const n of g.nodes){
+  if(n.id==='od-daily'){svg+=`<g class="layer-node" data-node="od-daily" role="button" tabindex="0" aria-label="每日采集：Windows 任务计划触发员工固定程序"><rect x="848" y="39" width="264" height="20" rx="4" fill="white" stroke="#9db8cc"/><text x="860" y="53" font-size="11" fill="#28465e">每日采集 · Windows 定时任务</text></g>`;continue;}
   const b=boxes[n.id],roles=D.nodeParticipation[n.id].map(r=>D.participation[r].label)
    .join(' · ').replace('Bridge / 扩展程序','Bridge / 扩展');
   svg+=`<g class="layer-node" data-node="${n.id}" id="layer-${host}-${n.id}"
   role="button" tabindex="0" aria-label="${esc(n.title+'；'+roles)}" aria-pressed="false">
   <title>${esc(n.title+'\n'+n.sub)}</title><rect x="${b.x}" y="${b.y}"
   width="${b.w}" height="${b.h}" rx="6" fill="white" stroke="#9db8cc"/>
-  <text x="${b.x+12}" y="${b.y+18}" font-size="13" font-weight="600"
-  fill="#28465e">${esc(names[n.id]||n.title)}</text><text x="${b.x+12}" y="${b.y+34}"
-  font-size="10.5" fill="#657f92">${esc(roles)}</text></g>`;
+  ${["all","communication","data"].map(layer=>`<text data-caption-layer="${layer}" x="${b.x+12}" y="${b.y+18}" font-size="13" font-weight="600" fill="#28465e">${esc(layer==="data"&&n.id==="od-agent"?"固定采集程序 · 每日 / 手动":layer==="data"&&n.id==="od-platform"?"采集数据 → 员工 operations.db":names[n.id]||n.title)}</text>`).join("")}${["all","communication","data"].map(layer=>`<text data-caption-layer="${layer}" x="${b.x+12}" y="${b.y+34}" font-size="10.5" fill="#657f92">${esc(layer==="data"&&n.id==="od-agent"?"员工固定程序 · 本机队列调度":roles)}</text>`).join("")}</g>`;
  }
  const notes={all:'回路：07 条件未满足则等待重查；10 按配置周期再拉取；12 人工复盘后返回 03。',
   communication:'消息链：文件投递 → 唤醒接收 → 接收与进度确认 → 主动拉取 outbox → 归档并推进游标。',
-  data:'数据链：员工产生业务数据和任务结果 → 经理拉回 → 保存到经理本地 manager-operations.db。'};
+  data:'每日采集：Windows 定时任务 → 固定采集程序 → 员工库 / outbox → 经理本地库；绝对路径见图下。'};
  for(const [layer,t] of Object.entries(notes))svg+=`<text data-layer-note="${layer}"
  x="48" y="641" font-size="12" fill="#536d82" ${layer!=='all'?'hidden':''}>${esc(t)}</text>`;
  return {width,height,boxes,paths,labels,defs,svg:`<svg xmlns="http://www.w3.org/2000/svg"
@@ -6576,6 +6616,7 @@ function layerControls(id){
 }
 function applyLayer(id){
  const graph=document.getElementById('graph-'+id),layer=layerFor(id);
+ const landing=document.getElementById('landing-'+id);if(landing)landing.hidden=layer==='communication';
  const def=graph.layerLayout.defs[layer],visible=new Set(def.edges),nodes=new Set(def.nodes);
  graph.querySelectorAll('[data-layer-edge]').forEach(el=>
   el.toggleAttribute('hidden',!visible.has(+el.dataset.layerEdge)));
@@ -6592,7 +6633,7 @@ function applyLayer(id){
  graph.closest('.architecture-sheet').querySelectorAll('[data-layer-choice]').forEach(el=>
   el.setAttribute('aria-pressed',String(el.dataset.layerChoice===layer)));
  document.getElementById('graph-title-'+id).textContent='三层架构 · '+layerNames[layer];
- document.getElementById('graph-count-'+id).textContent=`24 个模块 · ${visible.size} 条关系`;
+ document.getElementById('graph-count-'+id).textContent=`25 个模块 · ${visible.size} 条关系`;
 }
 function makeLayerGraph(id){
  const graph=document.getElementById('graph-'+id),layout=layerLayout(id);
@@ -6909,7 +6950,7 @@ function graphMarkup(c){
  <div class="graph-scroll"><div class="graph-stage"><div class="graph" id="graph-${c.id}"
  role="group" aria-label="固定三列分层架构"></div></div></div>
  <div class="graph-footer"><span>点击模块查看功能、路径与源码 FAQ</span>
- <span id="graph-count-${c.id}"></span></div></div>`;
+ <span id="graph-count-${c.id}"></span></div><div class="landing-paths" id="landing-${c.id}"><h4>数据落盘位置 · 绝对路径</h4><p>员工路径按 PC052 / PC057 / PC065 / PC071 / PC073 已登记的 EDY 用户部署；以下花括号为实际日期、机器、任务和序号。</p><div class="landing-grid"><div><b>① 员工采集与本地业务库</b><code>C:\Users\EDY\.xhs\auto-xhs\operations.db</code><small>作品指标、通知等采集事实；每天定时和手动采集共用业务留存。</small><code>C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-creator\last-run.json</code><small>每日作品任务运行记录；Creator-0030 启用时 00:30 触发。</small><code>C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-passive\{task_id}.json</code><small>每日通知逐任务采集记录；启停与触发时间按员工配置。</small></div><div><b>② 员工 outbox 结果文件</b><code>C:\auto-xhs\manager-task-outbox\index.json</code><small>回执索引：供经理按游标查找新增记录。</small><code>C:\auto-xhs\manager-task-outbox\results\{12位序号}-{task_id}.json</code><small>任务结果文件，包括每日采集结果。业务表还会从员工库单独同步到经理库。</small></div><div><b>③ PC023 经理缓存、归档与入库</b><code>C:\auto-xhs\manager-state\collector\{machine}\records\{12位序号}.json</code><small>拉取到经理机的原始回执缓存。</small><code>C:\auto-xhs\manager-state\daily_receipts\{回收日期}\raw\{machine}\{task_id}\{12位序号}.json</code><small>按经理回收日期归档。</small><code>C:\auto-xhs\manager-state\manager-operations.db</code><small>结果进入 records；员工业务表导入 worker_records，并维护查询投影。</small></div></div></div></div>`;
 }
 function flowReferenceMarkup(id,keys){
  const blocks=D.flowReferences[id]||[];
