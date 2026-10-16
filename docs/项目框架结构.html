@@ -107,6 +107,15 @@
 @media(prefers-reduced-motion:reduce){.graph-node.is-located{animation:none}}
 @media print{.graph-tools,.participation-legend,.return-location,.faq-return{display:none!important}.architecture-sheet.is-expanded{position:static;display:block;box-shadow:none}.graph-stage{width:auto!important;height:auto!important;min-width:0}.graph-stage>.graph{transform:none!important}.node-role{font-size:7px;margin-bottom:4px}}
 
+
+.node-roles{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px}.node-roles .node-role{display:inline-block;margin:0}
+.node-role.operator{color:#805e26;background:#fff7e7;border-color:#e4ceaa}
+.node-role.managerAgent{color:#7857a4;background:#f5effc;border-color:#d9caeb}
+.node-role.workerAgent{color:#257568;background:#edf8f3;border-color:#bbdccd}
+.node-role.managerProgram{color:#345f95;background:#edf4ff;border-color:#bfd3ec}
+.node-role.workerProgram{color:#496c7b;background:#eff5f8;border-color:#c6d9e2}
+.node-role.browserProgram{color:#9a653b;background:#fff4ec;border-color:#e7d0bd}
+.participation-note p{margin:5px 0}.participation-legend .node-role{font-size:9px}
 </style>
 </head>
 <body>
@@ -165,8 +174,8 @@
           "c": 0,
           "r": 1,
           "title": "02 配置账号与运营计划",
-          "sub": "账号、人设、授权、素材、日期",
-          "detail": "经理维护账号策略、素材、功能版本与计划；任务绑定机器、槽位、目标及人设快照。",
+          "sub": "复用账号绑定 · 配置本次目标与计划",
+          "detail": "账号与素材来源在接入时建立关联；经理 Agent 复用绑定配置本次目标和计划，并按发布需要另行准备素材，任务保存所用配置快照。",
           "refs": [
             [
               "manager_service",
@@ -259,8 +268,8 @@
           "c": 1,
           "r": 1,
           "title": "04 SFTP · 下发任务",
-          "sub": "任务 JSON / 素材 → inbox/pending",
-          "detail": "任务包原子上传到 inbox/pending；素材文件沿机器配置传输，任务参数引用员工本地绝对路径。",
+          "sub": "任务 JSON → inbox/pending",
+          "detail": "经理程序把执行任务 JSON 原子写入员工 inbox/pending，再经 SSH 唤醒原任务。发布任务在参数中引用已准备好的员工素材绝对路径。",
           "refs": [
             [
               "manager_transport",
@@ -1780,6 +1789,488 @@
         }
       ],
       "selected": "r-ack"
+    },
+    "data": {
+      "title": "定时采集与后台回收 · 经理本地留存",
+      "modeLabel": "定时采集与后台回收",
+      "lanes": [
+        [
+          "PC023 · 回收触发",
+          "Windows 启动服务 → Python 线程轮询"
+        ],
+        [
+          "员工机 · 数据产生",
+          "每日任务 / 固定采集 / 本地库 / outbox"
+        ],
+        [
+          "PC023 · 归档与数据库",
+          "回执归档 / SQLite / 指标与页面"
+        ]
+      ],
+      "selected": "da-poll",
+      "nodes": [
+        {
+          "id": "da-windows",
+          "c": 0,
+          "r": 0,
+          "title": "经理 Windows 计划任务",
+          "sub": "AutoXHS-Manager-WebUI · 登录 / 5 分钟",
+          "kind": "interface",
+          "meta": [],
+          "detail": "当前 PC023 的 AutoXHS-Manager-WebUI 在登录时触发，并每 5 分钟检查 8765 监听，端口未监听时启动 scripts/web_server.py。该任务负责控制台进程入口。",
+          "refs": [
+            [
+              "web_server",
+              535
+            ]
+          ]
+        },
+        {
+          "id": "da-service",
+          "c": 0,
+          "r": 1,
+          "title": "Web 服务启动同步线程",
+          "sub": "ManagerSyncService.start()",
+          "kind": "action",
+          "meta": [],
+          "detail": "web_server 创建 ManagerSyncService 并调用 start，启动健康账号线程与结果回收线程，服务关闭时停止线程。",
+          "refs": [
+            [
+              "web_server",
+              558
+            ],
+            [
+              "manager_sync_service",
+              67
+            ]
+          ]
+        },
+        {
+          "id": "da-poll",
+          "c": 0,
+          "r": 2,
+          "title": "结果线程按配置轮询",
+          "sub": "当前 180 秒 · 默认 300 秒 · 可配置",
+          "kind": "action",
+          "meta": [],
+          "detail": "manager-result-sync 按 settings/polling 的 results_seconds 调用每台机器的结果回收，周期结束后等待下一轮；机器业务同步启用时接着导入员工业务表。本机 2026-10-16 回读值为 180 秒。",
+          "refs": [
+            [
+              "manager_sync_service",
+              105
+            ],
+            [
+              "manager_polling",
+              10
+            ]
+          ]
+        },
+        {
+          "id": "da-pull",
+          "c": 0,
+          "r": 3,
+          "title": "SFTP 增量回收已有回执",
+          "sub": "outbox/index.json → 新 sequence 文件",
+          "kind": "interface",
+          "meta": [
+            {
+              "k": "功能",
+              "v": "MANAGER-04 / 1.5"
+            },
+            {
+              "k": "包位",
+              "v": "经理机模块 / MANAGER-04 / 1.5"
+            }
+          ],
+          "detail": "collect_results 读取员工 outbox 索引，依据经理保存的游标下载新序号记录及需要的原文件，归档并按任务、执行和版本分类去重处理，再推进游标。后台默认 download_evidence=False，证据文件可手动按需下载。",
+          "refs": [
+            [
+              "manager_service",
+              2701
+            ]
+          ]
+        },
+        {
+          "id": "da-export",
+          "c": 0,
+          "r": 4,
+          "title": "同轮同步员工业务表",
+          "sub": "business_data_sync_enabled → SSH 导出",
+          "kind": "interface",
+          "meta": [],
+          "detail": "结果线程回收后检查机器 business_data_sync_enabled；启用时调用 collect_business_data，经 SSH 执行只读导出器，收到 JSON 快照后导入 worker_records。",
+          "refs": [
+            [
+              "manager_sync_service",
+              218
+            ],
+            [
+              "manager_transport",
+              359
+            ]
+          ]
+        },
+        {
+          "id": "da-settings",
+          "c": 0,
+          "r": 5,
+          "title": "系统设置保存回收周期",
+          "sub": "settings / polling · results_seconds",
+          "kind": "store",
+          "meta": [],
+          "detail": "经理轮询配置保存在经理状态的 settings/polling 中，Web 服务使用配置值。结果回收、机器账号检查、经理 Agent 任务轮询、页面刷新是各自独立的间隔。",
+          "refs": [
+            [
+              "manager_polling",
+              22
+            ]
+          ]
+        },
+        {
+          "id": "da-daily",
+          "c": 1,
+          "r": 0,
+          "title": "员工 Windows 每日采集任务",
+          "sub": "Creator-0030 · 启用时按日触发",
+          "kind": "interface",
+          "meta": [],
+          "detail": "员工部署的 Creator-0030 计划任务调用 daily_creator_collection.py；源码约定北京时间 00:30。是否参与取决于该机 Windows 任务启用状态、daily-creator/config.json、账号暂停与运行条件。",
+          "refs": [
+            [
+              "daily_creator_collection",
+              122
+            ]
+          ]
+        },
+        {
+          "id": "da-run",
+          "c": 1,
+          "r": 1,
+          "title": "员工采集调度与直接 runner",
+          "sub": "每日作品任务 → DirectCreatorMetricsRunner",
+          "kind": "action",
+          "meta": [],
+          "detail": "daily_creator_collection 读取本机参与配置，按原任务协议排队；manager_worker_async 对 creator_manager 采集任务选择 DirectCreatorMetricsRunner，固定 CLI 执行采集。",
+          "refs": [
+            [
+              "daily_creator_collection",
+              163
+            ],
+            [
+              "manager_worker_async",
+              81
+            ],
+            [
+              "direct_creator_metrics",
+              28
+            ]
+          ]
+        },
+        {
+          "id": "da-platform",
+          "c": 1,
+          "r": 2,
+          "title": "采集作品与通知事实",
+          "sub": "Bridge / 扩展 / 绑定 Profile",
+          "kind": "platform",
+          "meta": [],
+          "detail": "作品采集使用 creator_manager 页面读取；通知任务沿对应固定采集入口读取作品评论和新增关注。每条采集保留实际 captured_at、来源与完整性。",
+          "refs": [
+            [
+              "direct_creator_metrics",
+              85
+            ],
+            [
+              "daily_passive_collection",
+              36
+            ]
+          ]
+        },
+        {
+          "id": "da-workerdb",
+          "c": 1,
+          "r": 3,
+          "title": "员工本机留存",
+          "sub": "operations.db / product-state.json",
+          "kind": "store",
+          "meta": [],
+          "detail": "固定业务服务把采集事实落入员工产品目录的业务库，产品状态单独保存，供后续协议结算与只读导出。",
+          "refs": [
+            [
+              "worker_data_export",
+              30
+            ],
+            [
+              "product_store",
+              23
+            ]
+          ]
+        },
+        {
+          "id": "da-outbox",
+          "c": 1,
+          "r": 4,
+          "title": "按原执行写入 outbox",
+          "sub": "结果 / sequence / result_revision",
+          "kind": "store",
+          "meta": [],
+          "detail": "员工任务完成后由程序持久化结算并发布 result，连同接收和进度记录维护 outbox/index.json 的递增序号。经理随后主动拉取。",
+          "refs": [
+            [
+              "manager_worker_service",
+              3367
+            ],
+            [
+              "daily_creator_collection",
+              184
+            ]
+          ]
+        },
+        {
+          "id": "da-workerexport",
+          "c": 1,
+          "r": 5,
+          "title": "员工只读导出器",
+          "sub": "worker_data_export.py · SSH 返回 JSON",
+          "kind": "interface",
+          "meta": [],
+          "detail": "经理请求时员工程序读取 operations.db 的一致性事务快照、表结构和产品状态，通过 SSH stdout 返回 JSON。此步骤读取已有本地业务库。",
+          "refs": [
+            [
+              "worker_data_export",
+              30
+            ]
+          ]
+        },
+        {
+          "id": "da-archive",
+          "c": 2,
+          "r": 0,
+          "title": "经理原始回执归档",
+          "sub": "daily_receipts / 回收日期 / raw / 员工编号",
+          "kind": "store",
+          "meta": [],
+          "detail": "经理下载缓存位于 manager-state/collector/{machine}/records；原始回执按回收日期归档到 manager-state/daily_receipts/{date}/raw/{machine}/{task}/{sequence}.json。归档日期是经理回收日，业务日期按记录字段核对。",
+          "refs": [
+            [
+              "manager_service",
+              2781
+            ]
+          ]
+        },
+        {
+          "id": "da-ingest",
+          "c": 2,
+          "r": 1,
+          "title": "去重关联与回收确认",
+          "sub": "ACK / events / results / RESULT_ACK",
+          "kind": "message",
+          "meta": [],
+          "detail": "经理分类导入接收、进度与业务结果，关联原任务和结果版本。结果成功导入后在经理侧记录 RESULT_ACK / result_collected，并推进已处理游标。",
+          "refs": [
+            [
+              "manager_service",
+              2840
+            ]
+          ]
+        },
+        {
+          "id": "da-db",
+          "c": 2,
+          "r": 2,
+          "title": "经理本地 SQLite",
+          "sub": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+          "kind": "store",
+          "meta": [],
+          "detail": "经理任务结果与业务查询表落在本机 manager-operations.db；该路径由经理状态目录和 manager_manifest.json 的业务数据库配置确认。当前流程以经理本机持久化为终点。",
+          "refs": [
+            [
+              "manager_database",
+              18
+            ],
+            [
+              "manager_manifest.json",
+              1
+            ]
+          ]
+        },
+        {
+          "id": "da-workerrecords",
+          "c": 2,
+          "r": 3,
+          "title": "员工业务快照留存",
+          "sub": "worker_records + metadata.worker:{machine}",
+          "kind": "store",
+          "meta": [],
+          "detail": "经理按机器导入员工各业务表及产品状态，记录源库路径、exported_at、imported_at 和记录数，便于核对员工数据与经理留存的同步时间。",
+          "refs": [
+            [
+              "manager_database",
+              155
+            ]
+          ]
+        },
+        {
+          "id": "da-facts",
+          "c": 2,
+          "r": 4,
+          "title": "每日指标查询与数据库投影",
+          "sub": "任务结果 + 员工事实 → 按业务日期汇总",
+          "kind": "store",
+          "meta": [],
+          "detail": "运营查询按任务结果和员工事实计算每日指标。query_business_data 或经理 CLI 数据库同步调用 ManagerDatabase.sync_store，再由 sync_daily_metrics 刷新 daily_metric_facts；即时采集优先写入本轮结果和员工快照，页面快照读取已留存记录及员工事实形成展示。",
+          "refs": [
+            [
+              "manager_database",
+              363
+            ],
+            [
+              "manager_service",
+              2466
+            ],
+            [
+              "manager_cli",
+              44
+            ]
+          ]
+        },
+        {
+          "id": "da-page",
+          "c": 2,
+          "r": 5,
+          "title": "运营台查询经理本地留存",
+          "sub": "快照 API / 同步时间 / 结果审计",
+          "kind": "interface",
+          "meta": [],
+          "detail": "页面刷新展示经理已留存的数据和同步状态。作品每日采集、180 秒回执回收及页面刷新是三个独立的触发环节。",
+          "refs": [
+            [
+              "manager_service",
+              312
+            ],
+            [
+              "manager_polling",
+              15
+            ]
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "a": "da-windows",
+          "b": "da-service",
+          "label": "登录 / 端口检查\n按需启动服务",
+          "type": "down"
+        },
+        {
+          "a": "da-service",
+          "b": "da-poll",
+          "label": "启动常驻\n结果回收线程",
+          "type": "down"
+        },
+        {
+          "a": "da-poll",
+          "b": "da-pull",
+          "label": "当前每 180 秒\n执行一轮回收",
+          "type": "down"
+        },
+        {
+          "a": "da-settings",
+          "b": "da-poll",
+          "label": "读取 results_seconds\n系统设置可调整",
+          "type": "control"
+        },
+        {
+          "a": "da-daily",
+          "b": "da-run",
+          "label": "启用时每日 00:30\n生成本机采集任务",
+          "type": "down"
+        },
+        {
+          "a": "da-run",
+          "b": "da-platform",
+          "label": "固定 CLI 采集",
+          "type": "down"
+        },
+        {
+          "a": "da-platform",
+          "b": "da-workerdb",
+          "label": "真实指标与时间",
+          "type": "back"
+        },
+        {
+          "a": "da-workerdb",
+          "b": "da-outbox",
+          "label": "结算并发布结果",
+          "type": "back"
+        },
+        {
+          "a": "da-pull",
+          "b": "da-outbox",
+          "label": "SFTP 拉索引\n与新序号记录",
+          "type": "control"
+        },
+        {
+          "a": "da-outbox",
+          "b": "da-archive",
+          "label": "SFTP 下载\n原始回执文件",
+          "type": "back"
+        },
+        {
+          "a": "da-archive",
+          "b": "da-ingest",
+          "label": "归档 / 去重 /\n关联任务及版本",
+          "type": "back"
+        },
+        {
+          "a": "da-ingest",
+          "b": "da-db",
+          "label": "保存任务与结果\n记录回收确认",
+          "type": "back"
+        },
+        {
+          "a": "da-pull",
+          "b": "da-export",
+          "label": "同轮回收后\n业务同步启用时",
+          "type": "control"
+        },
+        {
+          "a": "da-export",
+          "b": "da-workerexport",
+          "label": "SSH 请求\n只读导出",
+          "type": "down"
+        },
+        {
+          "a": "da-workerdb",
+          "b": "da-workerexport",
+          "label": "一致性业务快照",
+          "type": "back"
+        },
+        {
+          "a": "da-workerexport",
+          "b": "da-workerrecords",
+          "label": "JSON 业务表快照\n按机器导入",
+          "type": "back"
+        },
+        {
+          "a": "da-db",
+          "b": "da-facts",
+          "label": "结果与事实查询\n数据库同步时投影",
+          "type": "back"
+        },
+        {
+          "a": "da-workerrecords",
+          "b": "da-facts",
+          "label": "结果与事实查询\n数据库同步时投影",
+          "type": "back"
+        },
+        {
+          "a": "da-facts",
+          "b": "da-page",
+          "label": "快照 API\n读取本地留存",
+          "type": "back"
+        }
+      ]
     }
   },
   "explanations": {
@@ -1820,9 +2311,9 @@
       "note": "跨机器命令通过 SSH 调用 manager_worker。8766 提供员工本机 HTTP 服务，职责与 SSH 通道分别配置。"
     },
     "o-sftp": {
-      "why": "任务和素材先落到员工磁盘，员工进程随后按文件领取执行。",
-      "before": "两端收件箱配置一致；素材参数引用员工实际能读取的绝对路径。",
-      "output": "inbox/pending 中的任务包，以及对应素材文件。",
+      "why": "把本次执行任务送到员工收件箱，供接收与调度。",
+      "before": "任务参数齐全；发布所需素材已在员工可读路径就绪。",
+      "output": "inbox/pending 中的任务 JSON。",
       "note": ""
     },
     "o-ack": {
@@ -2151,8 +2642,8 @@
     },
     "od-config": {
       "why": "同一批目标落到不同机器和槽位时，仍能使用各自风格、授权与版本。",
-      "before": "机器与账号登记；登记机器、账号槽位、功能范围及调度开关。",
-      "output": "新任务采用的配置快照",
+      "before": "首次接入或账号、来源、策略发生变更。",
+      "output": "后续计划可复用的绑定与策略配置。",
       "note": ""
     },
     "od-plan": {
@@ -2198,15 +2689,15 @@
       "note": ""
     },
     "od-material": {
-      "why": "任务和素材先落到员工磁盘，员工进程随后按文件领取执行。",
-      "before": "经理可读取的素材；两端收件箱配置一致；素材参数引用员工实际能读取的绝对路径。",
-      "output": "员工可读取的绝对路径",
-      "note": ""
+      "why": "让本次发布引用员工机实际可读的素材，同时复用已经建立的账号与素材来源关联。",
+      "before": "已选定账号与本次发布内容；需要传输的文件在经理侧可读，目标素材目录可写。",
+      "output": "员工本地素材绝对路径，写入本次任务参数。",
+      "note": "素材来源绑定在接入时建立，后续变更再维护；素材准备和传输按发布需要发起。任务 JSON 单独投递到 inbox/pending。"
     },
     "od-upload": {
-      "why": "先确认任务文件已到员工磁盘，再唤醒处理程序。",
-      "before": "任务 JSON；SFTP 上传成功，目标 inbox/pending 可写。",
-      "output": "TRANSFERRED / pending 文件",
+      "why": "把本次执行任务送到员工收件箱，供接收与调度。",
+      "before": "任务参数齐全；发布所需素材已在员工可读路径就绪。",
+      "output": "inbox/pending 中的任务 JSON。",
       "note": ""
     },
     "od-wake": {
@@ -2700,6 +3191,222 @@
       "before": "已存业务结果和同步状态；经理库更新，后端快照返回，前端读取并渲染。",
       "output": "任务、完成量与回收进度展示",
       "note": ""
+    },
+    "dc-ui": {
+      "why": "在需要时明确发起一次采集或已有回执回收。",
+      "before": "经理 Web 服务与页面可用，选定机器及账号。",
+      "output": "本次人工触发的采集请求。",
+      "note": ""
+    },
+    "dc-api": {
+      "why": "按操作目的调用对应入口。",
+      "before": "请求包含机器与账号槽位；回执回收按机器。",
+      "output": "现场采集调用或已有回执回收。",
+      "note": ""
+    },
+    "dc-ssh": {
+      "why": "让实际登录账号所在的员工机采集平台数据。",
+      "before": "SSH、员工 Python 和固定入口可用。",
+      "output": "员工执行请求与本次同步返回。",
+      "note": ""
+    },
+    "dc-return": {
+      "why": "保存本次现场采集的结果、时间和完整性。",
+      "before": "员工返回合法 result；沿机器、槽位和执行编号关联。",
+      "output": "经理结果记录及本轮 collection_results。",
+      "note": ""
+    },
+    "dc-sync": {
+      "why": "把采集回执之外的员工业务原表一并留存。",
+      "before": "员工业务库可读；经理本地数据库可写。",
+      "output": "worker_records 与 worker:{machine} 导入元数据。",
+      "note": ""
+    },
+    "dc-check": {
+      "why": "分别核对采集结果与经理本地留存。",
+      "before": "本次请求已返回。",
+      "output": "本次采集状态、数据同步状态及新页面快照。",
+      "note": ""
+    },
+    "dc-ready": {
+      "why": "让采集使用目标账号的可用浏览器环境。",
+      "before": "机器、账号及浏览器连接就绪。",
+      "output": "允许采集或明确的暂停、占用、受阻原因。",
+      "note": ""
+    },
+    "dc-run": {
+      "why": "用确定的采集命令得到作品或通知数据。",
+      "before": "目标槽位锁已取得；对应账号可用。",
+      "output": "固定 CLI 的 task、result、逐项数据和错误。",
+      "note": ""
+    },
+    "dc-browser": {
+      "why": "采到当前平台实际显示的数据。",
+      "before": "平台会话有效，页面和上下文对应本槽位。",
+      "output": "作品指标、评论或关注记录及采集证据。",
+      "note": ""
+    },
+    "dc-workerdb": {
+      "why": "保留员工端事实，供回收、追溯与重新导出。",
+      "before": "本轮采集已有可保存结果。",
+      "output": "员工业务表和本次采集时间、来源与完整性。",
+      "note": ""
+    },
+    "dc-receipt": {
+      "why": "把本次采集与经理请求建立关联。",
+      "before": "固定采集程序已结束或取得部分结果。",
+      "output": "本次即时 result JSON。",
+      "note": ""
+    },
+    "dc-export": {
+      "why": "给经理提供可留存、可查询的员工完整业务表快照。",
+      "before": "员工 operations.db 存在并可读。",
+      "output": "tables、schema、source、exported_at、product_state。",
+      "note": ""
+    },
+    "dc-ingest": {
+      "why": "把员工采集结果归到正确机器、账号和日期。",
+      "before": "已收到本次 result。",
+      "output": "经理任务结果及用于业务库投影的采集结果。",
+      "note": ""
+    },
+    "dc-db": {
+      "why": "为经理统一查询员工结果和业务数据提供落地位置。",
+      "before": "经理状态根为 C:\\auto-xhs\\manager-state。",
+      "output": "经理本地 manager-operations.db。",
+      "note": ""
+    },
+    "dc-records": {
+      "why": "统一查询经理任务、结果与配置投影。",
+      "before": "经理任务或结果记录已保存。",
+      "output": "records 与任务、结果关联索引。",
+      "note": ""
+    },
+    "dc-workerrecords": {
+      "why": "在经理端留存各员工机的业务原表。",
+      "before": "员工快照 success=true 且含源表结构。",
+      "output": "worker_records；metadata 中 worker:{machine} 的 source、exported_at、imported_at。",
+      "note": ""
+    },
+    "dc-facts": {
+      "why": "让运营台按账号、日期展示可解释的指标。",
+      "before": "对应回执、采集事实和投影已同步。",
+      "output": "页面指标；数据库同步时更新的 daily_metric_facts。",
+      "note": "daily_metric_facts 是数据库同步生成的查询投影；采集回执返回与数据库完整投影刷新分别核对。"
+    },
+    "dc-page": {
+      "why": "让接手人查看本次采集及经理留存结果。",
+      "before": "经理快照接口正常，当前账号和日期对应。",
+      "output": "本次采集数量、指标、来源与数据库同步状态。",
+      "note": ""
+    },
+    "da-windows": {
+      "why": "让经理控制台进程在登录后持续可用。",
+      "before": "Windows 任务已登记并可运行。",
+      "output": "经理 web_server 进程。",
+      "note": "2026-10-16 只读回看本机计划任务动作：检查监听后按需启动控制台。"
+    },
+    "da-service": {
+      "why": "把后台回收与页面请求分开执行。",
+      "before": "经理 Web 服务已经启动。",
+      "output": "常驻 manager-background-sync 与 manager-result-sync 线程。",
+      "note": ""
+    },
+    "da-poll": {
+      "why": "持续拉取员工已形成的回执和业务表。",
+      "before": "服务及线程运行，机器已登记且连接可用。",
+      "output": "本轮回收统计、同步状态和下一轮时间。",
+      "note": "settings/polling 同时配置机器账号检查 600 秒、页面刷新 30 秒；这些周期分别运行。"
+    },
+    "da-pull": {
+      "why": "持续回收已有结果，支持中断后的续收与版本去重。",
+      "before": "员工 outbox 索引可读，SSH/SFTP 连接可用。",
+      "output": "原始回执归档、接收进度与任务结果。",
+      "note": ""
+    },
+    "da-export": {
+      "why": "把结果回执和员工业务原表都留存到经理端。",
+      "before": "机器允许业务表同步，员工业务库可读。",
+      "output": "员工原表与来源、导出时间、导入时间。",
+      "note": ""
+    },
+    "da-settings": {
+      "why": "让接手人找到实际运行周期及其配置入口。",
+      "before": "可访问经理系统设置。",
+      "output": "持久化轮询间隔与同步状态。",
+      "note": ""
+    },
+    "da-daily": {
+      "why": "按已配置的每日策略产生新作品指标。",
+      "before": "员工计划任务启用、用户会话和账号环境可用。",
+      "output": "当日采集请求或跳过原因。",
+      "note": "此处展示调度机制和默认时点；五机当前启停及下次执行时间需在目标机任务计划程序读取。通知历史的每日任务和启停单独维护。"
+    },
+    "da-run": {
+      "why": "让每日指标采集使用固定程序和既有队列。",
+      "before": "本地计划已触发，账号满足执行条件。",
+      "output": "固定采集程序运行结果。",
+      "note": ""
+    },
+    "da-platform": {
+      "why": "在员工账号环境中产生真实平台事实。",
+      "before": "账号登录、Profile、扩展和 Bridge 对应。",
+      "output": "新的作品指标或通知记录。",
+      "note": ""
+    },
+    "da-workerdb": {
+      "why": "让每日采集有可追溯的员工端来源。",
+      "before": "采集取得完整或部分结果。",
+      "output": "员工业务库及本轮采集记录。",
+      "note": ""
+    },
+    "da-outbox": {
+      "why": "把每日采集结果交给既有回执回收链路。",
+      "before": "本地执行已有结果或明确跳过原因。",
+      "output": "outbox 结果与可回收序号。",
+      "note": ""
+    },
+    "da-workerexport": {
+      "why": "提供独立于 outbox 回执的业务表同步通道。",
+      "before": "经理调用导出器，业务库可读。",
+      "output": "员工业务原表及导出元数据。",
+      "note": ""
+    },
+    "da-archive": {
+      "why": "保留经理实际收到的原始回执。",
+      "before": "SFTP 原始文件已下载。",
+      "output": "经理磁盘上的任务回执归档。",
+      "note": ""
+    },
+    "da-ingest": {
+      "why": "确认经理已经留存该版本结果。",
+      "before": "原始回执完整，可关联执行身份。",
+      "output": "经理任务结果、游标与经理侧回收确认。",
+      "note": ""
+    },
+    "da-db": {
+      "why": "统一保存可查询的任务结果和员工业务数据。",
+      "before": "经理本地状态目录可写。",
+      "output": "records、worker_records、daily_metric_facts、metadata。",
+      "note": ""
+    },
+    "da-workerrecords": {
+      "why": "清楚地区分员工采集时间与经理导入时间。",
+      "before": "员工 JSON 导出快照成功返回。",
+      "output": "worker_records 与每机导入元数据。",
+      "note": ""
+    },
+    "da-facts": {
+      "why": "让每日结果可以按来源和时间解释。",
+      "before": "对应任务及采集事实已导入。",
+      "output": "页面指标；数据库同步时更新的 daily_metric_facts。",
+      "note": "daily_metric_facts 是数据库同步生成的查询投影；采集回执返回与数据库完整投影刷新分别核对。"
+    },
+    "da-page": {
+      "why": "让操作人看清数据来源、最近采集和回收进度。",
+      "before": "经理服务与页面可用。",
+      "output": "运营台最新可用快照。",
+      "note": ""
     }
   },
   "modulePaths": {
@@ -2856,7 +3563,10 @@
     "runtime/webui/index.html": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/webui/index.html",
     "runtime/webui/manager-console.js": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/webui/manager-console.js",
     "scripts/_role_layout.py": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/scripts/_role_layout.py",
-    "source-layout.json": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/source-layout.json"
+    "source-layout.json": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/source-layout.json",
+    "manager-bulk-collection.js": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/webui/manager-bulk-collection.js",
+    "manager_manifest.json": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/ManagerStation/Managers/PC023/manager_manifest.json",
+    "metrics_collector": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/ManagerStation/Managers/PC023/worker_packages/xiaohongshu-skills/0.1.0/worker/runtime/scripts/xhs/metrics_collector.py"
   },
   "root": "C:/Users/EDY/Documents/Codex/2026-07-31/readme-md/xiaohongshu-skills/",
   "manager": "ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/",
@@ -3400,40 +4110,36 @@
         "daily_creator_collection",
         "daily_passive_collection"
       ],
-      "function": "作品指标、通知与评论采集",
+      "function": "作品、通知固定采集与每日入口",
       "strategy": [
-        "本机周期入口",
-        "采集资格判断",
-        "复用任务与 outbox"
+        "即时固定 CLI",
+        "每日任务调度",
+        "采集后本地保存"
       ],
-      "effect": "周期采集结果沿统一回执链回收。",
+      "effect": "即时采集与每日采集共用固定能力，结果保留采集时间、来源和覆盖度。",
       "how": [
-        "每日采集入口根据开关、暂停和账号资格筛选本轮工作。",
-        "作品指标可进入直接程序 runner，通知和评论沿固定采集入口执行。",
-        "采集结果写业务表，并通过员工任务及 outbox 带回经理。"
+        "前端 collect-now 请求由经理 SSH 调用 direct_creator_metrics 或 direct_notification_collection。",
+        "每日作品入口读取参与配置并排入本机队列，creator_manager 任务使用 DirectCreatorMetricsRunner。",
+        "业务服务保存员工 operations.db；即时回执同步返回，队列结果写 outbox，供经理回收。"
       ],
       "why": "周期工作既要遵守账号的运行开关，又需要形成可回收结果。复用任务身份、账号锁、业务表和 outbox，可以让定时采集与临时业务使用相同的回收和查询入口。",
       "follow": "周期配置先看 eligibility 和每日入口；具体指标读页面看 direct_creator_metrics 与 xhs.creator_metrics。",
       "refs": [
         [
-          "daily_creator_collection",
-          1
-        ],
-        [
-          "daily_passive_collection",
-          44
-        ],
-        [
           "direct_creator_metrics",
-          1
+          28
         ],
         [
-          "metric_service",
-          1
+          "direct_notification_collection",
+          34
         ],
         [
-          "xhs.creator_metrics",
-          1
+          "daily_creator_collection",
+          122
+        ],
+        [
+          "manager_worker_async",
+          81
         ]
       ]
     },
@@ -3451,11 +4157,11 @@
         "序号游标",
         "按结果版本导入"
       ],
-      "effect": "回收可接续，页面读取使用已存结果。",
+      "effect": "回执增量回收与员工业务表快照分别导入，经理保存同步时间和状态。",
       "how": [
-        "ManagerSyncService 将健康账号与结果回收放在后台周期中运行。",
-        "collect_results 读取 outbox 索引，从游标下载新增记录，归档后分类导入。",
-        "结果按机器、执行编号和 revision 去重；业务表快照与证据文件分别同步。"
+        "web_server 启动 ManagerSyncService 的独立健康与结果线程。",
+        "结果线程按 results_seconds 拉取 SFTP outbox，归档、导入并推进游标。",
+        "同轮业务同步经 SSH 调用 worker_data_export，JSON 快照导入本地 worker_records；实际周期从系统设置读取。"
       ],
       "why": "跨机连接和文件下载需要等待。后台同步把这些过程与页面请求分开，增量游标减少重复读取，结果版本让修订可以继续关联到原执行。",
       "follow": "周期行为看 ManagerSyncService；具体导入看 collect_results 与结果处理方法；业务表投影看 ManagerDatabase。",
@@ -3655,20 +4361,20 @@
           "id": "od-config",
           "c": 0,
           "r": 1,
-          "title": "02 绑定账号与策略",
-          "sub": "人设版本 / 授权 / 账号配置",
+          "title": "02 绑定账号与素材来源",
+          "sub": "首次配置 / 变更时维护 · 人设与授权",
           "kind": "store",
           "meta": [
             {
               "k": "入",
-              "v": "机器与账号登记"
+              "v": "首次接入或配置变更"
             },
             {
               "k": "出",
-              "v": "新任务采用的配置快照"
+              "v": "账号、策略与素材来源关联"
             }
           ],
-          "detail": "账号以机器和槽位定位，关联绑定身份、人设、授权与运营策略。创建任务时引用相应版本和快照，后续配置供后续任务使用。",
+          "detail": "经理 Agent 按操作人的要求配置机器、账号槽位、绑定身份、人设、授权及素材来源关联。账号与素材来源的绑定在接入时建立，变更时再维护。后续计划复用配置，并为新任务保存快照。",
           "refs": [
             [
               "manager_service",
@@ -3771,8 +4477,8 @@
           "id": "od-poll",
           "c": 0,
           "r": 5,
-          "title": "10 主动启动结果回收",
-          "sub": "后台轮询 / 手动回收",
+          "title": "10 程序按周期回收结果",
+          "sub": "后台线程：当前 180 秒 / 手动触发",
           "kind": "action",
           "meta": [
             {
@@ -3784,7 +4490,7 @@
               "v": "本轮待下载记录"
             }
           ],
-          "detail": "经理后台按结果周期或手动入口发起回收。读取每机 outbox 索引，识别序号超过当前已处理游标的记录；网络文件操作由传输适配完成。",
+          "detail": "经理 Web 服务启动 ManagerSyncService。结果线程按 results_seconds 周期回收 outbox，随后在机器允许时同步业务表；前端也可触发手动回收。当前本机配置为 180 秒，源码默认 300 秒。",
           "refs": [
             [
               "manager_sync_service",
@@ -3891,28 +4597,28 @@
           "id": "od-material",
           "c": 1,
           "r": 1,
-          "title": "SFTP · 准备业务素材",
-          "sub": "图片 / 视频 / 内容输入文件",
+          "title": "按需准备与传输素材",
+          "sub": "经理 Agent 选定内容 → 程序 SFTP",
           "kind": "interface",
           "meta": [
             {
-              "k": "入",
-              "v": "经理可读取的素材"
+              "k": "触发",
+              "v": "本次发布需要准备或传输文件"
             },
             {
               "k": "出",
-              "v": "员工可读取的绝对路径"
+              "v": "员工素材路径，供任务引用"
             }
           ],
-          "detail": "发布等任务需要的材料按配置传到员工机，任务参数引用员工实际可读取的绝对路径。账号、人设和材料版本共同确定本次任务输入。",
+          "detail": "经理 Agent 按本次发布需求准备或选定素材，检查员工机可读路径；需要传输时调用固定传输程序，经 SFTP 送到员工素材目录。已有可用文件可复用。计划和任务引用确定的员工绝对路径。素材准备与传输由发布需求触发。",
           "refs": [
+            [
+              "manager_service",
+              2302
+            ],
             [
               "manager_transport",
               219
-            ],
-            [
-              "manager_service",
-              5490
             ]
           ]
         },
@@ -3921,7 +4627,7 @@
           "c": 1,
           "r": 2,
           "title": "05 SFTP · 投递任务包",
-          "sub": "原子写入 inbox/pending",
+          "sub": "任务 JSON → inbox/pending",
           "kind": "interface",
           "meta": [
             {
@@ -3933,7 +4639,7 @@
               "v": "TRANSFERRED / pending 文件"
             }
           ],
-          "detail": "任务文件写入目标员工的 inbox/pending，经理记录 TRANSFERRED。该阶段证明文件投递，后续由 SSH 唤醒或本机扫描进入接收流程。",
+          "detail": "经理程序把执行任务 JSON 原子写入员工 inbox/pending，再经 SSH 唤醒原任务。发布任务在参数中引用已准备好的员工素材绝对路径。",
           "refs": [
             [
               "manager_service",
@@ -4145,7 +4851,7 @@
           "c": 2,
           "r": 2,
           "title": "员工收件箱持久文件",
-          "sub": "inbox/pending / 素材目录",
+          "sub": "inbox/pending · 接收任务 JSON",
           "kind": "store",
           "meta": [
             {
@@ -4157,7 +4863,7 @@
               "v": "待领取任务与本地材料"
             }
           ],
-          "detail": "任务 JSON 先作为磁盘文件存在。本地调度也扫描 pending 文件，远程唤醒响应丢失时仍可根据原文件进入接单处理。",
+          "detail": "员工收件箱持久保存任务 JSON。发布素材沿任务引用的员工素材路径读取，素材文件由对应准备流程提供。",
           "refs": [
             [
               "worker_batch_scheduler",
@@ -4338,7 +5044,7 @@
           "a": "od-config",
           "b": "od-plan",
           "type": "down",
-          "label": ""
+          "label": "复用已绑定配置\n再配置本次计划"
         },
         {
           "a": "od-plan",
@@ -4350,13 +5056,7 @@
           "a": "od-config",
           "b": "od-ssh",
           "type": "control",
-          "label": ""
-        },
-        {
-          "a": "od-config",
-          "b": "od-material",
-          "type": "control",
-          "label": ""
+          "label": "机器接入 / 变更时\n维护连接参数"
         },
         {
           "a": "od-task",
@@ -4495,6 +5195,18 @@
           "b": "od-accept",
           "type": "back",
           "label": "入库后计算\n已确认实际"
+        },
+        {
+          "a": "od-plan",
+          "b": "od-material",
+          "type": "control",
+          "label": "本次发布有材料需求\n经理 Agent 按需准备"
+        },
+        {
+          "a": "od-material",
+          "b": "od-task",
+          "type": "down",
+          "label": "素材就绪后\n任务引用员工绝对路径"
         }
       ]
     },
@@ -4642,7 +5354,7 @@
           "c": 0,
           "r": 4,
           "title": "业务材料与内容输入",
-          "sub": "本地可读路径 / 发布输入",
+          "sub": "按本次需求准备 · 引用员工可读路径",
           "kind": "store",
           "meta": [
             {
@@ -4654,7 +5366,7 @@
               "v": "可供本批任务引用的材料"
             }
           ],
-          "detail": "需要素材的动作先确定内容和文件位置。下发后参数应指向员工可读取的绝对路径，任务保留当次材料与内容输入的关联。",
+          "detail": "经理 Agent 根据本次内容任务选定或准备素材，需要传输时调用程序完成文件传输，计划引用员工可读路径。账号与素材来源关联在初次接入时建立，后续计划复用。",
           "refs": [
             [
               "manager_service",
@@ -7029,6 +7741,522 @@
           "label": "经理快照 API"
         }
       ]
+    },
+    "data": {
+      "title": "运营数据采集与经理本地入库 · 手动入口",
+      "modeLabel": "手动采集与入库",
+      "lanes": [
+        [
+          "PC023 · 发起与控制",
+          "操作人点击 → 经理 API / SSH"
+        ],
+        [
+          "员工机 · 固定采集",
+          "程序 → Bridge / 扩展 → 本地业务库"
+        ],
+        [
+          "PC023 · 数据留存",
+          "本机 SQLite → 业务查询与运营台"
+        ]
+      ],
+      "selected": "dc-ui",
+      "nodes": [
+        {
+          "id": "dc-ui",
+          "c": 0,
+          "r": 0,
+          "title": "01 手动采集入口",
+          "sub": "运营台“数据回收” · 指定或全部账号",
+          "kind": "interface",
+          "meta": [
+            {
+              "k": "功能",
+              "v": "MANAGER-FRONT-05 / 1.0"
+            },
+            {
+              "k": "包位",
+              "v": "经理机模块 / MANAGER-FRONT-05 / 1.0"
+            }
+          ],
+          "detail": "操作人在数据回收页选择账号，点击作品采集、通知采集或回收已有回执。全部账号按钮按员工机分组，同机账号串行、最多三台机器并行；执行期间保持页面打开。",
+          "refs": [
+            [
+              "manager-bulk-collection.js",
+              1
+            ]
+          ]
+        },
+        {
+          "id": "dc-api",
+          "c": 0,
+          "r": 1,
+          "title": "02 经理 API 分流",
+          "sub": "作品 / 通知 collect-now；回执 collect",
+          "kind": "interface",
+          "meta": [],
+          "detail": "作品按钮 POST /api/v1/manager/creator-metrics/collect-now；通知按钮 POST /api/v1/manager/notifications/collect-now。回收已有回执走 /machines/{machine_id}/collect，读取员工已形成的 outbox。",
+          "refs": [
+            [
+              "web_server",
+              364
+            ],
+            [
+              "manager_service",
+              2496
+            ]
+          ]
+        },
+        {
+          "id": "dc-ssh",
+          "c": 0,
+          "r": 2,
+          "title": "03 SSH 调用固定员工入口",
+          "sub": "collect-creator-now / collect-notifications-now",
+          "kind": "interface",
+          "meta": [],
+          "detail": "经理程序经 OpenSSH 调用员工 scripts/manager_worker.py，传递当前槽位和采集动作，等待固定程序结果。经理 Agent 也可以按业务要求调用经理固定入口。",
+          "refs": [
+            [
+              "manager_transport",
+              151
+            ],
+            [
+              "manager_worker",
+              144
+            ]
+          ]
+        },
+        {
+          "id": "dc-return",
+          "c": 0,
+          "r": 3,
+          "title": "07 收到本次采集回执",
+          "sub": "SSH stdout JSON → _ingest_results",
+          "kind": "message",
+          "meta": [],
+          "detail": "员工即时入口把 result 通过 SSH 命令的 JSON 返回给经理。经理 _collect_fixed_now 立即调用 _ingest_results；这条即时路径直接接收回执，随后再导入员工业务表快照。",
+          "refs": [
+            [
+              "manager_service",
+              2504
+            ]
+          ]
+        },
+        {
+          "id": "dc-sync",
+          "c": 0,
+          "r": 4,
+          "title": "08 拉取员工业务表快照",
+          "sub": "SSH worker_data_export.py → import_worker",
+          "kind": "interface",
+          "meta": [],
+          "detail": "经理 collect_business_data 经 SSH 启动只读 worker_data_export.py，读取员工 operations.db 的一致性事务快照、表结构及 product-state.json，以 JSON 返回后导入本地数据库。",
+          "refs": [
+            [
+              "manager_service",
+              2484
+            ],
+            [
+              "manager_transport",
+              359
+            ],
+            [
+              "worker_data_export",
+              30
+            ]
+          ]
+        },
+        {
+          "id": "dc-check",
+          "c": 0,
+          "r": 5,
+          "title": "10 查看本次完成与同步状态",
+          "sub": "账号 SUCCESS + database_status=SYNCED",
+          "kind": "decision",
+          "meta": [],
+          "detail": "API 同时返回账号采集状态、received/collected 与 database_status。收到回执后，业务表仍同步失败时返回数据库待同步；前端展示原因并刷新快照。",
+          "refs": [
+            [
+              "manager_service",
+              2560
+            ],
+            [
+              "manager-bulk-collection.js",
+              65
+            ]
+          ]
+        },
+        {
+          "id": "dc-ready",
+          "c": 1,
+          "r": 0,
+          "title": "员工账号是否可采集？",
+          "sub": "暂停 / 登录 / Profile / Bridge / 槽位锁",
+          "kind": "decision",
+          "meta": [],
+          "detail": "固定采集入口检查机器和账号暂停配置，采集时取得槽位锁。账号正在执行其他任务时返回 DEFERRED；页面采集使用本槽位登录环境、Profile 与 Bridge。",
+          "refs": [
+            [
+              "direct_creator_metrics",
+              136
+            ],
+            [
+              "direct_notification_collection",
+              34
+            ]
+          ]
+        },
+        {
+          "id": "dc-run",
+          "c": 1,
+          "r": 1,
+          "title": "04 员工固定采集程序",
+          "sub": "作品 runner / 通知 collector → CLI",
+          "kind": "action",
+          "meta": [
+            {
+              "k": "指标功能",
+              "v": "DATA-03 / 1.5"
+            },
+            {
+              "k": "包位",
+              "v": "数据与诊断模块 / DATA-03 / 1.5"
+            }
+          ],
+          "detail": "作品即时采集运行 DirectCreatorMetricsRunner，再调用 collect-operations-metrics --source creator_manager。通知即时入口调用 collect-note-comments 和 notification_history 的 new_followers。该路径由固定程序执行。",
+          "refs": [
+            [
+              "direct_creator_metrics",
+              34
+            ],
+            [
+              "direct_notification_collection",
+              19
+            ]
+          ]
+        },
+        {
+          "id": "dc-browser",
+          "c": 1,
+          "r": 2,
+          "title": "05 读取平台页面和指标",
+          "sub": "应用服务 → Bridge → 扩展 → Profile",
+          "kind": "platform",
+          "meta": [],
+          "detail": "员工程序通过应用服务、页面库、每账号 Bridge 和 Chrome 扩展读取创作中心作品累计指标、作品评论或新增关注，保存 captured_at、完整性及来源。",
+          "refs": [
+            [
+              "application_service",
+              1
+            ],
+            [
+              "bridge_server",
+              1
+            ],
+            [
+              "metrics_collector",
+              1
+            ]
+          ]
+        },
+        {
+          "id": "dc-workerdb",
+          "c": 1,
+          "r": 3,
+          "title": "06 员工本地保存采集事实",
+          "sub": "XHS_PRODUCT_HOME / operations.db",
+          "kind": "store",
+          "meta": [],
+          "detail": "员工业务服务把采集指标、作品快照及对应业务事件保存在本机 operations.db；产品状态另存 product-state.json。默认产品目录为 %USERPROFILE%\\.xhs\\auto-xhs，环境变量 XHS_PRODUCT_HOME 可指定实际目录。",
+          "refs": [
+            [
+              "product_store",
+              23
+            ],
+            [
+              "worker_data_export",
+              30
+            ]
+          ]
+        },
+        {
+          "id": "dc-receipt",
+          "c": 1,
+          "r": 4,
+          "title": "形成并返回即时结果",
+          "sub": "manager_direct / result / 逐项记录",
+          "kind": "message",
+          "meta": [],
+          "detail": "即时采集入口组装带机器、槽位、执行编号、时间和 business_result 的 result，由固定协议命令以 JSON 同步返回经理。作品返回 notes，通知返回 channels 和 incremental_data。",
+          "refs": [
+            [
+              "direct_creator_metrics",
+              172
+            ],
+            [
+              "direct_notification_collection",
+              94
+            ]
+          ]
+        },
+        {
+          "id": "dc-export",
+          "c": 1,
+          "r": 5,
+          "title": "只读导出业务库",
+          "sub": "operations.db 各表 + product-state.json",
+          "kind": "store",
+          "meta": [],
+          "detail": "worker_data_export.py 在 SQLite 只读事务中导出全部业务表与表结构，补充源路径、exported_at 及产品状态，以 JSON 写 stdout。经理通过 SSH 接收该快照。",
+          "refs": [
+            [
+              "worker_data_export",
+              30
+            ]
+          ]
+        },
+        {
+          "id": "dc-ingest",
+          "c": 2,
+          "r": 0,
+          "title": "经理关联本次任务与回执",
+          "sub": "_ingest_results / 原执行编号 / 修订",
+          "kind": "action",
+          "meta": [],
+          "detail": "经理按机器、执行身份和结果版本导入采集回执，保留本次结果和增量事实。日后相同版本回收时按既有去重规则处理。",
+          "refs": [
+            [
+              "manager_service",
+              2504
+            ]
+          ]
+        },
+        {
+          "id": "dc-db",
+          "c": 2,
+          "r": 1,
+          "title": "09 留存经理本地 SQLite",
+          "sub": "C:\\auto-xhs\\manager-state\\manager-operations.db",
+          "kind": "store",
+          "meta": [
+            {
+              "k": "位置",
+              "v": "PC023 · 本机 SQLite"
+            },
+            {
+              "k": "配置",
+              "v": "manager_manifest.paths.business_database"
+            }
+          ],
+          "detail": "PC023 manager_manifest.json 的 business_database 指向 C:\\auto-xhs\\manager-state\\manager-operations.db。ManagerDatabase 根据经理状态根目录构造该文件。当前数据流的留存终点是此本地 SQLite 数据库。",
+          "refs": [
+            [
+              "manager_database",
+              18
+            ],
+            [
+              "manager_manifest.json",
+              1
+            ]
+          ]
+        },
+        {
+          "id": "dc-records",
+          "c": 2,
+          "r": 2,
+          "title": "records · 任务与结果",
+          "sub": "tasks / results / 经理业务记录",
+          "kind": "store",
+          "meta": [],
+          "detail": "records 保存经理各集合的完整 JSON 记录，新任务及结果还由对应点更新与关联索引维护，按机器和账号可查询。配置与历史状态仍按职责存放在经理状态目录。",
+          "refs": [
+            [
+              "manager_database",
+              35
+            ],
+            [
+              "manager_store",
+              1
+            ]
+          ]
+        },
+        {
+          "id": "dc-workerrecords",
+          "c": 2,
+          "r": 3,
+          "title": "worker_records · 员工业务表",
+          "sub": "按 machine_id 导入各表快照",
+          "kind": "store",
+          "meta": [],
+          "detail": "import_worker 将员工导出表逐条映射到 machine_id、collection、record_key、account_slot、payload。一次成功导入按机器替换该机器快照，同时保存 schema、product_state 和导入时间。",
+          "refs": [
+            [
+              "manager_database",
+              155
+            ]
+          ]
+        },
+        {
+          "id": "dc-facts",
+          "c": 2,
+          "r": 4,
+          "title": "每日指标查询与数据库投影",
+          "sub": "任务结果 + 员工事实 → 按业务日期汇总",
+          "kind": "store",
+          "meta": [],
+          "detail": "运营查询按任务结果和员工事实计算每日指标。query_business_data 或经理 CLI 数据库同步调用 ManagerDatabase.sync_store，再由 sync_daily_metrics 刷新 daily_metric_facts；即时采集优先写入本轮结果和员工快照，页面快照读取已留存记录及员工事实形成展示。",
+          "refs": [
+            [
+              "manager_database",
+              363
+            ],
+            [
+              "manager_service",
+              2466
+            ],
+            [
+              "manager_cli",
+              44
+            ]
+          ]
+        },
+        {
+          "id": "dc-page",
+          "c": 2,
+          "r": 5,
+          "title": "11 运营台读取本地数据",
+          "sub": "经理快照 API → 数据回收与运营汇总",
+          "kind": "interface",
+          "meta": [],
+          "detail": "前端刷新经理快照，展示作品、采集数据、运营汇总及同步时间。页面读取经理侧留存与查询结果；当前图以经理本地数据库为数据落地终点。",
+          "refs": [
+            [
+              "manager_service",
+              312
+            ],
+            [
+              "manager-bulk-collection.js",
+              110
+            ]
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "a": "dc-ui",
+          "b": "dc-api",
+          "label": "人工点击\n选定机器 / 账号",
+          "type": "down"
+        },
+        {
+          "a": "dc-api",
+          "b": "dc-ssh",
+          "label": "作品 / 通知：\n现场采集调用",
+          "type": "down"
+        },
+        {
+          "a": "dc-ssh",
+          "b": "dc-run",
+          "label": "SSH 固定命令\n传递账号槽位",
+          "type": "down"
+        },
+        {
+          "a": "dc-ready",
+          "b": "dc-run",
+          "label": "就绪且取得槽位锁",
+          "type": "control"
+        },
+        {
+          "a": "dc-run",
+          "b": "dc-browser",
+          "label": "固定 CLI 调用",
+          "type": "down"
+        },
+        {
+          "a": "dc-browser",
+          "b": "dc-workerdb",
+          "label": "指标 / 事件 /\n采集时间",
+          "type": "back"
+        },
+        {
+          "a": "dc-workerdb",
+          "b": "dc-receipt",
+          "label": "组装本次结果",
+          "type": "back"
+        },
+        {
+          "a": "dc-receipt",
+          "b": "dc-return",
+          "label": "SSH stdout\n同步返回 result",
+          "type": "back"
+        },
+        {
+          "a": "dc-return",
+          "b": "dc-ingest",
+          "label": "原执行身份\n即时导入回执",
+          "type": "back"
+        },
+        {
+          "a": "dc-ingest",
+          "b": "dc-db",
+          "label": "经理结果与\n业务投影落地",
+          "type": "back"
+        },
+        {
+          "a": "dc-return",
+          "b": "dc-sync",
+          "label": "收到回执后\n同步业务表",
+          "type": "control"
+        },
+        {
+          "a": "dc-sync",
+          "b": "dc-export",
+          "label": "SSH 启动\n只读导出器",
+          "type": "down"
+        },
+        {
+          "a": "dc-export",
+          "b": "dc-workerrecords",
+          "label": "JSON 快照\n按机器导入",
+          "type": "back"
+        },
+        {
+          "a": "dc-db",
+          "b": "dc-records",
+          "label": "任务 / 结果\n保存到 records",
+          "type": "back"
+        },
+        {
+          "a": "dc-records",
+          "b": "dc-facts",
+          "label": "结果与事实查询\n数据库同步时投影",
+          "type": "back"
+        },
+        {
+          "a": "dc-workerrecords",
+          "b": "dc-facts",
+          "label": "结果与事实查询\n数据库同步时投影",
+          "type": "back"
+        },
+        {
+          "a": "dc-facts",
+          "b": "dc-page",
+          "label": "确认量 / 累计值\n+ 来源与覆盖度",
+          "type": "back"
+        },
+        {
+          "a": "dc-sync",
+          "b": "dc-check",
+          "label": "返回数据库同步状态",
+          "type": "back"
+        },
+        {
+          "a": "dc-check",
+          "b": "dc-page",
+          "label": "database_status\n及快照刷新",
+          "type": "back"
+        }
+      ]
     }
   },
   "handoff": {
@@ -7037,6 +8265,16 @@
       "layout": "V0.20",
       "checked": "2026-10-16",
       "changes": [
+        {
+          "date": "2026-10-16",
+          "title": "采集、留存与执行分工",
+          "items": [
+            "素材来源绑定与本次素材准备、传输分层",
+            "运营数据手动采集与定时回收两幅流程图",
+            "本机 SQLite、业务表、功能包编号和目录",
+            "节点区分操作人、经理 Agent、员工 Agent 与固定程序"
+          ]
+        },
         {
           "date": "2026-10-16",
           "title": "架构与使用手册",
@@ -7081,6 +8319,13 @@
             "detail": "平台证据、确认量与回收",
             "chapter": "receipts",
             "node": "rd-count",
+            "code": ""
+          },
+          {
+            "title": "查看数据采集与留存",
+            "detail": "手动采集、后台回收与本地 DB",
+            "chapter": "data",
+            "node": "dc-ui",
             "code": ""
           }
         ]
@@ -7470,173 +8715,686 @@
     }
   },
   "nodeParticipation": {
-    "o-entry": "configure",
-    "o-plan": "configure",
-    "o-dispatch": "auto",
-    "o-collect": "auto",
-    "o-db": "auto",
-    "o-ssh": "auto",
-    "o-sftp": "auto",
-    "o-ack": "auto",
-    "o-pull": "auto",
-    "o-data": "auto",
-    "o-executor": "auto",
-    "o-inbox": "auto",
-    "o-agent": "auto",
-    "o-platform": "auto",
-    "o-outbox": "auto",
-    "m-entry": "configure",
-    "m-config": "configure",
-    "m-plan": "auto",
-    "m-task": "auto",
-    "m-control": "configure",
-    "m-sync": "auto",
-    "m-download": "auto",
-    "m-ingest": "auto",
-    "m-unknown": "review",
-    "m-count": "auto",
-    "m-json": "auto",
-    "m-sqlite": "auto",
-    "m-workerdb": "auto",
-    "m-metrics": "auto",
-    "m-dashboard": "auto",
-    "w-exec": "auto",
-    "w-inbox": "auto",
-    "w-queue": "auto",
-    "w-runner": "auto",
-    "w-agent": "auto",
-    "w-cli": "auto",
-    "w-app": "auto",
-    "w-xhs": "auto",
-    "w-bridge": "auto",
-    "w-chrome": "auto",
-    "w-evidence": "auto",
-    "w-outcome": "auto",
-    "w-pending": "auto",
-    "w-outbox": "auto",
-    "w-localdb": "auto",
-    "r-create": "auto",
-    "r-transfer": "auto",
-    "r-ack": "auto",
-    "r-claim": "auto",
-    "r-running": "auto",
-    "r-evidence": "auto",
-    "r-state": "auto",
-    "r-durable": "auto",
-    "r-outbox": "auto",
-    "r-revise": "review",
-    "r-cursor": "auto",
-    "r-import": "auto",
-    "r-resultack": "auto",
-    "r-accept": "auto",
-    "r-page": "auto",
-    "od-goal": "configure",
-    "od-config": "configure",
-    "od-plan": "auto",
-    "od-task": "auto",
-    "od-track": "auto",
-    "od-poll": "auto",
-    "od-ingest": "auto",
-    "od-accept": "auto",
-    "od-ssh": "auto",
-    "od-material": "auto",
-    "od-upload": "auto",
-    "od-wake": "auto",
-    "od-ack": "auto",
-    "od-pull": "auto",
-    "od-data": "auto",
-    "od-evidence": "auto",
-    "od-service": "auto",
-    "od-ready": "auto",
-    "od-inbox": "auto",
-    "od-accept-task": "auto",
-    "od-queue": "auto",
-    "od-agent": "auto",
-    "od-platform": "auto",
-    "od-outbox": "auto",
-    "md-goal": "configure",
-    "md-account": "configure",
-    "md-persona": "configure",
-    "md-auth": "configure",
-    "md-material": "configure",
-    "md-time": "configure",
-    "md-save": "auto",
-    "md-ready": "auto",
-    "md-spec": "auto",
-    "md-budget": "auto",
-    "md-split": "auto",
-    "md-deps": "auto",
-    "md-envelope": "auto",
-    "md-dispatch": "auto",
-    "md-ack": "auto",
-    "md-progress": "auto",
-    "md-sync": "auto",
-    "md-pull": "auto",
-    "md-ingest": "auto",
-    "md-store": "auto",
-    "md-dashboard": "auto",
-    "wd-file": "auto",
-    "wd-accept": "auto",
-    "wd-window": "auto",
-    "wd-deps": "auto",
-    "wd-order": "auto",
-    "wd-lock": "auto",
-    "wd-runner": "auto",
-    "wd-progress": "auto",
-    "wd-context": "auto",
-    "wd-claim": "auto",
-    "wd-step": "auto",
-    "wd-app": "auto",
-    "wd-identity": "auto",
-    "wd-workflow": "auto",
-    "wd-final": "auto",
-    "wd-durable": "auto",
-    "wd-bridge": "auto",
-    "wd-extension": "auto",
-    "wd-profile": "auto",
-    "wd-action": "auto",
-    "wd-evidence": "auto",
-    "wd-db": "auto",
-    "wd-outbox": "auto",
-    "wd-index": "auto",
-    "rd-create": "auto",
-    "rd-transfer": "auto",
-    "rd-ack": "auto",
-    "rd-claim": "auto",
-    "rd-running": "auto",
-    "rd-unknown": "auto",
-    "rd-reconcile": "review",
-    "rd-revision": "auto",
-    "rd-items": "auto",
-    "rd-browse": "auto",
-    "rd-engage": "auto",
-    "rd-messages": "auto",
-    "rd-publish": "auto",
-    "rd-count": "auto",
-    "rd-final": "auto",
-    "rd-durable": "auto",
-    "rd-index": "auto",
-    "rd-download": "auto",
-    "rd-ingest": "auto",
-    "rd-resultack": "auto",
-    "rd-businessdb": "auto",
-    "rd-evidence": "auto",
-    "rd-summary": "auto",
-    "rd-page": "auto"
+    "o-entry": [
+      "operator",
+      "managerAgent"
+    ],
+    "o-plan": [
+      "operator",
+      "managerAgent"
+    ],
+    "o-dispatch": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "o-collect": [
+      "managerProgram"
+    ],
+    "o-db": [
+      "managerProgram"
+    ],
+    "o-ssh": [
+      "managerProgram"
+    ],
+    "o-sftp": [
+      "managerProgram"
+    ],
+    "o-ack": [
+      "workerProgram",
+      "managerProgram"
+    ],
+    "o-pull": [
+      "managerProgram"
+    ],
+    "o-data": [
+      "managerProgram"
+    ],
+    "o-executor": [
+      "operator",
+      "workerProgram"
+    ],
+    "o-inbox": [
+      "workerProgram"
+    ],
+    "o-agent": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "o-platform": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "o-outbox": [
+      "workerProgram"
+    ],
+    "m-entry": [
+      "operator",
+      "managerAgent"
+    ],
+    "m-config": [
+      "operator",
+      "managerAgent"
+    ],
+    "m-plan": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "m-task": [
+      "managerProgram"
+    ],
+    "m-control": [
+      "operator",
+      "managerAgent"
+    ],
+    "m-sync": [
+      "managerProgram"
+    ],
+    "m-download": [
+      "managerProgram"
+    ],
+    "m-ingest": [
+      "managerProgram"
+    ],
+    "m-unknown": [
+      "managerAgent",
+      "operator"
+    ],
+    "m-count": [
+      "managerProgram"
+    ],
+    "m-json": [
+      "managerProgram"
+    ],
+    "m-sqlite": [
+      "managerProgram"
+    ],
+    "m-workerdb": [
+      "managerProgram"
+    ],
+    "m-metrics": [
+      "managerProgram"
+    ],
+    "m-dashboard": [
+      "managerProgram"
+    ],
+    "w-exec": [
+      "workerProgram"
+    ],
+    "w-inbox": [
+      "workerProgram"
+    ],
+    "w-queue": [
+      "workerProgram"
+    ],
+    "w-runner": [
+      "workerProgram"
+    ],
+    "w-agent": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "w-cli": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "w-app": [
+      "workerProgram"
+    ],
+    "w-xhs": [
+      "workerProgram"
+    ],
+    "w-bridge": [
+      "browserProgram"
+    ],
+    "w-chrome": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "w-evidence": [
+      "workerProgram"
+    ],
+    "w-outcome": [
+      "workerProgram"
+    ],
+    "w-pending": [
+      "workerProgram"
+    ],
+    "w-outbox": [
+      "workerProgram"
+    ],
+    "w-localdb": [
+      "workerProgram"
+    ],
+    "r-create": [
+      "managerProgram"
+    ],
+    "r-transfer": [
+      "managerProgram"
+    ],
+    "r-ack": [
+      "workerProgram"
+    ],
+    "r-claim": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "r-running": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "r-evidence": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "r-state": [
+      "workerProgram"
+    ],
+    "r-durable": [
+      "workerProgram"
+    ],
+    "r-outbox": [
+      "workerProgram"
+    ],
+    "r-revise": [
+      "managerAgent",
+      "operator"
+    ],
+    "r-cursor": [
+      "managerProgram"
+    ],
+    "r-import": [
+      "managerProgram"
+    ],
+    "r-resultack": [
+      "managerProgram"
+    ],
+    "r-accept": [
+      "managerProgram"
+    ],
+    "r-page": [
+      "managerProgram"
+    ],
+    "od-goal": [
+      "operator",
+      "managerAgent"
+    ],
+    "od-config": [
+      "operator",
+      "managerAgent"
+    ],
+    "od-plan": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "od-task": [
+      "managerProgram"
+    ],
+    "od-track": [
+      "managerProgram"
+    ],
+    "od-poll": [
+      "managerProgram"
+    ],
+    "od-ingest": [
+      "managerProgram"
+    ],
+    "od-accept": [
+      "managerProgram"
+    ],
+    "od-ssh": [
+      "managerProgram"
+    ],
+    "od-material": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "od-upload": [
+      "managerProgram"
+    ],
+    "od-wake": [
+      "managerProgram"
+    ],
+    "od-ack": [
+      "workerProgram",
+      "managerProgram"
+    ],
+    "od-pull": [
+      "managerProgram"
+    ],
+    "od-data": [
+      "managerProgram"
+    ],
+    "od-evidence": [
+      "managerProgram"
+    ],
+    "od-service": [
+      "workerProgram"
+    ],
+    "od-ready": [
+      "workerProgram"
+    ],
+    "od-inbox": [
+      "workerProgram"
+    ],
+    "od-accept-task": [
+      "workerProgram"
+    ],
+    "od-queue": [
+      "workerProgram"
+    ],
+    "od-agent": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "od-platform": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "od-outbox": [
+      "workerProgram"
+    ],
+    "md-goal": [
+      "operator",
+      "managerAgent"
+    ],
+    "md-account": [
+      "operator",
+      "managerAgent"
+    ],
+    "md-persona": [
+      "operator",
+      "managerAgent"
+    ],
+    "md-auth": [
+      "operator",
+      "managerAgent"
+    ],
+    "md-material": [
+      "operator",
+      "managerAgent"
+    ],
+    "md-time": [
+      "operator",
+      "managerAgent"
+    ],
+    "md-save": [
+      "managerProgram"
+    ],
+    "md-ready": [
+      "managerProgram"
+    ],
+    "md-spec": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "md-budget": [
+      "managerAgent",
+      "managerProgram"
+    ],
+    "md-split": [
+      "managerProgram"
+    ],
+    "md-deps": [
+      "managerProgram"
+    ],
+    "md-envelope": [
+      "managerProgram"
+    ],
+    "md-dispatch": [
+      "managerProgram"
+    ],
+    "md-ack": [
+      "managerProgram"
+    ],
+    "md-progress": [
+      "managerProgram"
+    ],
+    "md-sync": [
+      "managerProgram"
+    ],
+    "md-pull": [
+      "managerProgram"
+    ],
+    "md-ingest": [
+      "managerProgram"
+    ],
+    "md-store": [
+      "managerProgram"
+    ],
+    "md-dashboard": [
+      "managerProgram"
+    ],
+    "wd-file": [
+      "workerProgram"
+    ],
+    "wd-accept": [
+      "workerProgram"
+    ],
+    "wd-window": [
+      "workerProgram"
+    ],
+    "wd-deps": [
+      "workerProgram"
+    ],
+    "wd-order": [
+      "workerProgram"
+    ],
+    "wd-lock": [
+      "workerProgram"
+    ],
+    "wd-runner": [
+      "workerProgram"
+    ],
+    "wd-progress": [
+      "workerProgram"
+    ],
+    "wd-context": [
+      "workerAgent"
+    ],
+    "wd-claim": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "wd-step": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "wd-app": [
+      "workerProgram"
+    ],
+    "wd-identity": [
+      "workerProgram"
+    ],
+    "wd-workflow": [
+      "workerProgram"
+    ],
+    "wd-final": [
+      "workerProgram"
+    ],
+    "wd-durable": [
+      "workerProgram"
+    ],
+    "wd-bridge": [
+      "browserProgram"
+    ],
+    "wd-extension": [
+      "browserProgram"
+    ],
+    "wd-profile": [
+      "browserProgram"
+    ],
+    "wd-action": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "wd-evidence": [
+      "workerProgram"
+    ],
+    "wd-db": [
+      "workerProgram"
+    ],
+    "wd-outbox": [
+      "workerProgram"
+    ],
+    "wd-index": [
+      "workerProgram"
+    ],
+    "rd-create": [
+      "managerProgram"
+    ],
+    "rd-transfer": [
+      "managerProgram"
+    ],
+    "rd-ack": [
+      "workerProgram"
+    ],
+    "rd-claim": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "rd-running": [
+      "workerAgent",
+      "workerProgram"
+    ],
+    "rd-unknown": [
+      "workerProgram"
+    ],
+    "rd-reconcile": [
+      "managerAgent",
+      "operator"
+    ],
+    "rd-revision": [
+      "workerProgram"
+    ],
+    "rd-items": [
+      "workerProgram"
+    ],
+    "rd-browse": [
+      "workerProgram"
+    ],
+    "rd-engage": [
+      "workerProgram"
+    ],
+    "rd-messages": [
+      "workerProgram"
+    ],
+    "rd-publish": [
+      "workerProgram"
+    ],
+    "rd-count": [
+      "workerProgram"
+    ],
+    "rd-final": [
+      "workerProgram"
+    ],
+    "rd-durable": [
+      "workerProgram"
+    ],
+    "rd-index": [
+      "workerProgram"
+    ],
+    "rd-download": [
+      "managerProgram"
+    ],
+    "rd-ingest": [
+      "managerProgram"
+    ],
+    "rd-resultack": [
+      "managerProgram"
+    ],
+    "rd-businessdb": [
+      "managerProgram"
+    ],
+    "rd-evidence": [
+      "managerProgram"
+    ],
+    "rd-summary": [
+      "managerProgram"
+    ],
+    "rd-page": [
+      "managerProgram"
+    ],
+    "dc-ui": [
+      "operator"
+    ],
+    "dc-api": [
+      "managerProgram"
+    ],
+    "dc-ssh": [
+      "managerProgram"
+    ],
+    "dc-return": [
+      "managerProgram"
+    ],
+    "dc-sync": [
+      "managerProgram"
+    ],
+    "dc-check": [
+      "managerProgram"
+    ],
+    "dc-ready": [
+      "workerProgram"
+    ],
+    "dc-run": [
+      "workerProgram"
+    ],
+    "dc-browser": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "dc-workerdb": [
+      "workerProgram"
+    ],
+    "dc-receipt": [
+      "workerProgram"
+    ],
+    "dc-export": [
+      "workerProgram"
+    ],
+    "dc-ingest": [
+      "managerProgram"
+    ],
+    "dc-db": [
+      "managerProgram"
+    ],
+    "dc-records": [
+      "managerProgram"
+    ],
+    "dc-workerrecords": [
+      "managerProgram"
+    ],
+    "dc-facts": [
+      "managerProgram"
+    ],
+    "dc-page": [
+      "managerProgram"
+    ],
+    "da-windows": [
+      "managerProgram"
+    ],
+    "da-service": [
+      "managerProgram"
+    ],
+    "da-poll": [
+      "managerProgram"
+    ],
+    "da-pull": [
+      "managerProgram"
+    ],
+    "da-export": [
+      "managerProgram"
+    ],
+    "da-settings": [
+      "managerProgram"
+    ],
+    "da-daily": [
+      "workerProgram"
+    ],
+    "da-run": [
+      "workerProgram"
+    ],
+    "da-platform": [
+      "workerProgram",
+      "browserProgram"
+    ],
+    "da-workerdb": [
+      "workerProgram"
+    ],
+    "da-outbox": [
+      "workerProgram"
+    ],
+    "da-workerexport": [
+      "workerProgram"
+    ],
+    "da-archive": [
+      "managerProgram"
+    ],
+    "da-ingest": [
+      "managerProgram"
+    ],
+    "da-db": [
+      "managerProgram"
+    ],
+    "da-workerrecords": [
+      "managerProgram"
+    ],
+    "da-facts": [
+      "managerProgram"
+    ],
+    "da-page": [
+      "managerProgram"
+    ]
   },
   "participation": {
-    "configure": {
-      "label": "人工配置",
-      "detail": "操作人明确目标、账号、计划或控制要求；可通过经理 Agent 或管理台保存和提交。"
+    "operator": {
+      "label": "操作人",
+      "detail": "人工明确业务要求，配置接入，点击运营台入口，并在需要时核对现场事实。"
     },
-    "auto": {
-      "label": "系统自动",
-      "detail": "由经理程序、员工程序、Agent、扩展或平台按已有任务与配置处理；执行仍受对应就绪条件约束。"
+    "managerAgent": {
+      "label": "经理 Agent",
+      "detail": "理解运营要求、选定账号与素材、安排目标和计划，调用经理固定入口并解释结果。"
     },
-    "review": {
-      "label": "按需人工核对",
-      "detail": "原任务对账可以由程序发起；自动证据仍不足时，操作人核对原执行和平台事实，确认后沿原任务修订。"
+    "workerAgent": {
+      "label": "员工 Agent",
+      "detail": "读取原任务与岗位技能，实际领取任务，组织步骤、调用固定 CLI，并整理执行材料。"
+    },
+    "managerProgram": {
+      "label": "经理程序",
+      "detail": "经理 API、计划生成、SSH/SFTP、后台轮询、回执关联、数据库导入与运营台查询由固定代码执行。"
+    },
+    "workerProgram": {
+      "label": "员工程序",
+      "detail": "员工接收、调度、锁、runner、固定 CLI、采集、规则校验、持久化及 outbox 发布由固定代码执行。"
+    },
+    "browserProgram": {
+      "label": "Bridge / 扩展程序",
+      "detail": "Bridge 和 Chrome 扩展在绑定的 Profile 内执行页面命令，读取 DOM 与平台响应并返回证据。"
     }
+  },
+  "nodeResponsibilities": {
+    "od-config": "经理 Agent 按人工要求配置绑定和策略；经理程序保存配置，供后续计划复用。",
+    "od-material": "经理 Agent 准备或选定本次素材、决定传输；经理程序执行 SFTP，任务引用员工素材路径。",
+    "od-plan": "经理 Agent 决定目标与节奏；经理程序准备计划、计算本批新增量并生成任务参数。",
+    "o-agent": "员工 Agent 读取和组织任务步骤，员工固定程序执行这些步骤并保存结果。",
+    "od-agent": "员工 runner 启动 Codex；员工 Agent 领取原任务、组织步骤并调用固定 CLI。",
+    "w-agent": "员工程序启动 Codex，员工 Agent 调用 claim 并阅读任务，程序写 claimed.json 和领取进度。",
+    "wd-context": "员工 Agent 阅读 task.json、岗位规则和技能，确定怎样完成原任务。",
+    "wd-claim": "员工 Agent 发起 claim；固定任务 CLI 写入 claimed.json，runner 记录 agent_claimed。",
+    "wd-step": "员工 Agent 准备步骤输入并调用 task-entry invoke；员工 CLI 绑定原账号执行并保存步骤输出。",
+    "wd-runner": "员工程序按任务能力选择 runner；创作中心指标走直接采集程序，常规 Agent 任务启动 Codex。",
+    "w-cli": "员工 Agent 组织调用顺序与输入；employee_task_cli 按原任务和授权执行步骤。",
+    "rd-running": "Agent 路径由员工 Agent 组织步骤并调用程序；创作中心固定采集路径由员工程序直接运行。",
+    "rd-reconcile": "经理 Agent 先沿原执行核对记录；需要现场事实时由操作人或员工 Agent 补充，再调用程序修订原结果。"
+  },
+  "dataFaqs": [
+    {
+      "question": "手动“作品采集”“通知采集”和“回收已有回执”分别做什么？",
+      "answer": "<p><strong>作品采集</strong>：人工点击 → 经理 API → SSH 固定命令 → 员工程序读取创作中心指标 → SSH 同步返回采集回执 → 经理导入结果及员工业务表。</p><p><strong>通知采集</strong>：同一路径调用员工通知固定程序，当前即时入口采集作品评论和新增关注。</p><p><strong>回收已有回执</strong>：经理通过 SFTP 读取员工已经形成的 outbox。重新采集平台数据通过作品或通知入口发起；已有回执回收负责导入已经产生的结果。</p><p>全部账号操作同机账号串行，最多三台机器并行，执行期间保持页面打开。账号忙时显示 DEFERRED；收到采集回执和数据库 SYNCED 分别核对。</p>"
+    },
+    {
+      "question": "经理拉取员工结果，是 Windows 定时任务还是程序轮询？",
+      "answer": "<p>经理 Windows 任务 <code>AutoXHS-Manager-WebUI</code> 在登录时触发，并每 5 分钟检查 8765 监听，按需启动控制台进程。<code>web_server.py</code> 启动 <code>ManagerSyncService</code> 后，由进程内的 <code>manager-result-sync</code> 后台线程持续执行结果回收。</p><p>本机 2026-10-16 只读回读：<code>results_seconds=180</code>，即当前每 3 分钟一轮；源码默认值是 300 秒。设置位于系统设置及 <code>settings/polling</code>。同一结果轮次先回收 outbox，再在机器业务同步启用时拉取业务表。健康与账号检查当前 600 秒，页面刷新当前 30 秒，分别运行。</p><p>员工每天采集新指标由员工机自己的计划任务触发；经理回收已有结果由上述后台线程或人工按钮触发。经理 Web 服务停止时，其后台轮询随之停止。</p>"
+    },
+    {
+      "question": "“每天采集”和“把数据传回经理”在时间上怎样衔接？",
+      "answer": "<p>员工的 <code>Creator-0030</code> 每日任务在启用时按北京时间 00:30 调用 <code>daily_creator_collection.py</code>，读取参与账号配置，进入员工队列并调用固定作品采集程序。账号忙时等待，暂停或不可用时按规则记录状态。每日通知任务独立维护。</p><p>采集事实先留在员工 <code>operations.db</code>，任务结果写 outbox。经理每 180 秒读取新回执，并通过 SSH 只读导出器同步业务表。因此经理留存会随新增结果和同步周期更新。手动即时采集直接通过 SSH 返回本次 result，随后同步业务表。</p><p>00:30 为源码与已登记部署约定；每台员工机当前是否启用、参与账号、实际采集时间及下次触发时间，以该机任务计划程序和配置回读为准。本次核对了经理本机计划任务与轮询配置，员工任务启停沿目标机实际配置维护。</p>"
+    },
+    {
+      "question": "经理机具体存在哪个 DB？各类数据放在哪张表？",
+      "answer": "<p><strong>当前落地库：</strong><code>C:\\auto-xhs\\manager-state\\manager-operations.db</code>，PC023 本地 SQLite；由 <code>manager_manifest.json → paths.business_database</code> 定位。</p><ul><li><code>records</code>：经理任务、结果及其他集合的 JSON 记录和查询投影。</li><li><code>worker_records</code>：按机器导入员工 <code>operations.db</code> 各表、表结构及产品状态。</li><li><code>daily_metric_facts</code>：数据库同步时按机器、账号、业务日期刷新实际量、累计值、观测新增及覆盖度投影；即时采集返回与完整查询投影刷新分别核对。</li><li><code>metadata</code>：<code>worker:{machine_id}</code> 保存源库路径、员工 exported_at、经理 imported_at 和记录数。</li></ul><p>原始 SFTP 回执缓存位于 <code>collector/{machine}/records</code>，按经理回收日期归档到 <code>daily_receipts/{date}/raw/{machine}/{task}/{sequence}.json</code>；配置与历史状态按经理存储职责维护。即时入口会返回 <code>database_status</code>，页面同步状态用于判断经理是否已经留存本轮数据。当前图展示的运行终点为经理本地库。</p>"
+    },
+    {
+      "question": "手动数据回收属于哪个功能包，包放在哪里？",
+      "answer": "<p>以下编号、任务编号和版本来自 PC023 的 <code>package_relations/function_catalog.json</code>。功能包根目录为 <code>C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包</code>，按“模块／功能编号／版本”摆放。</p><div class=\"table-scroll\"><table><thead><tr><th>功能编号 / 版本</th><th>功能</th><th>任务编号</th><th>包位（功能包根下）</th><th>正式包入口</th></tr></thead><tbody><tr><td>DATA-03 / 1.5</td><td>采集指标并生成运营报告</td><td>REQ-20260824-002</td><td><code>数据与诊断模块\\DATA-03\\1.5</code></td><td><code>C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\数据与诊断模块\\DATA-03\\1.5\\runtime\\run.py</code></td></tr><tr><td>MANAGER-04 / 1.5</td><td>回收执行结果和数据</td><td>REQ-20260824-002</td><td><code>经理机模块\\MANAGER-04\\1.5</code></td><td><code>C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-04\\1.5\\runtime\\run.py</code></td></tr><tr><td>MANAGER-FRONT-05 / 1.0</td><td>数据回收与结果审计</td><td>REQ-20260904-001</td><td><code>经理机模块\\MANAGER-FRONT-05\\1.0</code></td><td><code>C:\\Users\\EDY\\Documents\\Codex\\2026-07-31\\readme-md\\功能包\\经理机模块\\MANAGER-FRONT-05\\1.0\\runtime\\run.py</code></td></tr></tbody></table></div><p>运营台入口归属 <strong>MANAGER-FRONT-05 / 1.0</strong>，回执与数据回收归属 <strong>MANAGER-04 / 1.5</strong>，员工指标采集对应 <strong>DATA-03 / 1.5</strong>。前端按钮实际调用经理 API；执行代码维护在 <code>ManagerStation/Managers/PC023/function_packages/xiaohongshu-skills/0.1.0/manager/runtime/</code> 和对应 <code>worker_packages/.../worker/runtime/</code>。表内正式包保存功能版本入口及配套交付资料。</p>"
+    },
+    {
+      "question": "这一流程由 Agent 还是程序执行？",
+      "answer": "<p>手动入口由操作人点击；经理 API、SSH/SFTP、员工即时作品／通知采集、Bridge 命令、结果导入与本地数据库写入均由固定程序执行。每日创作中心指标任务也选择直接采集 runner。</p><p>经理 Agent 负责理解目标、安排账号与采集需求、调用经理入口和核对异常。常规运营任务中的员工 Agent 负责阅读原任务、组织步骤、调用 CLI；它与直接采集 runner 是不同的执行入口。图中每个节点分别标出实际参与者，混合节点同时标注 Agent 与程序。</p>"
+    }
+  ],
+  "materialFaq": {
+    "question": "账号与素材来源的绑定、素材准备、SFTP 投递各在什么时候发生？",
+    "answer": "<p><strong>接入绑定：</strong>经理 Agent 按要求建立机器、账号槽位、身份、策略及素材来源关联，后续配置发生变更时再维护；计划复用这些绑定。</p><p><strong>本次素材：</strong>经理 Agent 在有发布需求时准备或选定内容，检查员工已有可读文件，需要传输时调用经理固定程序通过 SFTP 送到员工素材目录。</p><p><strong>任务投递：</strong>素材就绪后，任务参数引用员工素材绝对路径；任务 JSON 单独写入 <code>inbox/pending</code> 并经 SSH 唤醒。本次素材准备由计划需求触发，账号绑定为后续任务提供可复用的配置。</p>"
   }
 }
 </script>
@@ -7650,6 +9408,7 @@ const chapters=[
  {id:'manager',name:'经理机操作',title:'经理机操作',subtitle:'目标、账号、计划与批次，在 PC023 汇成可执行任务',tag:'图 02 / 计划与调度'},
  {id:'worker',name:'员工机运行',title:'员工机运行',subtitle:'本地接单、队列、Agent、程序与浏览器的执行链',tag:'图 03 / 员工执行'},
  {id:'receipts',name:'回执与判定',title:'回执与完成判定',subtitle:'沿原任务编号，逐层核对送达、执行、平台事实与回收',tag:'图 04 / 结果依据'},
+ {id:'data',name:'采集与留存',title:'运营数据采集与留存',subtitle:'人工采集、员工数据产生、经理回收与本地 SQLite 落地',tag:'图 05 / 数据留存'},
  {id:'source',name:'代码与功能',title:'主要代码与功能',subtitle:'按主要模块查功能、实现策略与采用原因',tag:'对照表 / 代码策略'}
 ];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -7675,7 +9434,9 @@ function refsMarkup(refs){
 }
 const batch=`<div class="batch-visual" aria-label="三批运营任务示例：每批浏览十条、点赞两次，全天浏览三十条、点赞六次"><div class="batch-line">${[['15:00','第 1 批'],['16:00','第 2 批'],['17:00','第 3 批']].map(([t,n])=>`<div class="batch-card"><span>${n}</span><b>${t}</b><p>新增浏览 <em>10</em><br>新增点赞 <em>2</em></p></div>`).join('')}</div><div class="batch-total">全天合计：浏览 30 · 点赞 6　｜　示例时点与数量来自既有批次测试</div></div>`;
 function faqsFor(id){
+ if(id==='data')return D.dataFaqs.map(item=>faq(item.question,item.answer)).join('');
  if(id==='overall')return [
+ faq(D.materialFaq.question,D.materialFaq.answer),
  faq('接手后，先从哪里开始？',steps([
  ['在 PC023 明确账号与运营目标','使用经理 Agent 描述机器、账号槽位、业务日期、动作与目标数量；管理台用于查看账号、计划、执行进度和回收结果。'],
  ['确认机器接入与账号业务就绪','先确认 SSH/SFTP、员工程序和 Codex；再确认账号已登录，绑定 Profile、扩展配对和 Bridge 对应。'],
@@ -7690,7 +9451,7 @@ function faqsFor(id){
  ])+refsMarkup([['web_server',540],['executor_server',270],['bridge_server',348],['account_manager',23],['manager_transport',151]])),
  faq('经理和员工之间，实际怎样传任务与结果？','<p>PC023 创建任务 JSON，经 SFTP 写入员工 <code>inbox/pending</code>，再用 SSH 调用 <code>wake-task</code>。员工接收、排队并在本机执行，把接收确认、进度、结果和修订写入 outbox。</p><p>PC023 主动读取 <code>outbox/index.json</code>，按序号下载新增记录，归档和去重导入后推进回收游标。员工业务表快照与证据文件分别同步。</p>'+refsMarkup([['manager_service',1559],['manager_service',5490],['manager_worker_service',1520],['manager_worker_service',3367],['manager_service',2586]])),
  faq('为什么计划按批次执行？','<p>批次让全天工作落到具体时点，并让每次执行有明确的新增目标、有效时间和完成依据。员工调度再按账号锁、机器串行配置、依赖和间隔决定何时启动。</p>'+batch+'<p>浏览部分同时参考预算与配置时点：有浏览预算时，批数取 <code>ceil(浏览预算 / 15)</code> 与时点数量中的较大值，再把浏览和点赞预算分摊到批次。其他能力沿计划的动作与依赖生成任务。</p><p class="note">每批报告本批新增完成量；批间隔描述任务之间的等待，单条笔记的阅读停留沿业务节奏配置执行。</p>'+refsMarkup([['scheduled_daily_batches',17],['daily_operations_runner',331],['tests/test_scheduled_daily_batches.py',15]])),
- faq('本手册的范围和查看方式是什么？','<p>使用导航提供角色阅读路线、真实任务样例、排查入口和适用版本。四张架构图说明通信总览、经理操作、员工执行与回执判定；代码与功能章节采用主要代码对照表。每个架构章节提供分层详图和全流程总图。详图标出处理、条件、接口、消息与持久记录，节点包含简短输入输出；点击节点可在 FAQ 查看处理过程、前置条件和源码依据。</p><p>内容依据 2026-10-16 工作区源码核对。图示表达当前实现关系；设备在线状态、账号状态和平台业务结果由实际回读确认。本 HTML 的样式、图数据与交互均在文件内部，可直接用浏览器打开。</p>')
+ faq('本手册的范围和查看方式是什么？','<p>使用导航提供角色阅读路线、真实任务样例、排查入口和适用版本。五组架构图说明通信总览、经理操作、员工执行、回执判定与运营数据留存；代码与功能章节采用主要代码对照表。通信、经理、员工和回执章节提供分层详图与全流程总图；数据留存章节分别展示手动采集和定时回收。详图标出处理、条件、接口、消息与持久记录，节点包含简短输入输出；点击节点可在 FAQ 查看处理过程、前置条件和源码依据。</p><p>内容依据 2026-10-16 工作区源码核对。图示表达当前实现关系；设备在线状态、账号状态和平台业务结果由实际回读确认。本 HTML 的样式、图数据与交互均在文件内部，可直接用浏览器打开。</p>')
  ].join('');
  if(id==='manager')return [
  faq('经理机日常操作，按什么顺序进行？',steps([
@@ -7810,8 +9571,7 @@ function updateExceptionFAQ(id,open=false){
  document.querySelectorAll('[data-exception-step]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.exceptionStep===id)));
 }
 function participationMarkup(nodeId){
- const kind=D.nodeParticipation[nodeId],role=D.participation[kind];
- return `<span class="node-role ${kind}" title="${esc(role.detail)}">${esc(role.label)}</span>`;
+ return `<span class="node-roles">${D.nodeParticipation[nodeId].map(kind=>{const role=D.participation[kind];return `<span class="node-role ${kind}" title="${esc(role.detail)}">${esc(role.label)}</span>`;}).join('')}</span>`;
 }
 function locationLabel(){
  const focused=document.activeElement;
@@ -7937,7 +9697,7 @@ function codeMatrixMarkup(){
 }
 function graphMarkup(c){
  const g=graphFor(c.id);
- return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><div class="graph-modes" role="group" aria-label="${c.title}架构层级"><button type="button" data-graph-chapter="${c.id}" data-graph-mode="detail" aria-pressed="true">${esc(g.modeLabel)}</button><button type="button" data-graph-chapter="${c.id}" data-graph-mode="summary" aria-pressed="false">全流程总图</button></div><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
+ return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><div class="graph-modes" role="group" aria-label="${c.title}架构层级"><button type="button" data-graph-chapter="${c.id}" data-graph-mode="detail" aria-pressed="true">${esc(g.modeLabel)}</button><button type="button" data-graph-chapter="${c.id}" data-graph-mode="summary" aria-pressed="false">${esc(D.graphs[c.id].modeLabel||'全流程总图')}</button></div><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
 }
 function chapterFAQ(c){
  const selection=c.id==='source'
@@ -7948,9 +9708,9 @@ function chapterFAQ(c){
 document.getElementById('chapters').innerHTML=chapters.map((c,i)=>`<section class="chapter" id="chapter-${c.id}" ${i?'hidden':''} aria-labelledby="title-${c.id}"><div class="chapter-head"><div class="chapter-number">${c.no||String(i).padStart(2,'0')}</div><div><h2 id="title-${c.id}">${c.title}</h2><p>${c.subtitle}</p></div><span class="tag">${c.tag}</span></div>${c.id==='guide'?guideMarkup():c.id==='source'?codeMatrixMarkup():graphMarkup(c)}${c.id==='guide'?'':chapterFAQ(c)}<div class="chapter-pagination">${i?`<button type="button" data-chapter="${chapters[i-1].id}">← ${chapters[i-1].name}</button>`:'<span></span>'}${i<chapters.length-1?`<button type="button" data-chapter="${chapters[i+1].id}">下一章 · ${chapters[i+1].name} →</button>`:'<button type="button" data-chapter="overall">返回系统总览 ↑</button>'}</div></section>`).join('');
 const nodeKinds={action:'处理',decision:'条件判断',store:'持久记录',message:'消息 / 回执',interface:'接口 / 通道',platform:'平台侧'};
 function updateNodeFAQ(id,nodeId,open=false){
- const n=graphFor(id).nodes.find(n=>n.id===nodeId),x=D.explanations[nodeId],role=D.participation[D.nodeParticipation[nodeId]];
+ const n=graphFor(id).nodes.find(n=>n.id===nodeId),x=D.explanations[nodeId],roles=D.nodeParticipation[nodeId].map(kind=>D.participation[kind]);
  document.getElementById('node-question-'+id).textContent=n.title+'：怎样处理、需要什么、产出什么？';
- document.getElementById('node-answer-'+id).innerHTML=`<p>${esc(n.detail)}</p><p class="participation-note"><strong>${esc(role.label)}：</strong>${esc(role.detail)}</p><dl class="explain-grid"><div><dt>为什么需要</dt><dd>${esc(x.why)}</dd></div><div><dt>前置条件</dt><dd>${esc(x.before)}</dd></div><div><dt>处理产出</dt><dd>${esc(x.output)}</dd></div></dl>${x.note?`<p class="note">${esc(x.note)}</p>`:''}${refsMarkup(n.refs)}<div class="faq-return"><button type="button" class="node-return" data-return-graph="${id}" data-return-node="${nodeId}">↑ 返回图中节点</button><small>定位并高亮当前节点及相邻连线</small></div>`;
+ document.getElementById('node-answer-'+id).innerHTML=`<p>${esc(n.detail)}</p><div class="participation-note">${D.nodeResponsibilities[nodeId]?`<p><strong>本节点分工：</strong>${esc(D.nodeResponsibilities[nodeId])}</p>`:''}${roles.map(role=>`<p><strong>${esc(role.label)}：</strong>${esc(role.detail)}</p>`).join('')}</div><dl class="explain-grid"><div><dt>为什么需要</dt><dd>${esc(x.why)}</dd></div><div><dt>前置条件</dt><dd>${esc(x.before)}</dd></div><div><dt>处理产出</dt><dd>${esc(x.output)}</dd></div></dl>${x.note?`<p class="note">${esc(x.note)}</p>`:''}${refsMarkup(n.refs)}<div class="faq-return"><button type="button" class="node-return" data-return-graph="${id}" data-return-node="${nodeId}">↑ 返回图中节点</button><small>定位并高亮当前节点及相邻连线</small></div>`;
  document.getElementById('node-faq-'+id).open=open;
 }
 function updateGraphChrome(id){
