@@ -167,7 +167,7 @@ body.layer-view .main{padding:12px 18px 24px}
  stroke:#3779b7;stroke-width:2}
 .layer-label text{pointer-events:none}
 @media(max-width:700px){.layer-controls span{display:none}}
-.landing-paths{padding:12px 18px;border-top:1px solid #dce5ed}.landing-paths p,.landing-paths small{font-size:11px;color:#60768a}.landing-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.landing-grid code{display:block;margin:8px 0 3px;font-size:11px;overflow-wrap:anywhere}.landing-grid small{display:block}.landing-grid b{font-size:12px}@media(max-width:700px){.landing-grid{grid-template-columns:1fr}}
+[data-landing-inset].layer-background{opacity:.27}
 </style>
 </head>
 <body>
@@ -6465,14 +6465,11 @@ body.layer-view .main{padding:12px 18px 24px}
 'use strict';
 const D=JSON.parse(document.getElementById('manual-data').textContent);
 const chapters=[
- {id:'guide',no:'00',name:'使用导航',title:'使用导航',subtitle:'按角色上手，沿真实任务理解闭环',tag:'路线 / 实例 / 排查'},
- {id:'overall',name:'全部 · 三层架构',title:'总体通信与数据闭环',subtitle:'沿一张全流程详图查看角色、任务、通信与结果留存',tag:'全流程详图'},
- {id:'communication',name:'通信层',title:'通信通道与触发机制',subtitle:'沿箭头查看任务投递、即时调用、回执回收和业务数据返回',tag:'通道 / 周期 / 回执'},
- {id:'data',name:'数据层',title:'采集与数据留存',subtitle:'沿箭头查看采集、员工留存、传输、经理本地入库和页面展示',tag:'采集 / 本地 DB / 包位'},
+ {id:'overall',name:'三层架构',title:'总体通信与数据闭环',subtitle:'沿一张全流程详图查看角色、任务、通信与结果留存',tag:'全流程详图'},
  {id:'source',name:'代码与功能',title:'主要代码与功能',subtitle:'按主要模块查功能、实现策略与采用原因',tag:'对照表 / 代码策略'}
 ];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let active='guide';
+let active='overall';
 const navigationTrail=[],graphOrigins={},graphZoom={};
 let expandedGraph=null;
 let overviewLayer='all',overviewFocus=null;
@@ -6498,7 +6495,7 @@ function canonicalNode(nodeId){
  };return aliases[nodeId]||nodeId;
 }
 function layerLayout(host){
- const g=D.graphDetails.overall,width=1160,height=660,boxes={};
+ const g=D.graphDetails.overall,width=1160,height=820,boxes={};
  for(const n of g.nodes)boxes[n.id]={x:48+n.c*400,y:64+n.r*72,w:264,h:44,c:n.c,r:n.r};
  boxes['od-daily']={x:848,y:39,w:264,h:20,c:2,r:-1};
  const edges=[...g.edges,{a:'od-pull',b:'od-outbox',type:'control'}];
@@ -6556,7 +6553,7 @@ function layerLayout(host){
  });
  const color=i=>i>=30?'#a77a3e':edges[i].type==='back'?'#288773':
   edges[i].type==='control'?'#a77a3e':'#3977b7';
- let svg='<rect width="1160" height="660" fill="#f8fafc"/><defs>';
+ let svg='<rect width="1160" height="820" fill="#f8fafc"/><defs>';
  for(const c of ['#3977b7','#288773','#a77a3e'])svg+=`<marker id="arrow-${host}-${c.slice(1)}"
  markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
  <path d="M0 0L7 3.5L0 7Z" fill="${c}"/></marker>`;
@@ -6601,9 +6598,38 @@ function layerLayout(host){
  }
  const notes={all:'回路：07 条件未满足则等待重查；10 按配置周期再拉取；12 人工复盘后返回 03。',
   communication:'消息链：文件投递 → 唤醒接收 → 接收与进度确认 → 主动拉取 outbox → 归档并推进游标。',
-  data:'每日采集：Windows 定时任务 → 固定采集程序 → 员工库 / outbox → 经理本地库；绝对路径见图下。'};
+  data:'每日采集：Windows 定时任务 → 固定采集程序 → 员工库 / outbox → 经理本地库；绝对路径见图内落盘区。'};
  for(const [layer,t] of Object.entries(notes))svg+=`<text data-layer-note="${layer}"
  x="48" y="641" font-size="12" fill="#536d82" ${layer!=='all'?'hidden':''}>${esc(t)}</text>`;
+
+ const landingGroups=[
+  {x:36,title:'经理 · PC023 本地留存',items:[
+   ['业务库',String.raw`C:\auto-xhs\manager-state\manager-operations.db`],
+   ['回执缓存',String.raw`C:\auto-xhs\manager-state\collector\{机器}\records\{序号}.json`],
+   ['原始归档',String.raw`C:\auto-xhs\manager-state\daily_receipts\{日期}\raw\{机器}\{任务}\{序号}.json`]]},
+  {x:412,title:'员工 · outbox 结果文件',items:[
+   ['索引',String.raw`C:\auto-xhs\manager-task-outbox\index.json`],
+   ['结果',String.raw`C:\auto-xhs\manager-task-outbox\results\{序号}-{任务}.json`]],
+   note:'{序号}为12位序号；{日期}为经理回收日期。'},
+  {x:788,title:'员工 · 采集与业务留存',items:[
+   ['业务库',String.raw`C:\Users\EDY\.xhs\auto-xhs\operations.db`],
+   ['每日作品',String.raw`C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-creator\last-run.json`],
+   ['每日通知',String.raw`C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-passive\{任务}.json`]]}
+ ];
+ for(const group of landingGroups){
+  svg+=`<g data-landing-inset="true"><rect x="${group.x}" y="654" width="336" height="152" rx="8" fill="#fff" stroke="#c5d5e4"/><text x="${group.x+10}" y="673" font-size="12" font-weight="600" fill="#28465e">${esc(group.title)} · 绝对路径</text>`;
+  let y=688;
+  for(const [label,path] of group.items){
+   svg+=`<text x="${group.x+10}" y="${y}" font-size="10" fill="#54738e">${esc(label)}</text>`;y+=12;
+   const lines=[];let rest=path;
+   while(rest.length>51){const slash=rest.lastIndexOf('\\',50),cut=slash>0?slash+1:51;lines.push(rest.slice(0,cut));rest=rest.slice(cut);}lines.push(rest);
+   for(const line of lines){svg+=`<text x="${group.x+10}" y="${y}" font-family="Consolas,Microsoft YaHei,monospace" font-size="10.5" fill="#28465e">${esc(line)}</text>`;y+=12;}
+   y+=3;
+  }
+  if(group.note)svg+=`<text x="${group.x+10}" y="${y+3}" font-size="10" fill="#54738e">${esc(group.note)}</text>`;
+  svg+='</g>';
+ }
+
  return {width,height,boxes,paths,labels,defs,svg:`<svg xmlns="http://www.w3.org/2000/svg"
  width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
  style="font-family:Segoe UI,Microsoft YaHei,sans-serif">${svg}</svg>`};
@@ -6616,7 +6642,7 @@ function layerControls(id){
 }
 function applyLayer(id){
  const graph=document.getElementById('graph-'+id),layer=layerFor(id);
- const landing=document.getElementById('landing-'+id);if(landing)landing.hidden=layer==='communication';
+ graph.querySelectorAll('[data-landing-inset]').forEach(el=>el.classList.toggle('layer-background',layer==='communication'));
  const def=graph.layerLayout.defs[layer],visible=new Set(def.edges),nodes=new Set(def.nodes);
  graph.querySelectorAll('[data-layer-edge]').forEach(el=>
   el.toggleAttribute('hidden',!visible.has(+el.dataset.layerEdge)));
@@ -6653,7 +6679,7 @@ function fitLayerGraph(id){
  const top=scroll.getBoundingClientRect().top;
  const available=expandedGraph===id?scroll.clientHeight:Math.max(300,innerHeight-top-42);
  graphAutoFit[id]=true;
- graphZoom[id]=Math.min(1,(scroll.clientWidth-12)/1160,available/660);
+ graphZoom[id]=Math.min(1,(scroll.clientWidth-12)/graph.layerLayout.width,available/graph.layerLayout.height);
  applyGraphScale(id);
 }
 function chooseLayer(id,layer){
@@ -6790,6 +6816,7 @@ function updateTroubleFAQ(id,open=false){
  document.querySelectorAll('[data-trouble-row]').forEach(el=>el.classList.toggle('is-selected',el.dataset.troubleRow===id));
 }
 function followGuide(target){
+ if(['communication','data'].includes(target.chapter)){chooseLayer('overall',target.chapter);target={...target,chapter:'overall',node:target.node?canonicalNode(target.node):undefined};}
  activate(target.chapter);
  if(target.node){
   activateGraphMode(target.chapter,'detail');selections[target.chapter]=target.node;
@@ -6950,7 +6977,7 @@ function graphMarkup(c){
  <div class="graph-scroll"><div class="graph-stage"><div class="graph" id="graph-${c.id}"
  role="group" aria-label="固定三列分层架构"></div></div></div>
  <div class="graph-footer"><span>点击模块查看功能、路径与源码 FAQ</span>
- <span id="graph-count-${c.id}"></span></div><div class="landing-paths" id="landing-${c.id}"><h4>数据落盘位置 · 绝对路径</h4><p>员工路径按 PC052 / PC057 / PC065 / PC071 / PC073 已登记的 EDY 用户部署；以下花括号为实际日期、机器、任务和序号。</p><div class="landing-grid"><div><b>① 员工采集与本地业务库</b><code>C:\Users\EDY\.xhs\auto-xhs\operations.db</code><small>作品指标、通知等采集事实；每天定时和手动采集共用业务留存。</small><code>C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-creator\last-run.json</code><small>每日作品任务运行记录；Creator-0030 启用时 00:30 触发。</small><code>C:\Users\EDY\.xhs\auto-xhs\manager-worker\daily-passive\{task_id}.json</code><small>每日通知逐任务采集记录；启停与触发时间按员工配置。</small></div><div><b>② 员工 outbox 结果文件</b><code>C:\auto-xhs\manager-task-outbox\index.json</code><small>回执索引：供经理按游标查找新增记录。</small><code>C:\auto-xhs\manager-task-outbox\results\{12位序号}-{task_id}.json</code><small>任务结果文件，包括每日采集结果。业务表还会从员工库单独同步到经理库。</small></div><div><b>③ PC023 经理缓存、归档与入库</b><code>C:\auto-xhs\manager-state\collector\{machine}\records\{12位序号}.json</code><small>拉取到经理机的原始回执缓存。</small><code>C:\auto-xhs\manager-state\daily_receipts\{回收日期}\raw\{machine}\{task_id}\{12位序号}.json</code><small>按经理回收日期归档。</small><code>C:\auto-xhs\manager-state\manager-operations.db</code><small>结果进入 records；员工业务表导入 worker_records，并维护查询投影。</small></div></div></div></div>`;
+ <span id="graph-count-${c.id}"></span></div></div>`;
 }
 function flowReferenceMarkup(id,keys){
  const blocks=D.flowReferences[id]||[];
@@ -6964,7 +6991,7 @@ function chapterFAQ(c){
  const selection=c.id==='source'
  ? `<details class="faq-item code-detail" id="code-detail"><summary><span class="question-label">代码条目</span><span id="code-question"></span></summary><div class="faq-answer" id="code-answer"></div></details>`
  : `<details class="faq-item node-faq" id="node-faq-${c.id}"><summary><span class="question-label">图中节点</span><span id="node-question-${c.id}"></span></summary><div class="faq-answer" id="node-answer-${c.id}"></div></details>`;
- return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${c.id==='overall'?operationsStrategyMarkup():''}${selection}${c.id==='overall'?faq('怎样阅读固定底图上的三层？','<p>全部、通信、数据共用经理机、通信通道、员工机三列及原有 24 个模块位置。全部显示业务、通信、数据与循环；通信突出投递、接收、确认、主动拉取和归档游标；数据突出员工产生的数据回到经理本地数据库。</p><p>浅灰模块是共用背景，帮助对照同一位置在整条链路中的作用。切换仅改变模块强调状态及连线、线上说明的可见性，模块、路径和标签位置保持稳定。所有必要连线直接显示。</p><p>05 到 06 经过任务文件落盘、SSH wake-task 与员工读取任务文件；07 条件未满足时等待重查；10 按配置周期回收；12 的回路表示人工复盘后安排下一轮计划。卡片显示名称与执行者，功能、路径与源码放在节点 FAQ。图默认按窗口适应整屏，可放大或全屏查看。</p>'):''}${faqsFor(c.id)}${flowReferenceMarkup(c.id)}</section>`;
+ return `<section class="faq" id="faq-${c.id}" aria-label="${c.title} FAQ"><div class="section-heading"><h3>FAQ</h3><span>${c.id==='source'?'采用原因、实现策略与源码位置':'操作、前置条件与完成依据'}</span></div>${c.id==='overall'?operationsStrategyMarkup():''}${selection}${c.id==='overall'?faq('怎样阅读固定底图上的三层？','<p>全部、通信、数据共用经理机、通信通道、员工机三列及原有 24 个模块位置。全部显示业务、通信、数据与循环；通信突出投递、接收、确认、主动拉取和归档游标；数据突出员工产生的数据回到经理本地数据库。</p><p>浅灰模块是共用背景，帮助对照同一位置在整条链路中的作用。切换仅改变模块强调状态及连线、线上说明的可见性，模块、路径和标签位置保持稳定。所有必要连线直接显示。</p><p>05 到 06 经过任务文件落盘、SSH wake-task 与员工读取任务文件；07 条件未满足时等待重查；10 按配置周期回收；12 的回路表示人工复盘后安排下一轮计划。卡片显示名称与执行者，功能、路径与源码放在节点 FAQ。图默认按窗口适应整屏，可放大或全屏查看。</p>'):''}${faqsFor(c.id)}${c.id==='overall'?faqsFor('communication')+faqsFor('data'):''}${flowReferenceMarkup(c.id)}</section>`;
 }
 document.getElementById('chapters').innerHTML=chapters.map((c,i)=>`<section class="chapter" id="chapter-${c.id}" ${i?'hidden':''} aria-labelledby="title-${c.id}"><div class="chapter-head"><div class="chapter-number">${c.no||String(i).padStart(2,'0')}</div><div><h2 id="title-${c.id}">${c.title}</h2><p>${c.subtitle}</p></div><span class="tag">${c.tag}</span></div>${c.id==='overall'?'<p><a href="#operations-strategy">查看运营策略简表 ↓</a></p>':''}${c.id==='guide'?guideMarkup():c.id==='source'?codeMatrixMarkup():graphMarkup(c)}${c.id==='guide'?'':chapterFAQ(c)}<div class="chapter-pagination">${i?`<button type="button" data-chapter="${chapters[i-1].id}">← ${chapters[i-1].name}</button>`:'<span></span>'}${i<chapters.length-1?`<button type="button" data-chapter="${chapters[i+1].id}">下一章 · ${chapters[i+1].name} →</button>`:'<button type="button" data-chapter="overall">返回系统总览 ↑</button>'}</div></section>`).join('');
 const nodeKinds={action:'处理',decision:'条件判断',store:'持久记录',message:'消息 / 回执',interface:'接口 / 通道',platform:'平台侧'};
@@ -7202,6 +7229,8 @@ document.getElementById('code-rows').addEventListener('click',event=>{
  document.getElementById('code-detail').scrollIntoView({behavior:'smooth',block:'start'});
 });
 function activate(id,scroll=true,remember=true){
+ if(['communication','data'].includes(id)){chooseLayer('overall',id);id='overall';}
+ if(id==='guide')id='overall';
  if(!chapters.some(c=>c.id===id))return;
  if(id!==active&&scroll&&remember)navigationTrail.push(captureLocation());
  if(expandedGraph&&expandedGraph!==id)setExpandedGraph(expandedGraph,false,false);
@@ -7217,8 +7246,7 @@ const observer=new ResizeObserver(()=>drawGraph(active));observer.observe(docume
 window.addEventListener('beforeprint',()=>{document.querySelectorAll('.chapter').forEach(el=>el.hidden=false);chapters.forEach(c=>drawGraph(c.id));});
 window.addEventListener('afterprint',()=>activate(active,false));
 
-updateCaseFAQ(D.handoff.case.steps[0].id);renderTroubles();updateTroubleFAQ(selectedTrouble);
-document.getElementById('trouble-search').addEventListener('input',renderTroubles);
+
 document.addEventListener('click',event=>{
  const route=event.target.closest('[data-guide-chapter]');
  if(route){followGuide({chapter:route.dataset.guideChapter,node:route.dataset.guideNode,code:route.dataset.guideCode});return;}
@@ -7229,7 +7257,7 @@ document.addEventListener('click',event=>{
 });
 
 
-updateExceptionFAQ(D.handoff.exception.steps[0].id);
+
 document.getElementById('return-origin').addEventListener('click',returnToOrigin);
 document.querySelectorAll('[data-graph-search]').forEach(input=>{
  input.addEventListener('input',()=>renderGraphSearch(input.dataset.graphSearch));
@@ -7274,7 +7302,7 @@ document.addEventListener('keydown',event=>{
 });
 window.addEventListener('resize',()=>drawGraph(active));
 
-let initial='overall';try{const saved=localStorage.getItem('xhs-architecture-layered-chapter')||'overall';initial=({manager:'overall',worker:'overall',receipts:'communication'})[saved]||saved;if(!chapters.some(c=>c.id===initial))initial='guide';}catch{}
+let initial='overall';try{const saved=localStorage.getItem('xhs-architecture-layered-chapter')||'overall';initial=({manager:'overall',worker:'overall',receipts:'communication'})[saved]||saved;if(!chapters.some(c=>c.id===initial))initial='overall';}catch{}
 activate(initial,false);
 })();
 </script>
