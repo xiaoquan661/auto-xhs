@@ -27,10 +27,6 @@ def prompts_root() -> Path:
     return resource_root("prompts")
 
 
-def skills_root() -> Path:
-    return resource_root("skills")
-
-
 def webui_layout() -> dict[str, Any]:
     return json.loads((project_root() / "webui-layout.json").read_text(encoding="utf-8"))
 

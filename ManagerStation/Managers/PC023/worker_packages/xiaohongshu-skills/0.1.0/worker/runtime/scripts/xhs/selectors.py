@@ -45,7 +45,6 @@ LIKE_BUTTON_SELECTORS = (
 COLLECT_BUTTON = ".interact-container .left .reds-icon.collect-icon"
 
 # ========== 发布页 ==========
-CREATOR_TAB = "div.creator-tab"
 UPLOAD_INPUT = ".upload-input"
 FILE_INPUT = 'input[type="file"]'
 TITLE_INPUT = "div.d-input input"
