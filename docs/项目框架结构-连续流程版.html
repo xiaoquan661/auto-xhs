@@ -6631,7 +6631,7 @@ function layerControls(id){
 }
 function applyLayer(id){
  const graph=document.getElementById('graph-'+id),layer=layerFor(id);
- 
+
  const def=graph.layerLayout.defs[layer],visible=new Set(def.edges),nodes=new Set(def.nodes);
  graph.querySelectorAll('[data-layer-edge]').forEach(el=>
   el.toggleAttribute('hidden',!visible.has(+el.dataset.layerEdge)));
