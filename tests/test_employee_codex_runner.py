@@ -391,3 +391,28 @@ def test_async_creator_metrics_uses_local_cli_runner(tmp_path: Path, monkeypatch
     )
     assert service.task_status("task-1")["execution"]["state"] == "SUCCESS"
     assert (tmp_path / "worker" / "task-outbox" / "index.json").exists()
+
+
+@pytest.mark.parametrize("field", ["actual_new_metrics", "actual_metrics", "counts"])
+def test_engagement_receipt_recognizes_batch_counts(field: str) -> None:
+    from employee_codex_runner import _reconcile_engagement_batch
+
+    result = {"state": "SUCCESS", "message": "本批完成"}
+    _reconcile_engagement_batch(
+        {"capability": "home-engagement", "parameters": {"browse_count": 10, "like_count": 2}},
+        result,
+        {field: {"browse": 10, "like": 2}},
+    )
+    assert result["state"] == "SUCCESS"
+
+
+def test_engagement_new_counts_take_precedence_over_summary() -> None:
+    from employee_codex_runner import _reconcile_engagement_batch
+
+    result = {"state": "SUCCESS", "message": "本批回执"}
+    _reconcile_engagement_batch(
+        {"capability": "home-engagement", "parameters": {"browse_count": 10, "like_count": 2}},
+        result,
+        {"actual_new_metrics": {"browse": 0, "like": 0}, "counts": {"browse": 10, "like": 2}},
+    )
+    assert result["state"] == "FAILED"

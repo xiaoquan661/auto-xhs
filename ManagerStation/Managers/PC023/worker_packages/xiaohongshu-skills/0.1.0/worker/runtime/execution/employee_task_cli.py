@@ -42,7 +42,7 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
     task = read_object(root / "task.json")
     request = read_object(request_file)
     args = request.get("args")
-    from employee_recovery import READ_COMMANDS, start_step
+    from employee_recovery import READ_COMMANDS, retry_empty_engagement, start_step
 
     progress_path = root / "step-progress.json"
     progress = read_object(progress_path) if progress_path.exists() else {}
@@ -52,8 +52,22 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
         if previous.get("state") == "COMPLETED":
             return int(previous.get("exit_code") or 0)
         if previous.get("state") in {"RUNNING", "NEEDS_RECOVERY"}:
-            # Retain the original submission evidence rather than resending it.
-            return 2
+            output = request_file.with_suffix(".output.json")
+            retry_empty = (
+                args[0] == "home-engagement"
+                and previous.get("state") == "NEEDS_RECOVERY"
+                and output.exists()
+                and retry_empty_engagement(read_object(output))
+            )
+            if not retry_empty:
+                # Retain confirmed actions and submissions awaiting readback.
+                return 2
+            archive = root / "step-attempts" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+            archive.mkdir(parents=True)
+            for suffix in (".output.json", ".execution.json", ".recovery.json", ".stderr.txt"):
+                evidence = request_file.with_suffix(suffix)
+                if evidence.exists():
+                    (archive / evidence.name).write_bytes(evidence.read_bytes())
     output = request_file.with_suffix(".output.json")
     error = request_file.with_suffix(".stderr.txt")
     old_argv = sys.argv

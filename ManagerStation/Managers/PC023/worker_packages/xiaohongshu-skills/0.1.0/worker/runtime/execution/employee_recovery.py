@@ -44,7 +44,8 @@ def recovery_for(payload: dict, exit_code: int) -> dict:
         ],
         ensure_ascii=False,
     )
-    if "RESULT_UNKNOWN" in text or "RECONCILIATION_REQUIRED" in text:
+    if ("RESULT_UNKNOWN" in text or "RECONCILIATION_REQUIRED" in text
+            or any(row.get("result_unknown") is True for row in values if isinstance(row, dict))):
         kind, action = "reconcile", "核对当前动作的原始结果和平台回读，确认前保持当前步骤"
     elif "RELOCATE_REQUIRED" in text or "VISUAL_FRAME_CHANGED" in text:
         kind, action = "relocate", (
@@ -83,6 +84,18 @@ def recovery_for(payload: dict, exit_code: int) -> dict:
     }
 
 
+def retry_empty_engagement(payload: dict) -> bool:
+    """An interrupted batch with no recorded actions can run after page recovery."""
+    return (
+        payload.get("result_type") == "home_engagement"
+        and payload.get("stop_reason") in {"page_interrupted", "reading_interrupted"}
+        and payload.get("result_unknown") is False
+        and payload.get("counts", {}).get("browsed") == 0
+        and payload.get("counts", {}).get("liked") == 0
+        and not payload.get("items")
+    )
+
+
 def record_progress(
     root: Path, request_file: Path, args: list[str], output: Path, exit_code: int
 ) -> dict:
@@ -91,6 +104,11 @@ def record_progress(
     except (ValueError, OSError):
         payload = {"success": False, "error": "业务输出需要检查原始文件"}
     recovery = recovery_for(payload, exit_code) if isinstance(payload, dict) else {}
+    if recovery.get("kind") == "observe" and retry_empty_engagement(payload):
+        recovery["next_action"] = (
+            "截图确认当前页面并恢复首页后，再次 invoke 当前步骤文件执行原批次；"
+            "本步骤尚无完成动作，原始中断输出会保留在 step-attempts"
+        )
     progress_file = root / "step-progress.json"
     progress = (
         json.loads(progress_file.read_text(encoding="utf-8")) if progress_file.exists() else {}

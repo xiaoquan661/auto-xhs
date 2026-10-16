@@ -35,7 +35,14 @@ def _reconcile_engagement_batch(task: dict, result: dict, business: dict) -> Non
     if task.get("capability") != "home-engagement" or result["state"] != "SUCCESS":
         return
     requested = task.get("parameters") or {}
-    actual = business.get("actual") or business.get("metrics") or business.get("counts") or {}
+    actual = next(
+        (
+            business[key]
+            for key in ("actual_new_metrics", "actual_metrics", "actual", "metrics", "counts")
+            if isinstance(business.get(key), dict) and business[key]
+        ),
+        {},
+    )
     if not isinstance(actual, dict) or not actual:
         result["state"] = "RESULT_UNKNOWN"
         result["message"] = f"本批缺少实际数量回执：{result['message']}"

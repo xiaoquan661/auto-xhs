@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from employee_task_cli import invoke, write_object
 from manager_worker_async import queue_ready
 
@@ -135,3 +136,37 @@ def test_home_exclusions_injected_and_completed_step_not_replayed(tmp_path):
     assert invoke(tmp_path, request, cli) == 0
     assert invoke(tmp_path, request, cli) == 0
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("browsed,liked,unknown,retried", [
+    (0, 0, False, True), (3, 1, False, False), (0, 0, True, False)
+])
+def test_interrupted_engagement_recovery_preserves_action_evidence(
+    tmp_path: Path, browsed: int, liked: int, unknown: bool, retried: bool
+) -> None:
+    write_object(tmp_path / "task.json", {"task_id": "one", "account_slot": "alpha"})
+    request = tmp_path / "engagement.json"
+    write_object(request, {"args": ["home-engagement", "--browse-count", "10"]})
+    payload = {
+        "success": False, "result_type": "home_engagement", "stop_reason": "page_interrupted",
+        "result_unknown": unknown, "counts": {"browsed": browsed, "liked": liked},
+        "items": [{"feed_id": "done"}] if browsed else [],
+    }
+    calls = []
+
+    def cli() -> None:
+        calls.append(True)
+        print(json.dumps(payload if len(calls) == 1 else {"success": True}))
+        raise SystemExit(2 if len(calls) == 1 else 0)
+
+    assert invoke(tmp_path, request, cli) == 2
+    recovery = json.loads(request.with_suffix(".recovery.json").read_text(encoding="utf-8"))
+    assert recovery["kind"] == ("reconcile" if unknown else "observe")
+    assert invoke(tmp_path, request, cli) == (0 if retried else 2)
+    assert len(calls) == (2 if retried else 1)
+    if retried:
+        archived = list((tmp_path / "step-attempts").glob("*/engagement.output.json"))
+        assert len(archived) == 1
+        assert json.loads(archived[0].read_text(encoding="utf-8")) == payload
+        assert invoke(tmp_path, request, cli) == 0
+        assert len(calls) == 2
