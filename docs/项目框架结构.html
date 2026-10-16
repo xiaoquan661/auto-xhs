@@ -125,6 +125,21 @@
 .graph-view-label{font-size:12px;font-weight:600;color:#2e5b84}.reference-block:focus,.reference-table tr:focus{outline:3px solid #87b5f3;outline-offset:-3px}
 @media(max-width:700px){.reference-caption{padding:10px 13px;font-size:11px}.reference-index a{font-size:11px;padding:7px 9px}.reference-table{min-width:1050px}.reference-block{scroll-margin-top:70px}.reference-table th,.reference-table td{font-size:11px;padding:12px 10px}}
 @media print{.reference-table{min-width:0;font-size:9px}.reference-table th,.reference-table td{font-size:8px;padding:5px}.reference-table th:first-child{width:85px}.reference-index{display:none}.reference-block{overflow:visible}.reference-block .table-scroll{overflow:visible}}
+
+.flow-diagram{display:block;overflow:visible;font-family:"Microsoft YaHei","Segoe UI",sans-serif}
+.flow-diagram text{dominant-baseline:alphabetic;stroke:none;paint-order:normal}
+.flow-node{cursor:pointer;outline:none}.flow-node:hover .flow-card,.flow-node:focus-visible .flow-card{stroke:#2164bf;stroke-width:2.5}
+.flow-node[aria-pressed="true"] .flow-card{stroke:#2164bf;stroke-width:2.2;fill:#f4f9ff}
+.flow-node.is-located .flow-card{stroke:#2164bf;stroke-width:3}
+.flow-diagram .wire{stroke-width:1.8}.flow-diagram .wire.focus{stroke-width:2.8}
+.flow-diagram .edge-annotation text{font-size:12px;fill:#42617c}
+.flow-diagram .flow-title{font-size:15px;font-weight:600;fill:#183a58}
+.flow-diagram .flow-sub{font-size:12px;fill:#566f83}
+.flow-diagram .flow-role{font-size:10px;fill:#476b8c}
+.flow-diagram .flow-section{font-size:17px;font-weight:600;fill:#183a58}
+.flow-diagram .flow-location{font-size:11px;fill:#587b96}
+.flow-diagram .flow-section-note{font-size:11px;fill:#657e92}
+
 </style>
 </head>
 <body>
@@ -6080,6 +6095,148 @@
         ]
       }
     ]
+  },
+  "flowRoutes": {
+    "communication": [
+      [
+        "控制台服务启动",
+        [
+          0
+        ]
+      ],
+      [
+        "操作请求与任务投递",
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        "员工本机接单与调度",
+        [
+          4,
+          5
+        ]
+      ],
+      [
+        "本次素材准备与传输",
+        [
+          6,
+          7,
+          8
+        ]
+      ],
+      [
+        "手动即时采集请求",
+        [
+          9,
+          10
+        ]
+      ],
+      [
+        "即时采集结果返回",
+        [
+          15
+        ]
+      ],
+      [
+        "协议结果与后台回收",
+        [
+          11,
+          12,
+          13
+        ]
+      ],
+      [
+        "回收入库与页面查询",
+        [
+          14,
+          20
+        ]
+      ],
+      [
+        "浏览器通信与员工业务留存",
+        [
+          19,
+          18
+        ]
+      ],
+      [
+        "员工业务快照返回经理",
+        [
+          17,
+          16
+        ]
+      ],
+      [
+        "独立健康检查",
+        [
+          21
+        ]
+      ]
+    ],
+    "data": [
+      [
+        "手动采集：本次结果进入经理库",
+        [
+          0,
+          1,
+          2
+        ]
+      ],
+      [
+        "手动采集：员工事实与只读导出",
+        [
+          3,
+          9,
+          10
+        ]
+      ],
+      [
+        "每日采集：先保存员工本地事实",
+        [
+          4
+        ]
+      ],
+      [
+        "每日采集：协议回执回收与归档",
+        [
+          5,
+          6,
+          7
+        ]
+      ],
+      [
+        "回执导入：关联原执行并保存经理结果",
+        [
+          8,
+          2
+        ]
+      ],
+      [
+        "业务快照：导入、元数据与时间核对",
+        [
+          11,
+          12,
+          13
+        ]
+      ],
+      [
+        "员工事实：运营指标查询与展示",
+        [
+          14,
+          16
+        ]
+      ],
+      [
+        "经理结果：参与运营查询与展示",
+        [
+          15,
+          16
+        ]
+      ]
+    ]
   }
 }
 </script>
@@ -6381,7 +6538,7 @@ function codeMatrixMarkup(){
 }
 function graphMarkup(c){
  const g=graphFor(c.id);
- return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
+ return `<div class="sheet architecture-sheet"><div class="sheet-bar"><h3 id="graph-title-${c.id}">${g.title}</h3><div class="legend"><span><i></i>任务 / 调用</span><span><i class="back"></i>结果 / 记录</span><span><i class="ctrl"></i>控制 / 条件</span></div></div><div class="graph-modebar"><span class="graph-view-label">${esc(g.modeLabel||'全流程详图')}${D.flowRoutes[c.id]?' · 按场景分行，沿箭头阅读':''}</span><div class="graph-types"><span class="type-gate">条件判断</span><span class="type-message">消息 / 回执</span><span class="type-store">持久记录</span></div></div>${graphToolbar(c.id)}<div class="mobile-hint">← 左右滑动查看完整架构图 →</div><div class="graph-scroll"><div class="graph-stage"><div class="graph graph-detail" id="graph-${c.id}" role="group" aria-label="${esc(g.title)}"></div></div></div><div class="graph-footer"><span><b>点击节点</b> · 查看处理原因与源码 FAQ；悬停标签可追踪连线</span><span id="graph-count-${c.id}">${g.nodes.length} 个节点 · ${g.edges.length} 条关系</span></div></div>`;
 }
 function flowReferenceMarkup(id,keys){
  const blocks=D.flowReferences[id]||[];
@@ -6410,7 +6567,73 @@ function updateGraphChrome(id){
  document.querySelectorAll(`[data-graph-chapter="${id}"]`).forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.graphMode===graphModes[id])));
  document.querySelector('#chapter-'+id+' .graph-types').hidden=graphModes[id]!=='detail';
 }
+function flowWrap(value,maxWidth,fontSize){
+ const lines=[],unit=ch=>/[\u0000-\u007f]/.test(ch)?(/[MW@#%]/.test(ch)?1:.64):1.05;
+ const measure=text=>[...text].reduce((sum,ch)=>sum+unit(ch),0)*fontSize;
+ for(const paragraph of String(value).split('\n')){
+  let line='';
+  for(const token of paragraph.match(/[A-Za-z0-9_:.{}-]+|./gu)||[]){
+   if(measure(token)>maxWidth){
+    for(const ch of token){if(line&&measure(line+ch)>maxWidth){lines.push(line.trim());line='';}line+=ch;}
+   }else{if(line&&measure(line+token)>maxWidth){lines.push(line.trim());line='';}line+=token;}
+  }
+  if(line.trim())lines.push(line.trim());
+ }
+ return lines;
+}
+function flowText(lines,x,y,size,color,cls='',anchor='start'){
+ return `<text class="${cls}" x="${x}" y="${y}" font-size="${size}" fill="${color}" text-anchor="${anchor}">${lines.map((line,i)=>`<tspan x="${x}" dy="${i?size+5:0}">${esc(line)}</tspan>`).join('')}</text>`;
+}
+function flowLayout(id){
+ const g=graphFor(id),width=1320,pad=22,nodeWidth=228,gap=122,seen=new Set(),boxes=[],labels=[],routes=[];
+ const colors={down:'#3475c7',back:'#218e78',control:'#b58036'};let y=18,svg='';
+ svg+=`<defs>${Object.entries(colors).map(([kind,color])=>`<marker id="flow-arrow-${id}-${kind}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="${color}"/></marker>`).join('')}</defs>`;
+ D.flowRoutes[id].forEach(([title,edgeIds],row)=>{
+  const edges=edgeIds.map(i=>g.edges[i]),nodes=[g.nodes.find(n=>n.id===edges[0].a),...edges.map(e=>g.nodes.find(n=>n.id===e.b))];
+  const layouts=nodes.map(n=>{
+   const roles=flowWrap(D.nodeParticipation[n.id].map(r=>D.participation[r].label).join(' / '),nodeWidth-28,10);
+   const titles=flowWrap(n.title,nodeWidth-28,15),subs=flowWrap(n.sub,nodeWidth-28,12);
+   const meta=flowWrap((n.meta||[]).map(m=>m.v).join(' · '),nodeWidth-28,11);
+   return {n,roles,titles,subs,meta,height:48+roles.length*15+titles.length*20+subs.length*17+meta.length*16};
+  });
+  const texts=edges.map(e=>flowWrap(e.label,gap-18,12));
+  const height=Math.max(172,...layouts.map(l=>l.height),...texts.map(lines=>lines.length*17+62)),top=y+66;
+  svg+=`<rect x="6" y="${y}" width="1308" height="${height+86}" rx="12" fill="${row%2?'#f6f9fc':'#eef5fc'}" stroke="#dce7f0"/>`;
+  svg+=flowText([String(row+1).padStart(2,'0')+'  '+title],pad,y+27,17,'#183a58','flow-section');
+  svg+=flowText(['从左向右阅读 · 同名节点表示同一程序或数据对象 · 点击节点查看 FAQ'],pad,y+47,11,'#657e92','flow-section-note');
+  layouts.forEach((l,col)=>{
+   const n=l.n,x=pad+col*(nodeWidth+gap),canonical=!seen.has(n.id),domId=canonical?n.id:`${n.id}-route-${row}`;seen.add(n.id);
+   boxes.push({id:n.id,row,x,y:top,w:nodeWidth,h:height});
+   svg+=`<g class="flow-node" id="${domId}" data-node="${n.id}" tabindex="0" role="button" aria-label="${esc(n.title)}" aria-pressed="${n.id===selections[id]}" aria-controls="node-faq-${id}">`;
+   svg+=`<rect class="flow-card" x="${x}" y="${top}" width="${nodeWidth}" height="${height}" rx="9" fill="white" stroke="#b8cee2"/>`;
+   let ty=top+22;
+   svg+=flowText(l.roles,x+14,ty,10,'#476b8c','flow-role');ty+=l.roles.length*15+10;
+   svg+=flowText(l.titles,x+14,ty,15,'#183a58','flow-title');ty+=l.titles.length*20+10;
+   svg+=flowText(l.subs,x+14,ty,12,'#566f83','flow-sub');ty+=l.subs.length*17+8;
+   if(l.meta.length)svg+=flowText(l.meta,x+14,ty,11,'#587b96','flow-location');
+   svg+='</g>';
+  });
+  edges.forEach((e,col)=>{
+   const x=pad+col*(nodeWidth+gap)+nodeWidth,cx=x+gap/2,ay=top+height-30,lines=texts[col],labelHeight=lines.length*17;
+   const box={x:x+9,y:ay-17-labelHeight,w:gap-18,h:labelHeight};labels.push({...box,row,edge:edgeIds[col],lines});
+   svg+=`<path class="wire ${e.type}" data-edge="${edgeIds[col]}" d="M${x+6} ${ay} H${x+gap-7}" stroke="${colors[e.type]}" marker-end="url(#flow-arrow-${id}-${e.type})"/>`;
+   svg+=`<g class="edge-annotation ${e.type}" data-label-edge="${edgeIds[col]}" data-layout="placed"><title>${esc(e.label)}</title>`;
+   svg+=flowText(lines,cx,box.y+13,12,'#42617c','','middle')+'</g>';
+  });
+  routes.push({row,top:y,height:height+86});y+=height+106;
+ });
+ return {width,height:y,boxes,labels,routes,svg:`<svg xmlns="http://www.w3.org/2000/svg" class="flow-diagram" width="${width}" height="${y}" viewBox="0 0 ${width} ${y}" role="group" aria-label="${esc(g.title)}">${svg}</svg>`};
+}
+function makeFlowGraph(id){
+ const graph=document.getElementById('graph-'+id),layout=flowLayout(id);
+ graph.innerHTML=layout.svg;graph.style.width=layout.width+'px';graph.style.height=layout.height+'px';graph.style.minWidth='0';
+ graph.onclick=event=>{const n=event.target.closest('[data-node]');if(n)openNodeFAQ(id,n.dataset.node);};
+ graph.onkeydown=event=>{const n=event.target.closest('[data-node]');if(n&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openNodeFAQ(id,n.dataset.node);}};
+ updateNodeFAQ(id,selections[id]);updateGraphChrome(id);
+}
+
 function makeGraph(id){
+ if(D.flowRoutes[id]){makeFlowGraph(id);return;}
  const container=document.getElementById('graph-'+id),g=graphFor(id);
  container.innerHTML=g.lanes.map((l,c)=>`<div class="lane" data-lane="${c}"></div><div class="lane-title" data-lane-title="${c}">${esc(l[0])}<small>${esc(l[1])}</small></div>`).join('')+`<svg class="wires" aria-hidden="true"></svg>`+g.nodes.map(n=>`<button class="graph-node ${n.kind?'kind-'+n.kind:''}" id="${n.id}" data-node="${n.id}" data-column="${n.c}" type="button" aria-pressed="${n.id===selections[id]}" aria-controls="node-faq-${id}"><i class="node-dot" aria-hidden="true"></i>${n.kind?`<span class="node-kicker">${nodeKinds[n.kind]}</span>`:''}${participationMarkup(n.id)}<b>${esc(n.title)}</b><small>${esc(n.sub)}</small>${n.meta?`<span class="node-meta">${n.meta.map(m=>`<span><em>${esc(m.k)}</em><span>${esc(m.v)}</span></span>`).join('')}</span>`:''}</button>`).join('');
  container.onclick=event=>{
@@ -6470,6 +6693,7 @@ function placeEdgeLabels(svg,paths,boxes,headers,width,height){
 function drawGraph(id){
  if(!D.graphs[id])return;
  const graph=document.getElementById('graph-'+id);if(graph.closest('[hidden]'))return;
+ if(D.flowRoutes[id]){highlightEdges(id);applyGraphScale(id);return;}
  const scroller=graph.closest('.graph-scroll'),baseWidth=Math.max(id==='overall'?(innerWidth<=700?860:900):1260,scroller.clientWidth-12);
  graph.style.width=baseWidth+'px';graph.style.minWidth='0';
  const g=graphFor(id),width=graph.clientWidth,pad=25,gutter=id==='overall'?(graphModes[id]==='detail'?100:84):170,laneWidth=(width-2*pad-2*gutter)/3,inside=12,nodeWidth=laneWidth-inside*2;
@@ -6628,7 +6852,7 @@ document.addEventListener('keydown',event=>{
  if(!expandedGraph)return;
  if(event.key==='Escape'){setExpandedGraph(expandedGraph,false);return;}
  if(event.key==='Tab'){
-  const sheet=document.querySelector('.architecture-sheet.is-expanded'),items=[...sheet.querySelectorAll('button:not(:disabled),input')].filter(el=>el.getClientRects().length),first=items[0],last=items[items.length-1];
+  const sheet=document.querySelector('.architecture-sheet.is-expanded'),items=[...sheet.querySelectorAll('button:not(:disabled),input,[data-node][tabindex]')].filter(el=>el.getClientRects().length),first=items[0],last=items[items.length-1];
   if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
   else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
  }
