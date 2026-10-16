@@ -27,6 +27,7 @@ except ImportError:
 
 PROBE_CAPABILITY = "employee-agent-probe"
 RESULT_STATES = ["SUCCESS", "PARTIAL_SUCCESS", "FAILED", "BLOCKED", "RESULT_UNKNOWN"]
+NETWORK_RETRY_TIMEOUT_SECONDS = 120
 
 
 def _reconcile_engagement_batch(task: dict, result: dict, business: dict) -> None:
@@ -34,7 +35,14 @@ def _reconcile_engagement_batch(task: dict, result: dict, business: dict) -> Non
     if task.get("capability") != "home-engagement" or result["state"] != "SUCCESS":
         return
     requested = task.get("parameters") or {}
-    actual = business.get("actual") or business.get("metrics") or business.get("counts") or {}
+    actual = next(
+        (
+            business[key]
+            for key in ("actual_new_metrics", "actual_metrics", "actual", "metrics", "counts")
+            if isinstance(business.get(key), dict) and business[key]
+        ),
+        {},
+    )
     if not isinstance(actual, dict) or not actual:
         result["state"] = "RESULT_UNKNOWN"
         result["message"] = f"本批缺少实际数量回执：{result['message']}"
@@ -205,9 +213,10 @@ class EmployeeCodexRunner:
                     env=self._codex_env(),
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
+                connection_state: dict[str, float] = {}
                 event_reader = threading.Thread(
                     target=self._capture_events,
-                    args=(process, events, run_root),
+                    args=(process, events, run_root, connection_state),
                     daemon=True,
                 )
                 event_reader.start()
@@ -239,6 +248,15 @@ class EmployeeCodexRunner:
                         self._stop(process)
                         return self._incomplete(
                             task, "员工 Agent 执行超时，执行结果待核对", run_root
+                        )
+                    retry_started = connection_state.get("retry_started_at")
+                    if retry_started is not None and time.monotonic() - retry_started >= min(
+                        idle_limit, NETWORK_RETRY_TIMEOUT_SECONDS
+                    ):
+                        self._stop(process)
+                        event_reader.join(timeout=5)
+                        return self._resume_or_incomplete(
+                            task, "员工 Agent 网络连接持续失败，已结束本次重连等待", run_root
                         )
                     activity = self._last_activity(run_root, last_activity)
                     if time.time() - activity >= idle_limit:
@@ -375,7 +393,12 @@ class EmployeeCodexRunner:
             return False
 
     @staticmethod
-    def _capture_events(process: subprocess.Popen[str], events: Any, root: Path) -> None:
+    def _capture_events(
+        process: subprocess.Popen[str],
+        events: Any,
+        root: Path,
+        connection_state: dict[str, float],
+    ) -> None:
         """Retain original events and timestamp receipt without storing command contents twice."""
         assert process.stdout is not None
         with (root / "event-timing.jsonl").open("w", encoding="utf-8") as timing:
@@ -386,6 +409,20 @@ class EmployeeCodexRunner:
                     event = json.loads(line)
                 except ValueError:
                     continue
+                event_type = event.get("type")
+                if event_type == "error":
+                    if "Reconnecting" in str(event.get("message") or ""):
+                        connection_state.setdefault("retry_started_at", time.monotonic())
+                elif event_type in {
+                    "thread.started",
+                    "turn.started",
+                    "item.started",
+                    "item.updated",
+                    "item.completed",
+                    "turn.completed",
+                }:
+                    connection_state.clear()
+                    write_json(root / "agent-progress.json", {"event": event_type})
                 item = event.get("item") or {}
                 timing.write(
                     json.dumps(
@@ -418,7 +455,7 @@ class EmployeeCodexRunner:
     @staticmethod
     def _last_activity(root: Path, started_at: float) -> float:
         """Observe browser business checkpoints while a CLI call is still running."""
-        paths = [root / "events.jsonl", root / "step-progress.json"]
+        paths = [root / "agent-progress.json", root / "step-progress.json"]
         paths.extend(root.glob("*.bridge.progress.json"))
         return max([started_at] + [path.stat().st_mtime for path in paths if path.exists()])
 

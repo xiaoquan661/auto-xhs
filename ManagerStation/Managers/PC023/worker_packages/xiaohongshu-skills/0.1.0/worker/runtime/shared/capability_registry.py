@@ -83,9 +83,7 @@ def _policy(
             else EvidenceLevel.BASIC
         ),
         enabled_in_v1=(
-            risk_level is not RiskLevel.EXTERNAL_OUTPUT
-            if enabled_in_v1 is None
-            else enabled_in_v1
+            risk_level is not RiskLevel.EXTERNAL_OUTPUT if enabled_in_v1 is None else enabled_in_v1
         ),
     )
 
@@ -148,8 +146,12 @@ _POLICIES = [
         requires_result_verification=True,
         enabled_in_v1=True,
     ),
-    _policy("browser-action", RiskLevel.STATE_CHANGE,
-            requires_identity_check=True, requires_result_verification=True),
+    _policy(
+        "browser-action",
+        RiskLevel.STATE_CHANGE,
+        requires_identity_check=True,
+        requires_result_verification=True,
+    ),
     _policy("list-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("browse-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
     _policy("search-feeds", RiskLevel.READ_ONLY, supports_scheduling=True),
@@ -284,6 +286,14 @@ _POLICIES = [
     ),
     _policy(
         "click-publish",
+        RiskLevel.EXTERNAL_OUTPUT,
+        requires_identity_check=True,
+        requires_result_verification=True,
+        enabled_in_v1=True,
+        requires_confirmation=False,
+    ),
+    _policy(
+        "submit-text-card",
         RiskLevel.EXTERNAL_OUTPUT,
         requires_identity_check=True,
         requires_result_verification=True,

@@ -15,7 +15,8 @@ if __name__ == "__main__":
     from pathlib import Path as _LayoutPath
 
     _layout_root = next(
-        parent for parent in _LayoutPath(__file__).resolve().parents
+        parent
+        for parent in _LayoutPath(__file__).resolve().parents
         if (parent / "source-layout.json").is_file()
     )
     _layout_sys.path.insert(0, str(_layout_root / "scripts"))
@@ -61,6 +62,7 @@ _IDENTITY_GUARDED_COMMANDS = {
     "fill-publish",
     "fill-publish-video",
     "click-publish",
+    "submit-text-card",
     "save-draft",
     "long-article",
     "select-template",
@@ -512,8 +514,6 @@ def cmd_keyword_engagement(args: argparse.Namespace) -> None:
         _output(result, exit_code=0 if result.get("success") else 2)
     finally:
         browser.close()
-
-
 
 
 def cmd_home_engagement(args: argparse.Namespace) -> None:
@@ -1140,6 +1140,71 @@ def cmd_click_publish(args: argparse.Namespace) -> None:
     except Exception as exc:
         workflow.fail(task["task_id"], exc, result_unknown=publish_attempted)
         raise
+    finally:
+        if browser:
+            browser.close()
+
+
+def cmd_submit_text_card(args: argparse.Namespace) -> None:
+    """Complete and submit the prepared text-card editor for one employee task."""
+    from pathlib import Path
+
+    from xhs.publish import _fill_publish_form, click_publish_button
+
+    task_path = Path(args.task_file)
+    if not task_path.is_absolute():
+        raise ValueError("文字配图任务文件必须使用绝对路径")
+    task = json.loads(task_path.read_text(encoding="utf-8-sig"))
+    parameters = task.get("parameters") or {}
+    if (
+        task.get("account_slot") != args.account
+        or task.get("capability") != "publish"
+        or parameters.get("publish_mode") != "text_card"
+        or not (task.get("authorization") or {}).get("authorization_id")
+    ):
+        raise ValueError("文字配图任务与当前账号或授权不匹配")
+    expected_title = str(parameters.get("publish_title") or parameters.get("title") or "").strip()
+    if args.title_file:
+        title_path = Path(args.title_file)
+        if not title_path.is_absolute():
+            raise ValueError("文字配图标题文件必须使用绝对路径")
+        expected_title = title_path.read_text(encoding="utf-8-sig").strip()
+    expected_title = expected_title.removeprefix("求助").lstrip("：:，, ").strip()
+    if not expected_title:
+        raise ValueError("文字配图任务缺少标题")
+    tags = list(parameters.get("tags") or [])
+    if args.tags_file:
+        tags_path = Path(args.tags_file)
+        if not tags_path.is_absolute():
+            raise ValueError("文字配图话题文件必须使用绝对路径")
+        tags = [line.strip() for line in tags_path.read_text(encoding="utf-8-sig").splitlines()]
+        tags = [tag for tag in tags if tag]
+        if not tags:
+            raise ValueError("文字配图话题文件为空")
+    browser = None
+    try:
+        browser, page = _connect_existing(args)
+        _fill_publish_form(
+            page,
+            expected_title,
+            str(parameters.get("content") or ""),
+            tags,
+            None,
+            False,
+            "公开可见",
+        )
+        result = click_publish_button(page, expected_title=expected_title)
+        verified = bool(result.get("verified"))
+        _output(
+            {
+                "success": verified,
+                "task_id": task["task_id"],
+                "status": "SUCCESS" if verified else "RESULT_UNKNOWN",
+                "topics": tags,
+                "result": result,
+            },
+            exit_code=0 if verified else 2,
+        )
     finally:
         if browser:
             browser.close()
@@ -2262,8 +2327,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--duration-minutes", type=int, default=10, help="最长执行分钟数")
     sub.add_argument("--min-read-seconds", type=float, default=15, help="单篇最短阅读秒数")
     sub.add_argument("--max-read-seconds", type=float, default=45, help="单篇最长阅读秒数")
-    sub.add_argument("--exclude-feed-id", action="append", default=[],
-                     help="排除已浏览笔记ID，可重复传入")
+    sub.add_argument(
+        "--exclude-feed-id", action="append", default=[], help="排除已浏览笔记ID，可重复传入"
+    )
     sub.set_defaults(func=cmd_home_engagement)
 
     # get-feed-detail
@@ -2413,7 +2479,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_argument("--note-id", action="append", default=[], help="指定已发布笔记，可重复")
     sub.add_argument(
-        "--notification-kind", choices=["new_followers"],
+        "--notification-kind",
+        choices=["new_followers"],
         help="通知采集类别；新增关注采集时使用",
     )
     sub.add_argument("--owner-user-id", help="当前账号 UID；省略时从已核验身份读取")
@@ -2498,6 +2565,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--preview-revision", default="", help="可选的表单版本校验")
     sub.add_argument("--confirm", action="store_true", help="兼容旧调用参数")
     sub.set_defaults(func=cmd_click_publish)
+
+    # submit-text-card
+    sub = subparsers.add_parser("submit-text-card", help="提交已准备好的文字配图并回读发布结果")
+    sub.add_argument("--task-file", required=True, help="员工执行任务 JSON 的绝对路径")
+    sub.add_argument("--title-file", help="平台标题的 UTF-8 文件绝对路径")
+    sub.add_argument("--tags-file", help="平台可选话题的 UTF-8 文件绝对路径，每行一项")
+    sub.set_defaults(func=cmd_submit_text_card)
 
     # save-draft
     sub = subparsers.add_parser("save-draft", help="保存为草稿")

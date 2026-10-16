@@ -750,6 +750,10 @@ def _find_content_element(page: Page) -> str:
     if page.has_element(CONTENT_EDITOR):
         return CONTENT_EDITOR
 
+    # 文字配图进入图文预览后使用 Tiptap 编辑器。
+    if page.has_element("[role='textbox'][contenteditable='true']"):
+        return "[role='textbox'][contenteditable='true']"
+
     # 查找带 placeholder 的 p 元素的 textbox 父元素
     found = page.evaluate(
         """

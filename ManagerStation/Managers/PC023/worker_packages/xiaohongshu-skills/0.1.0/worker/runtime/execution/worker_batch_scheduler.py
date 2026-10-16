@@ -59,13 +59,17 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
         ):
             return "WAITING", "等待批间隔"
     slot = execution["task"].get("account_slot")
-    order = tuple(datetime.fromisoformat(value) for value in (
-        scheduled or execution["accepted_at"], execution["accepted_at"],
-    ))
+    order = tuple(
+        datetime.fromisoformat(value)
+        for value in (
+            scheduled or execution["accepted_at"],
+            execution["accepted_at"],
+        )
+    )
     for other in state["executions"].values():
         if other["remote_execution_id"] == execution["remote_execution_id"]:
             continue
-        if other["state"] in FINAL:
+        if other["state"] in FINAL or other["state"] == "PAUSED":
             continue
         if effective_execution(other) is not other:
             continue
@@ -94,10 +98,13 @@ def queue_status(state: dict, execution: dict, now: datetime | None = None) -> t
             pending.extend(dependencies)
         if depends_on_current and other["state"] != "RUNNING":
             continue
-        other_order = tuple(datetime.fromisoformat(value) for value in (
-            other_params.get("scheduled_at") or other["accepted_at"],
-            other["accepted_at"],
-        ))
+        other_order = tuple(
+            datetime.fromisoformat(value)
+            for value in (
+                other_params.get("scheduled_at") or other["accepted_at"],
+                other["accepted_at"],
+            )
+        )
         if other["state"] == "RUNNING" or other_order < order:
             return "WAITING", "等待同账号任务完成"
     return "READY", "计划已到点，等待员工 Agent 领取"

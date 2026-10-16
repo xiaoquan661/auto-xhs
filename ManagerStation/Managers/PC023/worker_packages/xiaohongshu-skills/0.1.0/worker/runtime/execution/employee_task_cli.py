@@ -8,7 +8,8 @@ if __name__ == "__main__":
     from pathlib import Path as _LayoutPath
 
     _layout_root = next(
-        parent for parent in _LayoutPath(__file__).resolve().parents
+        parent
+        for parent in _LayoutPath(__file__).resolve().parents
         if (parent / "source-layout.json").is_file()
     )
     _layout_sys.path.insert(0, str(_layout_root / "scripts"))
@@ -42,18 +43,36 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
     task = read_object(root / "task.json")
     request = read_object(request_file)
     args = request.get("args")
-    from employee_recovery import READ_COMMANDS, start_step
+    from employee_recovery import READ_COMMANDS, retry_empty_engagement, start_step
 
     progress_path = root / "step-progress.json"
     progress = read_object(progress_path) if progress_path.exists() else {}
     previous = progress.get(request_file.name) or {}
-    if (isinstance(args, list) and args and args[0] not in READ_COMMANDS
-            and previous.get("args") == args):
+    if (
+        isinstance(args, list)
+        and args
+        and args[0] not in READ_COMMANDS
+        and previous.get("args") == args
+    ):
         if previous.get("state") == "COMPLETED":
             return int(previous.get("exit_code") or 0)
         if previous.get("state") in {"RUNNING", "NEEDS_RECOVERY"}:
-            # Retain the original submission evidence rather than resending it.
-            return 2
+            output = request_file.with_suffix(".output.json")
+            retry_empty = (
+                args[0] == "home-engagement"
+                and previous.get("state") == "NEEDS_RECOVERY"
+                and output.exists()
+                and retry_empty_engagement(read_object(output))
+            )
+            if not retry_empty:
+                # Retain confirmed actions and submissions awaiting readback.
+                return 2
+            archive = root / "step-attempts" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+            archive.mkdir(parents=True)
+            for suffix in (".output.json", ".execution.json", ".recovery.json", ".stderr.txt"):
+                evidence = request_file.with_suffix(suffix)
+                if evidence.exists():
+                    (archive / evidence.name).write_bytes(evidence.read_bytes())
     output = request_file.with_suffix(".output.json")
     error = request_file.with_suffix(".stderr.txt")
     old_argv = sys.argv
@@ -71,11 +90,15 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
             contextlib.redirect_stderr(err),
         ):
             try:
-                if (not isinstance(args, list) or not args
-                        or not all(isinstance(x, str) for x in args)):
+                if (
+                    not isinstance(args, list)
+                    or not args
+                    or not all(isinstance(x, str) for x in args)
+                ):
                     raise ValueError("args 必须是以业务子命令开头的字符串数组")
-                if ((args[0].startswith("-") and args != ["--help"])
-                        or any(x == "--account" or x.startswith("--account=") for x in args)):
+                if (args[0].startswith("-") and args != ["--help"]) or any(
+                    x == "--account" or x.startswith("--account=") for x in args
+                ):
                     raise ValueError("账号由任务槽位指定；查询帮助请用 task-entry.cmd help")
                 if cli_main is None:
                     from cli import main as cli_main
@@ -101,9 +124,11 @@ def invoke(root: Path, request_file: Path, cli_main: Callable[[], None] | None =
                     error_text = str(json.loads(first).get("error") or "")
                 except ValueError:
                     error_text = first
-                if (code and args[0] in {"browser-snapshot", "list-feeds", "get-feed-detail"}
-                        and any(t in error_text for t in (
-                            "页面已变化", "截图步骤超时", "导航超时"))):
+                if (
+                    code
+                    and args[0] in {"browser-snapshot", "list-feeds", "get-feed-detail"}
+                    and any(t in error_text for t in ("页面已变化", "截图步骤超时", "导航超时"))
+                ):
                     request_file.with_suffix(".attempt1.output.json").write_text(
                         first, encoding="utf-8"
                     )
@@ -150,7 +175,8 @@ def stage_bug(root: Path, request_file: Path) -> dict:
     task = read_object(root / "task.json")
     payload = read_object(request_file)
     payload.update(
-        account_slot=task["account_slot"], task_id=task["task_id"],
+        account_slot=task["account_slot"],
+        task_id=task["task_id"],
         remote_execution_id=task["remote_execution_id"],
         evidence_index={"agent_run": str(root), "report_file": str(request_file)},
     )
@@ -209,9 +235,11 @@ def main() -> None:
         recovery_path = args.input_file.with_suffix(".recovery.json")
         if recovery_path.exists():
             print(json.dumps({"recovery": read_object(recovery_path)}, ensure_ascii=False))
-        print(content if len(content) <= 12000 else json.dumps(
-            {"output_file": str(output), "exit_code": code}, ensure_ascii=False
-        ))
+        print(
+            content
+            if len(content) <= 12000
+            else json.dumps({"output_file": str(output), "exit_code": code}, ensure_ascii=False)
+        )
         raise SystemExit(code)
     else:
         result = read_object(root / "execution-result.json")

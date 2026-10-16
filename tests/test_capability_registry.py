@@ -14,9 +14,7 @@ from capability_registry import (
 def _parser_commands() -> set[str]:
     parser = cli.build_parser()
     subparsers = next(
-        action
-        for action in parser._actions
-        if isinstance(action, argparse._SubParsersAction)
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
     )
     return set(subparsers.choices)
 
@@ -82,9 +80,7 @@ def test_v1_output_confirmation_rules():
 
     assert output_policies
     assert all(policy.retry_policy is RetryPolicy.NONE for policy in output_policies)
-    assert {
-        policy.command for policy in output_policies if policy.enabled_in_v1
-    } == {
+    assert {policy.command for policy in output_policies if policy.enabled_in_v1} == {
         "publish",
         "publish-video",
         "post-comment",
@@ -92,6 +88,7 @@ def test_v1_output_confirmation_rules():
         "fill-publish",
         "fill-publish-video",
         "click-publish",
+        "submit-text-card",
         "publish-prepared-retry",
         "save-draft",
         "long-article",
@@ -110,6 +107,9 @@ def test_v1_output_confirmation_rules():
     assert get_capability_policy("home-engagement").risk_level == RiskLevel.STATE_CHANGE
     assert get_capability_policy("publish").enabled_in_v1 is True
     assert get_capability_policy("publish-video").enabled_in_v1 is True
+    assert get_capability_policy("submit-text-card").requires_identity_check is True
+    assert get_capability_policy("submit-text-card").requires_result_verification is True
+    assert get_capability_policy("submit-text-card").requires_confirmation is False
     assert get_capability_policy("fill-publish").supports_scheduling is True
     assert get_capability_policy("fill-publish-video").supports_scheduling is True
 
@@ -117,9 +117,7 @@ def test_v1_output_confirmation_rules():
 def test_home_engagement_cli_has_no_comment_options():
     parser = cli.build_parser()
     subparsers = next(
-        action
-        for action in parser._actions
-        if isinstance(action, argparse._SubParsersAction)
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
     )
     option_dests = {action.dest for action in subparsers.choices["home-engagement"]._actions}
     assert "comment_count" not in option_dests
@@ -127,9 +125,10 @@ def test_home_engagement_cli_has_no_comment_options():
     assert "video_only" in option_dests
     assert get_capability_policy("send-private-messages").requires_confirmation is False
     assert get_capability_policy("send-private-messages").supports_scheduling is False
-    assert get_operation_policy(
-        "send-private-messages", "recipient"
-    ).requires_result_verification is True
+    assert (
+        get_operation_policy("send-private-messages", "recipient").requires_result_verification
+        is True
+    )
     assert get_operation_policy("reply-inbox", "collect").risk_level is RiskLevel.READ_ONLY
     assert get_operation_policy("reply-inbox", "apply").requires_confirmation is False
     assert get_operation_policy("reply-inbox", "apply").requires_result_verification is True
