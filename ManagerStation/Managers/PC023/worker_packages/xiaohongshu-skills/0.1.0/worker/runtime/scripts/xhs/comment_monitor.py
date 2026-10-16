@@ -7,32 +7,6 @@ from collections.abc import Callable
 from time_utils import epoch_to_iso as _epoch_to_iso
 
 from .feed_detail import get_feed_detail
-from .user_profile import get_user_profile
-
-
-def collect_own_note_comments(
-    page,
-    *,
-    owner_user_id: str,
-    owner_xsec_token: str = "",
-    max_notes: int = 20,
-    profile_loader: Callable | None = None,
-    detail_loader: Callable | None = None,
-) -> dict:
-    loader = profile_loader or get_user_profile
-    profile = loader(page, owner_user_id, owner_xsec_token)
-    tracked_notes = [
-        {"feed_id": feed.id, "xsec_token": feed.xsec_token}
-        for feed in profile.feeds[:max_notes]
-        if feed.id
-    ]
-    result = collect_note_comments(
-        page,
-        tracked_notes,
-        owner_user_id=owner_user_id,
-        detail_loader=detail_loader,
-    )
-    return {**result, "discovered_note_count": len(tracked_notes)}
 
 
 def collect_note_comments(

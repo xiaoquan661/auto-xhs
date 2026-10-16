@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from scripts.xhs.comment_monitor import collect_note_comments, collect_own_note_comments
+from scripts.xhs.comment_monitor import collect_note_comments
 from scripts.xhs.types import (
     Comment,
     CommentList,
-    Feed,
     FeedDetail,
     FeedDetailResponse,
     User,
-    UserProfileResponse,
 )
 
 
@@ -84,40 +82,3 @@ def test_monitor_returns_partial_result_when_one_note_fails() -> None:
     assert result["partial"] is True
     assert result["failed_note_count"] == 1
     assert result["failures"][0]["feed_id"] == "note-bad"
-
-
-def test_monitor_discovers_recent_notes_from_owner_profile() -> None:
-    def profile(_page, user_id, _token):
-        assert user_id == "owner-1"
-        return UserProfileResponse(
-            feeds=[
-                Feed(id="note-1", xsec_token="token-1"),
-                Feed(id="note-2", xsec_token="token-2"),
-            ]
-        )
-
-    def detail(_page, feed_id, _token):
-        return FeedDetailResponse(
-            comments=CommentList(
-                list_=[
-                    Comment(
-                        id=f"comment-{feed_id}",
-                        note_id=feed_id,
-                        content="新评论",
-                        create_time=1_755_600_000,
-                        user_info=User(user_id="visitor-1"),
-                    )
-                ]
-            )
-        )
-
-    result = collect_own_note_comments(
-        object(),
-        owner_user_id="owner-1",
-        max_notes=1,
-        profile_loader=profile,
-        detail_loader=detail,
-    )
-
-    assert result["discovered_note_count"] == 1
-    assert result["comments"][0]["feed_id"] == "note-1"

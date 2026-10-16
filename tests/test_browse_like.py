@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from xhs.browse_like import browse_feed_cycle, browse_like_cycle
-from xhs.types import ActionResult, Feed, InteractInfo, NoteCard, User
+from xhs.browse_like import browse_feed_cycle
+from xhs.types import Feed, InteractInfo, NoteCard, User
 from xhs.urls import HOME_URL
 
 
@@ -122,29 +122,6 @@ class FakePage:
 
     def scroll_by(self, x: int, y: int) -> None:
         self.scrolls.append((x, y))
-
-
-def test_browse_like_cycle_keeps_one_feed_session() -> None:
-    page = FakePage()
-    feeds = [_feed(index) for index in range(5)]
-
-    with (
-        patch("xhs.browse_like.extract_current_feeds", return_value=feeds),
-        patch("xhs.browse_like.random.sample", return_value=feeds[:3]),
-        patch("xhs.browse_like.time.sleep"),
-        patch(
-            "xhs.browse_like.like_current_feed",
-            side_effect=lambda _page, feed_id: ActionResult(feed_id, True, "点赞成功"),
-        ),
-    ):
-        result = browse_like_cycle(page, count=3, min_interval=1, max_interval=1)
-
-    assert page.navigate_calls == [HOME_URL]
-    assert len(page.scrolls) == 2
-    assert len([item for item in page.clicked if "/explore/" in item]) == 3
-    assert page.clicked.count(".close-circle") == 3
-    assert result["count"] == 3
-    assert result["refreshed_between_items"] is False
 
 
 def test_browse_feed_cycle_scrolls_opens_and_stops_at_count() -> None:

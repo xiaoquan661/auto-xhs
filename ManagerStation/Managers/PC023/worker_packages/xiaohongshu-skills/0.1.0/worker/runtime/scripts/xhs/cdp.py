@@ -1,4 +1,4 @@
-"""CDP WebSocket 客户端（Browser, Page, Element），对应 Go browser/browser.go + go-rod API。
+"""CDP WebSocket 客户端与页面操作接口。
 
 通过原生 WebSocket 与 Chrome DevTools Protocol 通信，实现浏览器自动化控制。
 """
@@ -11,7 +11,6 @@ import random
 import time
 from typing import Any
 
-import requests
 import websockets.sync.client as ws_client
 
 from .errors import CDPError, ElementNotFoundError
@@ -699,65 +698,3 @@ class Page:
             },
         )
         return _b64.b64decode(result.get("data", ""))
-
-
-class Browser:
-    """Chrome 浏览器 CDP 控制器。"""
-
-    def __init__(self, host: str = "127.0.0.1", port: int = 9222) -> None:
-        self.host = host
-        self.port = port
-        self.base_url = f"http://{host}:{port}"
-        self._cdp: CDPClient | None = None
-        self._chrome_version: str | None = None
-
-    def connect(self) -> None:
-        """连接到 Chrome DevTools。"""
-        resp = requests.get(f"{self.base_url}/json/version", timeout=5)
-        resp.raise_for_status()
-        info = resp.json()
-        ws_url = info["webSocketDebuggerUrl"]
-
-        # 从 "Chrome/134.0.6998.88" 提取真实版本号，用于动态构建 UA
-        browser_str = info.get("Browser", "")
-        if "/" in browser_str:
-            self._chrome_version = browser_str.split("/", 1)[1]
-
-        logger.info("连接到 Chrome: %s (version=%s)", ws_url, self._chrome_version)
-        self._cdp = CDPClient(ws_url)
-
-    def _setup_page(self, page: Page) -> Page:
-        """为 Page 对象启用必要的 CDP domain。"""
-        page._send_session("Page.enable")
-        page._send_session("DOM.enable")
-        page._send_session("Runtime.enable")
-        return page
-
-    def new_page(self, url: str = "about:blank") -> Page:
-        """创建新页面（强制开新 tab）。"""
-        if not self._cdp:
-            self.connect()
-        assert self._cdp is not None
-
-        result = self._cdp.send("Target.createTarget", {"url": url})
-        target_id = result["targetId"]
-        result = self._cdp.send(
-            "Target.attachToTarget",
-            {"targetId": target_id, "flatten": True},
-        )
-        session_id = result["sessionId"]
-        return self._setup_page(Page(self._cdp, target_id, session_id))
-
-    def close_page(self, page: Page) -> None:
-        """关闭页面。"""
-        import contextlib
-
-        if self._cdp:
-            with contextlib.suppress(CDPError):
-                self._cdp.send("Target.closeTarget", {"targetId": page.target_id})
-
-    def close(self) -> None:
-        """关闭连接。"""
-        if self._cdp:
-            self._cdp.close()
-            self._cdp = None

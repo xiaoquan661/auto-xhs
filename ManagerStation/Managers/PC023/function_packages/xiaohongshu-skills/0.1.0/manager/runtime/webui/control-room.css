@@ -136,10 +136,10 @@ body { background: #f5f7fb; }
   letter-spacing: .11em; font-weight: 600;
 }
 .room-command-title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.room-command h2, .room-section-head h2, .room-workspace-heading h2 {
+.room-command h2, .room-section-head h2 {
   font-size: 19px; line-height: 1.3; letter-spacing: 0;
 }
-.room-command h2, .room-section-head h2, .room-workspace-heading h2 { margin: 0; }
+.room-command h2, .room-section-head h2 { margin: 0; }
 .room-command > div > p:last-child { margin: 5px 0 0; color: var(--muted); line-height: 1.45; }
 .room-command-seal {
   display: grid; flex: 0 0 auto; gap: 2px; min-width: 165px; padding-left: 18px;
@@ -209,32 +209,21 @@ body { background: #f5f7fb; }
   border: 0; border-radius: 0; background: transparent; overflow: visible;
 }
 .control-room .workspace-view:not(#accounts) { padding-top: 0; }
-.room-workspace-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
-.room-workspace-heading > div > p:last-child { color: var(--muted); margin: 5px 0 0; font-size: 12px; }
-.room-workspace-heading h1 { margin: 0; font-size: 21px; line-height: 1.3; }
 .room-overview-details {
   margin-top: 14px; padding: 0 16px; border: 1px solid var(--line);
   border-radius: 11px; background: #fff;
 }
-.room-overview-details > summary, .room-progress-filter-toggle > summary {
+.room-overview-details > summary {
   padding: 12px 0; cursor: pointer; color: var(--ink); font-size: 12px; font-weight: 650;
 }
 .room-overview-details[open] { padding-bottom: 16px; }
-.room-progress-filter-toggle { margin-top: 10px; border-top: 1px solid var(--line); }
-.control-room .room-progress-filter-toggle .manager-progress-filters { margin-top: 0; }
 .control-room #manager-progress .room-section-head h2 { font-size: 16px; }
 .control-room #manager-publish-review-panel { margin-top: 14px; }
-.control-room #overview .manager-cluster { display: block; margin: 0; padding: 0; }
-.room-overview-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 14px; }
-.room-overview-summary > div { display: grid; gap: 2px; border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 11px 12px; }
-.room-overview-summary span, .room-overview-summary small { color: var(--muted); font-size: 11px; }
-.room-overview-summary strong { font-size: 24px; line-height: 1.15; }
 .room-section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .room-section-head > div { display: grid; gap: 3px; }
 .room-section-head strong { font-size: 16px; }
 .room-section-head span, .room-section-head > a { color: var(--muted); font-size: 11px; }
 .room-section-head > a { color: var(--blue); white-space: nowrap; }
-.room-machine-entry { display: block; border: 1px dashed var(--blue); border-radius: 9px; background: var(--blue-soft); color: var(--blue); margin-bottom: 12px; padding: 10px 12px; font-size: 11px; font-weight: 700; }
 .room-node-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .room-node-card {
   display: block; min-width: 0; min-height: 246px; padding: 14px; cursor: pointer;
@@ -258,17 +247,7 @@ body { background: #f5f7fb; }
 .room-node-account strong { overflow-wrap: anywhere; font: 600 10px/1.4 ui-monospace, Consolas, monospace; }
 .room-node-updated { display: block; color: var(--muted); margin-top: 14px; font-size: 9px; }
 .room-panel { min-width: 0; border: 1px solid var(--line); background: #fff; border-radius: 11px; padding: 16px; }
-.room-daily-report { margin-top: 14px; }
-.room-daily-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin-top: 12px; }
-.room-daily-summary > div, .room-result-grid > div { display: grid; gap: 2px; background: var(--paper); border-radius: 8px; padding: 9px 10px; }
-.room-daily-summary span, .room-result-grid span { color: var(--muted); font-size: 9px; }
-.room-daily-summary strong, .room-result-grid strong { font-size: 19px; }
 .room-footnote { margin: 7px 0 0; color: var(--muted); font-size: 10px; }
-.room-lower-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 14px; margin-top: 14px; }
-.room-result-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-.control-room #overview .manager-overview-list { display: grid; gap: 8px; }
-.control-room #overview .manager-overview-list > article { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.control-room #overview .manager-overview-list p { margin: 5px 0; color: var(--muted); font-size: 11px; }
 .control-room #overview .manager-record-copy strong { font-size: 12px; }
 .control-room #overview .manager-record-copy small { font-size: 10px; }
 .control-room #overview .manager-record-facts > div { padding: 6px; }
@@ -293,14 +272,12 @@ body { background: #f5f7fb; }
 .control-room #workers:has(.manager-machine-detail:not([hidden])) > .page-topbar { display: none; }
 .control-room .manager-machine-detail > .manager-stage-heading { margin: 0 0 14px; padding: 0; }
 .control-room .manager-machine-detail > .manager-stage-heading h2 { margin: 2px 0; font-size: 19px; }
-.control-room .manager-detail-panel { border-radius: 11px; padding: 16px; background: #fff; }
-.control-room .manager-detail-hero { border-radius: 11px; }
 .control-room .manager-detail-progress { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .control-room .manager-detail-progress article { padding: 10px; border-radius: 8px; }
 .control-room .manager-detail-progress strong { font-size: 22px; }
 .control-room .manager-detail-progress span { font-size: 11px; }
-.control-room .manager-result-columns, .control-room .manager-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.control-room .manager-result-workspace, .control-room .manager-system {
+.control-room .manager-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.control-room .manager-system {
   margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent;
 }
 .control-room .manager-system .subpage-panel { margin-top: 0; }
@@ -308,8 +285,7 @@ body { background: #f5f7fb; }
   display: grid; gap: 12px; padding: 14px; min-width: 0;
   border: 1px solid var(--line); border-radius: 9px; background: #fff;
 }
-.control-room .manager-system > .subpage-panel,
-.control-room .manager-system > .manager-package-layout { margin-top: 14px; }
+.control-room .manager-system > .subpage-panel { margin-top: 14px; }
 .control-room .workspace-view:not(#accounts) .page-topbar { border: 0; }
 .control-room .manager-progress-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .room-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--line); margin-top: 22px; padding-top: 10px; color: var(--muted); font-size: 10px; }
@@ -368,7 +344,6 @@ body { background: #f5f7fb; }
   .room-dashboard { grid-template-columns: minmax(0, 1fr); }
   .control-room .manager-unit-rail { position: static; }
   .control-room .manager-machine-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .room-lower-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 600px) {
   .app-shell.manager-app-shell.control-room { padding: 16px; }
@@ -383,15 +358,11 @@ body { background: #f5f7fb; }
   .room-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
   .room-metric-card { padding: 10px; }
   .room-metric-card > span, .room-metric-card > small { font-size: 10px; }
-  .room-overview-summary, .room-daily-summary, .room-result-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .room-node-grid, .control-room .manager-machine-nav { grid-template-columns: minmax(0, 1fr); }
   .room-node-card { min-height: 0; }
   .room-section-head { align-items: flex-start; }
   .control-room .manager-detail-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .control-room .manager-result-columns, .control-room .manager-settings-grid,
-  .control-room .manager-progress-filters { grid-template-columns: minmax(0, 1fr); }
+  .control-room .manager-settings-grid, .control-room .manager-progress-filters { grid-template-columns: minmax(0, 1fr); }
 }
 .manager-polling-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
 .manager-polling-field { display: grid; align-content: start; gap: 8px; }
