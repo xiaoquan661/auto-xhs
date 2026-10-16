@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from employee_task_cli import invoke, write_object
 from manager_worker_async import queue_ready
 
@@ -29,8 +30,6 @@ def test_cli_file_arguments_preserve_text_and_account(tmp_path: Path) -> None:
     }
     execution = json.loads(request.with_suffix(".execution.json").read_text(encoding="utf-8"))
     assert execution["exit_code"] == 2
-
-
 
 
 def test_queue_is_account_scoped_and_preserves_step_order() -> None:
@@ -97,9 +96,10 @@ def test_comment_loads_registered_persona_and_keeps_retry_snapshot(tmp_path: Pat
 
 def test_business_task_keeps_identity_checks_out_of_browser(tmp_path: Path) -> None:
     from employee_recovery import recovery_for
-    write_object(tmp_path / "task.json", {
-        "task_id": "one", "account_slot": "alpha", "capability": "publish"
-    })
+
+    write_object(
+        tmp_path / "task.json", {"task_id": "one", "account_slot": "alpha", "capability": "publish"}
+    )
     for command in ("check-login", "account-identity"):
         request = tmp_path / f"{command}.json"
         write_object(request, {"args": [command]})
@@ -112,9 +112,10 @@ def test_business_task_keeps_identity_checks_out_of_browser(tmp_path: Path) -> N
 
 
 def test_explicit_identity_task_remains_available(tmp_path: Path) -> None:
-    write_object(tmp_path / "task.json", {
-        "task_id": "one", "account_slot": "alpha", "capability": "account-identity"
-    })
+    write_object(
+        tmp_path / "task.json",
+        {"task_id": "one", "account_slot": "alpha", "capability": "account-identity"},
+    )
     request = tmp_path / "identity.json"
     write_object(request, {"args": ["account-identity"]})
     called = []
@@ -123,15 +124,61 @@ def test_explicit_identity_task_remains_available(tmp_path: Path) -> None:
 
 
 def test_home_exclusions_injected_and_completed_step_not_replayed(tmp_path):
-    write_object(tmp_path / "task.json", {"task_id": "one", "account_slot": "alpha",
-        "parameters": {"excluded_feed_ids": ["note-a", "note-b"]}})
+    write_object(
+        tmp_path / "task.json",
+        {
+            "task_id": "one",
+            "account_slot": "alpha",
+            "parameters": {"excluded_feed_ids": ["note-a", "note-b"]},
+        },
+    )
     request = tmp_path / "browse.json"
     write_object(request, {"args": ["home-engagement", "--browse-count", "15"]})
     calls = []
+
     def cli():
         calls.append(list(sys.argv))
         assert sys.argv[-4:] == ["--exclude-feed-id", "note-a", "--exclude-feed-id", "note-b"]
         print('{"success": true}')
+
     assert invoke(tmp_path, request, cli) == 0
     assert invoke(tmp_path, request, cli) == 0
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "browsed,liked,unknown,retried",
+    [(0, 0, False, True), (3, 1, False, False), (0, 0, True, False)],
+)
+def test_interrupted_engagement_recovery_preserves_action_evidence(
+    tmp_path: Path, browsed: int, liked: int, unknown: bool, retried: bool
+) -> None:
+    write_object(tmp_path / "task.json", {"task_id": "one", "account_slot": "alpha"})
+    request = tmp_path / "engagement.json"
+    write_object(request, {"args": ["home-engagement", "--browse-count", "10"]})
+    payload = {
+        "success": False,
+        "result_type": "home_engagement",
+        "stop_reason": "page_interrupted",
+        "result_unknown": unknown,
+        "counts": {"browsed": browsed, "liked": liked},
+        "items": [{"feed_id": "done"}] if browsed else [],
+    }
+    calls = []
+
+    def cli() -> None:
+        calls.append(True)
+        print(json.dumps(payload if len(calls) == 1 else {"success": True}))
+        raise SystemExit(2 if len(calls) == 1 else 0)
+
+    assert invoke(tmp_path, request, cli) == 2
+    recovery = json.loads(request.with_suffix(".recovery.json").read_text(encoding="utf-8"))
+    assert recovery["kind"] == ("reconcile" if unknown else "observe")
+    assert invoke(tmp_path, request, cli) == (0 if retried else 2)
+    assert len(calls) == (2 if retried else 1)
+    if retried:
+        archived = list((tmp_path / "step-attempts").glob("*/engagement.output.json"))
+        assert len(archived) == 1
+        assert json.loads(archived[0].read_text(encoding="utf-8")) == payload
+        assert invoke(tmp_path, request, cli) == 0
+        assert len(calls) == 2

@@ -250,6 +250,25 @@ def test_timeout_terminates_owned_process(tmp_path: Path, monkeypatch) -> None:
     assert "超时" in result["message"]
 
 
+def test_reconnecting_events_have_a_bounded_wait(tmp_path: Path, monkeypatch) -> None:
+    body = (
+        "for index in range(100):\n"
+        "    print(json.dumps({'type':'error','message':'Reconnecting... waiting for network'}), "
+        "flush=True)\n"
+        "    time.sleep(0.1)\n"
+    )
+    install_fake_codex(monkeypatch, tmp_path, body)
+    monkeypatch.setattr(runner_module, "NETWORK_RETRY_TIMEOUT_SECONDS", 0.5)
+    result = EmployeeCodexRunner(tmp_path / "state")(
+        task(parameters={"agent_idle_seconds": 60}, timeout_seconds=10)
+    )
+    assert result["state"] == "FAILED"
+    assert "网络连接持续失败" in result["message"]
+    root = tmp_path / "state" / "agent-runs" / "execution-1"
+    assert not (root / "agent-progress.json").exists()
+    assert (root / "runner-recovery.json").exists()
+
+
 @pytest.mark.parametrize("active", [True, False])
 def test_browser_checkpoint_controls_idle_timeout(
     tmp_path: Path,
@@ -372,3 +391,28 @@ def test_async_creator_metrics_uses_local_cli_runner(tmp_path: Path, monkeypatch
     )
     assert service.task_status("task-1")["execution"]["state"] == "SUCCESS"
     assert (tmp_path / "worker" / "task-outbox" / "index.json").exists()
+
+
+@pytest.mark.parametrize("field", ["actual_new_metrics", "actual_metrics", "counts"])
+def test_engagement_receipt_recognizes_batch_counts(field: str) -> None:
+    from employee_codex_runner import _reconcile_engagement_batch
+
+    result = {"state": "SUCCESS", "message": "本批完成"}
+    _reconcile_engagement_batch(
+        {"capability": "home-engagement", "parameters": {"browse_count": 10, "like_count": 2}},
+        result,
+        {field: {"browse": 10, "like": 2}},
+    )
+    assert result["state"] == "SUCCESS"
+
+
+def test_engagement_new_counts_take_precedence_over_summary() -> None:
+    from employee_codex_runner import _reconcile_engagement_batch
+
+    result = {"state": "SUCCESS", "message": "本批回执"}
+    _reconcile_engagement_batch(
+        {"capability": "home-engagement", "parameters": {"browse_count": 10, "like_count": 2}},
+        result,
+        {"actual_new_metrics": {"browse": 0, "like": 0}, "counts": {"browse": 10, "like": 2}},
+    )
+    assert result["state"] == "FAILED"

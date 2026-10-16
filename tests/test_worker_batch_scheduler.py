@@ -17,9 +17,17 @@ def test_completed_work_survives_state_commit_failure_and_restart(
     tmp_path, monkeypatch, exit_detected
 ):
     calls = []
-    service = make_service(tmp_path, executor=lambda task: calls.append(task) or {
-        "state": "SUCCESS", "business_result": {"count": 1}, "item_results": [],
-    })
+    service = make_service(
+        tmp_path,
+        executor=lambda task: (
+            calls.append(task)
+            or {
+                "state": "SUCCESS",
+                "business_result": {"count": 1},
+                "item_results": [],
+            }
+        ),
+    )
     service.accept_task(task_request())
     mutate = service._store.mutate
 
@@ -35,9 +43,11 @@ def test_completed_work_survives_state_commit_failure_and_restart(
     assert list((service.root / "pending-outcomes").glob("*.json"))
     restarted = ManagerWorkerService(tmp_path)
     if exit_detected:
+
         def mark_exit(state):
             row = next(iter(state["executions"].values()))
             row.update(state="RESULT_UNKNOWN", error_code="AGENT_PROCESS_EXITED")
+
         restarted._store.mutate(mark_exit)
     restarted.reconcile_agent_exits()
     assert restarted.task_status("task-1")["execution"]["state"] == "SUCCESS"
@@ -54,9 +64,11 @@ def test_outbox_failure_retries_receipt_without_repeating_business(tmp_path, mon
     service.accept_task(task_request())
     service.run_task("task-1")
     push = service.push_task_result
-    monkeypatch.setattr(service, "push_task_result", lambda **kw: (_ for _ in ()).throw(
-        OSError("outbox temporarily unavailable")
-    ))
+    monkeypatch.setattr(
+        service,
+        "push_task_result",
+        lambda **kw: (_ for _ in ()).throw(OSError("outbox temporarily unavailable")),
+    )
     service.recover_pending_outcomes()
     assert list((service.root / "pending-outcomes").glob("*.json"))
     monkeypatch.setattr(service, "push_task_result", push)
@@ -64,8 +76,7 @@ def test_outbox_failure_retries_receipt_without_repeating_business(tmp_path, mon
     assert not list((service.root / "pending-outcomes").glob("*.json"))
     state = service._store.snapshot()
     assert len(state["results"]) == 1
-    assert len([r for r in state["outbox_records"].values()
-                if r["record_type"] == "result"]) == 1
+    assert len([r for r in state["outbox_records"].values() if r["record_type"] == "result"]) == 1
 
 
 def test_queue_snapshot_reads_committed_state_while_writer_holds_lock(tmp_path):
@@ -173,13 +184,30 @@ def test_claimed_dead_runner_is_not_replayed(tmp_path, monkeypatch):
     assert service.task_status("task-1")["execution"]["state"] == "RESULT_UNKNOWN"
 
 
+@pytest.mark.parametrize("explicit_predecessor", [False, True])
+def test_paused_task_reserves_only_explicit_successors(tmp_path, explicit_predecessor):
+    service = make_service(tmp_path)
+    first = task_request()
+    service.accept_task(first)
+    service.pause_task("task-1")
+    second = task_request(task_id="task-2", dispatch_id="dispatch-2")
+    second["task"]["parameters"].update(machine_serial=True)
+    if explicit_predecessor:
+        second["task"]["parameters"]["machine_predecessor_task_id"] = "task-1"
+    service.accept_task(second)
+    state = service._store.snapshot()
+    row = next(row for row in state["executions"].values() if row["task_id"] == "task-2")
+    assert queue_status(state, row)[0] == ("WAITING" if explicit_predecessor else "READY")
+
+
 def test_machine_serial_waits_other_account_and_continues_after_blocked(tmp_path):
     service = make_service(tmp_path)
     service.accept_task(task_request())
     second = task_request(task_id="task-2", dispatch_id="dispatch-2")
     second["task"]["account_slot"] = "other"
-    second["task"]["parameters"].update(machine_serial=True,
-        machine_predecessor_task_id="task-1", batch_interval_seconds=300)
+    second["task"]["parameters"].update(
+        machine_serial=True, machine_predecessor_task_id="task-1", batch_interval_seconds=300
+    )
     service.accept_task(second)
     state = service._store.snapshot()
     rows = {e["task_id"]: e for e in state["executions"].values()}
@@ -197,13 +225,12 @@ def test_advanced_publish_releases_paused_batch_successor(tmp_path):
     original["task"]["parameters"]["machine_serial"] = True
     service.accept_task(original)
     advanced = task_request(task_id="task-early", dispatch_id="dispatch-early")
-    advanced["task"]["parameters"].update(
-        machine_serial=True, advances_task_id="task-1"
-    )
+    advanced["task"]["parameters"].update(machine_serial=True, advances_task_id="task-1")
     service.accept_task(advanced)
     successor = task_request(task_id="task-2", dispatch_id="dispatch-2")
     successor["task"]["parameters"].update(
-        machine_serial=True, machine_predecessor_task_id="task-1",
+        machine_serial=True,
+        machine_predecessor_task_id="task-1",
         batch_interval_seconds=300,
     )
     service.accept_task(successor)
@@ -220,27 +247,34 @@ def test_advanced_publish_releases_paused_batch_successor(tmp_path):
 
 def test_queue_orders_mixed_offsets_by_instant():
     now = datetime(2026, 9, 23, 10, tzinfo=UTC)
+
     def row(key, scheduled):
-        return {"task_id": key, "remote_execution_id": key, "state": "ACCEPTED",
-                "accepted_at": "2026-09-23T08:00:00+00:00",
-                "task": {"account_slot": "same", "parameters": {"scheduled_at": scheduled}}}
+        return {
+            "task_id": key,
+            "remote_execution_id": key,
+            "state": "ACCEPTED",
+            "accepted_at": "2026-09-23T08:00:00+00:00",
+            "task": {"account_slot": "same", "parameters": {"scheduled_at": scheduled}},
+        }
+
     first = row("first", "2026-09-23T17:07:50+08:00")
     second = row("second", "2026-09-23T09:07:51+00:00")
     state = {"machine": {}, "executions": {"first": first, "second": second}}
     assert queue_status(state, first, now)[0] == "READY"
     assert queue_status(state, second, now)[0] == "WAITING"
 
+
 def test_dependent_delivered_first_does_not_block_predecessor(tmp_path):
     service = make_service(tmp_path)
-    second = task_request(task_id='task-2', dispatch_id='dispatch-2')
-    second['task']['parameters'].update(machine_serial=True, machine_predecessor_task_id='task-1')
+    second = task_request(task_id="task-2", dispatch_id="dispatch-2")
+    second["task"]["parameters"].update(machine_serial=True, machine_predecessor_task_id="task-1")
     service.accept_task(second)
     first = task_request()
-    first['task']['parameters']['machine_serial'] = True
+    first["task"]["parameters"]["machine_serial"] = True
     service.accept_task(first)
     state = service._store.snapshot()
-    rows = {e['task_id']: e for e in state['executions'].values()}
-    assert queue_status(state, rows['task-1'])[0] == 'READY'
-    assert queue_status(state, rows['task-2'])[0] == 'WAITING'
-    rows['task-2']['state'] = 'RUNNING'
-    assert queue_status(state, rows['task-1'])[0] == 'WAITING'
+    rows = {e["task_id"]: e for e in state["executions"].values()}
+    assert queue_status(state, rows["task-1"])[0] == "READY"
+    assert queue_status(state, rows["task-2"])[0] == "WAITING"
+    rows["task-2"]["state"] = "RUNNING"
+    assert queue_status(state, rows["task-1"])[0] == "WAITING"

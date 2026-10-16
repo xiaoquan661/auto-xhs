@@ -78,6 +78,15 @@ assert.equal(JSON.stringify(result),JSON.stringify([{id:'topic-1',name:'旅行'}
     )
 
 
+def test_text_card_form_uses_tiptap_textbox():
+    page = Mock()
+    page.has_element.side_effect = lambda selector: (
+        selector == ("[role='textbox'][contenteditable='true']")
+    )
+
+    assert publish._find_content_element(page) == "[role='textbox'][contenteditable='true']"
+
+
 def test_waits_for_matching_candidate_and_delayed_topic_commit(monkeypatch):
     candidate = Mock(side_effect=[False, False, True])
     read = Mock(side_effect=[[], [], [{"id": "1", "name": "旅行"}]])
