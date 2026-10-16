@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
+from threading import Lock
 
 
 def read_dashboard(root: str) -> dict:
@@ -19,9 +20,15 @@ class ManagerDashboardReader:
     def __init__(self, root: Path) -> None:
         self.root = str(root)
         self.pool = ProcessPoolExecutor(max_workers=1)
+        self._lock = Lock()
+        self._pending: Future[dict] | None = None
 
     def snapshot(self) -> dict:
-        return self.pool.submit(read_dashboard, self.root).result(timeout=60)
+        with self._lock:
+            if self._pending is None or self._pending.done():
+                self._pending = self.pool.submit(read_dashboard, self.root)
+            pending = self._pending
+        return pending.result(timeout=60)
 
     def close(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)

@@ -6,8 +6,37 @@ import pytest
 from manager_store import ManagerStore
 
 
+def test_nested_view_preserves_live_snapshot_and_projected_fields(tmp_path: Path) -> None:
+    store = ManagerStore(tmp_path)
+    store.put(
+        "tasks",
+        "live",
+        {
+            "task_id": "live",
+            "state": "ACCEPTED",
+            "request": {"memory_context": "large-context"},
+        },
+    )
+    store.record_result(
+        "receipt",
+        {
+            "task_id": "live",
+            "state": "SUCCESS",
+            "task_request": {"memory_context": "large-context"},
+        },
+    )
+    view = store.read_view(excluded_fields=frozenset({"memory_context"}), copy_on_read=False)
+    store.update("tasks", "live", lambda row: {**row, "state": "RUNNING"})
+    nested = view.read_view(copy_on_read=False)
+    assert nested.get("tasks", "live")["state"] == "ACCEPTED"
+    assert nested.get("tasks", "live")["request"] == {}
+    assert nested.get("results", "receipt")["task_request"] == {}
+    assert store.read_view().get("tasks", "live")["state"] == "RUNNING"
+
+
 def test_dashboard_view_reads_published_file_without_transaction_lock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = ManagerStore(tmp_path)
     store.put("accounts", "a", {"name": "before"})
